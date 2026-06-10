@@ -50,13 +50,16 @@ describe('AdminRouteDryRunPage', () => {
   it('renders form and submits dry run_new', async () => {
     renderPage()
     expect(screen.getByText('Маршруты → Dry Run')).toBeTruthy()
-    await waitFor(() => expect(screen.getByRole('combobox')).toBeTruthy())
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'test-city' } })
-    await waitFor(() => {
-      fireEvent.click(screen.getByText('Запустить'))
-    })
+    await waitFor(() => expect(screen.getByRole('combobox')).toHaveValue('test-city'))
+    fireEvent.click(screen.getByText('Запустить'))
     await waitFor(() => expect(screen.getByText(/Run #42/)).toBeTruthy())
     expect(screen.getByText('Museum')).toBeTruthy()
     expect(screen.getByText('Pharm')).toBeTruthy()
+  })
+
+  it('selects first loaded city by default_new', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByLabelText('Город dry-run')).toHaveValue('test-city'))
+    expect(screen.getByText('Запустить')).not.toBeDisabled()
   })
 })
