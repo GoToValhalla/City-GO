@@ -51,9 +51,24 @@ class CandidateRetrievalService:
         if len(candidates) < 20:
             candidates = self._fallback_expand_radius(db, ctx)
 
-        with_images = attach_public_images(db, candidates)
+        if not candidates:
+            return []
+
+        with_images = self._safe_attach_public_images(db, candidates)
         ranked = self._pre_rank_candidates(with_images, ctx)
-        return balance_candidates_by_category(ranked, self.TARGET_CANDIDATES)
+        balanced = balance_candidates_by_category(ranked, self.TARGET_CANDIDATES)
+
+        # Защита от пустого маршрута после post-processing: SQL уже нашёл кандидатов,
+        # поэтому ranking/balancing/image enrichment не имеют права обнулить пул.
+        return balanced or ranked or with_images or candidates
+
+    def _safe_attach_public_images(self, db: Session, candidates: list[Place]) -> list[Place]:
+        try:
+            return attach_public_images(db, candidates)
+        except Exception:
+            # Фото не должны ломать построение маршрута. Ошибка image enrichment деградирует
+            # только качество карточек, но не должна превращать город с местами в no_route.
+            return candidates
 
     def _query_places(
         self,
