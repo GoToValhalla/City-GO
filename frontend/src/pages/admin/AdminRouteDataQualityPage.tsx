@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
 import type { AdminCitiesResponse } from './adminTypes'
@@ -25,21 +25,21 @@ export const AdminRouteDataQualityPage = () => {
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    adminGet<AdminCitiesResponse>('/admin/cities?limit=100').then((r) => setCities(r.items)).catch(() => {})
-  }, [])
-
-  useEffect(() => {
-    if (citySlug) load()
-  }, [citySlug])
-
-  const load = () => {
+  const load = useCallback(() => {
     if (!citySlug) return
     setLoading(true)
     setError(null)
     adminGet<DataQualityReport>(`/admin/routes/data-quality/${citySlug}`)
       .then(setReport).catch((e: Error) => setError(e.message)).finally(() => setLoading(false))
-  }
+  }, [citySlug])
+
+  useEffect(() => {
+    adminGet<AdminCitiesResponse>('/admin/cities?limit=100').then((r) => setCities(r.items)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (citySlug) void Promise.resolve().then(load)
+  }, [citySlug, load])
 
   const refreshAddresses = async () => {
     if (!citySlug) return
