@@ -1,18 +1,17 @@
 /* @vitest-environment jsdom */
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HomePage } from './HomePage'
 import { getPlacesByCityResponse } from '../../api/places/places.api'
-import { getAvailableCities } from '../../api/cities/cities.api'
 
 vi.mock('../../api/places/places.api', () => ({
   getPlacesByCityResponse: vi.fn(),
 }))
 
-vi.mock('../../api/cities/cities.api', () => ({
-  getAvailableCities: vi.fn(),
+vi.mock('../../components/ui/AppHeader', () => ({
+  AppHeader: () => <header data-testid="app-header" />,
 }))
 
 vi.mock('../../shared/city/currentCity', async (importOriginal) => {
@@ -25,15 +24,14 @@ vi.mock('../../shared/city/currentCity', async (importOriginal) => {
 })
 
 const mockedGetPlacesByCityResponse = vi.mocked(getPlacesByCityResponse)
-const mockedGetAvailableCities = vi.mocked(getAvailableCities)
 
 describe('HomePage', () => {
   afterEach(() => {
+    cleanup()
     vi.clearAllMocks()
   })
 
   it('renders heading and places count after loading', async () => {
-    mockedGetAvailableCities.mockResolvedValueOnce([])
     mockedGetPlacesByCityResponse.mockResolvedValueOnce({
       total: 2,
       limit: 20,
@@ -77,7 +75,6 @@ describe('HomePage', () => {
   })
 
   it('renders error state when places loading fails', async () => {
-    mockedGetAvailableCities.mockResolvedValueOnce([])
     mockedGetPlacesByCityResponse.mockRejectedValueOnce(new Error('network error'))
 
     render(
