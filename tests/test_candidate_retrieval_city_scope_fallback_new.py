@@ -50,3 +50,39 @@ def test_get_candidates_new_skips_radius_expand_when_enough_results_new() -> Non
     assert result == enough
     query_places.assert_called_once_with(db, ctx)
     expand_radius.assert_not_called()
+
+
+def test_get_candidates_keeps_sql_candidates_when_balancing_returns_empty_new() -> None:
+    service = CandidateRetrievalService()
+    db = MagicMock()
+    ctx = SimpleNamespace(city_id="almaty", location=(43.238, 76.945))
+    sql_candidates = [SimpleNamespace(id=index, category="cafe", lat=43.238, lng=76.945) for index in range(25)]
+
+    with patch.object(service, "_query_places", return_value=sql_candidates), patch(
+        "services.candidate_retrieval_service.attach_public_images",
+        side_effect=lambda _db, places: places,
+    ), patch(
+        "services.candidate_retrieval_service.balance_candidates_by_category",
+        return_value=[],
+    ):
+        result = service.get_candidates(db, ctx)
+
+    assert result == sql_candidates
+
+
+def test_get_candidates_keeps_sql_candidates_when_image_attach_fails_new() -> None:
+    service = CandidateRetrievalService()
+    db = MagicMock()
+    ctx = SimpleNamespace(city_id="almaty", location=(43.238, 76.945))
+    sql_candidates = [SimpleNamespace(id=index, category="museum", lat=43.238, lng=76.945) for index in range(25)]
+
+    with patch.object(service, "_query_places", return_value=sql_candidates), patch(
+        "services.candidate_retrieval_service.attach_public_images",
+        side_effect=RuntimeError("image lookup failed"),
+    ), patch(
+        "services.candidate_retrieval_service.balance_candidates_by_category",
+        side_effect=lambda places, _limit: places,
+    ):
+        result = service.get_candidates(db, ctx)
+
+    assert result == sql_candidates
