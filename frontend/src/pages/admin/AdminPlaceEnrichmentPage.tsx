@@ -19,11 +19,15 @@ export const AdminPlaceEnrichmentPage = () => {
       .catch(() => {})
   }, [])
 
-  useEffect(() => { loadBatches() }, [loadBatches])
+  useEffect(() => { void Promise.resolve().then(loadBatches) }, [loadBatches])
 
   const doExport = async (payload: object, quick = false) => {
     if (!form.citySlug) return
-    quick ? setQuickExporting(true) : setExporting(true)
+    if (quick) {
+      setQuickExporting(true)
+    } else {
+      setExporting(true)
+    }
     setExportError(null)
     try {
       const result = await adminPost<EnrichmentExportMeta>('/admin/place-enrichment/export', payload)
@@ -31,7 +35,13 @@ export const AdminPlaceEnrichmentPage = () => {
       loadBatches()
     } catch (e) {
       setExportError(e instanceof Error ? e.message : 'Ошибка экспорта')
-    } finally { quick ? setQuickExporting(false) : setExporting(false) }
+    } finally {
+      if (quick) {
+        setQuickExporting(false)
+      } else {
+        setExporting(false)
+      }
+    }
   }
 
   const chatgptPath = lastResult?.export_csv_path ?? (
@@ -61,7 +71,7 @@ export const AdminPlaceEnrichmentPage = () => {
           </select>
           <button className="admin-btn admin-btn-primary" data-testid="quick-export-btn"
             disabled={quickExporting || !form.citySlug}
-            onClick={() => doExport({ city_slug: form.citySlug, limit: 100, only_published: true, only_route_eligible: false, missing_fields: QUICK_EXPORT_FIELDS, git_artifact: true }, true)}>
+            onClick={() => void doExport({ city_slug: form.citySlug, limit: 100, only_published: true, only_route_eligible: false, missing_fields: QUICK_EXPORT_FIELDS, git_artifact: true }, true)}>
             {quickExporting ? 'Формируем...' : 'Сформировать стандартный экспорт'}
           </button>
         </div>
@@ -77,7 +87,7 @@ export const AdminPlaceEnrichmentPage = () => {
           ))}
         </div>
         <button className="admin-btn admin-btn-primary" disabled={exporting || !form.citySlug}
-          onClick={() => doExport({ city_slug: form.citySlug, limit: form.limit, only_published: form.onlyPublished, only_route_eligible: form.onlyRouteEligible, missing_fields: form.selectedFields, git_artifact: true })}>
+          onClick={() => void doExport({ city_slug: form.citySlug, limit: form.limit, only_published: form.onlyPublished, only_route_eligible: form.onlyRouteEligible, missing_fields: form.selectedFields, git_artifact: true })}>
           {exporting ? 'Формируем CSV...' : 'Сформировать CSV для обогащения'}
         </button>
         {exportError && <div className="admin-state admin-state-error">{exportError}</div>}
