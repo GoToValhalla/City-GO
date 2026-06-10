@@ -27,6 +27,24 @@ def test_data_quality_report_new(client, city_factory, place_factory) -> None:
     assert any(i["code"] == "no_photo" for i in body["issues"])
 
 
+def test_data_quality_report_includes_p0_action_plan_new(client, city_factory, place_factory) -> None:
+    city = city_factory(slug="ops-dq-action-plan")
+    place_factory(slug="dq-action-cafe", category="cafe", city_id=city.id, address="", image_url=None, short_description="")
+    place_factory(slug="dq-action-pharmacy", category="pharmacy", city_id=city.id, address="", image_url=None, short_description="")
+
+    response = client.get(f"/admin/routes/data-quality/{city.slug}")
+
+    assert response.status_code == 200
+    body = response.json()
+    codes = {item["code"] for item in body["action_plan"]}
+    assert "low_route_eligible_count" in codes
+    assert "review_suspicious_categories" in codes
+    assert "run_address_recovery" in codes
+    assert "run_image_enrichment" in codes
+    assert "run_description_enrichment" in codes
+    assert all(item["admin_link"].startswith(f"/admin/routes/eligibility?city={city.slug}") for item in body["action_plan"])
+
+
 def test_city_readiness_empty_city_new(client, city_factory) -> None:
     city = city_factory(slug="ops-ready-empty")
     response = client.get(f"/admin/routes/readiness/{city.slug}")
