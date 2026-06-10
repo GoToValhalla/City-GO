@@ -31,6 +31,15 @@ class DataQualityIssue(BaseModel):
     places_link: str
 
 
+class DataQualityAction(BaseModel):
+    code: str
+    severity: str
+    title: str
+    count: int
+    recommended_action: str
+    admin_link: str
+
+
 class DataQualityReport(BaseModel):
     city_slug: str
     city_name: str
@@ -48,6 +57,7 @@ class DataQualityReport(BaseModel):
     suspicious_category_counts: dict[str, int]
     quality_buckets: dict[str, int]
     issues: list[DataQualityIssue]
+    action_plan: list[DataQualityAction] = Field(default_factory=list)
 
 
 class CityReadinessResponse(BaseModel):
