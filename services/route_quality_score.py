@@ -1,8 +1,7 @@
 from dataclasses import dataclass
 from functools import reduce
-from typing import Literal
+from typing import Any, Literal
 
-from services.route_assembly_service import RoutePoint
 from services.route_quality_caps import minimum_data_cap
 
 QualityStatus = Literal["good", "acceptable", "weak", "failed"]
@@ -36,7 +35,7 @@ class RouteQualityScore:
 
 
 def build_route_quality_score(
-    route: list[RoutePoint],
+    route: list[Any],
     expected_stops: int,
     budget_minutes: int,
     warnings: list[str],
@@ -85,7 +84,7 @@ def minimum_points_for_budget(budget_minutes: int) -> int:
     return 4
 
 
-def quality_status(score: float, route: list[RoutePoint], budget_minutes: int) -> QualityStatus:
+def quality_status(score: float, route: list[Any], budget_minutes: int) -> QualityStatus:
     if not route:
         return "failed"
     if any(not _has_coordinates(point) for point in route):
@@ -102,7 +101,7 @@ def quality_status(score: float, route: list[RoutePoint], budget_minutes: int) -
 
 
 def public_quality_warnings(
-    route: list[RoutePoint],
+    route: list[Any],
     budget_minutes: int,
     warnings: list[str] | None = None,
 ) -> list[str]:
@@ -127,13 +126,13 @@ def public_quality_warnings(
     return _unique([*existing, *result])
 
 
-def _diversity_score(route: list[RoutePoint], expected_stops: int) -> float:
+def _diversity_score(route: list[Any], expected_stops: int) -> float:
     categories = set(map(lambda point: str(getattr(point, "category", "") or ""), route))
     target = max(1, min(len(route), expected_stops))
     return _round_score(min(1.0, len(categories) / target))
 
 
-def _budget_fit_score(route: list[RoutePoint], budget_minutes: int) -> float:
+def _budget_fit_score(route: list[Any], budget_minutes: int) -> float:
     if budget_minutes <= 0: return 1.0
     total = reduce(lambda acc, point: acc + _point_minutes(point), route, 0)
     ratio = total / budget_minutes
@@ -142,12 +141,12 @@ def _budget_fit_score(route: list[RoutePoint], budget_minutes: int) -> float:
     return _round_score(max(0.0, 1.0 - (ratio - 1.0)))
 
 
-def _data_completeness_score(route: list[RoutePoint]) -> float:
+def _data_completeness_score(route: list[Any]) -> float:
     total = reduce(lambda acc, point: acc + _point_completeness(point), route, 0.0)
     return _round_score(total / max(1, len(route)))
 
 
-def _route_completeness_score(route: list[RoutePoint], expected_stops: int, minimum_points: int) -> float:
+def _route_completeness_score(route: list[Any], expected_stops: int, minimum_points: int) -> float:
     target = max(1, min(max(expected_stops, minimum_points), 8))
     return _round_score(min(1.0, len(route) / target))
 
@@ -157,13 +156,13 @@ def _warning_health(warnings: list[str]) -> float:
     return _round_score(max(0.0, 1.0 - len(unique) * 0.08))
 
 
-def _point_minutes(point: RoutePoint) -> int:
+def _point_minutes(point: Any) -> int:
     walk = int(getattr(point, "estimated_walk_minutes", 0) or 0)
     visit = int(getattr(point, "visit_minutes", 0) or 0)
     return max(0, walk + visit)
 
 
-def _point_completeness(point: RoutePoint) -> float:
+def _point_completeness(point: Any) -> float:
     checks = (
         _has_coordinates(point),
         bool(str(getattr(point, "category", "") or "")),
@@ -177,23 +176,23 @@ def _point_completeness(point: RoutePoint) -> float:
     return passed / len(checks)
 
 
-def _has_coordinates(point: RoutePoint) -> bool:
+def _has_coordinates(point: Any) -> bool:
     return isinstance(point.lat, (int, float)) and isinstance(point.lng, (int, float))
 
 
-def _has_address(point: RoutePoint) -> bool:
+def _has_address(point: Any) -> bool:
     return bool(str(getattr(point, "address", "") or "").strip())
 
 
-def _has_image(point: RoutePoint) -> bool:
+def _has_image(point: Any) -> bool:
     return bool(str(getattr(point, "image_url", "") or "").strip())
 
 
-def _has_description(point: RoutePoint) -> bool:
+def _has_description(point: Any) -> bool:
     return bool(str(getattr(point, "short_description", "") or "").strip())
 
 
-def _has_valid_annotation(point: RoutePoint) -> bool:
+def _has_valid_annotation(point: Any) -> bool:
     validation = getattr(point, "validation", None)
     if not isinstance(validation, dict):
         return True
