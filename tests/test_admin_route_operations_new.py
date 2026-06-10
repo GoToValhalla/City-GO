@@ -29,8 +29,8 @@ def test_data_quality_report_new(client, city_factory, place_factory) -> None:
 
 def test_data_quality_report_includes_p0_action_plan_new(client, city_factory, place_factory) -> None:
     city = city_factory(slug="ops-dq-action-plan")
-    place_factory(slug="dq-action-cafe", category="cafe", city_id=city.id, address="", image_url=None, short_description="")
-    place_factory(slug="dq-action-pharmacy", category="pharmacy", city_id=city.id, address="", image_url=None, short_description="")
+    place_factory(slug="dq-action-cafe", category="cafe", city_id=city.id, address="")
+    place_factory(slug="dq-action-pharmacy", category="pharmacy", city_id=city.id, address="")
 
     response = client.get(f"/admin/routes/data-quality/{city.slug}")
 
