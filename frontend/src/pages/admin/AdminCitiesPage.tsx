@@ -28,7 +28,7 @@ export const AdminCitiesPage = () => {
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { reload() }, [reload])
+  useEffect(() => { void Promise.resolve().then(reload) }, [reload])
 
   const openSettings = (slug: string) => {
     adminGet<CitySettings>(`/admin/cities/${slug}/settings`).then(setSettings).catch((e: Error) => setError(e.message))
@@ -71,7 +71,7 @@ export const AdminCitiesPage = () => {
                     <button type="button" className="admin-btn admin-btn-sm" onClick={() => openSettings(c.slug)}>Настройки</button>
                     <Link className="admin-btn admin-btn-sm" to={`/admin/coverage?city=${c.slug}`}>Покрытие</Link>
                     <Link className="admin-btn admin-btn-sm" to={`/admin/routes/data-quality?city=${c.slug}`}>Quality</Link>
-                    <button type="button" className="admin-btn admin-btn-sm" onClick={() => refreshAddresses(c.slug)}>Адреса</button>
+                    <button type="button" className="admin-btn admin-btn-sm" onClick={() => void refreshAddresses(c.slug)}>Адреса</button>
                   </td>
                 </tr>
               ))}
