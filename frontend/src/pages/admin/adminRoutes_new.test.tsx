@@ -34,6 +34,9 @@ const renderPage = () =>
     </MemoryRouter>,
   )
 
+const selectedCityValue = () => (screen.getByLabelText('Город dry-run') as HTMLSelectElement).value
+const runButtonDisabled = () => (screen.getByText('Запустить') as HTMLButtonElement).disabled
+
 describe('AdminRouteDryRunPage', () => {
   beforeEach(() => {
     mockedAdminGet.mockResolvedValue(cities)
@@ -49,7 +52,7 @@ describe('AdminRouteDryRunPage', () => {
   it('renders form and submits dry run_new', async () => {
     renderPage()
     expect(screen.getByText('Маршруты → Dry Run')).toBeTruthy()
-    await waitFor(() => expect(screen.getByRole('combobox')).toHaveValue('test-city'))
+    await waitFor(() => expect(selectedCityValue()).toBe('test-city'))
     fireEvent.click(screen.getByText('Запустить'))
     await waitFor(() => expect(mockedAdminPost).toHaveBeenCalledWith('/admin/routes/dry-run', expect.objectContaining({ city_slug: 'test-city' })))
     await waitFor(() => expect(screen.getByText(/Run #42/)).toBeTruthy())
@@ -59,7 +62,7 @@ describe('AdminRouteDryRunPage', () => {
 
   it('selects first loaded city by default_new', async () => {
     renderPage()
-    await waitFor(() => expect(screen.getByLabelText('Город dry-run')).toHaveValue('test-city'))
-    expect(screen.getByText('Запустить')).not.toBeDisabled()
+    await waitFor(() => expect(selectedCityValue()).toBe('test-city'))
+    expect(runButtonDisabled()).toBe(false)
   })
 })
