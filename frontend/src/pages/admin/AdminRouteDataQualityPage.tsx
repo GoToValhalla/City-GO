@@ -9,6 +9,11 @@ const topCategories = (counts: Record<string, number>, n = 8) =>
   Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, n)
 
 const placesLink = (citySlug: string, preset: string) => `/admin/places?city=${citySlug}&preset=${preset}`
+const severityLabel = (value: string) => ({
+  blocker: 'Блокер',
+  critical: 'Критично',
+  major: 'Важно',
+}[value] ?? value)
 
 export const AdminRouteDataQualityPage = () => {
   const [urlParams] = useSearchParams()
@@ -66,6 +71,29 @@ export const AdminRouteDataQualityPage = () => {
       </div>
       {!report ? <AdminEmpty message="Выберите город" /> : (
         <div className="admin-cards">
+          <section className="admin-card">
+            <strong>P0 план исправления каталога</strong>
+            {report.action_plan.length === 0 ? (
+              <p className="admin-muted">Критичных действий по каталогу нет.</p>
+            ) : (
+              <table className="admin-table">
+                <thead>
+                  <tr><th>Приоритет</th><th>Проблема</th><th>Кол-во</th><th>Что сделать</th><th /></tr>
+                </thead>
+                <tbody>
+                  {report.action_plan.map((action) => (
+                    <tr key={action.code}>
+                      <td>{severityLabel(action.severity)}</td>
+                      <td>{action.title}</td>
+                      <td>{action.count}</td>
+                      <td>{action.recommended_action}</td>
+                      <td><Link className="admin-btn admin-btn-sm" to={action.admin_link}>Открыть</Link></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
           <section className="admin-card">
             <strong>Действия по качеству данных</strong>
             <div className="admin-filters admin-filters-stack">
