@@ -27,7 +27,7 @@ export const AdminSystemLogsPage = () => {
       .finally(() => setLoading(false))
   }, [level, module])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { void Promise.resolve().then(load) }, [load])
 
   return (
     <div>
