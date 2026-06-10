@@ -42,7 +42,7 @@ def test_data_quality_report_includes_p0_action_plan_new(client, city_factory, p
     assert "run_address_recovery" in codes
     assert "run_image_enrichment" in codes
     assert "run_description_enrichment" in codes
-    assert all(item["admin_link"].startswith(f"/admin/routes/eligibility?city={city.slug}") for item in body["action_plan"])
+    assert all(item["admin_link"].startswith(f"/admin/routes/eligibility?city_slug={city.slug}") for item in body["action_plan"])
 
 
 def test_city_readiness_empty_city_new(client, city_factory) -> None:
