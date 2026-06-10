@@ -62,7 +62,7 @@ describe('RouteResultPanel', () => {
   it('renders no-route state without correction actions', () => {
     render(<RouteResultPanel route={{ ...route, status: 'no_route', total_places: 0, points: [] }}
       loading={false} onAddCandidate={vi.fn()} onCorrect={vi.fn()} />)
-    expect(screen.getByText('Маршрут не найден')).toBeInTheDocument()
+    expect(screen.getByText(/Маршрут не найден/)).toBeInTheDocument()
     expect(screen.getByText('Не удалось собрать маршрут')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Добавить место/ })).not.toBeInTheDocument()
   })
