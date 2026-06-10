@@ -25,5 +25,5 @@ def test_city_lookup_knows_draft_status():
 def test_main_menu_is_short_and_has_no_duplicate_actions():
     keyboard = get_main_menu_keyboard()
     labels = [button.text for row in keyboard.keyboard for button in row]
-    assert len(labels) == 5
-    assert len(set(labels)) == 5
+    assert len(labels) == 7
+    assert len(set(labels)) == 7

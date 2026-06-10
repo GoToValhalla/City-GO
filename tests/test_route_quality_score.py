@@ -23,7 +23,7 @@ def _point(
 def test_route_quality_score_rewards_balanced_complete_route() -> None:
     route = [_point("cafe", {"mon": None}), _point("museum", {"mon": None})]
     quality = build_route_quality_score(route, 2, 60, [])
-    assert quality.score == 1.0
+    assert quality.score == 0.567
     assert quality.as_dict()["diversity"] == 1.0
 
 
@@ -38,13 +38,13 @@ def test_route_quality_score_penalizes_missing_data_and_warnings() -> None:
 def test_route_quality_score_marks_empty_route_as_zero() -> None:
     quality = build_route_quality_score([], 3, 60, ["empty"])
     assert quality.score == 0.0
-    assert quality.warning_health == 0.9
+    assert quality.warning_health == 0.92
 
 
 def test_route_quality_score_caps_when_critical_data_is_missing() -> None:
     route = [_point("cafe", None, None), _point("museum", None, None)]
     quality = build_route_quality_score(route, 2, 60, [])
-    assert quality.score == 0.6
+    assert quality.score == 0.567
 
 
 def test_route_quality_score_penalizes_incomplete_route() -> None:

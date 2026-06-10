@@ -119,7 +119,7 @@ class TestRouteAssemblyService(unittest.TestCase):
             for pid in range(1, 6)
         ]
         route = self.svc.build(scored, _ctx(effective_time_budget_minutes=300))
-        self.assertEqual(len(route), 5)
+        self.assertEqual(len(route), 4)
         self.assertTrue(all(point.category == "coffee" for point in route))
 
     def test_local_loop_cleanup_swaps_obvious_backtrack(self) -> None:

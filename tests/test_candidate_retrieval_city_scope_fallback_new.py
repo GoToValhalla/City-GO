@@ -7,8 +7,8 @@ from services.candidate_retrieval_service import CandidateRetrievalService
 def test_get_candidates_new_expands_radius_when_few_results_new() -> None:
     service = CandidateRetrievalService()
     db = MagicMock()
-    ctx = SimpleNamespace(city_id="khanty-mansiysk")
-    expanded_places = [SimpleNamespace(id=1, category="restaurant")]
+    ctx = SimpleNamespace(city_id="khanty-mansiysk", location=(55.0, 20.0))
+    expanded_places = [SimpleNamespace(id=1, category="restaurant", lat=55.0, lng=20.0)]
 
     with patch.object(service, "_query_places", return_value=[]) as query_places, patch.object(
         service,
@@ -31,8 +31,8 @@ def test_get_candidates_new_expands_radius_when_few_results_new() -> None:
 def test_get_candidates_new_skips_radius_expand_when_enough_results_new() -> None:
     service = CandidateRetrievalService()
     db = MagicMock()
-    ctx = SimpleNamespace(city_id=None)
-    enough = [SimpleNamespace(id=index, category="restaurant") for index in range(20)]
+    ctx = SimpleNamespace(city_id=None, location=(55.0, 20.0))
+    enough = [SimpleNamespace(id=index, category="restaurant", lat=55.0, lng=20.0) for index in range(20)]
 
     with patch.object(service, "_query_places", return_value=enough) as query_places, patch.object(
         service,

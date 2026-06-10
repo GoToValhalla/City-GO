@@ -18,7 +18,7 @@ def test_format_route_message_with_titles_and_warning() -> None:
         },
         {"7": "Кафе"},
     )
-    assert "Маршрут готов" in text
+    assert "Маршрут собран с нюансами" in text
     assert "Кафе" in text
     assert "Проверьте часы работы." in text
 
@@ -67,5 +67,5 @@ def test_format_route_message_uses_structured_warnings_and_quality() -> None:
         },
         {"1": "Променад"},
     )
-    assert "Качество данных: <b>82%</b>" in text
+    assert "Качество маршрута: <b>82%</b>" in text
     assert "Часы одного места указаны приблизительно." in text

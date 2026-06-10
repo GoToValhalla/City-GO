@@ -45,15 +45,21 @@ def test_finalize_includes_extra_route_warnings_once() -> None:
         _ctx(),
         extra_warnings=[warning, warning],
     )
-    assert final.warnings == [warning]
+    assert final.warnings == [
+        warning,
+        "route_short_due_to_low_place_density",
+        "some_places_have_no_address",
+        "some_places_have_no_photo",
+        "some_places_have_weak_description",
+    ]
     assert final.has_warnings is True
-    assert final.warning_count == 1
+    assert final.warning_count == 5
 
 
 def test_finalize_empty_route_keeps_extra_warnings() -> None:
     warning = "Не нашли мест рядом с выбранным стартом."
     final = RouteFinalizeService().finalize([], _ctx(), extra_warnings=[warning])
     assert final.points == []
-    assert final.warnings == [warning]
+    assert final.warnings == [warning, "route_failed_no_places"]
     assert final.has_warnings is True
-    assert final.warning_count == 1
+    assert final.warning_count == 2

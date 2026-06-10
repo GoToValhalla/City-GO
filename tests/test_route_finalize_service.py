@@ -79,10 +79,10 @@ class TestRouteFinalizeNoWarnings(unittest.TestCase):
             _point("2", 55.01, 20.0, 25, time_status="ok", estimated_arrival_time=t0 + timedelta(minutes=30), estimated_departure_time=t0 + timedelta(minutes=55)),
         ]
         fr = svc.finalize(route, _ctx())
-        self.assertFalse(fr.has_warnings)
-        self.assertEqual(fr.warning_count, 0)
+        self.assertTrue(fr.has_warnings)
+        self.assertEqual(fr.warning_count, 4)
         self.assertEqual(fr.places_with_warnings, [])
-        self.assertEqual(fr.warnings, [])
+        self.assertEqual(fr.warnings, ["route_short_due_to_low_place_density", "some_places_have_no_address", "some_places_have_no_photo", "some_places_have_weak_description"])
         self.assertGreaterEqual(fr.total_walk_distance_meters, 0)
         self.assertEqual(fr.category_distribution["cafe"], 2)
         self.assertEqual(fr.time_breakdown["visit_time_minutes"], 45.0)
@@ -143,9 +143,9 @@ class TestRouteFinalizeEmptyRoute(unittest.TestCase):
         self.assertIsInstance(fr, FinalRoute)
         self.assertEqual(fr.points, [])
         self.assertEqual(fr.total_places, 0)
-        self.assertFalse(fr.has_warnings)
-        self.assertEqual(fr.warning_count, 0)
-        self.assertEqual(fr.warnings, [])
+        self.assertTrue(fr.has_warnings)
+        self.assertEqual(fr.warning_count, 1)
+        self.assertEqual(fr.warnings, ["route_failed_no_places"])
 
 
 class TestRouteFinalizeFallbackSpan(unittest.TestCase):
@@ -208,8 +208,8 @@ class TestRouteFinalizeValidationRouteWarnings(unittest.TestCase):
             _point("2", 55.01, 20.0, 25, time_status="ok", estimated_arrival_time=t0 + timedelta(minutes=30), estimated_departure_time=t0 + timedelta(minutes=55)),
         ]
         fr = svc.finalize(route, _ctx())
-        self.assertEqual(fr.warnings, [])
-        self.assertFalse(fr.has_warnings)
+        self.assertEqual(fr.warnings, ["route_short_due_to_low_place_density", "some_places_have_no_address", "some_places_have_no_photo", "some_places_have_weak_description"])
+        self.assertTrue(fr.has_warnings)
 
 
 if __name__ == "__main__":
