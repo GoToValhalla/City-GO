@@ -20,6 +20,8 @@ export type AdminPlace = {
   category: string | null
   address: string | null
   city_id: number
+  lat: number | null
+  lng: number | null
   publication_status: string
   is_published: boolean
   is_visible_in_catalog: boolean
@@ -116,55 +118,4 @@ export type AdminImportJob = {
   can_cancel?: boolean
   report_url?: string | null
   logs_url?: string | null
-}
-
-export type AdminImportJobsResponse = {
-  items: AdminImportJob[]
-  total: number
-  limit: number
-  offset: number
-}
-
-export type AdminAuditLogEntry = {
-  id: string
-  created_at: string
-  actor: string
-  action: string
-  entity_type: string
-  entity_id: string | null
-  reason: string | null
-  new_value: unknown
-}
-
-export type AdminAuditLogResponse = {
-  items: AdminAuditLogEntry[]
-  total: number
-}
-
-export type AdminVerificationQueue = {
-  items: AdminVerificationTask[]
-  total: number
-  limit: number
-  offset: number
-}
-
-export type AdminVerificationTask = {
-  place_id: number
-  title: string
-  slug: string
-  city_slug: string | null
-  category?: string | null
-  lat: number
-  lng: number
-  address: string | null
-  verification_status: string
-  existence_confidence_score: number
-}
-
-export type AdminVerificationSummary = {
-  queue_total: number
-  needs_recheck: number
-  unverified: number
-  low_confidence: number
-  verified_today: number
 }
