@@ -55,6 +55,15 @@ export type DryRunResponse = {
   quality?: DryRunQuality | null
 }
 
+export type DataQualityAction = {
+  code: string
+  severity: 'blocker' | 'critical' | 'major' | string
+  title: string
+  count: number
+  recommended_action: string
+  admin_link: string
+}
+
 export type DataQualityReport = {
   city_slug: string
   city_name: string
@@ -72,6 +81,7 @@ export type DataQualityReport = {
   suspicious_category_counts: Record<string, number>
   quality_buckets: Record<string, number>
   issues: { code: string; count: number; places_link: string }[]
+  action_plan: DataQualityAction[]
 }
 
 export type CityReadiness = {
