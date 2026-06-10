@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getPlaceBySlug } from '../../api/places/places.api'
 import { buildApiUrl } from '../../shared/api/http'
@@ -38,7 +38,7 @@ export const PlaceDetailPage = () => {
   const [error, setError] = useState<string | null>(null)
   const [actionStatus, setActionStatus] = useState<string | null>(null)
 
-  const loadPlace = async () => {
+  const loadPlace = useCallback(async () => {
     if (!slug) {
       setError('Некорректный slug места')
       setLoading(false)
@@ -54,11 +54,11 @@ export const PlaceDetailPage = () => {
     } finally {
       setLoading(false)
     }
-  }
+  }, [slug])
 
   useEffect(() => {
     void loadPlace()
-  }, [slug])
+  }, [loadPlace])
 
   const runPhotoAction = async (action: 'approve' | 'reject') => {
     if (!place?.image_id) return
