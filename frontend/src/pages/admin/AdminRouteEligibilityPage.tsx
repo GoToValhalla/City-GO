@@ -28,7 +28,7 @@ export const AdminRouteEligibilityPage = () => {
 
   useEffect(() => {
     adminGet<AdminCitiesResponse>('/admin/cities?limit=100').then((r) => setCities(r.items)).catch(() => {})
-    load()
+    void Promise.resolve().then(load)
   }, [load])
 
   const bulk = async (action: string) => {
@@ -38,6 +38,18 @@ export const AdminRouteEligibilityPage = () => {
     await adminPost('/admin/places/bulk/apply', { place_ids: ids, action, params, confirm: true })
     setSelected(new Set())
     load()
+  }
+
+  const toggleSelected = (placeId: number) => {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (next.has(placeId)) {
+        next.delete(placeId)
+      } else {
+        next.add(placeId)
+      }
+      return next
+    })
   }
 
   if (loading && !data) return <AdminLoading />
@@ -58,8 +70,8 @@ export const AdminRouteEligibilityPage = () => {
         </select>
         <input placeholder="issue code" value={issue} onChange={(e) => setIssue(e.target.value)} />
         <button type="button" className="admin-btn admin-btn-sm" onClick={load}>Обновить</button>
-        <button type="button" className="admin-btn admin-btn-sm" onClick={() => bulk('disable_route')}>Исключить</button>
-        <button type="button" className="admin-btn admin-btn-sm" onClick={() => bulk('enable_route')}>Включить</button>
+        <button type="button" className="admin-btn admin-btn-sm" onClick={() => void bulk('disable_route')}>Исключить</button>
+        <button type="button" className="admin-btn admin-btn-sm" onClick={() => void bulk('enable_route')}>Включить</button>
       </div>
       {!data?.items.length ? <AdminEmpty message="Нет мест" /> : (
         <table className="admin-table">
@@ -67,7 +79,7 @@ export const AdminRouteEligibilityPage = () => {
           <tbody>
             {data.items.map((row) => (
               <tr key={row.place_id}>
-                <td><input type="checkbox" checked={selected.has(row.place_id)} onChange={() => setSelected((s) => { const n = new Set(s); n.has(row.place_id) ? n.delete(row.place_id) : n.add(row.place_id); return n })} /></td>
+                <td><input type="checkbox" checked={selected.has(row.place_id)} onChange={() => toggleSelected(row.place_id)} /></td>
                 <td><Link to={`/admin/places/${row.place_id}`}>{row.title}</Link></td>
                 <td>{row.category ?? '—'}</td>
                 <td>{row.eligible ? '✓' : '✗'}</td>
