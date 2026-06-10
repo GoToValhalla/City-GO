@@ -1,0 +1,155 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: city_guide
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: ghcr.io/gotovalhalla/app-backend:latest
+    build: .
+    command: alembic upgrade head
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  seed:
+    image: ghcr.io/gotovalhalla/app-backend:latest
+    build: .
+    command: bash -c "PYTHONPATH=/app python scripts/seed_minimal_data.py"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # Manual ops only (profile ops). Not part of default deploy chain — no geocode apply on deploy.
+  address-backfill:
+    profiles: ["ops"]
+    image: ghcr.io/gotovalhalla/app-backend:latest
+    build: .
+    command: bash -c "PYTHONPATH=/app python data/scripts/run_address_recovery_flow.py --all-cities --limit 500 --sleep 1.0 --no-apply"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
+    restart: "no"
+
+  place-enrichment-export:
+    image: ghcr.io/gotovalhalla/app-backend:latest
+    build: .
+    command: bash -c "PYTHONPATH=/app python data/scripts/run_place_enrichment_export.py --limit 100 --missing-fields address,photo,description --git-artifact"
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+    volumes:
+      - enrichment_exports:/app/data/exports/place_enrichment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
+    restart: "no"
+
+  backend:
+    image: ghcr.io/gotovalhalla/app-backend:latest
+    build: .
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      APP_HOST: 0.0.0.0
+      BACKEND_BASE_URL: http://backend:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - enrichment_exports:/app/data/exports/place_enrichment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
+      place-enrichment-export:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  import-worker:
+    image: ghcr.io/gotovalhalla/app-backend:latest
+    build: .
+    command: >
+      bash -c 'while true; do
+        PYTHONPATH=/app python data/scripts/run_admin_import_queue.py || true;
+        sleep 300;
+      done'
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  bot:
+    image: ghcr.io/gotovalhalla/app-backend:latest
+    build: .
+    command: >
+      sh -c "
+        if [ -z \"$$BOT_TOKEN\" ]; then
+          echo 'BOT_TOKEN не задан — бот не запущен. Добавь BOT_TOKEN в .env и перезапусти.';
+          exit 0;
+        fi;
+        python telegram_bot_main.py
+      "
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      BACKEND_BASE_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_started
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf https://api.telegram.org/bot$$BOT_TOKEN/getMe | grep -q '\"ok\":true' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    image: ghcr.io/gotovalhalla/app-frontend:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  enrichment_exports:

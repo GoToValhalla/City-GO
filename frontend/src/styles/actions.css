@@ -1,0 +1,39 @@
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.quick-action {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 4px 10px;
+  min-height: 92px;
+  padding: 16px;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-decoration: none;
+}
+.quick-action svg {
+  grid-row: span 2;
+  color: var(--blue);
+}
+.quick-action span {
+  font-size: 20px;
+  font-weight: 700;
+}
+.quick-action small {
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (max-width: 900px) {
+  .quick-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 520px) {
+  .quick-actions {
+    grid-template-columns: 1fr;
+  }
+}

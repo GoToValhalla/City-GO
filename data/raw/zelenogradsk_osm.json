@@ -1,0 +1,4156 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.11 87bfad18",
+  "osm3s": {
+    "timestamp_osm_base": "2026-04-11T18:57:28Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+    {
+      "type": "node",
+      "id": 949594360,
+      "lat": 54.9585382,
+      "lon": 20.4722181,
+      "tags": {
+        "amenity": "taxi"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1311835745,
+      "lat": 54.9584989,
+      "lon": 20.471216,
+      "tags": {
+        "amenity": "cafe",
+        "name": "Вояж"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1592763609,
+      "lat": 54.95822,
+      "lon": 20.4713128,
+      "tags": {
+        "addr:postcode": "238530",
+        "name": "Логер хаус",
+        "name:en": "Loger haus",
+        "tourism": "guest_house"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1596553120,
+      "lat": 54.9585056,
+      "lon": 20.4733744,
+      "tags": {
+        "amenity": "bus_station",
+        "bench": "yes",
+        "bin": "yes",
+        "lit": "yes",
+        "name": "Зеленоградск",
+        "public_transport": "platform",
+        "shelter": "yes",
+        "tactile_paving": "no",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2349108902,
+      "lat": 54.9596748,
+      "lon": 20.4746884,
+      "tags": {
+        "amenity": "library",
+        "name": "Городская библиотека"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2349108916,
+      "lat": 54.9596913,
+      "lon": 20.4747709,
+      "tags": {
+        "amenity": "public_building",
+        "name": "Управление оброзованием зеленоградского района"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2349108917,
+      "lat": 54.9596975,
+      "lon": 20.4748821,
+      "tags": {
+        "amenity": "public_building",
+        "name": "Фонд социального страхования оделение по Зеленоградскому району"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2349108919,
+      "lat": 54.9596666,
+      "lon": 20.4746095,
+      "tags": {
+        "amenity": "public_building",
+        "name": "Центр поддержки малого и среднего предпринимательства зеленоградского района"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2349109334,
+      "lat": 54.9621546,
+      "lon": 20.4797709,
+      "tags": {
+        "amenity": "atm"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2418758274,
+      "lat": 54.9537115,
+      "lon": 20.467058,
+      "tags": {
+        "amenity": "post_office"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2426879136,
+      "lat": 54.957007,
+      "lon": 20.4644534,
+      "tags": {
+        "amenity": "waste_disposal"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2426879235,
+      "lat": 54.9582741,
+      "lon": 20.4639739,
+      "tags": {
+        "amenity": "toilets",
+        "check_date": "2024-10-03",
+        "fee": "yes",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2427666214,
+      "lat": 54.9530603,
+      "lon": 20.463573,
+      "tags": {
+        "amenity": "waste_disposal"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2643393636,
+      "lat": 54.9611757,
+      "lon": 20.4796064,
+      "tags": {
+        "amenity": "courthouse",
+        "name": "1-й судебный участок мирового судьи Зеленоградского района"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2643393641,
+      "lat": 54.9611684,
+      "lon": 20.4797435,
+      "tags": {
+        "amenity": "courthouse",
+        "name": "2-й судебный участок мирового судьи Зеленоградского района"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2653455038,
+      "lat": 54.9589125,
+      "lon": 20.475925,
+      "tags": {
+        "amenity": "public_building",
+        "name": "Отдел УФМС в Зеленоградском районе"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2924911257,
+      "lat": 54.9596932,
+      "lon": 20.4734586,
+      "tags": {
+        "information": "office",
+        "tourism": "information"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2927274571,
+      "lat": 54.9635889,
+      "lon": 20.4817374,
+      "tags": {
+        "tourism": "theme_park"
+      }
+    },
+    {
+      "type": "node",
+      "id": 2927275513,
+      "lat": 54.9604857,
+      "lon": 20.4702622,
+      "tags": {
+        "artwork_type": "sculpture",
+        "name": "Серый балтийский тюлень",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 3857552409,
+      "lat": 54.9594486,
+      "lon": 20.4786125,
+      "tags": {
+        "amenity": "bench"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4173301789,
+      "lat": 54.9589173,
+      "lon": 20.4742418,
+      "tags": {
+        "addr:housenumber": "16",
+        "addr:street": "улица Тургенева",
+        "check_date": "2024-10-08",
+        "contact:email": "info@kruassan.com",
+        "contact:phone": "+7 401 2303040",
+        "contact:website": "https://kruassanfamily.ru/konigsbacker/",
+        "name": "Königsbäcker",
+        "opening_hours": "Mo-Fr 08:00-21:00; Sa-Su 09:00-21:00",
+        "shop": "bakery"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4290712289,
+      "lat": 54.9540343,
+      "lon": 20.4813122,
+      "tags": {
+        "amenity": "car_wash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4360586294,
+      "lat": 54.961536,
+      "lon": 20.4815448,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2025-07-20",
+        "cuisine": "pizza",
+        "level": "0",
+        "name": "Сковородка",
+        "opening_hours": "Mo-Su 10:00-21:00",
+        "smoking": "no",
+        "takeaway": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4360586295,
+      "lat": 54.9633021,
+      "lon": 20.4738759,
+      "tags": {
+        "tourism": "viewpoint"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4360615389,
+      "lat": 54.9597357,
+      "lon": 20.4733421,
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "6",
+        "addr:postcode": "238530",
+        "addr:street": "улица Ленина",
+        "check_date": "2025-12-16",
+        "email": "cranz_muzeum@mail.ru",
+        "fee": "yes",
+        "name": "Зеленоградский городской краеведческий музей",
+        "name:ru": "Зеленоградский городской краеведческий музей",
+        "opening_hours": "Tu-Su 10:00-18:00",
+        "operator": "МАУ \"Зеленоградский ГКМ\"",
+        "payment:cash": "yes",
+        "payment:credit_cards": "yes",
+        "payment:debit_cards": "yes",
+        "phone": "+7 40150 32790",
+        "tourism": "museum",
+        "website": "https://cranz-muzeum.ru",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4434466092,
+      "lat": 54.9616193,
+      "lon": 20.4818382,
+      "tags": {
+        "amenity": "pharmacy",
+        "check_date": "2024-10-05",
+        "check_date:opening_hours": "2024-10-01",
+        "healthcare": "pharmacy",
+        "name": "Целитель",
+        "name:ru": "Целитель",
+        "opening_hours": "Mo-Su 09:00-20:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4434538492,
+      "lat": 54.9615623,
+      "lon": 20.4815999,
+      "tags": {
+        "addr:housenumber": "3",
+        "addr:street": "Курортный проспект",
+        "amenity": "fast_food",
+        "check_date": "2025-12-19",
+        "name": "Пирожки из печи",
+        "opening_hours": "09:00-20:00",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 4434600389,
+      "lat": 54.9616495,
+      "lon": 20.4810678,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2025-12-15",
+        "check_date:opening_hours": "2024-10-01",
+        "name": "Буфет",
+        "name:ru": "Буфет",
+        "opening_hours": "Mo-Su 10:00-21:00",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5218167925,
+      "lat": 54.9587103,
+      "lon": 20.4728895,
+      "tags": {
+        "amenity": "fast_food",
+        "name": "Пончики"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5218167926,
+      "lat": 54.9594817,
+      "lon": 20.4718969,
+      "tags": {
+        "amenity": "waste_disposal"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5218179921,
+      "lat": 54.9586878,
+      "lon": 20.47256,
+      "tags": {
+        "amenity": "fast_food"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5218219521,
+      "lat": 54.953506,
+      "lon": 20.4653611,
+      "tags": {
+        "amenity": "pharmacy"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5219355131,
+      "lat": 54.9580486,
+      "lon": 20.4731754,
+      "tags": {
+        "amenity": "atm",
+        "brand": "ВТБ",
+        "contact:phone": "+7 800 1002424",
+        "contact:website": "https://www.vtb.ru/",
+        "operator": "Банк ВТБ (ПАО)"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5219360424,
+      "lat": 54.9580311,
+      "lon": 20.4731217,
+      "tags": {
+        "amenity": "post_box"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5414473328,
+      "lat": 54.9598767,
+      "lon": 20.4769127,
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "7",
+        "addr:postcode": "238530",
+        "addr:street": "Московская улица",
+        "amenity": "library",
+        "internet_access:fee": "yes",
+        "name": "Детская библиотека"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5478905934,
+      "lat": 54.9603837,
+      "lon": 20.4774842,
+      "tags": {
+        "addr:floor": "1",
+        "addr:housenumber": "19",
+        "addr:street": "Курортный проспект",
+        "amenity": "cafe",
+        "check_date": "2025-07-07",
+        "entrance": "yes",
+        "level": "0",
+        "name": "Литовская кухня",
+        "name:ru": "Литовская кухня",
+        "opening_hours": "PH,Mo-Su 09:00-19:00",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5478905975,
+      "lat": 54.9604991,
+      "lon": 20.4770563,
+      "tags": {
+        "artwork_type": "mural",
+        "description": "Стилизованный вид на Зеленоградск с велосипедом",
+        "name": "Виды Зеленоградска",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5478905984,
+      "lat": 54.9604906,
+      "lon": 20.4770122,
+      "tags": {
+        "artwork_type": "sculpture",
+        "description": "Кормушка с тремя зеленоградскими котами",
+        "name": "Котофейня",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5784204376,
+      "lat": 54.9584973,
+      "lon": 20.4741152,
+      "tags": {
+        "amenity": "fast_food",
+        "check_date": "2025-12-15",
+        "name": "Богатырь №1",
+        "opening_hours": "10:00-22:00",
+        "payment:cash": "yes",
+        "payment:credit_cards": "yes",
+        "payment:debit_cards": "yes",
+        "wheelchair": "limited"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5927244575,
+      "lat": 54.9540692,
+      "lon": 20.4816082,
+      "tags": {
+        "amenity": "parking",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "node",
+      "id": 5927244576,
+      "lat": 54.9538381,
+      "lon": 20.4811683,
+      "tags": {
+        "amenity": "parking",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6189562381,
+      "lat": 54.9552879,
+      "lon": 20.4770614,
+      "tags": {
+        "amenity": "charging_station",
+        "authentication:app": "yes",
+        "description": "на территории парковки ФОК «Янтарь» (ул. Тургенева, 9 Б)",
+        "fee": "yes",
+        "fixme": "уточните местоположение",
+        "opening_hours": "24/7",
+        "operator": "АО \"Янтарьэнерго\"",
+        "phone": "+7 800 7755748",
+        "socket:type2": "2",
+        "socket:type2:current": "32",
+        "socket:type2:output": "22 kW",
+        "source": "http://www.yantarenergo.ru/klientam/ev",
+        "voltage": "230;400"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6550185289,
+      "lat": 54.9590152,
+      "lon": 20.4714261,
+      "tags": {
+        "addr:postcode": "238530",
+        "amenity": "cafe",
+        "check_date": "2024-10-02",
+        "cuisine": "german",
+        "name": "Кранц Фиш",
+        "name:de": "Cafe Brezel",
+        "name:en": "Cafe Bretzel",
+        "opening_hours": "Mo-Fr 08:30-17:00; Sa 08:30-19:00; Su 08:30-18:00",
+        "phone": "89005655425"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6690250888,
+      "lat": 54.9621723,
+      "lon": 20.4808818,
+      "tags": {
+        "artwork_type": "mural",
+        "name": "Кот с совой",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6690250889,
+      "lat": 54.9603516,
+      "lon": 20.4767302,
+      "tags": {
+        "artwork_type": "mural",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6690250986,
+      "lat": 54.9611268,
+      "lon": 20.4793152,
+      "tags": {
+        "leisure": "pitch",
+        "sport": "chess"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6690576186,
+      "lat": 54.9621167,
+      "lon": 20.475574,
+      "tags": {
+        "name": "Бювет королевы Луизы",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6690591685,
+      "lat": 54.9621222,
+      "lon": 20.4755364,
+      "tags": {
+        "amenity": "water_point",
+        "name": "Бювет королевы Луизы"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6694098085,
+      "lat": 54.9567583,
+      "lon": 20.4780654,
+      "tags": {
+        "name": "Дом королевы Луизы",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6764272395,
+      "lat": 54.9560062,
+      "lon": 20.4777372,
+      "tags": {
+        "name": "Филосовия",
+        "tourism": "museum"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6764272396,
+      "lat": 54.9559554,
+      "lon": 20.4774583,
+      "tags": {
+        "name": "Филосовия - тренировочная площадка",
+        "tourism": "zoo"
+      }
+    },
+    {
+      "type": "node",
+      "id": 6764272399,
+      "lat": 54.9562034,
+      "lon": 20.4776541,
+      "tags": {
+        "access": "customers",
+        "amenity": "toilets",
+        "toilets:disposal": "flush"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7556022851,
+      "lat": 54.9602769,
+      "lon": 20.4768647,
+      "tags": {
+        "name": "Кошачий светофор",
+        "opening_hours": "24/7",
+        "reservation": "no",
+        "tourism": "attraction",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7556022852,
+      "lat": 54.960372,
+      "lon": 20.4771262,
+      "tags": {
+        "name": "Кошачий светофор",
+        "opening_hours": "24/7",
+        "reservation": "no",
+        "tourism": "attraction",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7618389060,
+      "lat": 54.9601027,
+      "lon": 20.4819546,
+      "tags": {
+        "addr:housenumber": "34",
+        "addr:street": "Московская улица",
+        "amenity": "restaurant",
+        "name": "Старый город",
+        "opening_hours": "Mo-Su 12:00-00:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7620312118,
+      "lat": 54.9587502,
+      "lon": 20.4725478,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2025-07-12",
+        "name": "The Waffles",
+        "opening_hours": "Mo-Su 09:00-21:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7757229069,
+      "lat": 54.9592282,
+      "lon": 20.4723595,
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "1",
+        "addr:street": "улица Горького",
+        "amenity": "cafe",
+        "check_date": "2025-12-18",
+        "cuisine": "pizza",
+        "facebook": "https://www.facebook.com/urapizza",
+        "name": "Ура! Пицца",
+        "opening_hours": "10:00-22:00",
+        "phone": "+7 (906) 237-56-63",
+        "website": "https://vk.com/urapizza",
+        "wheelchair": "limited"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7775374887,
+      "lat": 54.9583544,
+      "lon": 20.4797769,
+      "tags": {
+        "name": "Дом с чайниками с торца",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7797270629,
+      "lat": 54.9611617,
+      "lon": 20.4795092,
+      "tags": {
+        "artist_name": "Дарья Люлюкова",
+        "artwork_type": "mural",
+        "start_date": "2019",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7797270630,
+      "lat": 54.9608743,
+      "lon": 20.4785265,
+      "tags": {
+        "artist_name": "Дарья Люлюкова",
+        "artwork_type": "mural",
+        "start_date": "2018",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 7836660650,
+      "lat": 54.9594141,
+      "lon": 20.4738677,
+      "tags": {
+        "addr:housenumber": "3",
+        "addr:street": "улица Ленина",
+        "amenity": "cafe",
+        "check_date": "2025-12-20",
+        "contact:email": "info@kruassan.com",
+        "contact:phone": "+7 401 2303040;+7 963 7377110",
+        "contact:website": "https://kruassanfamily.ru/kruassan-cafe/",
+        "level": "1",
+        "name": "Круассан",
+        "opening_hours": "Mo-Th,Su 08:00-20:00; Fr-Sa 08:00-21:00",
+        "payment:coins": "yes",
+        "payment:contactless": "yes",
+        "payment:credit_cards": "yes",
+        "payment:cryptocurrencies": "no",
+        "payment:debit_cards": "yes",
+        "payment:electronic_purses": "no",
+        "payment:maestro": "yes",
+        "payment:mastercard": "yes",
+        "payment:notes": "yes",
+        "payment:visa": "yes",
+        "payment:visa_debit": "yes",
+        "payment:visa_electron": "yes",
+        "toilets": "yes",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8294915257,
+      "lat": 54.9576036,
+      "lon": 20.4649073,
+      "tags": {
+        "access": "customers",
+        "amenity": "parking",
+        "capacity": "4"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8294915258,
+      "lat": 54.9576731,
+      "lon": 20.4650004,
+      "tags": {
+        "access": "customers",
+        "amenity": "parking_entrance"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8401956917,
+      "lat": 54.9560272,
+      "lon": 20.4673858,
+      "tags": {
+        "addr:postcode": "238530",
+        "internet_access": "wlan",
+        "name:en": "Indian House",
+        "tourism": "guest_house"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8493710318,
+      "lat": 54.961407,
+      "lon": 20.4801783,
+      "tags": {
+        "artwork_type": "statue",
+        "name": "Курортница",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8585433617,
+      "lat": 54.9599677,
+      "lon": 20.4754398,
+      "tags": {
+        "addr:street": "Курортный проспект",
+        "amenity": "clock",
+        "display": "analog",
+        "faces": "2",
+        "name": "Часы",
+        "support": "pole",
+        "visibility": "area"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8658540724,
+      "lat": 54.9598815,
+      "lon": 20.4740122,
+      "tags": {
+        "name": "Доходный дом Баста",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8658541020,
+      "lat": 54.9597885,
+      "lon": 20.4755203,
+      "tags": {
+        "name": "почтамт Кранца",
+        "tourism": "attraction",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8658543218,
+      "lat": 54.9598842,
+      "lon": 20.47603,
+      "tags": {
+        "name": "Дом жилой с аптекой",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8658584517,
+      "lat": 54.9612496,
+      "lon": 20.4800329,
+      "tags": {
+        "name": "Хаус Даудерт",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8658626420,
+      "lat": 54.960063,
+      "lon": 20.4817856,
+      "tags": {
+        "name": "Фахверковое здание из красного кирпича",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8658626421,
+      "lat": 54.9590817,
+      "lon": 20.4790707,
+      "tags": {
+        "name": "вилла «Спящая красавица»",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8658626618,
+      "lat": 54.9595409,
+      "lon": 20.4804944,
+      "tags": {
+        "name": "Дом еврейской общины",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8658626619,
+      "lat": 54.9592799,
+      "lon": 20.4800162,
+      "tags": {
+        "name": "здание довоенной постройки",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8658626620,
+      "lat": 54.9601595,
+      "lon": 20.4794925,
+      "tags": {
+        "name": "здание довоенной постройки",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8701914017,
+      "lat": 54.9606178,
+      "lon": 20.471525,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2025-12-16",
+        "name": "Промрыба",
+        "name:en": "Promryba",
+        "opening_hours": "11:00-21:00",
+        "payment:cash": "yes",
+        "payment:credit_cards": "yes",
+        "payment:debit_cards": "yes",
+        "wheelchair": "limited"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8718737417,
+      "lat": 54.9595013,
+      "lon": 20.4808808,
+      "tags": {
+        "addr:street": "улица Ткаченко",
+        "email": "kat.grigorovskaya@yandex.ru",
+        "internet_access": "wlan",
+        "name": "Cars&Dogs",
+        "name:en": "Cats&Dogs",
+        "name:ru": "Cats&Dogs",
+        "opening_hours": "Mo-Su 09:00-21:00",
+        "phone": "+79114701261",
+        "tourism": "apartment",
+        "website": "http://balticquest.com"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8837826717,
+      "lat": 54.959155,
+      "lon": 20.4774788,
+      "tags": {
+        "amenity": "bicycle_rental",
+        "opening_hours": "Mo-Su 09:00-19:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 8995737517,
+      "lat": 54.9553321,
+      "lon": 20.4724601,
+      "tags": {
+        "name": "Elisa Space Club",
+        "name:en": "Elisa Space Club",
+        "tourism": "hostel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9049896817,
+      "lat": 54.9629734,
+      "lon": 20.4788625,
+      "tags": {
+        "addr:housenumber": "8А",
+        "addr:street": "улица Пугачёва",
+        "air_conditioning": "yes",
+        "amenity": "cafe",
+        "changing_table": "no",
+        "check_date": "2025-12-16",
+        "contact:email": "info@kruassan.com",
+        "contact:instagram": "https://www.instagram.com/portocoffee.kaliningrad",
+        "contact:phone": "+7 401 2303040;+7 401 2926426;+7 963 3506426",
+        "contact:website": "https://kruassanfamily.ru/port-o-coffee/",
+        "diet:halal": "no",
+        "diet:vegetarian": "no",
+        "indoor_seating": "yes",
+        "internet_access": "wlan",
+        "internet_access:fee": "no",
+        "internet_access:ssid": "Port-o-Coffee_FREE",
+        "name": "Porto",
+        "opening_hours": "Mo-Th,Su 08:30-20:00; Fr-Sa 09:00-21:00",
+        "outdoor_seating": "yes",
+        "payment:credit_cards": "yes",
+        "payment:debit_cards": "yes",
+        "payment:mastercard": "yes",
+        "payment:visa": "yes",
+        "smoking": "no",
+        "toilets": "yes",
+        "toilets:wheelchair": "limited",
+        "wheelchair": "limited"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9073665345,
+      "lat": 54.9602316,
+      "lon": 20.473984,
+      "tags": {
+        "amenity": "waste_disposal"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9257644617,
+      "lat": 54.9598445,
+      "lon": 20.4756396,
+      "tags": {
+        "addr:housenumber": "29",
+        "addr:street": "Курортный проспект",
+        "amenity": "restaurant",
+        "check_date": "2024-10-02",
+        "name": "Телеграф",
+        "name:en": "Telegraph",
+        "opening_hours": "11:00-23:00",
+        "phone": "+7 908 290-55-21",
+        "reservation": "recommended",
+        "website": "https://telegraph.rest",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9272729527,
+      "lat": 54.9622112,
+      "lon": 20.4747645,
+      "tags": {
+        "name": "Кот",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9460717343,
+      "lat": 54.9606435,
+      "lon": 20.4790401,
+      "tags": {
+        "access": "yes",
+        "amenity": "toilets",
+        "check_date": "2025-12-15",
+        "description": "30р",
+        "fee": "yes",
+        "opening_hours": "Mo-Su 08:00-20:00",
+        "wheelchair": "designated"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9567990028,
+      "lat": 54.9588943,
+      "lon": 20.4752014,
+      "tags": {
+        "addr:housenumber": "3Г",
+        "addr:street": "улица Тургенева",
+        "check_date": "2025-12-15",
+        "name": "Любимая пекарня",
+        "opening_hours": "08:00-20:00",
+        "shop": "bakery",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9569725626,
+      "lat": 54.9527495,
+      "lon": 20.471612,
+      "tags": {
+        "amenity": "fuel",
+        "check_date": "2025-07-20",
+        "contact:email": "info@teboil-azs.ru",
+        "contact:phone": "+7 981 4698284",
+        "contact:website": "https://azs.teboil.ru",
+        "name": "Teboil",
+        "opening_hours": "Mo-Su 00:10-03:45,04:00-23:55"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9761652418,
+      "lat": 54.9573326,
+      "lon": 20.4679871,
+      "tags": {
+        "addr:housenumber": "22В",
+        "addr:postcode": "238530",
+        "addr:street": "улица Ленина",
+        "amenity": "cafe",
+        "cuisine": "breakfast;buschenschank;cake;chicken;coffee_shop;crepe",
+        "internet_access": "wlan",
+        "name": "БИСТРО 22",
+        "name:en": "BISTRO 22",
+        "opening_hours": "Mo-Su 09:00-19:00",
+        "phone": "89506731677"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9801641188,
+      "lat": 54.9586333,
+      "lon": 20.4735817,
+      "tags": {
+        "addr:housenumber": "3А",
+        "addr:street": "Вокзальная улица",
+        "amenity": "fast_food",
+        "check_date": "2025-07-12",
+        "contact:email": "feedback@rosterhit.ru",
+        "contact:phone": "+7 401 2398939",
+        "contact:website": "https://rosterhit.ru/",
+        "name": "Ростерхит",
+        "opening_hours": "24/7",
+        "payment:mastercard": "yes",
+        "payment:visa": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 9991027517,
+      "lat": 54.9611896,
+      "lon": 20.4782992,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2024-10-01",
+        "name": "Хлеб",
+        "opening_hours": "08:00-21:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10185275771,
+      "lat": 54.958921,
+      "lon": 20.4741862,
+      "tags": {
+        "amenity": "toilets",
+        "description": "Кенигбэккер"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10186700238,
+      "lat": 54.9585451,
+      "lon": 20.475049,
+      "tags": {
+        "amenity": "toilets",
+        "check_date": "2025-07-15",
+        "description": "50 рублей",
+        "fee": "yes",
+        "opening_hours": "08:00-20:00",
+        "payment:cards": "yes",
+        "payment:cash": "yes",
+        "supervised": "yes",
+        "toilets:handwashing": "yes",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10190342127,
+      "lat": 54.9594117,
+      "lon": 20.4739409,
+      "tags": {
+        "amenity": "toilets",
+        "description": "Круассан кафе",
+        "fee": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10536907609,
+      "lat": 54.9602875,
+      "lon": 20.4780233,
+      "tags": {
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10862665505,
+      "lat": 54.9614777,
+      "lon": 20.4798528,
+      "tags": {
+        "addr:housenumber": "10",
+        "addr:street": "Курортный проспект",
+        "amenity": "cafe",
+        "check_date": "2025-12-15",
+        "name": "Амалия",
+        "opening_hours": "Mo-Fr 10:00-20:00; Sa-Su 09:00-21:00",
+        "payment:mastercard": "yes",
+        "payment:visa": "yes",
+        "phone": "+7 981 453-56-56",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10877839234,
+      "lat": 54.96365,
+      "lon": 20.4815832,
+      "tags": {
+        "amenity": "fast_food",
+        "diet:halal": "no",
+        "diet:vegetarian": "no",
+        "indoor_seating": "no",
+        "name": "Koffe",
+        "outdoor_seating": "no",
+        "payment:credit_cards": "yes",
+        "payment:debit_cards": "yes",
+        "takeaway": "only",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10902091306,
+      "lat": 54.9597102,
+      "lon": 20.4758842,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2024-10-03",
+        "cuisine": "coffee_shop",
+        "name": "Сейф",
+        "name:en": "Safe",
+        "opening_hours": "08:00-22:00",
+        "outdoor_seating": "yes",
+        "payment:mastercard": "yes",
+        "payment:visa": "yes",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10921875800,
+      "lat": 54.9594576,
+      "lon": 20.4665665,
+      "tags": {
+        "access": "yes",
+        "amenity": "dressing_room",
+        "unisex": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10933409305,
+      "lat": 54.9613218,
+      "lon": 20.4794589,
+      "tags": {
+        "artwork_type": "statue",
+        "memorial": "sculpture",
+        "name": "Кот",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 10933434905,
+      "lat": 54.9598631,
+      "lon": 20.4734403,
+      "tags": {
+        "name": "Кот",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11040112505,
+      "lat": 54.9557768,
+      "lon": 20.4792917,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2024-10-04",
+        "contact:vk": "pilot.cafe",
+        "cuisine": "coffee_shop;italian_pizza;pizza;sushi",
+        "name": "Pilot",
+        "opening_hours": "Mo-Th 10:00-22:00; Fr-Su 10:00-23:00",
+        "website": "https://pilot.cafe/"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11155466911,
+      "lat": 54.9535185,
+      "lon": 20.4708268,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "yes",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11155466912,
+      "lat": 54.9534897,
+      "lon": 20.4708242,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11155488609,
+      "lat": 54.9578076,
+      "lon": 20.4716588,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "yes",
+        "lit": "yes",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11155529951,
+      "lat": 54.9627193,
+      "lon": 20.4813476,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "yes",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11155529952,
+      "lat": 54.9627974,
+      "lon": 20.4814637,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "yes",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11155529953,
+      "lat": 54.962781,
+      "lon": 20.4813692,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "yes",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11155529954,
+      "lat": 54.96279,
+      "lon": 20.4813817,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11155529955,
+      "lat": 54.9627955,
+      "lon": 20.4814762,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11155674805,
+      "lat": 54.9616178,
+      "lon": 20.4811954,
+      "tags": {
+        "amenity": "bicycle_parking",
+        "bicycle_parking": "stands",
+        "capacity": "3",
+        "covered": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11155674806,
+      "lat": 54.9615955,
+      "lon": 20.4809055,
+      "tags": {
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11161329648,
+      "lat": 54.9585128,
+      "lon": 20.4717041,
+      "tags": {
+        "artwork_type": "statue",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11163374381,
+      "lat": 54.9609732,
+      "lon": 20.4757921,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2025-07-20",
+        "name": "Рыба Агонь",
+        "opening_hours": "11:00-22:00",
+        "payment:mastercard": "yes",
+        "payment:mir": "yes",
+        "payment:visa": "yes",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164440589,
+      "lat": 54.9612293,
+      "lon": 20.4788558,
+      "tags": {
+        "addr:housenumber": "14",
+        "addr:street": "Курортный проспект",
+        "check_date": "2025-12-14",
+        "description": "ООО \"Зайка+К\"",
+        "name": "Книжная лавка",
+        "opening_hours": "10:00-20:00",
+        "payment:cash": "yes",
+        "payment:credit_cards": "yes",
+        "payment:debit_cards": "yes",
+        "shop": "books",
+        "website": "https://knlavka.ru",
+        "wheelchair": "limited"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164440590,
+      "lat": 54.9584763,
+      "lon": 20.4761293,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "yes",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164440591,
+      "lat": 54.9584959,
+      "lon": 20.4761186,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164440592,
+      "lat": 54.9558026,
+      "lon": 20.4798941,
+      "tags": {
+        "access": "yes",
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164440593,
+      "lat": 54.9558626,
+      "lon": 20.4797352,
+      "tags": {
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164440598,
+      "lat": 54.9550702,
+      "lon": 20.4809329,
+      "tags": {
+        "amenity": "pub",
+        "check_date": "2023-09-03",
+        "name": "Пивной двор",
+        "opening_hours": "24/7"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164678425,
+      "lat": 54.9627723,
+      "lon": 20.4779858,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164692511,
+      "lat": 54.9619039,
+      "lon": 20.4816742,
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "2",
+        "addr:street": "Курортный проспект",
+        "amenity": "fast_food",
+        "check_date": "2025-07-20",
+        "cuisine": "turkish",
+        "name": "Окно вкуса",
+        "opening_hours": "Mo-Su 09:00-22:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164692512,
+      "lat": 54.9619909,
+      "lon": 20.4818864,
+      "tags": {
+        "name": "Кит",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164692515,
+      "lat": 54.9623646,
+      "lon": 20.4804024,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164692517,
+      "lat": 54.9624459,
+      "lon": 20.4787373,
+      "tags": {
+        "amenity": "bench"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164692519,
+      "lat": 54.9625482,
+      "lon": 20.4780203,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2024-10-03",
+        "name": "Охота есть",
+        "opening_hours": "10:00-22:00",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164727652,
+      "lat": 54.9600861,
+      "lon": 20.4758493,
+      "tags": {
+        "amenity": "pharmacy",
+        "check_date": "2025-12-16",
+        "healthcare": "pharmacy",
+        "name": "Ригла",
+        "opening_hours": "Mo-Tu 09:00-21:00; We-Su 09:00-24:00",
+        "payment:cash": "yes",
+        "payment:credit_cards": "yes",
+        "payment:debit_cards": "yes",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164736668,
+      "lat": 54.9598104,
+      "lon": 20.4757594,
+      "tags": {
+        "amenity": "bicycle_parking",
+        "bicycle_parking": "stands",
+        "capacity": "2",
+        "covered": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164742340,
+      "lat": 54.9597856,
+      "lon": 20.4757631,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750371,
+      "lat": 54.9589649,
+      "lon": 20.4772724,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750373,
+      "lat": 54.9589825,
+      "lon": 20.4774658,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750374,
+      "lat": 54.9589872,
+      "lon": 20.4775,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750375,
+      "lat": 54.9590021,
+      "lon": 20.4775498,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750376,
+      "lat": 54.9589789,
+      "lon": 20.4776136,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750377,
+      "lat": 54.9589574,
+      "lon": 20.4776199,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750378,
+      "lat": 54.9589269,
+      "lon": 20.4776287,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750379,
+      "lat": 54.9587201,
+      "lon": 20.4777175,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750380,
+      "lat": 54.9586896,
+      "lon": 20.4777218,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750381,
+      "lat": 54.958502,
+      "lon": 20.477639,
+      "tags": {
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750382,
+      "lat": 54.9585204,
+      "lon": 20.4777974,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750383,
+      "lat": 54.9584965,
+      "lon": 20.4778105,
+      "tags": {
+        "amenity": "waste_basket",
+        "waste": "trash"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750384,
+      "lat": 54.9586854,
+      "lon": 20.477575,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "yes",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750385,
+      "lat": 54.9587022,
+      "lon": 20.4775682,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "yes",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750386,
+      "lat": 54.9587199,
+      "lon": 20.4775593,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "yes",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750387,
+      "lat": 54.9587349,
+      "lon": 20.4775535,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "yes",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164750388,
+      "lat": 54.9587228,
+      "lon": 20.4775178,
+      "tags": {
+        "amenity": "bench",
+        "backrest": "no",
+        "material": "wood"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11164906665,
+      "lat": 54.9581006,
+      "lon": 20.471367,
+      "tags": {
+        "addr:housenumber": "1",
+        "addr:street": "Железнодорожная улица",
+        "amenity": "cafe",
+        "check_date": "2023-09-03",
+        "name": "Солёная ворона",
+        "opening_hours": "11:00-21:00",
+        "payment:mastercard": "yes",
+        "payment:visa": "yes",
+        "phone": "+7 905 244-66-55",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11194621537,
+      "lat": 54.9606192,
+      "lon": 20.4778959,
+      "tags": {
+        "amenity": "restaurant",
+        "check_date": "2025-07-15",
+        "internet_access": "wlan",
+        "name": "Встреча Love",
+        "opening_hours": "PH,Mo-Su 10:00-22:00",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11845232669,
+      "lat": 54.960224,
+      "lon": 20.4762892,
+      "tags": {
+        "amenity": "restaurant",
+        "check_date": "2024-10-03",
+        "cuisine": "local",
+        "level": "1",
+        "name": "Так бистро",
+        "name:en": "TAK BISTRO",
+        "opening_hours": "Mo-Th 09:00-22:00; Fr-Su 09:00-23:00",
+        "phone": "+79097877473",
+        "website": "http://tak.bistro@yurinat.ru",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11849837376,
+      "lat": 54.9611277,
+      "lon": 20.4781185,
+      "tags": {
+        "amenity": "restaurant",
+        "check_date": "2024-10-02",
+        "contact:instagram": "balt.rest",
+        "cuisine": "local;regional;russian",
+        "level": "1",
+        "name": "Балт",
+        "name:en": "Balt",
+        "name:ru": "Балт",
+        "opening_hours": "Su-Th 12:00-23:00; Fr-Sa 12:00-00:00",
+        "phone": "+79062389974",
+        "reservation": "recommended",
+        "toilets": "yes",
+        "website": "http://balt.rest/",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11849848973,
+      "lat": 54.9600493,
+      "lon": 20.4765821,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2024-10-02",
+        "cuisine": "breakfast;coffee_shop;local;tea",
+        "name": "Сёстры Шутц",
+        "opening_hours": "Mo-Su 09:00-21:00",
+        "phone": "+79211012829",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 11932724070,
+      "lat": 54.9626768,
+      "lon": 20.4779249,
+      "tags": {
+        "addr:housenumber": "4А",
+        "addr:street": "улица Пугачёва",
+        "amenity": "bar",
+        "check_date": "2025-12-16",
+        "name": "Gastro FAB",
+        "name:en": "Gastro FAB"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12082595411,
+      "lat": 54.9598149,
+      "lon": 20.4687088,
+      "tags": {
+        "access": "yes",
+        "amenity": "toilets",
+        "check_date": "2024-10-03",
+        "fee": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12089512583,
+      "lat": 54.963026,
+      "lon": 20.4790137,
+      "tags": {
+        "access": "yes",
+        "amenity": "toilets",
+        "check_date": "2024-07-30",
+        "fee": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12199934052,
+      "lat": 54.9601263,
+      "lon": 20.4713115,
+      "tags": {
+        "check_date": "2024-10-02",
+        "contact:phone": "+7 906 2306010",
+        "contact:website": "https://villahistory.ru/",
+        "name": "Villa History",
+        "tourism": "hotel",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12214670620,
+      "lat": 54.9601782,
+      "lon": 20.4713425,
+      "tags": {
+        "addr:floor": "1",
+        "amenity": "restaurant",
+        "check_date": "2024-10-02",
+        "cuisine": "german",
+        "level": "0",
+        "name": "Бавария"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12214670621,
+      "lat": 54.960685,
+      "lon": 20.471307,
+      "tags": {
+        "amenity": "fast_food",
+        "check_date": "2024-10-01",
+        "cuisine": "seafood",
+        "name": "ТутВкусно"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12214972375,
+      "lat": 54.9619026,
+      "lon": 20.4787964,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2024-10-01",
+        "cuisine": "chinese",
+        "name": "Хого"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12214972376,
+      "lat": 54.9628281,
+      "lon": 20.4782002,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2024-10-01",
+        "cuisine": "pizza",
+        "name": "Amore"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12215609955,
+      "lat": 54.9594107,
+      "lon": 20.4721685,
+      "tags": {
+        "check_date": "2024-10-02",
+        "shop": "bakery"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12215745733,
+      "lat": 54.9588736,
+      "lon": 20.4715145,
+      "tags": {
+        "check_date": "2024-10-02",
+        "name": "Анхальт",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12215807884,
+      "lat": 54.9594577,
+      "lon": 20.4755796,
+      "tags": {
+        "amenity": "fast_food",
+        "check_date": "2024-10-02"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12215807887,
+      "lat": 54.960578,
+      "lon": 20.4790696,
+      "tags": {
+        "amenity": "waste_disposal"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12215807888,
+      "lat": 54.9605441,
+      "lon": 20.4790762,
+      "tags": {
+        "amenity": "waste_disposal"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12215807891,
+      "lat": 54.9611045,
+      "lon": 20.4785432,
+      "tags": {
+        "amenity": "fast_food",
+        "check_date": "2024-10-02",
+        "name": "Кофе крендель"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12215807896,
+      "lat": 54.9599933,
+      "lon": 20.4762543,
+      "tags": {
+        "addr:floor": "1",
+        "amenity": "fast_food",
+        "check_date": "2025-07-07",
+        "level": "0",
+        "name": "Литовская выпечка",
+        "name:ru": "Литовская выпечка",
+        "opening_hours": "09:00-23:00",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12215873697,
+      "lat": 54.960896,
+      "lon": 20.4758183,
+      "tags": {
+        "amenity": "fast_food",
+        "check_date": "2024-10-02",
+        "cuisine": "seafood",
+        "name": "Фишка"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12217823267,
+      "lat": 54.9619292,
+      "lon": 20.4784502,
+      "tags": {
+        "access": "private",
+        "amenity": "parking_entrance",
+        "parking": "underground"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12218547675,
+      "lat": 54.962582,
+      "lon": 20.477432,
+      "tags": {
+        "addr:housenumber": "4А",
+        "addr:street": "улица Пугачёва",
+        "amenity": "cafe",
+        "check_date": "2025-12-16",
+        "contact:website": "https://ogonekcafe.ru",
+        "name": "Огонёк"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12218547676,
+      "lat": 54.962638,
+      "lon": 20.4776632,
+      "tags": {
+        "addr:housenumber": "4А",
+        "addr:street": "улица Пугачёва",
+        "amenity": "ice_cream",
+        "check_date": "2025-12-16",
+        "name": "Gelateria Italiana",
+        "opening_hours": "10:00-22:00",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12219425328,
+      "lat": 54.9582458,
+      "lon": 20.4642992,
+      "tags": {
+        "addr:housenumber": "12",
+        "addr:street": "улица Гагарина",
+        "amenity": "restaurant",
+        "check_date": "2025-12-16",
+        "name": "Soul",
+        "opening_hours": "07:45-23:00",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12231733065,
+      "lat": 54.9588089,
+      "lon": 20.4743749,
+      "tags": {
+        "addr:housenumber": "1Б",
+        "addr:street": "улица Тургенева",
+        "amenity": "pharmacy",
+        "brand": "Здравсити",
+        "check_date": "2025-12-15",
+        "healthcare": "pharmacy",
+        "name": "Здравсити",
+        "opening_hours": "09:00-21:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12231948991,
+      "lat": 54.9607372,
+      "lon": 20.4756409,
+      "tags": {
+        "addr:housenumber": "28Б",
+        "addr:street": "Курортный проспект",
+        "amenity": "fast_food",
+        "check_date": "2025-12-16",
+        "name": "Горизонт",
+        "opening_hours": "Mo-Th,Su 11:00-23:00; Fr-Sa 11:00-24:00",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12358887777,
+      "lat": 54.9584763,
+      "lon": 20.466274,
+      "tags": {
+        "amenity": "waste_disposal"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12358887778,
+      "lat": 54.9584624,
+      "lon": 20.4662324,
+      "tags": {
+        "amenity": "waste_disposal"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12358889709,
+      "lat": 54.958611,
+      "lon": 20.4648766,
+      "tags": {
+        "leisure": "fitness_station"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12358889713,
+      "lat": 54.9579858,
+      "lon": 20.4636025,
+      "tags": {
+        "amenity": "restaurant",
+        "contact:phone": "+7 905 241 14 15",
+        "name": "Берег моря"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784819,
+      "lat": 54.9589768,
+      "lon": 20.4753909,
+      "tags": {
+        "amenity": "fast_food",
+        "fast_food": "cafeteria",
+        "name": "Хлеб да соль"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784825,
+      "lat": 54.9590515,
+      "lon": 20.4749939,
+      "tags": {
+        "amenity": "pharmacy",
+        "name": "Первая помощь плюс"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784828,
+      "lat": 54.9592917,
+      "lon": 20.4735106,
+      "tags": {
+        "artwork_type": "sculpture",
+        "name": "Кот",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784830,
+      "lat": 54.9589344,
+      "lon": 20.4738486,
+      "tags": {
+        "contact:website": "https://turgenev-hotel.ru/",
+        "name": "Тургенев",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784835,
+      "lat": 54.9583292,
+      "lon": 20.4736219,
+      "tags": {
+        "amenity": "fast_food",
+        "cuisine": "crepe",
+        "name": "Блинский"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784845,
+      "lat": 54.9581713,
+      "lon": 20.4737145,
+      "tags": {
+        "amenity": "fast_food",
+        "cuisine": "kebab"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784846,
+      "lat": 54.9582445,
+      "lon": 20.4737869,
+      "tags": {
+        "amenity": "fast_food",
+        "cuisine": "kebab",
+        "name": "Восточное"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784847,
+      "lat": 54.9582668,
+      "lon": 20.4739002,
+      "tags": {
+        "amenity": "toilets"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784857,
+      "lat": 54.9617318,
+      "lon": 20.4748839,
+      "tags": {
+        "amenity": "fast_food"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784858,
+      "lat": 54.9616573,
+      "lon": 20.4749305,
+      "tags": {
+        "amenity": "fast_food"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784859,
+      "lat": 54.9615777,
+      "lon": 20.4749803,
+      "tags": {
+        "amenity": "fast_food"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784860,
+      "lat": 54.9615037,
+      "lon": 20.4750266,
+      "tags": {
+        "amenity": "fast_food"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784861,
+      "lat": 54.9614253,
+      "lon": 20.4750757,
+      "tags": {
+        "amenity": "fast_food"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784878,
+      "lat": 54.9583862,
+      "lon": 20.4720622,
+      "tags": {
+        "amenity": "toilets"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361784895,
+      "lat": 54.9594796,
+      "lon": 20.4730493,
+      "tags": {
+        "amenity": "fast_food",
+        "building": "kiosk",
+        "building:levels": "1",
+        "check_date": "2025-12-14",
+        "cuisine": "coffee_shop",
+        "name": "CityCoffee"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361796407,
+      "lat": 54.9595912,
+      "lon": 20.4729514,
+      "tags": {
+        "amenity": "bicycle_parking",
+        "covered": "no",
+        "fee": "no",
+        "opening_hours": "24/7",
+        "supervised": "no"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361796420,
+      "lat": 54.9595581,
+      "lon": 20.47328,
+      "tags": {
+        "artwork_type": "statue",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361796421,
+      "lat": 54.9595535,
+      "lon": 20.4733604,
+      "tags": {
+        "artwork_type": "statue",
+        "name": "Мужчина в средневековых одеждах",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12361796441,
+      "lat": 54.9612205,
+      "lon": 20.4721977,
+      "tags": {
+        "amenity": "fast_food"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12377149733,
+      "lat": 54.9621545,
+      "lon": 20.4789931,
+      "tags": {
+        "amenity": "restaurant",
+        "contact:website": "https://чеширскийкот39.рф/",
+        "name": "Чеширский кот",
+        "opening_hours": "Mo-Su 10:00-22:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12822742034,
+      "lat": 54.954455,
+      "lon": 20.4792262,
+      "tags": {
+        "amenity": "clock",
+        "display": "analog",
+        "support": "wall_mounted"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12949629701,
+      "lat": 54.961697,
+      "lon": 20.4817091,
+      "tags": {
+        "name": "Колодец с котами",
+        "tourism": "attraction"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12985634550,
+      "lat": 54.9595474,
+      "lon": 20.4744108,
+      "tags": {
+        "amenity": "marketplace",
+        "check_date": "2025-07-07",
+        "name": "Зеленоградский универсальный рынок",
+        "name:ru": "Зеленоградский универсальный рынок"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12985659745,
+      "lat": 54.961783,
+      "lon": 20.4813033,
+      "tags": {
+        "addr:housenumber": "4",
+        "addr:street": "Курортный проспект",
+        "check_date": "2025-07-07",
+        "name": "Amber shore collection",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12985659746,
+      "lat": 54.9617807,
+      "lon": 20.4814164,
+      "tags": {
+        "addr:housenumber": "4",
+        "addr:street": "Курортный проспект",
+        "amenity": "restaurant",
+        "check_date": "2025-07-07",
+        "name": "Teya"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12985678368,
+      "lat": 54.9598093,
+      "lon": 20.4757423,
+      "tags": {
+        "amenity": "luggage_locker",
+        "check_date": "2025-07-07"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12985690170,
+      "lat": 54.9610263,
+      "lon": 20.4793307,
+      "tags": {
+        "check_date": "2025-07-07",
+        "information": "office",
+        "tourism": "information"
+      }
+    },
+    {
+      "type": "node",
+      "id": 12988075949,
+      "lat": 54.9604877,
+      "lon": 20.4768071,
+      "tags": {
+        "amenity": "cafe",
+        "check_date": "2025-12-18",
+        "cuisine": "coffee_shop",
+        "name": "Котофейня",
+        "opening_hours": "09:00-21:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13013047086,
+      "lat": 54.9617769,
+      "lon": 20.4748555,
+      "tags": {
+        "access": "yes",
+        "amenity": "toilets",
+        "check_date": "2025-07-20",
+        "fee": "yes",
+        "payment:cards": "yes",
+        "payment:cash": "yes",
+        "toilets:handwashing": "yes",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13376014230,
+      "lat": 54.9566131,
+      "lon": 20.4644137,
+      "tags": {
+        "amenity": "waste_basket"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13376014231,
+      "lat": 54.9565389,
+      "lon": 20.4642924,
+      "tags": {
+        "amenity": "waste_basket"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13377739744,
+      "lat": 54.9565589,
+      "lon": 20.4659535,
+      "tags": {
+        "amenity": "waste_basket"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13377739745,
+      "lat": 54.9566042,
+      "lon": 20.4662375,
+      "tags": {
+        "amenity": "waste_basket"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13377739746,
+      "lat": 54.9569419,
+      "lon": 20.4673792,
+      "tags": {
+        "amenity": "waste_basket"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13377739747,
+      "lat": 54.9613359,
+      "lon": 20.4802601,
+      "tags": {
+        "addr:housenumber": "7",
+        "addr:street": "Курортный проспект",
+        "amenity": "restaurant",
+        "check_date": "2025-12-15",
+        "name": "Лаба Дена",
+        "opening_hours": "Mo-Th,Su 09:00-22:00; Fr-Sa 09:00-23:00",
+        "payment:cash": "yes",
+        "payment:credit_cards": "yes",
+        "payment:debit_cards": "yes",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13380785458,
+      "lat": 54.9626617,
+      "lon": 20.4777894,
+      "tags": {
+        "addr:housenumber": "4А",
+        "addr:street": "улица Пугачёва",
+        "amenity": "restaurant",
+        "check_date": "2025-12-16",
+        "name": "Бранч на море",
+        "opening_hours": "Fr-Su 09:00-21:00",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13390787501,
+      "lat": 54.9593339,
+      "lon": 20.4728982,
+      "tags": {
+        "addr:housenumber": "10",
+        "addr:street": "улица Ленина",
+        "amenity": "fast_food",
+        "check_date": "2025-12-20",
+        "name": "СушиLove",
+        "opening_hours": "10:00-22:00",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13688339960,
+      "lat": 54.9600129,
+      "lon": 20.4764971,
+      "tags": {
+        "artwork_type": "mural",
+        "fixme": "Please merge me into a nearby wall",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13688339961,
+      "lat": 54.9623666,
+      "lon": 20.4809918,
+      "tags": {
+        "artwork_type": "mosaic",
+        "location": "pavement",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13688339963,
+      "lat": 54.958763,
+      "lon": 20.4729445,
+      "tags": {
+        "artwork_type": "mural",
+        "fixme": "Please merge me into a nearby wall",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13688339965,
+      "lat": 54.9601113,
+      "lon": 20.4759945,
+      "tags": {
+        "artwork_type": "mural",
+        "fixme": "Please merge me into a nearby wall",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13688339966,
+      "lat": 54.9610297,
+      "lon": 20.4788851,
+      "tags": {
+        "artwork_type": "mural",
+        "fixme": "Please merge me into a nearby wall",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13688339967,
+      "lat": 54.9612553,
+      "lon": 20.4798548,
+      "tags": {
+        "artwork_type": "mural",
+        "fixme": "Please merge me into a nearby wall",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13688339970,
+      "lat": 54.9625455,
+      "lon": 20.4815318,
+      "tags": {
+        "amenity": "fast_food",
+        "check_date": "2026-03-29",
+        "name": "Камбуз",
+        "opening_hours": "10:00-22:00"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13688339971,
+      "lat": 54.9625196,
+      "lon": 20.4812322,
+      "tags": {
+        "artwork_type": "mosaic",
+        "location": "pavement",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13688339975,
+      "lat": 54.96182,
+      "lon": 20.4805902,
+      "tags": {
+        "artwork_type": "statue",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "node",
+      "id": 13688339976,
+      "lat": 54.961694,
+      "lon": 20.4804451,
+      "tags": {
+        "artwork_type": "mosaic",
+        "location": "pavement",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "way",
+      "id": 106994934,
+      "center": {
+        "lat": 54.9543664,
+        "lon": 20.4820824
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "12Б",
+        "addr:street": "улица Тургенева",
+        "amenity": "fuel",
+        "brand": "Лукойл",
+        "building": "yes",
+        "contact:email": "hotline@lukoil.com",
+        "contact:phone": "+7 401 5032336;+7 800 1000911",
+        "contact:website": "https://lukoil.ru/",
+        "fuel:diesel": "yes",
+        "fuel:octane_92": "yes",
+        "name": "Лукойл",
+        "name:en": "Lukoil",
+        "name:ru": "Лукойл",
+        "opening_hours": "24/7",
+        "operator": "ООО \"ЛУКОЙЛ-Северо-Западнефтепродукт\"",
+        "ref": "39211",
+        "shop": "yes",
+        "toilets": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 111173403,
+      "center": {
+        "lat": 54.9562962,
+        "lon": 20.4760955
+      },
+      "tags": {
+        "leisure": "track"
+      }
+    },
+    {
+      "type": "way",
+      "id": 115708104,
+      "center": {
+        "lat": 54.962221,
+        "lon": 20.4798628
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "4",
+        "addr:street": "улица Пугачёва",
+        "building": "yes",
+        "building:levels": "3",
+        "name": "администрация санатория Зеленоградск",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 115708218,
+      "center": {
+        "lat": 54.9631628,
+        "lon": 20.4819686
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "16Б",
+        "addr:street": "улица Володарского",
+        "amenity": "cafe",
+        "building": "yes",
+        "check_date": "2024-10-03",
+        "name": "Папаша Беппе",
+        "opening_hours": "PH,Mo-Su 11:00-24:00"
+      }
+    },
+    {
+      "type": "way",
+      "id": 115708220,
+      "center": {
+        "lat": 54.9612571,
+        "lon": 20.4759788
+      },
+      "tags": {
+        "amenity": "hospital",
+        "building": "yes",
+        "name": "Водо-Грязелечебница санаторий зеленоградск"
+      }
+    },
+    {
+      "type": "way",
+      "id": 115708241,
+      "center": {
+        "lat": 54.9617648,
+        "lon": 20.4813401
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "4",
+        "addr:street": "Курортный проспект",
+        "amenity": "bank",
+        "brand": "Сбербанк",
+        "brand:en": "Sberbank",
+        "brand:ru": "Сбербанк",
+        "brand:wikidata": "Q205012",
+        "brand:wikipedia": "en:Sberbank of Russia",
+        "building": "yes",
+        "check_date": "2025-07-20",
+        "name": "Сбербанк",
+        "name:en": "Sberbank",
+        "name:ru": "Сбербанк",
+        "opening_hours": "Mo-Fr 08:30-19:00; Sa 09:00-14:30"
+      }
+    },
+    {
+      "type": "way",
+      "id": 115708248,
+      "center": {
+        "lat": 54.9625109,
+        "lon": 20.4810493
+      },
+      "tags": {
+        "addr:housenumber": "8",
+        "addr:street": "улица Володарского",
+        "building": "yes",
+        "name": "Балтийская корона",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116133801,
+      "center": {
+        "lat": 54.9593436,
+        "lon": 20.4697284
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "1А",
+        "addr:street": "улица Гагарина",
+        "building": "yes",
+        "check_date": "2024-10-03",
+        "name": "Кошкин дом",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116133812,
+      "center": {
+        "lat": 54.9564048,
+        "lon": 20.4633849
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "27",
+        "addr:postcode": "238530",
+        "addr:street": "улица Ленина",
+        "brand": "Неринга",
+        "building": "yes",
+        "building:levels": "3",
+        "check_date": "2025-12-14",
+        "roof:shape": "gabled",
+        "tourism": "hotel",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116133914,
+      "center": {
+        "lat": 54.95787,
+        "lon": 20.4634725
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "12Б",
+        "addr:street": "улица Гагарина",
+        "building": "hotel",
+        "building:levels": "5",
+        "check_date": "2025-07-20",
+        "contact:website": "https://ghroyallions.ru/",
+        "name": "Royal Lions",
+        "start_date": "2021",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116133915,
+      "center": {
+        "lat": 54.9602263,
+        "lon": 20.4703734
+      },
+      "tags": {
+        "amenity": "toilets",
+        "building": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116133964,
+      "center": {
+        "lat": 54.9590192,
+        "lon": 20.4687492
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "3А",
+        "addr:postcode": "238530",
+        "addr:street": "улица Гагарина",
+        "building": "yes",
+        "building:levels": "2",
+        "check_date": "2024-10-03",
+        "contact:phone": "38-74-38",
+        "name": "Вилла Лана",
+        "roof:shape": "gabled",
+        "stars": "3",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116134209,
+      "center": {
+        "lat": 54.9548412,
+        "lon": 20.4647239
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "1",
+        "addr:postcode": "238530",
+        "addr:street": "Первый Садовый переулок",
+        "amenity": "kindergarten",
+        "building": "yes",
+        "building:levels": "2",
+        "name": "детский сад №3",
+        "roof:shape": "hipped"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116134215,
+      "center": {
+        "lat": 54.9575885,
+        "lon": 20.4702482
+      },
+      "tags": {
+        "addr:housenumber": "9",
+        "addr:postcode": "238530",
+        "addr:street": "улица Ленина",
+        "amenity": "public_bath",
+        "building": "yes",
+        "check_date": "2025-12-16",
+        "name": "Зеленоградские бани",
+        "opening_hours": "Fr-Su 10:00-21:00",
+        "roof:shape": "gabled"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116349827,
+      "center": {
+        "lat": 54.9612563,
+        "lon": 20.478026
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "16",
+        "addr:street": "Курортный проспект",
+        "building": "yes",
+        "building:levels": "4",
+        "check_date": "2025-07-20",
+        "name": "Курхаус Кранц (здание гостиницы, 1843 г.)",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116349874,
+      "center": {
+        "lat": 54.9601988,
+        "lon": 20.4786238
+      },
+      "tags": {
+        "amenity": "place_of_worship",
+        "building": "yes",
+        "denomination": "russian_orthodox",
+        "name": "Храм апостола Андрея Первозванного",
+        "religion": "christian"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116349882,
+      "center": {
+        "lat": 54.9576948,
+        "lon": 20.4732939
+      },
+      "tags": {
+        "amenity": "toilets",
+        "building": "yes",
+        "fee": "no",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116349895,
+      "center": {
+        "lat": 54.9589124,
+        "lon": 20.4759617
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "4",
+        "addr:street": "улица Тургенева",
+        "amenity": "police",
+        "building": "yes",
+        "check_date": "2025-07-19",
+        "name": "ОМВД по Зеленоградскому району",
+        "source:addr": "ЕГРН"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116349973,
+      "center": {
+        "lat": 54.9596753,
+        "lon": 20.4725329
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "5А",
+        "addr:street": "Крымская улица",
+        "amenity": "townhall",
+        "building": "yes",
+        "building:levels": "2",
+        "check_date": "2024-10-01",
+        "name": "Администрация г. Зеленоградска",
+        "roof:levels": "1",
+        "roof:shape": "hipped"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116349993,
+      "center": {
+        "lat": 54.9597358,
+        "lon": 20.4733316
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "6",
+        "addr:street": "улица Ленина",
+        "amenity": "library",
+        "building": "yes",
+        "building:levels": "1",
+        "name": "Детская городская библиотека",
+        "roof:levels": "1"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116349994,
+      "center": {
+        "lat": 54.9611512,
+        "lon": 20.48103
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "5",
+        "addr:street": "Курортный проспект",
+        "building": "yes",
+        "museum": "history",
+        "name": "Музей курортной моды",
+        "opening_hours": "Mo-Su 11:00-18:00",
+        "tourism": "museum",
+        "website": "https://mumod.ru/"
+      }
+    },
+    {
+      "type": "way",
+      "id": 116350062,
+      "center": {
+        "lat": 54.9590582,
+        "lon": 20.471319
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "4",
+        "addr:street": "улица Пушкина",
+        "building": "yes",
+        "check_date": "2024-10-02",
+        "internet_access": "wlan",
+        "leisure": "sauna",
+        "name": "Лаптау",
+        "phone": "+7 963 7386702",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 145954294,
+      "center": {
+        "lat": 54.9587113,
+        "lon": 20.4712909
+      },
+      "tags": {
+        "building": "yes",
+        "name": "Даива",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 179397556,
+      "center": {
+        "lat": 54.9604307,
+        "lon": 20.4703818
+      },
+      "tags": {
+        "addr:housenumber": "2В",
+        "addr:street": "улица Гагарина",
+        "amenity": "cafe",
+        "building": "yes",
+        "building:levels": "1",
+        "check_date": "2024-10-03",
+        "cuisine": "pizza",
+        "name": "Веранда",
+        "source:addr": "ЕГРН",
+        "start_date": "2006"
+      }
+    },
+    {
+      "type": "way",
+      "id": 179397557,
+      "center": {
+        "lat": 54.9604825,
+        "lon": 20.4708628
+      },
+      "tags": {
+        "air_conditioning": "yes",
+        "amenity": "restaurant",
+        "building": "yes",
+        "check_date": "2025-07-20",
+        "diet:halal": "no",
+        "diet:vegetarian": "no",
+        "indoor_seating": "yes",
+        "name": "Облака",
+        "name:en": "Oblaka",
+        "opening_hours": "Su-Th 12:00-22:00; Fr,Sa 12:00-24:00",
+        "outdoor_seating": "yes",
+        "payment:credit_cards": "yes",
+        "payment:debit_cards": "yes",
+        "smoking": "no",
+        "source:geometry": "ЕГРН",
+        "wheelchair": "no"
+      }
+    },
+    {
+      "type": "way",
+      "id": 186282367,
+      "center": {
+        "lat": 54.9578321,
+        "lon": 20.4785008
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "6",
+        "addr:street": "улица Тургенева",
+        "amenity": "school",
+        "building": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 211409331,
+      "center": {
+        "lat": 54.9581499,
+        "lon": 20.4750213
+      },
+      "tags": {
+        "leisure": "pitch",
+        "sport": "soccer"
+      }
+    },
+    {
+      "type": "way",
+      "id": 211410464,
+      "center": {
+        "lat": 54.9585746,
+        "lon": 20.4722208
+      },
+      "tags": {
+        "access": "yes",
+        "amenity": "parking",
+        "capacity": "20",
+        "fee": "no",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "way",
+      "id": 211411279,
+      "center": {
+        "lat": 54.9562663,
+        "lon": 20.4761081
+      },
+      "tags": {
+        "leisure": "pitch"
+      }
+    },
+    {
+      "type": "way",
+      "id": 211411408,
+      "center": {
+        "lat": 54.9538212,
+        "lon": 20.4647717
+      },
+      "tags": {
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 211411409,
+      "center": {
+        "lat": 54.9529239,
+        "lon": 20.4662128
+      },
+      "tags": {
+        "access": "yes",
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 211411411,
+      "center": {
+        "lat": 54.9528251,
+        "lon": 20.4662346
+      },
+      "tags": {
+        "leisure": "recreation_ground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 211411412,
+      "center": {
+        "lat": 54.9532855,
+        "lon": 20.4675147
+      },
+      "tags": {
+        "amenity": "parking",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "way",
+      "id": 226050712,
+      "center": {
+        "lat": 54.9628654,
+        "lon": 20.4794079
+      },
+      "tags": {
+        "amenity": "sanatorium",
+        "name": "Санаторий \"Зеленоградск\"",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 226050713,
+      "center": {
+        "lat": 54.9554488,
+        "lon": 20.4778911
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "9Б",
+        "addr:street": "улица Тургенева",
+        "building": "yes",
+        "building:levels": "5",
+        "leisure": "sports_centre",
+        "name": "ФОК ДЮСШ Янтарь",
+        "start_date": "2014"
+      }
+    },
+    {
+      "type": "way",
+      "id": 226050756,
+      "center": {
+        "lat": 54.9621629,
+        "lon": 20.4793675
+      },
+      "tags": {
+        "amenity": "parking",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "way",
+      "id": 226050757,
+      "center": {
+        "lat": 54.9577508,
+        "lon": 20.4711965
+      },
+      "tags": {
+        "access": "customers",
+        "amenity": "parking",
+        "fee": "no",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "way",
+      "id": 226050758,
+      "center": {
+        "lat": 54.9580048,
+        "lon": 20.4769184
+      },
+      "tags": {
+        "barrier": "fence",
+        "leisure": "pitch",
+        "lit": "yes",
+        "sport": "basketball",
+        "surface": "tartan"
+      }
+    },
+    {
+      "type": "way",
+      "id": 226050760,
+      "center": {
+        "lat": 54.9593851,
+        "lon": 20.4749905
+      },
+      "tags": {
+        "leisure": "park",
+        "name": "Сквер королевы Луизы",
+        "tourism": "attraction",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 226050761,
+      "center": {
+        "lat": 54.9599586,
+        "lon": 20.4813207
+      },
+      "tags": {
+        "access": "yes",
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 226050762,
+      "center": {
+        "lat": 54.9578479,
+        "lon": 20.4772565
+      },
+      "tags": {
+        "access": "customers",
+        "barrier": "fence",
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 232050804,
+      "center": {
+        "lat": 54.957982,
+        "lon": 20.4660796
+      },
+      "tags": {
+        "addr:housenumber": "17В",
+        "addr:postcode": "238530",
+        "addr:street": "улица Гагарина",
+        "amenity": "restaurant",
+        "building": "yes",
+        "building:levels": "3",
+        "check_date": "2024-10-03",
+        "name": "Ренессанс",
+        "roof:shape": "gabled",
+        "tourism": "motel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 233383218,
+      "center": {
+        "lat": 54.9550528,
+        "lon": 20.4683585
+      },
+      "tags": {
+        "amenity": "kindergarten",
+        "barrier": "fence",
+        "name": "Сказка Детский сад",
+        "ref": "23",
+        "source:geometry": "ЕГРН"
+      }
+    },
+    {
+      "type": "way",
+      "id": 233485158,
+      "center": {
+        "lat": 54.9559804,
+        "lon": 20.4688485
+      },
+      "tags": {
+        "leisure": "pitch"
+      }
+    },
+    {
+      "type": "way",
+      "id": 234433774,
+      "center": {
+        "lat": 54.9573965,
+        "lon": 20.4634886
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "25А",
+        "addr:postcode": "238530",
+        "addr:street": "улица Гагарина",
+        "building": "yes",
+        "building:levels": "2",
+        "roof:shape": "hipped",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 234433783,
+      "center": {
+        "lat": 54.9577925,
+        "lon": 20.4702037
+      },
+      "tags": {
+        "amenity": "pub",
+        "building": "yes",
+        "building:levels": "1",
+        "check_date": "2025-07-21",
+        "name": "Beer Zelis",
+        "opening_hours": "10:00-23:00"
+      }
+    },
+    {
+      "type": "way",
+      "id": 234513787,
+      "center": {
+        "lat": 54.9601794,
+        "lon": 20.4695011
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "2Б",
+        "addr:street": "улица Гагарина",
+        "amenity": "restaurant",
+        "building": "yes",
+        "building:levels": "2",
+        "check_date": "2025-12-16",
+        "name": "У Нептуна",
+        "opening_hours": "10:00-23:00",
+        "start_date": "2010"
+      }
+    },
+    {
+      "type": "way",
+      "id": 405932500,
+      "center": {
+        "lat": 54.9551403,
+        "lon": 20.4792586
+      },
+      "tags": {
+        "amenity": "parking",
+        "name": "Новый автовокзал"
+      }
+    },
+    {
+      "type": "way",
+      "id": 423071657,
+      "center": {
+        "lat": 54.9580738,
+        "lon": 20.4644581
+      },
+      "tags": {
+        "addr:housenumber": "12/1",
+        "addr:street": "улица Гагарина",
+        "building": "hotel",
+        "building:levels": "4",
+        "contact:website": "https://kandinsky-hotel.ru/",
+        "name": "Кандинский",
+        "source:addr": "ЕГРН",
+        "start_date": "2021",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 621551794,
+      "center": {
+        "lat": 54.9597595,
+        "lon": 20.4722924
+      },
+      "tags": {
+        "amenity": "parking",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "way",
+      "id": 627213595,
+      "center": {
+        "lat": 54.9569417,
+        "lon": 20.4635883
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "32А",
+        "addr:street": "улица Ленина",
+        "building": "hotel",
+        "building:levels": "3",
+        "start_date": "2014",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 694311476,
+      "center": {
+        "lat": 54.9580345,
+        "lon": 20.4640744
+      },
+      "tags": {
+        "addr:city": "Зеленоградск",
+        "addr:housenumber": "12А",
+        "addr:street": "улица Гагарина",
+        "building": "yes",
+        "check_date": "2025-12-16",
+        "name": "Золотая миля",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 721242219,
+      "center": {
+        "lat": 54.9614812,
+        "lon": 20.4811095
+      },
+      "tags": {
+        "access": "yes",
+        "amenity": "toilets",
+        "building": "yes",
+        "charge": "30 RUB",
+        "check_date": "2025-07-07",
+        "check_date:opening_hours": "2023-10-07",
+        "fee": "yes",
+        "opening_hours": "08:00-20:00",
+        "toilets:disposal": "flush",
+        "unisex": "yes",
+        "wheelchair": "yes"
+      }
+    },
+    {
+      "type": "way",
+      "id": 721242249,
+      "center": {
+        "lat": 54.9635671,
+        "lon": 20.4814943
+      },
+      "tags": {
+        "building": "yes",
+        "leisure": "bandstand"
+      }
+    },
+    {
+      "type": "way",
+      "id": 721242256,
+      "center": {
+        "lat": 54.9634943,
+        "lon": 20.4819546
+      },
+      "tags": {
+        "area": "yes",
+        "artwork_type": "mosaic_pavement",
+        "name": "Роза ветров",
+        "tourism": "artwork"
+      }
+    },
+    {
+      "type": "way",
+      "id": 862095942,
+      "center": {
+        "lat": 54.9577036,
+        "lon": 20.4647874
+      },
+      "tags": {
+        "addr:housenumber": "19А",
+        "addr:street": "улица Гагарина",
+        "alt_name": "Crystal",
+        "name": "Кристалл",
+        "opening_hours": "24/7",
+        "phone": "+7 4012 729333",
+        "tourism": "hotel",
+        "website": "http://www.crystalhotel.ru"
+      }
+    },
+    {
+      "type": "way",
+      "id": 997933223,
+      "center": {
+        "lat": 54.9552845,
+        "lon": 20.4771445
+      },
+      "tags": {
+        "amenity": "parking"
+      }
+    },
+    {
+      "type": "way",
+      "id": 997933224,
+      "center": {
+        "lat": 54.9551135,
+        "lon": 20.4785104
+      },
+      "tags": {
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1039009211,
+      "center": {
+        "lat": 54.9574573,
+        "lon": 20.4747588
+      },
+      "tags": {
+        "amenity": "school",
+        "name": "Гимназия \"Вектор\""
+      }
+    },
+    {
+      "type": "way",
+      "id": 1039192902,
+      "center": {
+        "lat": 54.957724,
+        "lon": 20.4779463
+      },
+      "tags": {
+        "amenity": "school",
+        "name": "Школа Зеленоградска",
+        "source:geometry": "ЕГРН",
+        "was:amenity": "school"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1039192911,
+      "center": {
+        "lat": 54.9525514,
+        "lon": 20.4711707
+      },
+      "tags": {
+        "amenity": "parking"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1069666447,
+      "center": {
+        "lat": 54.9587007,
+        "lon": 20.4736613
+      },
+      "tags": {
+        "amenity": "bench"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1079242369,
+      "center": {
+        "lat": 54.9555502,
+        "lon": 20.4718826
+      },
+      "tags": {
+        "access": "customers",
+        "amenity": "parking",
+        "operator": "Elisa",
+        "parking": "surface",
+        "supervised": "yes",
+        "surface": "asphalt"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1079242372,
+      "center": {
+        "lat": 54.9555965,
+        "lon": 20.4714645
+      },
+      "tags": {
+        "access": "yes",
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1320320264,
+      "center": {
+        "lat": 54.9623605,
+        "lon": 20.4777717
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800207,
+      "center": {
+        "lat": 54.9541232,
+        "lon": 20.4775896
+      },
+      "tags": {
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800212,
+      "center": {
+        "lat": 54.9536812,
+        "lon": 20.477199
+      },
+      "tags": {
+        "leisure": "fitness_station"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800213,
+      "center": {
+        "lat": 54.9539228,
+        "lon": 20.4777705
+      },
+      "tags": {
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800231,
+      "center": {
+        "lat": 54.9542282,
+        "lon": 20.4789374
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800232,
+      "center": {
+        "lat": 54.9540973,
+        "lon": 20.4773056
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800233,
+      "center": {
+        "lat": 54.9540958,
+        "lon": 20.4778166
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800234,
+      "center": {
+        "lat": 54.9542291,
+        "lon": 20.4776781
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800236,
+      "center": {
+        "lat": 54.9542232,
+        "lon": 20.4763114
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800237,
+      "center": {
+        "lat": 54.9543221,
+        "lon": 20.4763457
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800241,
+      "center": {
+        "lat": 54.9536069,
+        "lon": 20.4779731
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800242,
+      "center": {
+        "lat": 54.953704,
+        "lon": 20.4780328
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800248,
+      "center": {
+        "lat": 54.9550773,
+        "lon": 20.4820149
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800252,
+      "center": {
+        "lat": 54.9557241,
+        "lon": 20.4812783
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800253,
+      "center": {
+        "lat": 54.9554895,
+        "lon": 20.4817858
+      },
+      "tags": {
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800258,
+      "center": {
+        "lat": 54.9552265,
+        "lon": 20.4809701
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800259,
+      "center": {
+        "lat": 54.9549686,
+        "lon": 20.4819418
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800265,
+      "center": {
+        "lat": 54.9556234,
+        "lon": 20.4821937
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1322800267,
+      "center": {
+        "lat": 54.9557337,
+        "lon": 20.4823747
+      },
+      "tags": {
+        "amenity": "parking",
+        "orientation": "perpendicular",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1336490862,
+      "center": {
+        "lat": 54.9597544,
+        "lon": 20.4729219
+      },
+      "tags": {
+        "amenity": "parking",
+        "parking": "street_side"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1336490863,
+      "center": {
+        "lat": 54.959988,
+        "lon": 20.4734806
+      },
+      "tags": {
+        "amenity": "kindergarten",
+        "barrier": "fence",
+        "education": "kindergarten",
+        "education_level:preschool": "yes",
+        "education_profile:general": "yes",
+        "education_system:ru_standard": "yes",
+        "fence_type": "chain",
+        "landuse": "commercial"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1336490869,
+      "center": {
+        "lat": 54.9606424,
+        "lon": 20.4723358
+      },
+      "tags": {
+        "access": "yes",
+        "amenity": "parking",
+        "fee": "yes",
+        "parking": "surface"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1336490871,
+      "center": {
+        "lat": 54.9605018,
+        "lon": 20.4699842
+      },
+      "tags": {
+        "leisure": "fitness_station",
+        "sport": "fitness"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1336490873,
+      "center": {
+        "lat": 54.9603831,
+        "lon": 20.4711623
+      },
+      "tags": {
+        "leisure": "garden"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1336490875,
+      "center": {
+        "lat": 54.9601749,
+        "lon": 20.4709692
+      },
+      "tags": {
+        "leisure": "playground"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1336490876,
+      "center": {
+        "lat": 54.9600837,
+        "lon": 20.4713994
+      },
+      "tags": {
+        "leisure": "swimming_pool"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249464,
+      "center": {
+        "lat": 54.9580685,
+        "lon": 20.4644906
+      },
+      "tags": {
+        "source:geometry": "ЕГРН",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249465,
+      "center": {
+        "lat": 54.9582456,
+        "lon": 20.4642364
+      },
+      "tags": {
+        "source:geometry": "ЕГРН",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249489,
+      "center": {
+        "lat": 54.955379,
+        "lon": 20.4724036
+      },
+      "tags": {
+        "source:geometry": "ЕГРН",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249490,
+      "center": {
+        "lat": 54.9557078,
+        "lon": 20.4718681
+      },
+      "tags": {
+        "source:geometry": "ЕГРН",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249499,
+      "center": {
+        "lat": 54.9568619,
+        "lon": 20.4718039
+      },
+      "tags": {
+        "source:geometry": "ЕГРН",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249524,
+      "center": {
+        "lat": 54.9588576,
+        "lon": 20.4715183
+      },
+      "tags": {
+        "source:geometry": "ЕГРН",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249536,
+      "center": {
+        "lat": 54.9600342,
+        "lon": 20.4701784
+      },
+      "tags": {
+        "amenity": "parking",
+        "source:geometry": "ЕГРН"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249537,
+      "center": {
+        "lat": 54.9599142,
+        "lon": 20.4703517
+      },
+      "tags": {
+        "source:geometry": "ЕГРН",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249549,
+      "center": {
+        "lat": 54.9588426,
+        "lon": 20.4763973
+      },
+      "tags": {
+        "amenity": "police",
+        "landuse": "institutional",
+        "source:geometry": "ЕГРН"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249551,
+      "center": {
+        "lat": 54.9595012,
+        "lon": 20.4778037
+      },
+      "tags": {
+        "source:geometry": "ЕГРН",
+        "tourism": "hotel"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1425249555,
+      "center": {
+        "lat": 54.9597843,
+        "lon": 20.4766615
+      },
+      "tags": {
+        "source:geometry": "ЕГРН",
+        "tourism": "hotel"
+      }
+    }
+  ]
+}

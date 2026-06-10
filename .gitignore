@@ -1,0 +1,61 @@
+# Environment files
+.env
+.env.*
+!.env.example
+!frontend/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+coverage/
+
+# Logs
+*.log
+logs/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Local databases and dumps
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
+
+# Temporary files
+tmp/
+temp/
+.cache/
+
+# Playwright / browser binaries / generated screenshots
+audit_screenshots/
+frontend/.playwright-cli/
+.playwright/
+playwright-report/
+test-results/
+
+# Generated data artifacts
+data/audit/
+data/exports/
+data/raw.bak
+
+# Local backups
+app_backup_before_cleanup/

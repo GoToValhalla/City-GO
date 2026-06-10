@@ -1,0 +1,96 @@
+.admin-photo-review {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+  font-family: system-ui, sans-serif;
+}
+
+.admin-photo-review-header h1 {
+  margin: 0 0 8px;
+}
+
+.admin-photo-review-meta {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.admin-photo-review-grid {
+  display: grid;
+  gap: 20px;
+  margin-top: 24px;
+}
+
+.admin-photo-card {
+  display: grid;
+  grid-template-columns: minmax(240px, 360px) 1fr;
+  gap: 20px;
+  border: 1px solid #d8dee9;
+  border-radius: 12px;
+  padding: 16px;
+  background: #fff;
+}
+
+.admin-photo-card-media img,
+.admin-photo-card-fallback {
+  width: 100%;
+  min-height: 220px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #f3f4f6;
+}
+
+.admin-photo-card-fallback {
+  display: grid;
+  place-items: center;
+  color: #6b7280;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+.admin-photo-card-body h2 {
+  margin: 0 0 8px;
+}
+
+.admin-photo-card-body ul {
+  margin: 12px 0;
+  padding-left: 18px;
+}
+
+.admin-photo-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-photo-card-actions button,
+.admin-photo-card-actions a {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.admin-photo-card-actions button.danger {
+  background: #fff1f2;
+  border-color: #fecdd3;
+}
+
+.admin-photo-review-error {
+  color: #b91c1c;
+}
+
+.admin-photo-review-status {
+  color: #4b5563;
+}
+
+@media (max-width: 860px) {
+  .admin-photo-card {
+    grid-template-columns: 1fr;
+  }
+}

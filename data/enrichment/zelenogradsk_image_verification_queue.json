@@ -1,0 +1,841 @@
+{
+  "items": [
+    {
+      "slug": "zelenogradsk-coffee-voyazh",
+      "title": "Вояж",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-museum-gorodskaya-biblioteka",
+      "title": "Городская библиотека",
+      "category": "museum",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%92%D0%BE%D0%B4%D0%BE%D0%BD%D0%B0%D0%BF%D0%BE%D1%80%D0%BD%D0%B0%D1%8F%20%D0%B1%D0%B0%D1%88%D0%BD%D1%8F%20%D0%9A%D1%80%D0%B0%D0%BD%D1%86%D0%B0%2C%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-attraction-seryy-baltiyskiy-tyulen",
+      "title": "Серый балтийский тюлень",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%94%D0%BE%D0%BC%D0%B0%20%D0%B4%D0%BB%D1%8F%20%D0%BA%D0%BE%D1%88%D0%B5%D0%BA%20%D0%B2%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%D0%B5.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-coffee-k-nigsb-cker",
+      "title": "Königsbäcker",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-skovorodka",
+      "title": "Сковородка",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-pirozhki-iz-pechi",
+      "title": "Пирожки из печи",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-bufet",
+      "title": "Буфет",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-ponchiki",
+      "title": "Пончики",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-museum-detskaya-biblioteka",
+      "title": "Детская библиотека",
+      "category": "museum",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%92%D0%BE%D0%B4%D0%BE%D0%BD%D0%B0%D0%BF%D0%BE%D1%80%D0%BD%D0%B0%D1%8F%20%D0%B1%D0%B0%D1%88%D0%BD%D1%8F%20%D0%9A%D1%80%D0%B0%D0%BD%D1%86%D0%B0%2C%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-coffee-litovskaya-kuhnya",
+      "title": "Литовская кухня",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-attraction-vidy-zelenogradska",
+      "title": "Виды Зеленоградска",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BA%D0%BE%D1%88%D0%BA%D0%B0%20(13).jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-coffee-bogatyr-1",
+      "title": "Богатырь №1",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-attraction-byuvet-korolevy-luizy",
+      "title": "Бювет королевы Луизы",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-attraction-dom-korolevy-luizy",
+      "title": "Дом королевы Луизы",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BA%D0%BE%D1%88%D0%BA%D0%B0%20(13).jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-museum-filosoviya",
+      "title": "Филосовия",
+      "category": "museum",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D1%83%D0%BB.%D0%93%D0%B5%D1%80%D1%86%D0%B5%D0%BD%D0%B0%2C%20%D0%B2%D0%B8%D0%B4%20%D0%BD%D0%B0%20%D0%B2%D0%BE%D0%B4%D0%BE%D0%BD%D0%B0%D0%BF%D0%BE%D1%80%D0%BD%D1%83%D1%8E%20%D0%B1%D0%B0%D1%88%D0%BD%D1%8E.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-food-staryy-gorod",
+      "title": "Старый город",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-the-waffles",
+      "title": "The Waffles",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-ura-pitstsa",
+      "title": "Ура! Пицца",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-attraction-dom-s-chaynikami-s-tortsa",
+      "title": "Дом с чайниками с торца",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BA%D0%BE%D1%88%D0%BA%D0%B0%20(13).jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-coffee-kruassan",
+      "title": "Круассан",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-attraction-kurortnitsa",
+      "title": "Курортница",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%BE%D1%82%D0%BE%D1%81%D0%B2%D0%B5%D1%82%D0%BE%D1%84%D0%BE%D1%80%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%D0%B0.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-attraction-dohodnyy-dom-basta",
+      "title": "Доходный дом Баста",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%94%D0%BE%D0%BC%D0%B0%20%D0%B4%D0%BB%D1%8F%20%D0%BA%D0%BE%D1%88%D0%B5%D0%BA%20%D0%B2%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%D0%B5.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-attraction-dom-zhiloy-s-aptekoy",
+      "title": "Дом жилой с аптекой",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-attraction-haus-daudert",
+      "title": "Хаус Даудерт",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BA%D0%BE%D1%88%D0%BA%D0%B0%20(13).jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-attraction-fahverkovoe-zdanie-iz-krasnogo-kirpicha",
+      "title": "Фахверковое здание из красного кирпича",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%B0%D0%BB%D0%B8%D0%BD%D0%B8%D0%BD%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%D0%B0%D1%8F%20%D0%BE%D0%B1%D0%BB%D0%B0%D1%81%D1%82%D1%8C.%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA.%20%D0%A1%D1%82%D1%80%D0%B8%D1%82-%D0%B0%D1%80%D1%82.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-attraction-villa-spyaschaya-krasavitsa",
+      "title": "вилла «Спящая красавица»",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%BE%D1%82%D0%BE%D1%81%D0%B2%D0%B5%D1%82%D0%BE%D1%84%D0%BE%D1%80%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%D0%B0.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-attraction-dom-evreyskoy-obschiny",
+      "title": "Дом еврейской общины",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%94%D0%BE%D0%BC%D0%B0%20%D0%B4%D0%BB%D1%8F%20%D0%BA%D0%BE%D1%88%D0%B5%D0%BA%20%D0%B2%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%D0%B5.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-attraction-zdanie-dovoennoy-postroyki",
+      "title": "здание довоенной постройки",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Manhole%20Cover%20Zelenogradsk%20Color.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-coffee-promryba",
+      "title": "Промрыба",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-porto",
+      "title": "Porto",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-food-telegraf",
+      "title": "Телеграф",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-lyubimaya-pekarnya",
+      "title": "Любимая пекарня",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-bistro-22",
+      "title": "БИСТРО 22",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-rosterhit",
+      "title": "Ростерхит",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-hleb",
+      "title": "Хлеб",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-amaliya",
+      "title": "Амалия",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-koffe",
+      "title": "Koffe",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-seyf",
+      "title": "Сейф",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-pilot",
+      "title": "Pilot",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-ryba-agon",
+      "title": "Рыба Агонь",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-bar-pivnoy-dvor",
+      "title": "Пивной двор",
+      "category": "bar",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-okno-vkusa",
+      "title": "Окно вкуса",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-attraction-kit",
+      "title": "Кит",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%BE%D1%82%D0%BE%D1%81%D0%B2%D0%B5%D1%82%D0%BE%D1%84%D0%BE%D1%80%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%D0%B0.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-coffee-ohota-est",
+      "title": "Охота есть",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-solenaya-vorona",
+      "title": "Солёная ворона",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-food-vstrecha-love",
+      "title": "Встреча Love",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-food-tak-bistro",
+      "title": "Так бистро",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-food-balt",
+      "title": "Балт",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-sestry-shutts",
+      "title": "Сёстры Шутц",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-bar-gastro-fab",
+      "title": "Gastro FAB",
+      "category": "bar",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-hotel-villa-history",
+      "title": "Villa History",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-food-bavariya",
+      "title": "Бавария",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-tutvkusno",
+      "title": "ТутВкусно",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-hogo",
+      "title": "Хого",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-amore",
+      "title": "Amore",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-hotel-anhalt",
+      "title": "Анхальт",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelrnogradsk.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-kofe-krendel",
+      "title": "Кофе крендель",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-litovskaya-vypechka",
+      "title": "Литовская выпечка",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-fishka",
+      "title": "Фишка",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-ogonek",
+      "title": "Огонёк",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-gelateria-italiana",
+      "title": "Gelateria Italiana",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-food-soul",
+      "title": "Soul",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-gorizont",
+      "title": "Горизонт",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-food-bereg-morya",
+      "title": "Берег моря",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-hleb-da-sol",
+      "title": "Хлеб да соль",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-hotel-turgenev",
+      "title": "Тургенев",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-blinskiy",
+      "title": "Блинский",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-vostochnoe",
+      "title": "Восточное",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-citycoffee",
+      "title": "CityCoffee",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-attraction-muzhchina-v-srednevekovyh-odezhdah",
+      "title": "Мужчина в средневековых одеждах",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-service-zelenogradskiy-universalnyy-rynok",
+      "title": "Зеленоградский универсальный рынок",
+      "category": "service",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9A%D0%BE%D1%82%D0%BE%D1%81%D0%B2%D0%B5%D1%82%D0%BE%D1%84%D0%BE%D1%80%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%D0%B0.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-hotel-amber-shore-collection",
+      "title": "Amber shore collection",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-food-teya",
+      "title": "Teya",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-food-laba-dena",
+      "title": "Лаба Дена",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-sushilove",
+      "title": "СушиLove",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-kambuz",
+      "title": "Камбуз",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-hotel-administratsiya-sanatoriya-zelenogradsk",
+      "title": "администрация санатория Зеленоградск",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/ZelenogradskCranz%2005-2017%20railway%20station.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-papasha-beppe",
+      "title": "Папаша Беппе",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-hotel-baltiyskaya-korona",
+      "title": "Балтийская корона",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20(50188861738).jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-hotel-royal-lions",
+      "title": "Royal Lions",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/ZelenogradskCranz%2005-2017%20railway%20station.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-hotel-villa-lana",
+      "title": "Вилла Лана",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-museum-detskaya-gorodskaya-biblioteka",
+      "title": "Детская городская библиотека",
+      "category": "museum",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D1%83%D0%BB.%D0%93%D0%B5%D1%80%D1%86%D0%B5%D0%BD%D0%B0%2C%20%D0%B2%D0%B8%D0%B4%20%D0%BD%D0%B0%20%D0%B2%D0%BE%D0%B4%D0%BE%D0%BD%D0%B0%D0%BF%D0%BE%D1%80%D0%BD%D1%83%D1%8E%20%D0%B1%D0%B0%D1%88%D0%BD%D1%8E.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-museum-muzey-kurortnoy-mody",
+      "title": "Музей курортной моды",
+      "category": "museum",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%9B%D1%8E%D1%82%D0%B5%D1%80%D0%B0%D0%BD%D1%81%D0%BA%D0%B0%D1%8F%20%D0%BA%D0%B8%D1%80%D1%85%D0%B0%20%D0%A1%D0%B2%D1%8F%D1%82%D0%BE%D0%B3%D0%BE%20%D0%90%D0%B4%D0%B0%D0%BB%D1%8C%D0%B1%D0%B5%D1%80%D1%82%D0%B0%2C%20%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-hotel-daiva",
+      "title": "Даива",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-coffee-veranda",
+      "title": "Веранда",
+      "category": "coffee",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-food-oblaka",
+      "title": "Облака",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%20-%20View%20from%20ferris%20wheel%2C%20towards%20nearby%20cafe.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-park-skver-korolevy-luizy",
+      "title": "Сквер королевы Луизы",
+      "category": "park",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%B3%D0%BE%D1%80%D0%BE%D0%B4%D1%81%D0%BA%D0%BE%D0%B9%20%D0%BF%D0%B0%D1%80%D0%BA%2C%20%D0%BC%D0%BE%D1%81%D1%82%20%D0%B2%D0%B7%D0%B4%D0%BE%D1%85%D0%BE%D0%B2.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-food-renessans",
+      "title": "Ренессанс",
+      "category": "food",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Krantas1.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-bar-beer-zelis",
+      "title": "Beer Zelis",
+      "category": "bar",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelenogradsk%202369.JPG?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-hotel-kandinskiy",
+      "title": "Кандинский",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/ZelenogradskCranz%2005-2017%20railway%20station.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-hotel-zolotaya-milya",
+      "title": "Золотая миля",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/%D0%97%D0%B5%D0%BB%D0%B5%D0%BD%D0%BE%D0%B3%D1%80%D0%B0%D0%B4%D1%81%D0%BA%2C%20%D0%BD%D0%B0%D0%B1%D0%B5%D1%80%D0%B5%D0%B6%D0%BD%D0%B0%D1%8F.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    },
+    {
+      "slug": "zelenogradsk-attraction-roza-vetrov",
+      "title": "Роза ветров",
+      "category": "attraction",
+      "reason": "area photo must not be treated as exact",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Manhole%20Cover%20Zelenogradsk%20Color.jpg?width=1200",
+      "image_status": "area_photo",
+      "image_confidence": "medium"
+    },
+    {
+      "slug": "zelenogradsk-hotel-kristall",
+      "title": "Кристалл",
+      "category": "hotel",
+      "reason": "needs exact or area photo",
+      "image_url": "https://commons.wikimedia.org/wiki/Special:FilePath/Zelrnogradsk.jpg?width=1200",
+      "image_status": "category_photo",
+      "image_confidence": "low"
+    }
+  ]
+}

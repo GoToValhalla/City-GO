@@ -1,0 +1,22 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Manual deploy placeholder
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deployment placeholder
+        shell: bash
+        run: |
+          echo "Deploy scaffold is ready."
+          echo "Real deployment commands will be added after clean code migration."

@@ -1,0 +1,11 @@
+[
+  {
+    "id": "zelenogradsk",
+    "name": "Зеленоградск",
+    "country": "RU",
+    "timezone": "Europe/Kaliningrad",
+    "lat": 54.9534,
+    "lng": 20.4648,
+    "active": true
+  }
+]

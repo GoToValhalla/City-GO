@@ -1,0 +1,63 @@
+from fastapi.testclient import TestClient
+
+from main import app
+
+
+def test_dry_run_place_seed_payload_returns_summary() -> None:
+    client = TestClient(app)
+
+    response = client.post(
+        "/place-seed/dry-run/",
+        json={
+            "items": [
+                {
+                    "title": "Coffee Point",
+                    "slug": "coffee-point",
+                    "city_slug": "zelenogradsk",
+                    "category": "coffee",
+                    "address": "Kurortny Prospekt 12",
+                    "short_description": "Good coffee place",
+                    "taxonomy": {
+                        "category": "coffee",
+                        "tags": ["pet_friendly", "quiet"],
+                        "scenario_tags": ["coffee_now", "with_dog"],
+                        "vibe_tags": ["cozy"],
+                        "restriction_tags": [],
+                    },
+                    "source": "manual",
+                    "source_url": None,
+                    "lat": 54.964,
+                    "lng": 20.475,
+                    "is_active": True,
+                },
+                {
+                    "title": " ",
+                    "slug": "bad-place",
+                    "city_slug": "zelenogradsk",
+                    "category": "food",
+                    "address": None,
+                    "short_description": None,
+                    "taxonomy": {
+                        "category": "bad_category",
+                        "tags": ["bad_tag"],
+                        "scenario_tags": [],
+                        "vibe_tags": [],
+                        "restriction_tags": [],
+                    },
+                    "source": None,
+                    "source_url": None,
+                    "lat": None,
+                    "lng": None,
+                    "is_active": True,
+                },
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+    assert response.json()["created"] == 0
+    assert response.json()["updated"] == 0
+    assert response.json()["skipped"] == 1
+    assert response.json()["invalid"] == 1
+    assert len(response.json()["errors"]) == 1

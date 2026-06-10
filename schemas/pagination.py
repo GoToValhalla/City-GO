@@ -1,0 +1,10 @@
+from pydantic import BaseModel, Field
+
+
+class PaginationParams(BaseModel):
+    """
+    Параметры пагинации для list/search endpoint'ов.
+    """
+
+    limit: int = Field(default=20, ge=1, le=100)
+    offset: int = Field(default=0, ge=0)

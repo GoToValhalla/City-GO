@@ -1,0 +1,93 @@
+/* @vitest-environment jsdom */
+import '@testing-library/jest-dom/vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { HomePage } from './HomePage'
+import { getPlacesByCityResponse } from '../../api/places/places.api'
+import { getAvailableCities } from '../../api/cities/cities.api'
+
+vi.mock('../../api/places/places.api', () => ({
+  getPlacesByCityResponse: vi.fn(),
+}))
+
+vi.mock('../../api/cities/cities.api', () => ({
+  getAvailableCities: vi.fn(),
+}))
+
+vi.mock('../../shared/city/currentCity', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../shared/city/currentCity')>()
+  return {
+    ...actual,
+    getCurrentCity: vi.fn(() => actual.DEFAULT_CITY),
+    setCurrentCity: vi.fn(),
+  }
+})
+
+const mockedGetPlacesByCityResponse = vi.mocked(getPlacesByCityResponse)
+const mockedGetAvailableCities = vi.mocked(getAvailableCities)
+
+describe('HomePage', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('renders heading and places count after loading', async () => {
+    mockedGetAvailableCities.mockResolvedValueOnce([])
+    mockedGetPlacesByCityResponse.mockResolvedValueOnce({
+      total: 2,
+      limit: 20,
+      offset: 0,
+      items: [
+      {
+        id: 1,
+        slug: 'mesto-1',
+        title: 'Кофейня у моря',
+        short_description: 'Вкусный кофе',
+        category: 'cafe',
+        address: 'ул. Морская, 1',
+      },
+      {
+        id: 2,
+        slug: 'mesto-2',
+        title: 'Музей янтаря',
+        short_description: null,
+        category: 'museum',
+        address: 'ул. Центральная, 5',
+      },
+      ],
+    })
+
+    render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: /Найди куда сходить/ }),
+    ).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(screen.getByText('2')).toBeInTheDocument()
+    })
+
+    expect(screen.getAllByText('Кофейня у моря').length).toBeGreaterThan(0)
+    expect(screen.getByRole('link', { name: /Собрать маршрут/ })).toBeInTheDocument()
+  })
+
+  it('renders error state when places loading fails', async () => {
+    mockedGetAvailableCities.mockResolvedValueOnce([])
+    mockedGetPlacesByCityResponse.mockRejectedValueOnce(new Error('network error'))
+
+    render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Не удалось загрузить places с backend')).toBeInTheDocument()
+    })
+  })
+})

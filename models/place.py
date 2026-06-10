@@ -1,0 +1,86 @@
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, event
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from db.base import Base
+
+
+class Place(Base):
+    __tablename__ = "places"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False, index=True)
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
+
+    slug: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    short_description: Mapped[str | None] = mapped_column(String, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    address: Mapped[str | None] = mapped_column(String, nullable=True)
+    address_source: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    address_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    address_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    route_exclusion_reason: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    admin_comment: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+
+    existence_confidence_score: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    existence_confidence_level: Mapped[str] = mapped_column(String(32), default="unknown", index=True)
+    verification_status: Mapped[str] = mapped_column(String(32), default="unverified", index=True)
+    verification_source: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    verification_method: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    verified_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    needs_recheck_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    verification_comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+
+    # Для legacy/seed-created мест default=True, чтобы не сломать существующий публичный каталог.
+    # Admin-created/imported places должны явно приходить как draft/unpublished через admin API/import worker.
+    is_published: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    is_visible_in_catalog: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    is_route_eligible: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    is_searchable: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    publication_status: Mapped[str] = mapped_column(String(32), default="published", index=True)
+    publication_comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    unpublished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    lat: Mapped[float] = mapped_column(Float, nullable=False)
+    lng: Mapped[float] = mapped_column(Float, nullable=False)
+    category: Mapped[str | None] = mapped_column(String, nullable=True)
+    outdoor: Mapped[bool] = mapped_column(Boolean, default=False)
+    indoor: Mapped[bool] = mapped_column(Boolean, default=False)
+    dog_friendly: Mapped[bool] = mapped_column(Boolean, default=False)
+    family_friendly: Mapped[bool] = mapped_column(Boolean, default=False)
+    price_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    opening_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
+    average_visit_duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda ctx: ctx.get_current_parameters().get("created_at") or datetime.utcnow(),
+        onupdate=datetime.utcnow,
+    )
+
+    city = relationship("City", back_populates="places")
+    category_ref = relationship("Category", back_populates="places")
+    route_places = relationship("RoutePlace", back_populates="place")
+    collection_places = relationship("CollectionPlace", back_populates="place")
+    place_tags = relationship("PlaceTag", back_populates="place")
+    schedules = relationship("PlaceSchedule", back_populates="place")
+    images = relationship("PlaceImage", back_populates="place")
+
+
+@event.listens_for(Place, "before_insert")
+def set_place_insert_timestamps(mapper: object, connection: object, target: Place) -> None:
+    timestamp = target.created_at or target.updated_at or datetime.utcnow()
+    target.created_at = target.created_at or timestamp
+    target.updated_at = target.updated_at or timestamp

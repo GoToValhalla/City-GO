@@ -1,0 +1,1600 @@
+[
+  {
+    "id": "zrsk_amore",
+    "city_id": "zelenogradsk",
+    "name": "Amore",
+    "category": "cafe",
+    "lat": 54.9628281,
+    "lng": 20.4782002,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_beer_zelis",
+    "city_id": "zelenogradsk",
+    "name": "Beer Zelis",
+    "category": "bar",
+    "lat": 54.9577925,
+    "lng": 20.4702037,
+    "price_level": 2,
+    "average_visit_duration_minutes": 35,
+    "opening_hours": "10:00-23:00",
+    "tags": [
+      "pub"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_citycoffee",
+    "city_id": "zelenogradsk",
+    "name": "CityCoffee",
+    "category": "cafe",
+    "lat": 54.9594796,
+    "lng": 20.4730493,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_gastro_fab",
+    "city_id": "zelenogradsk",
+    "name": "Gastro FAB",
+    "category": "bar",
+    "lat": 54.9626768,
+    "lng": 20.4779249,
+    "price_level": 2,
+    "average_visit_duration_minutes": 35,
+    "opening_hours": null,
+    "tags": [
+      "bar"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_gelateria_italiana",
+    "city_id": "zelenogradsk",
+    "name": "Gelateria Italiana",
+    "category": "cafe",
+    "lat": 54.962638,
+    "lng": 20.4776632,
+    "price_level": 0,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "10:00-22:00",
+    "tags": [
+      "ice_cream"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_koffe",
+    "city_id": "zelenogradsk",
+    "name": "Koffe",
+    "category": "cafe",
+    "lat": 54.96365,
+    "lng": 20.4815832,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_knigsbcker",
+    "city_id": "zelenogradsk",
+    "name": "Königsbäcker",
+    "category": "cafe",
+    "lat": 54.9589173,
+    "lng": 20.4742418,
+    "price_level": 0,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Fr 08:00-21:00; Sa-Su 09:00-21:00",
+    "tags": [
+      "bakery"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_pilot",
+    "city_id": "zelenogradsk",
+    "name": "Pilot",
+    "category": "cafe",
+    "lat": 54.9557768,
+    "lng": 20.4792917,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Th 10:00-22:00; Fr-Su 10:00-23:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_porto",
+    "city_id": "zelenogradsk",
+    "name": "Porto",
+    "category": "cafe",
+    "lat": 54.9629734,
+    "lng": 20.4788625,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Th,Su 08:30-20:00; Fr-Sa 09:00-21:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_soul",
+    "city_id": "zelenogradsk",
+    "name": "Soul",
+    "category": "restaurant",
+    "lat": 54.9582458,
+    "lng": 20.4642992,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "07:45-23:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_teya",
+    "city_id": "zelenogradsk",
+    "name": "Teya",
+    "category": "restaurant",
+    "lat": 54.9617807,
+    "lng": 20.4814164,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": null,
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_the_waffles",
+    "city_id": "zelenogradsk",
+    "name": "The Waffles",
+    "category": "cafe",
+    "lat": 54.9587502,
+    "lng": 20.4725478,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Su 09:00-21:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_amaliya",
+    "city_id": "zelenogradsk",
+    "name": "Амалия",
+    "category": "cafe",
+    "lat": 54.9614777,
+    "lng": 20.4798528,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Fr 10:00-20:00; Sa-Su 09:00-21:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_bistro_22",
+    "city_id": "zelenogradsk",
+    "name": "БИСТРО 22",
+    "category": "cafe",
+    "lat": 54.9573326,
+    "lng": 20.4679871,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Su 09:00-19:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_bavariya",
+    "city_id": "zelenogradsk",
+    "name": "Бавария",
+    "category": "restaurant",
+    "lat": 54.9601782,
+    "lng": 20.4713425,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": null,
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_balt",
+    "city_id": "zelenogradsk",
+    "name": "Балт",
+    "category": "restaurant",
+    "lat": 54.9611277,
+    "lng": 20.4781185,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "Su-Th 12:00-23:00; Fr-Sa 12:00-00:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_bereg_morya",
+    "city_id": "zelenogradsk",
+    "name": "Берег моря",
+    "category": "restaurant",
+    "lat": 54.9579858,
+    "lng": 20.4636025,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": null,
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_blinskiy",
+    "city_id": "zelenogradsk",
+    "name": "Блинский",
+    "category": "cafe",
+    "lat": 54.9583292,
+    "lng": 20.4736219,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_bogatyr_1",
+    "city_id": "zelenogradsk",
+    "name": "Богатырь №1",
+    "category": "cafe",
+    "lat": 54.9584973,
+    "lng": 20.4741152,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "10:00-22:00",
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_branch_na_more",
+    "city_id": "zelenogradsk",
+    "name": "Бранч на море",
+    "category": "restaurant",
+    "lat": 54.9626617,
+    "lng": 20.4777894,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "Fr-Su 09:00-21:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_bufet",
+    "city_id": "zelenogradsk",
+    "name": "Буфет",
+    "category": "cafe",
+    "lat": 54.9616495,
+    "lng": 20.4810678,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Su 10:00-21:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_byuvet_korolevy_luizy",
+    "city_id": "zelenogradsk",
+    "name": "Бювет королевы Луизы",
+    "category": "landmark",
+    "lat": 54.9621167,
+    "lng": 20.475574,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_veranda",
+    "city_id": "zelenogradsk",
+    "name": "Веранда",
+    "category": "cafe",
+    "lat": 54.9604307,
+    "lng": 20.4703818,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_vidy_zelenogradska",
+    "city_id": "zelenogradsk",
+    "name": "Виды Зеленоградска",
+    "category": "landmark",
+    "lat": 54.9604991,
+    "lng": 20.4770563,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "artwork"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_vostochnoe",
+    "city_id": "zelenogradsk",
+    "name": "Восточное",
+    "category": "cafe",
+    "lat": 54.9582445,
+    "lng": 20.4737869,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_voyazh",
+    "city_id": "zelenogradsk",
+    "name": "Вояж",
+    "category": "cafe",
+    "lat": 54.9584989,
+    "lng": 20.471216,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_vstrecha_love",
+    "city_id": "zelenogradsk",
+    "name": "Встреча Love",
+    "category": "restaurant",
+    "lat": 54.9606192,
+    "lng": 20.4778959,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "PH,Mo-Su 10:00-22:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_gorizont",
+    "city_id": "zelenogradsk",
+    "name": "Горизонт",
+    "category": "cafe",
+    "lat": 54.9607372,
+    "lng": 20.4756409,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Th,Su 11:00-23:00; Fr-Sa 11:00-24:00",
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_gorodskaya_biblioteka",
+    "city_id": "zelenogradsk",
+    "name": "Городская библиотека",
+    "category": "museum",
+    "lat": 54.9596748,
+    "lng": 20.4746884,
+    "price_level": 0,
+    "average_visit_duration_minutes": 75,
+    "opening_hours": null,
+    "tags": [
+      "library"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_detskaya_biblioteka",
+    "city_id": "zelenogradsk",
+    "name": "Детская библиотека",
+    "category": "museum",
+    "lat": 54.9598767,
+    "lng": 20.4769127,
+    "price_level": 0,
+    "average_visit_duration_minutes": 75,
+    "opening_hours": null,
+    "tags": [
+      "library"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_detskaya_gorodskaya_biblioteka",
+    "city_id": "zelenogradsk",
+    "name": "Детская городская библиотека",
+    "category": "museum",
+    "lat": 54.9597358,
+    "lng": 20.4733316,
+    "price_level": 0,
+    "average_visit_duration_minutes": 75,
+    "opening_hours": null,
+    "tags": [
+      "library"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_dom_evreyskoy_obschiny",
+    "city_id": "zelenogradsk",
+    "name": "Дом еврейской общины",
+    "category": "landmark",
+    "lat": 54.9595409,
+    "lng": 20.4804944,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_dom_zhiloy_s_aptekoy",
+    "city_id": "zelenogradsk",
+    "name": "Дом жилой с аптекой",
+    "category": "landmark",
+    "lat": 54.9598842,
+    "lng": 20.47603,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_dom_korolevy_luizy",
+    "city_id": "zelenogradsk",
+    "name": "Дом королевы Луизы",
+    "category": "landmark",
+    "lat": 54.9567583,
+    "lng": 20.4780654,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_dom_s_chaynikami_s_tortsa",
+    "city_id": "zelenogradsk",
+    "name": "Дом с чайниками с торца",
+    "category": "landmark",
+    "lat": 54.9583544,
+    "lng": 20.4797769,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "artwork"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_dohodnyy_dom_basta",
+    "city_id": "zelenogradsk",
+    "name": "Доходный дом Баста",
+    "category": "landmark",
+    "lat": 54.9598815,
+    "lng": 20.4740122,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_zelenogradskiy_gorodskoy_kraevedcheskiy_",
+    "city_id": "zelenogradsk",
+    "name": "Зеленоградский городской краеведческий музей",
+    "category": "museum",
+    "lat": 54.9597357,
+    "lng": 20.4733421,
+    "price_level": 0,
+    "average_visit_duration_minutes": 75,
+    "opening_hours": "Tu-Su 10:00-18:00",
+    "tags": [
+      "museum"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_zelenogradskiy_universalnyy_rynok",
+    "city_id": "zelenogradsk",
+    "name": "Зеленоградский универсальный рынок",
+    "category": "market",
+    "lat": 54.9595474,
+    "lng": 20.4744108,
+    "price_level": 0,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "marketplace"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_kambuz",
+    "city_id": "zelenogradsk",
+    "name": "Камбуз",
+    "category": "cafe",
+    "lat": 54.9625455,
+    "lng": 20.4815318,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "10:00-22:00",
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_kit",
+    "city_id": "zelenogradsk",
+    "name": "Кит",
+    "category": "landmark",
+    "lat": 54.9619909,
+    "lng": 20.4818864,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "artwork"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_kolodets_s_kotami",
+    "city_id": "zelenogradsk",
+    "name": "Колодец с котами",
+    "category": "landmark",
+    "lat": 54.961697,
+    "lng": 20.4817091,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_kot",
+    "city_id": "zelenogradsk",
+    "name": "Кот",
+    "category": "landmark",
+    "lat": 54.9622112,
+    "lng": 20.4747645,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "artwork"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_kot_s_sovoy",
+    "city_id": "zelenogradsk",
+    "name": "Кот с совой",
+    "category": "landmark",
+    "lat": 54.9621723,
+    "lng": 20.4808818,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "artwork"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_kotofeynya",
+    "city_id": "zelenogradsk",
+    "name": "Котофейня",
+    "category": "landmark",
+    "lat": 54.9604906,
+    "lng": 20.4770122,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "artwork"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_kofe_krendel",
+    "city_id": "zelenogradsk",
+    "name": "Кофе крендель",
+    "category": "cafe",
+    "lat": 54.9611045,
+    "lng": 20.4785432,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_koshachiy_svetofor",
+    "city_id": "zelenogradsk",
+    "name": "Кошачий светофор",
+    "category": "landmark",
+    "lat": 54.9602769,
+    "lng": 20.4768647,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": "24/7",
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_krants_fish",
+    "city_id": "zelenogradsk",
+    "name": "Кранц Фиш",
+    "category": "cafe",
+    "lat": 54.9590152,
+    "lng": 20.4714261,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Fr 08:30-17:00; Sa 08:30-19:00; Su 08:30-18:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_kruassan",
+    "city_id": "zelenogradsk",
+    "name": "Круассан",
+    "category": "cafe",
+    "lat": 54.9594141,
+    "lng": 20.4738677,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Th,Su 08:00-20:00; Fr-Sa 08:00-21:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_kurortnitsa",
+    "city_id": "zelenogradsk",
+    "name": "Курортница",
+    "category": "landmark",
+    "lat": 54.961407,
+    "lng": 20.4801783,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "artwork"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_laba_dena",
+    "city_id": "zelenogradsk",
+    "name": "Лаба Дена",
+    "category": "restaurant",
+    "lat": 54.9613359,
+    "lng": 20.4802601,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "Mo-Th,Su 09:00-22:00; Fr-Sa 09:00-23:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_litovskaya_vypechka",
+    "city_id": "zelenogradsk",
+    "name": "Литовская выпечка",
+    "category": "cafe",
+    "lat": 54.9599933,
+    "lng": 20.4762543,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "09:00-23:00",
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_litovskaya_kuhnya",
+    "city_id": "zelenogradsk",
+    "name": "Литовская кухня",
+    "category": "cafe",
+    "lat": 54.9603837,
+    "lng": 20.4774842,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "PH,Mo-Su 09:00-19:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_lyubimaya_pekarnya",
+    "city_id": "zelenogradsk",
+    "name": "Любимая пекарня",
+    "category": "cafe",
+    "lat": 54.9588943,
+    "lng": 20.4752014,
+    "price_level": 0,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "08:00-20:00",
+    "tags": [
+      "bakery"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_muzhchina_v_srednevekovyh_odezhdah",
+    "city_id": "zelenogradsk",
+    "name": "Мужчина в средневековых одеждах",
+    "category": "landmark",
+    "lat": 54.9595535,
+    "lng": 20.4733604,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "artwork"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_muzey_kurortnoy_mody",
+    "city_id": "zelenogradsk",
+    "name": "Музей курортной моды",
+    "category": "museum",
+    "lat": 54.9611512,
+    "lng": 20.48103,
+    "price_level": 0,
+    "average_visit_duration_minutes": 75,
+    "opening_hours": "Mo-Su 11:00-18:00",
+    "tags": [
+      "museum"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_oblaka",
+    "city_id": "zelenogradsk",
+    "name": "Облака",
+    "category": "restaurant",
+    "lat": 54.9604825,
+    "lng": 20.4708628,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "Su-Th 12:00-22:00; Fr,Sa 12:00-24:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_ogonk",
+    "city_id": "zelenogradsk",
+    "name": "Огонёк",
+    "category": "cafe",
+    "lat": 54.962582,
+    "lng": 20.477432,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_okno_vkusa",
+    "city_id": "zelenogradsk",
+    "name": "Окно вкуса",
+    "category": "cafe",
+    "lat": 54.9619039,
+    "lng": 20.4816742,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Su 09:00-22:00",
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_ohota_est",
+    "city_id": "zelenogradsk",
+    "name": "Охота есть",
+    "category": "cafe",
+    "lat": 54.9625482,
+    "lng": 20.4780203,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "10:00-22:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_papasha_beppe",
+    "city_id": "zelenogradsk",
+    "name": "Папаша Беппе",
+    "category": "cafe",
+    "lat": 54.9631628,
+    "lng": 20.4819686,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "PH,Mo-Su 11:00-24:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_pivnoy_dvor",
+    "city_id": "zelenogradsk",
+    "name": "Пивной двор",
+    "category": "bar",
+    "lat": 54.9550702,
+    "lng": 20.4809329,
+    "price_level": 2,
+    "average_visit_duration_minutes": 35,
+    "opening_hours": "24/7",
+    "tags": [
+      "pub"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_pirozhki_iz_pechi",
+    "city_id": "zelenogradsk",
+    "name": "Пирожки из печи",
+    "category": "cafe",
+    "lat": 54.9615623,
+    "lng": 20.4815999,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "09:00-20:00",
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_ponchiki",
+    "city_id": "zelenogradsk",
+    "name": "Пончики",
+    "category": "cafe",
+    "lat": 54.9587103,
+    "lng": 20.4728895,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_promryba",
+    "city_id": "zelenogradsk",
+    "name": "Промрыба",
+    "category": "cafe",
+    "lat": 54.9606178,
+    "lng": 20.471525,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "11:00-21:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_renessans",
+    "city_id": "zelenogradsk",
+    "name": "Ренессанс",
+    "category": "restaurant",
+    "lat": 54.957982,
+    "lng": 20.4660796,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": null,
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_roza_vetrov",
+    "city_id": "zelenogradsk",
+    "name": "Роза ветров",
+    "category": "landmark",
+    "lat": 54.9634943,
+    "lng": 20.4819546,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "artwork"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_rosterhit",
+    "city_id": "zelenogradsk",
+    "name": "Ростерхит",
+    "category": "cafe",
+    "lat": 54.9586333,
+    "lng": 20.4735817,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "24/7",
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_ryba_agon",
+    "city_id": "zelenogradsk",
+    "name": "Рыба Агонь",
+    "category": "cafe",
+    "lat": 54.9609732,
+    "lng": 20.4757921,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "11:00-22:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_seyf",
+    "city_id": "zelenogradsk",
+    "name": "Сейф",
+    "category": "cafe",
+    "lat": 54.9597102,
+    "lng": 20.4758842,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "08:00-22:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_seryy_baltiyskiy_tyulen",
+    "city_id": "zelenogradsk",
+    "name": "Серый балтийский тюлень",
+    "category": "landmark",
+    "lat": 54.9604857,
+    "lng": 20.4702622,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "artwork"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_skver_korolevy_luizy",
+    "city_id": "zelenogradsk",
+    "name": "Сквер королевы Луизы",
+    "category": "landmark",
+    "lat": 54.9593851,
+    "lng": 20.4749905,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_skovorodka",
+    "city_id": "zelenogradsk",
+    "name": "Сковородка",
+    "category": "cafe",
+    "lat": 54.961536,
+    "lng": 20.4815448,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Su 10:00-21:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_solnaya_vorona",
+    "city_id": "zelenogradsk",
+    "name": "Солёная ворона",
+    "category": "cafe",
+    "lat": 54.9581006,
+    "lng": 20.471367,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "11:00-21:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_staryy_gorod",
+    "city_id": "zelenogradsk",
+    "name": "Старый город",
+    "category": "restaurant",
+    "lat": 54.9601027,
+    "lng": 20.4819546,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "Mo-Su 12:00-00:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_sushilove",
+    "city_id": "zelenogradsk",
+    "name": "СушиLove",
+    "category": "cafe",
+    "lat": 54.9593339,
+    "lng": 20.4728982,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "10:00-22:00",
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_sstry_shutts",
+    "city_id": "zelenogradsk",
+    "name": "Сёстры Шутц",
+    "category": "cafe",
+    "lat": 54.9600493,
+    "lng": 20.4765821,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "Mo-Su 09:00-21:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_tak_bistro",
+    "city_id": "zelenogradsk",
+    "name": "Так бистро",
+    "category": "restaurant",
+    "lat": 54.960224,
+    "lng": 20.4762892,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "Mo-Th 09:00-22:00; Fr-Su 09:00-23:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_telegraf",
+    "city_id": "zelenogradsk",
+    "name": "Телеграф",
+    "category": "restaurant",
+    "lat": 54.9598445,
+    "lng": 20.4756396,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "11:00-23:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_tutvkusno",
+    "city_id": "zelenogradsk",
+    "name": "ТутВкусно",
+    "category": "cafe",
+    "lat": 54.960685,
+    "lng": 20.471307,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_u_neptuna",
+    "city_id": "zelenogradsk",
+    "name": "У Нептуна",
+    "category": "restaurant",
+    "lat": 54.9601794,
+    "lng": 20.4695011,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "10:00-23:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_ura_pitstsa",
+    "city_id": "zelenogradsk",
+    "name": "Ура! Пицца",
+    "category": "cafe",
+    "lat": 54.9592282,
+    "lng": 20.4723595,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "10:00-22:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_fok_dyussh_yantar",
+    "city_id": "zelenogradsk",
+    "name": "ФОК ДЮСШ Янтарь",
+    "category": "sport",
+    "lat": 54.9554488,
+    "lng": 20.4778911,
+    "price_level": 0,
+    "average_visit_duration_minutes": 60,
+    "opening_hours": null,
+    "tags": [
+      "sports_centre"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_fahverkovoe_zdanie_iz_krasnogo_kirpicha",
+    "city_id": "zelenogradsk",
+    "name": "Фахверковое здание из красного кирпича",
+    "category": "landmark",
+    "lat": 54.960063,
+    "lng": 20.4817856,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_filosoviya",
+    "city_id": "zelenogradsk",
+    "name": "Филосовия",
+    "category": "museum",
+    "lat": 54.9560062,
+    "lng": 20.4777372,
+    "price_level": 0,
+    "average_visit_duration_minutes": 75,
+    "opening_hours": null,
+    "tags": [
+      "museum"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_fishka",
+    "city_id": "zelenogradsk",
+    "name": "Фишка",
+    "category": "cafe",
+    "lat": 54.960896,
+    "lng": 20.4758183,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_haus_daudert",
+    "city_id": "zelenogradsk",
+    "name": "Хаус Даудерт",
+    "category": "landmark",
+    "lat": 54.9612496,
+    "lng": 20.4800329,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_hleb",
+    "city_id": "zelenogradsk",
+    "name": "Хлеб",
+    "category": "cafe",
+    "lat": 54.9611896,
+    "lng": 20.4782992,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": "08:00-21:00",
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_hleb_da_sol",
+    "city_id": "zelenogradsk",
+    "name": "Хлеб да соль",
+    "category": "cafe",
+    "lat": 54.9589768,
+    "lng": 20.4753909,
+    "price_level": 1,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "fast_food"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_hogo",
+    "city_id": "zelenogradsk",
+    "name": "Хого",
+    "category": "cafe",
+    "lat": 54.9619026,
+    "lng": 20.4787964,
+    "price_level": 2,
+    "average_visit_duration_minutes": 30,
+    "opening_hours": null,
+    "tags": [
+      "cafe"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_hram_apostola_andreya_pervozvannogo",
+    "city_id": "zelenogradsk",
+    "name": "Храм апостола Андрея Первозванного",
+    "category": "church",
+    "lat": 54.9601988,
+    "lng": 20.4786238,
+    "price_level": 0,
+    "average_visit_duration_minutes": 20,
+    "opening_hours": null,
+    "tags": [
+      "place_of_worship"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_cheshirskiy_kot",
+    "city_id": "zelenogradsk",
+    "name": "Чеширский кот",
+    "category": "restaurant",
+    "lat": 54.9621545,
+    "lng": 20.4789931,
+    "price_level": 2,
+    "average_visit_duration_minutes": 50,
+    "opening_hours": "Mo-Su 10:00-22:00",
+    "tags": [
+      "restaurant"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": false
+  },
+  {
+    "id": "zrsk_villa_spyaschaya_krasavitsa",
+    "city_id": "zelenogradsk",
+    "name": "вилла «Спящая красавица»",
+    "category": "landmark",
+    "lat": 54.9590817,
+    "lng": 20.4790707,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_zdanie_dovoennoy_postroyki",
+    "city_id": "zelenogradsk",
+    "name": "здание довоенной постройки",
+    "category": "landmark",
+    "lat": 54.9592799,
+    "lng": 20.4800162,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  },
+  {
+    "id": "zrsk_pochtamt_krantsa",
+    "city_id": "zelenogradsk",
+    "name": "почтамт Кранца",
+    "category": "landmark",
+    "lat": 54.9597885,
+    "lng": 20.4755203,
+    "price_level": 0,
+    "average_visit_duration_minutes": 15,
+    "opening_hours": null,
+    "tags": [
+      "attraction"
+    ],
+    "description": "",
+    "active": true,
+    "_needs_review": true
+  }
+]

@@ -1,0 +1,6182 @@
+{
+  "items": [
+    {
+      "title": "Вояж",
+      "slug": "zelenogradsk-coffee-voyazh",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/1311835745",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9584989,
+      "lng": 20.471216,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Городская библиотека",
+      "slug": "zelenogradsk-museum-gorodskaya-biblioteka",
+      "city_slug": "zelenogradsk",
+      "category": "museum",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "museum",
+        "tags": [
+          "indoor",
+          "historical"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/2349108902",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9596748,
+      "lng": 20.4746884,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "18:00"
+        }
+      },
+      "average_visit_duration_minutes": 75,
+      "price_level": 0
+    },
+    {
+      "title": "Серый балтийский тюлень",
+      "slug": "zelenogradsk-attraction-seryy-baltiyskiy-tyulen",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/2927275513",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9604857,
+      "lng": 20.4702622,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Königsbäcker",
+      "slug": "zelenogradsk-coffee-k-nigsb-cker",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Тургенева",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/4173301789",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9589173,
+      "lng": 20.4742418,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Сковородка",
+      "slug": "zelenogradsk-coffee-skovorodka",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/4360586294",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.961536,
+      "lng": 20.4815448,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Зеленоградский городской краеведческий музей",
+      "slug": "zelenogradsk-museum-zelenogradskiy-gorodskoy-kraevedcheskiy-muzey",
+      "city_slug": "zelenogradsk",
+      "category": "museum",
+      "address": "улица Ленина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "museum",
+        "tags": [
+          "indoor",
+          "historical"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/4360615389",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9597357,
+      "lng": 20.4733421,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "18:00"
+        }
+      },
+      "average_visit_duration_minutes": 75,
+      "price_level": 0
+    },
+    {
+      "title": "Пирожки из печи",
+      "slug": "zelenogradsk-coffee-pirozhki-iz-pechi",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/4434538492",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9615623,
+      "lng": 20.4815999,
+      "opening_hours": {
+        "mon": {
+          "open": "09:00",
+          "close": "20:00"
+        },
+        "tue": {
+          "open": "09:00",
+          "close": "20:00"
+        },
+        "wed": {
+          "open": "09:00",
+          "close": "20:00"
+        },
+        "thu": {
+          "open": "09:00",
+          "close": "20:00"
+        },
+        "fri": {
+          "open": "09:00",
+          "close": "20:00"
+        },
+        "sat": {
+          "open": "09:00",
+          "close": "20:00"
+        },
+        "sun": {
+          "open": "09:00",
+          "close": "20:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Буфет",
+      "slug": "zelenogradsk-coffee-bufet",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/4434600389",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9616495,
+      "lng": 20.4810678,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Пончики",
+      "slug": "zelenogradsk-coffee-ponchiki",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/5218167925",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9587103,
+      "lng": 20.4728895,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Детская библиотека",
+      "slug": "zelenogradsk-museum-detskaya-biblioteka",
+      "city_slug": "zelenogradsk",
+      "category": "museum",
+      "address": "Московская улица",
+      "short_description": "",
+      "taxonomy": {
+        "category": "museum",
+        "tags": [
+          "indoor",
+          "historical"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/5414473328",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9598767,
+      "lng": 20.4769127,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "18:00"
+        }
+      },
+      "average_visit_duration_minutes": 75,
+      "price_level": 0
+    },
+    {
+      "title": "Литовская кухня",
+      "slug": "zelenogradsk-coffee-litovskaya-kuhnya",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/5478905934",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9603837,
+      "lng": 20.4774842,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Виды Зеленоградска",
+      "slug": "zelenogradsk-attraction-vidy-zelenogradska",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/5478905975",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9604991,
+      "lng": 20.4770563,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Котофейня",
+      "slug": "zelenogradsk-attraction-kotofeynya",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/5478905984",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9604906,
+      "lng": 20.4770122,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Богатырь №1",
+      "slug": "zelenogradsk-coffee-bogatyr-1",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/5784204376",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9584973,
+      "lng": 20.4741152,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Кранц Фиш",
+      "slug": "zelenogradsk-coffee-krants-fish",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/6550185289",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9590152,
+      "lng": 20.4714261,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Кот с совой",
+      "slug": "zelenogradsk-attraction-kot-s-sovoy",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/6690250888",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9621723,
+      "lng": 20.4808818,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Бювет королевы Луизы",
+      "slug": "zelenogradsk-attraction-byuvet-korolevy-luizy",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/6690576186",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9621167,
+      "lng": 20.475574,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Дом королевы Луизы",
+      "slug": "zelenogradsk-attraction-dom-korolevy-luizy",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/6694098085",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9567583,
+      "lng": 20.4780654,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Филосовия",
+      "slug": "zelenogradsk-museum-filosoviya",
+      "city_slug": "zelenogradsk",
+      "category": "museum",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "museum",
+        "tags": [
+          "indoor",
+          "historical"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/6764272395",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9560062,
+      "lng": 20.4777372,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "18:00"
+        }
+      },
+      "average_visit_duration_minutes": 75,
+      "price_level": 0
+    },
+    {
+      "title": "Кошачий светофор",
+      "slug": "zelenogradsk-attraction-koshachiy-svetofor",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/7556022851",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9602769,
+      "lng": 20.4768647,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Старый город",
+      "slug": "zelenogradsk-food-staryy-gorod",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": "Московская улица",
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/7618389060",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9601027,
+      "lng": 20.4819546,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "The Waffles",
+      "slug": "zelenogradsk-coffee-the-waffles",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/7620312118",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9587502,
+      "lng": 20.4725478,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Ура! Пицца",
+      "slug": "zelenogradsk-coffee-ura-pitstsa",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Горького",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/7757229069",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9592282,
+      "lng": 20.4723595,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Дом с чайниками с торца",
+      "slug": "zelenogradsk-attraction-dom-s-chaynikami-s-tortsa",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/7775374887",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9583544,
+      "lng": 20.4797769,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Круассан",
+      "slug": "zelenogradsk-coffee-kruassan",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Ленина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/7836660650",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9594141,
+      "lng": 20.4738677,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Курортница",
+      "slug": "zelenogradsk-attraction-kurortnitsa",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/8493710318",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.961407,
+      "lng": 20.4801783,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Доходный дом Баста",
+      "slug": "zelenogradsk-attraction-dohodnyy-dom-basta",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/8658540724",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9598815,
+      "lng": 20.4740122,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "почтамт Кранца",
+      "slug": "zelenogradsk-attraction-pochtamt-krantsa",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/8658541020",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9597885,
+      "lng": 20.4755203,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Дом жилой с аптекой",
+      "slug": "zelenogradsk-attraction-dom-zhiloy-s-aptekoy",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/8658543218",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9598842,
+      "lng": 20.47603,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Хаус Даудерт",
+      "slug": "zelenogradsk-attraction-haus-daudert",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/8658584517",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9612496,
+      "lng": 20.4800329,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Фахверковое здание из красного кирпича",
+      "slug": "zelenogradsk-attraction-fahverkovoe-zdanie-iz-krasnogo-kirpicha",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/8658626420",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.960063,
+      "lng": 20.4817856,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "вилла «Спящая красавица»",
+      "slug": "zelenogradsk-attraction-villa-spyaschaya-krasavitsa",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/8658626421",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9590817,
+      "lng": 20.4790707,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Дом еврейской общины",
+      "slug": "zelenogradsk-attraction-dom-evreyskoy-obschiny",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/8658626618",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9595409,
+      "lng": 20.4804944,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "здание довоенной постройки",
+      "slug": "zelenogradsk-attraction-zdanie-dovoennoy-postroyki",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/8658626619",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9592799,
+      "lng": 20.4800162,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Промрыба",
+      "slug": "zelenogradsk-coffee-promryba",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/8701914017",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9606178,
+      "lng": 20.471525,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Porto",
+      "slug": "zelenogradsk-coffee-porto",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Пугачёва",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/9049896817",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9629734,
+      "lng": 20.4788625,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Телеграф",
+      "slug": "zelenogradsk-food-telegraf",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/9257644617",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9598445,
+      "lng": 20.4756396,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "23:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "23:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "23:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "23:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "23:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "23:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "23:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Кот",
+      "slug": "zelenogradsk-attraction-kot",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/9272729527",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9622112,
+      "lng": 20.4747645,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Любимая пекарня",
+      "slug": "zelenogradsk-coffee-lyubimaya-pekarnya",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Тургенева",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/9567990028",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9588943,
+      "lng": 20.4752014,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "20:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "20:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "20:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "20:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "20:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "20:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "20:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "БИСТРО 22",
+      "slug": "zelenogradsk-coffee-bistro-22",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Ленина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/9761652418",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9573326,
+      "lng": 20.4679871,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Ростерхит",
+      "slug": "zelenogradsk-coffee-rosterhit",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "Вокзальная улица",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/9801641188",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9586333,
+      "lng": 20.4735817,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Хлеб",
+      "slug": "zelenogradsk-coffee-hleb",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/9991027517",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9611896,
+      "lng": 20.4782992,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Амалия",
+      "slug": "zelenogradsk-coffee-amaliya",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/10862665505",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9614777,
+      "lng": 20.4798528,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Koffe",
+      "slug": "zelenogradsk-coffee-koffe",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/10877839234",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.96365,
+      "lng": 20.4815832,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Сейф",
+      "slug": "zelenogradsk-coffee-seyf",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/10902091306",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9597102,
+      "lng": 20.4758842,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Pilot",
+      "slug": "zelenogradsk-coffee-pilot",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11040112505",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9557768,
+      "lng": 20.4792917,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Рыба Агонь",
+      "slug": "zelenogradsk-coffee-ryba-agon",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11163374381",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9609732,
+      "lng": 20.4757921,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Пивной двор",
+      "slug": "zelenogradsk-bar-pivnoy-dvor",
+      "city_slug": "zelenogradsk",
+      "category": "bar",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "bar",
+        "tags": [
+          "indoor",
+          "open_late"
+        ],
+        "scenario_tags": [
+          "evening_plan"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11164440598",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9550702,
+      "lng": 20.4809329,
+      "opening_hours": {
+        "mon": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "tue": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "wed": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "thu": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "fri": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "sat": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "sun": {
+          "open": "17:00",
+          "close": "01:00"
+        }
+      },
+      "average_visit_duration_minutes": 120,
+      "price_level": 2
+    },
+    {
+      "title": "Окно вкуса",
+      "slug": "zelenogradsk-coffee-okno-vkusa",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11164692511",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9619039,
+      "lng": 20.4816742,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Кит",
+      "slug": "zelenogradsk-attraction-kit",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11164692512",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9619909,
+      "lng": 20.4818864,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Охота есть",
+      "slug": "zelenogradsk-coffee-ohota-est",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11164692519",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9625482,
+      "lng": 20.4780203,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Солёная ворона",
+      "slug": "zelenogradsk-coffee-solenaya-vorona",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "Железнодорожная улица",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11164906665",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9581006,
+      "lng": 20.471367,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Встреча Love",
+      "slug": "zelenogradsk-food-vstrecha-love",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11194621537",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9606192,
+      "lng": 20.4778959,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Так бистро",
+      "slug": "zelenogradsk-food-tak-bistro",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11845232669",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.960224,
+      "lng": 20.4762892,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Балт",
+      "slug": "zelenogradsk-food-balt",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11849837376",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9611277,
+      "lng": 20.4781185,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Сёстры Шутц",
+      "slug": "zelenogradsk-coffee-sestry-shutts",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11849848973",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9600493,
+      "lng": 20.4765821,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Gastro FAB",
+      "slug": "zelenogradsk-bar-gastro-fab",
+      "city_slug": "zelenogradsk",
+      "category": "bar",
+      "address": "улица Пугачёва",
+      "short_description": "",
+      "taxonomy": {
+        "category": "bar",
+        "tags": [
+          "indoor",
+          "open_late"
+        ],
+        "scenario_tags": [
+          "evening_plan"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/11932724070",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9626768,
+      "lng": 20.4779249,
+      "opening_hours": {
+        "mon": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "tue": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "wed": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "thu": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "fri": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "sat": {
+          "open": "17:00",
+          "close": "01:00"
+        },
+        "sun": {
+          "open": "17:00",
+          "close": "01:00"
+        }
+      },
+      "average_visit_duration_minutes": 120,
+      "price_level": 2
+    },
+    {
+      "title": "Villa History",
+      "slug": "zelenogradsk-hotel-villa-history",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12199934052",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9601263,
+      "lng": 20.4713115,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Бавария",
+      "slug": "zelenogradsk-food-bavariya",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12214670620",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9601782,
+      "lng": 20.4713425,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "ТутВкусно",
+      "slug": "zelenogradsk-coffee-tutvkusno",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12214670621",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.960685,
+      "lng": 20.471307,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Хого",
+      "slug": "zelenogradsk-coffee-hogo",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12214972375",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9619026,
+      "lng": 20.4787964,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Amore",
+      "slug": "zelenogradsk-coffee-amore",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12214972376",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9628281,
+      "lng": 20.4782002,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Анхальт",
+      "slug": "zelenogradsk-hotel-anhalt",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12215745733",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9588736,
+      "lng": 20.4715145,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Кофе крендель",
+      "slug": "zelenogradsk-coffee-kofe-krendel",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12215807891",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9611045,
+      "lng": 20.4785432,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Литовская выпечка",
+      "slug": "zelenogradsk-coffee-litovskaya-vypechka",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12215807896",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9599933,
+      "lng": 20.4762543,
+      "opening_hours": {
+        "mon": {
+          "open": "09:00",
+          "close": "23:00"
+        },
+        "tue": {
+          "open": "09:00",
+          "close": "23:00"
+        },
+        "wed": {
+          "open": "09:00",
+          "close": "23:00"
+        },
+        "thu": {
+          "open": "09:00",
+          "close": "23:00"
+        },
+        "fri": {
+          "open": "09:00",
+          "close": "23:00"
+        },
+        "sat": {
+          "open": "09:00",
+          "close": "23:00"
+        },
+        "sun": {
+          "open": "09:00",
+          "close": "23:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Фишка",
+      "slug": "zelenogradsk-coffee-fishka",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12215873697",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.960896,
+      "lng": 20.4758183,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Огонёк",
+      "slug": "zelenogradsk-coffee-ogonek",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Пугачёва",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12218547675",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.962582,
+      "lng": 20.477432,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Gelateria Italiana",
+      "slug": "zelenogradsk-coffee-gelateria-italiana",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Пугачёва",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12218547676",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.962638,
+      "lng": 20.4776632,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Soul",
+      "slug": "zelenogradsk-food-soul",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": "улица Гагарина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12219425328",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9582458,
+      "lng": 20.4642992,
+      "opening_hours": {
+        "mon": {
+          "open": "07:45",
+          "close": "23:00"
+        },
+        "tue": {
+          "open": "07:45",
+          "close": "23:00"
+        },
+        "wed": {
+          "open": "07:45",
+          "close": "23:00"
+        },
+        "thu": {
+          "open": "07:45",
+          "close": "23:00"
+        },
+        "fri": {
+          "open": "07:45",
+          "close": "23:00"
+        },
+        "sat": {
+          "open": "07:45",
+          "close": "23:00"
+        },
+        "sun": {
+          "open": "07:45",
+          "close": "23:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Горизонт",
+      "slug": "zelenogradsk-coffee-gorizont",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12231948991",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9607372,
+      "lng": 20.4756409,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Берег моря",
+      "slug": "zelenogradsk-food-bereg-morya",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12358889713",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9579858,
+      "lng": 20.4636025,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Хлеб да соль",
+      "slug": "zelenogradsk-coffee-hleb-da-sol",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12361784819",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9589768,
+      "lng": 20.4753909,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Тургенев",
+      "slug": "zelenogradsk-hotel-turgenev",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12361784830",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9589344,
+      "lng": 20.4738486,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Блинский",
+      "slug": "zelenogradsk-coffee-blinskiy",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12361784835",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9583292,
+      "lng": 20.4736219,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Восточное",
+      "slug": "zelenogradsk-coffee-vostochnoe",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12361784846",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9582445,
+      "lng": 20.4737869,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "CityCoffee",
+      "slug": "zelenogradsk-coffee-citycoffee",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12361784895",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9594796,
+      "lng": 20.4730493,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Мужчина в средневековых одеждах",
+      "slug": "zelenogradsk-attraction-muzhchina-v-srednevekovyh-odezhdah",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12361796421",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9595535,
+      "lng": 20.4733604,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Чеширский кот",
+      "slug": "zelenogradsk-food-cheshirskiy-kot",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12377149733",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9621545,
+      "lng": 20.4789931,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Колодец с котами",
+      "slug": "zelenogradsk-attraction-kolodets-s-kotami",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12949629701",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.961697,
+      "lng": 20.4817091,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Зеленоградский универсальный рынок",
+      "slug": "zelenogradsk-service-zelenogradskiy-universalnyy-rynok",
+      "city_slug": "zelenogradsk",
+      "category": "service",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "service",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12985634550",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9595474,
+      "lng": 20.4744108,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Amber shore collection",
+      "slug": "zelenogradsk-hotel-amber-shore-collection",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12985659745",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.961783,
+      "lng": 20.4813033,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Teya",
+      "slug": "zelenogradsk-food-teya",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12985659746",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9617807,
+      "lng": 20.4814164,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Котофейня",
+      "slug": "zelenogradsk-coffee-kotofeynya",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/12988075949",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9604877,
+      "lng": 20.4768071,
+      "opening_hours": {
+        "mon": {
+          "open": "09:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "09:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "09:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "09:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "09:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "09:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "09:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Лаба Дена",
+      "slug": "zelenogradsk-food-laba-dena",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/13377739747",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9613359,
+      "lng": 20.4802601,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Бранч на море",
+      "slug": "zelenogradsk-food-branch-na-more",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": "улица Пугачёва",
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/13380785458",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9626617,
+      "lng": 20.4777894,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "СушиLove",
+      "slug": "zelenogradsk-coffee-sushilove",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Ленина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/13390787501",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9593339,
+      "lng": 20.4728982,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "Камбуз",
+      "slug": "zelenogradsk-coffee-kambuz",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/node/13688339970",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9625455,
+      "lng": 20.4815318,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 1
+    },
+    {
+      "title": "администрация санатория Зеленоградск",
+      "slug": "zelenogradsk-hotel-administratsiya-sanatoriya-zelenogradsk",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": "улица Пугачёва",
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/115708104",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.962221,
+      "lng": 20.4798628,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Папаша Беппе",
+      "slug": "zelenogradsk-coffee-papasha-beppe",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Володарского",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/115708218",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9631628,
+      "lng": 20.4819686,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Балтийская корона",
+      "slug": "zelenogradsk-hotel-baltiyskaya-korona",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": "улица Володарского",
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/115708248",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9625109,
+      "lng": 20.4810493,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Кошкин дом",
+      "slug": "zelenogradsk-hotel-koshkin-dom",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": "улица Гагарина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/116133801",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9593436,
+      "lng": 20.4697284,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Royal Lions",
+      "slug": "zelenogradsk-hotel-royal-lions",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": "улица Гагарина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/116133914",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.95787,
+      "lng": 20.4634725,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Вилла Лана",
+      "slug": "zelenogradsk-hotel-villa-lana",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": "улица Гагарина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/116133964",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9590192,
+      "lng": 20.4687492,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Курхаус Кранц (здание гостиницы, 1843 г.)",
+      "slug": "zelenogradsk-hotel-kurhaus-krants-zdanie-gostinitsy-1843-g",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/116349827",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9612563,
+      "lng": 20.478026,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Детская городская библиотека",
+      "slug": "zelenogradsk-museum-detskaya-gorodskaya-biblioteka",
+      "city_slug": "zelenogradsk",
+      "category": "museum",
+      "address": "улица Ленина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "museum",
+        "tags": [
+          "indoor",
+          "historical"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/116349993",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9597358,
+      "lng": 20.4733316,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "18:00"
+        }
+      },
+      "average_visit_duration_minutes": 75,
+      "price_level": 0
+    },
+    {
+      "title": "Музей курортной моды",
+      "slug": "zelenogradsk-museum-muzey-kurortnoy-mody",
+      "city_slug": "zelenogradsk",
+      "category": "museum",
+      "address": "Курортный проспект",
+      "short_description": "",
+      "taxonomy": {
+        "category": "museum",
+        "tags": [
+          "indoor",
+          "historical"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/116349994",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9611512,
+      "lng": 20.48103,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "18:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "18:00"
+        }
+      },
+      "average_visit_duration_minutes": 75,
+      "price_level": 0
+    },
+    {
+      "title": "Даива",
+      "slug": "zelenogradsk-hotel-daiva",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/145954294",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9587113,
+      "lng": 20.4712909,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Веранда",
+      "slug": "zelenogradsk-coffee-veranda",
+      "city_slug": "zelenogradsk",
+      "category": "coffee",
+      "address": "улица Гагарина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "coffee",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "coffee_now"
+        ],
+        "vibe_tags": [
+          "cozy"
+        ],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/179397556",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9604307,
+      "lng": 20.4703818,
+      "opening_hours": {
+        "mon": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "tue": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "wed": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "thu": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "fri": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sat": {
+          "open": "08:00",
+          "close": "21:00"
+        },
+        "sun": {
+          "open": "08:00",
+          "close": "21:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 2
+    },
+    {
+      "title": "Облака",
+      "slug": "zelenogradsk-food-oblaka",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/179397557",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9604825,
+      "lng": 20.4708628,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Сквер королевы Луизы",
+      "slug": "zelenogradsk-park-skver-korolevy-luizy",
+      "city_slug": "zelenogradsk",
+      "category": "park",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "park",
+        "tags": [
+          "outdoor",
+          "kid_friendly"
+        ],
+        "scenario_tags": [
+          "walk_now",
+          "with_kids"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/226050760",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9593851,
+      "lng": 20.4749905,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 0
+    },
+    {
+      "title": "Ренессанс",
+      "slug": "zelenogradsk-food-renessans",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": "улица Гагарина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/232050804",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.957982,
+      "lng": 20.4660796,
+      "opening_hours": {
+        "mon": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "tue": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "wed": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "thu": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "fri": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sat": {
+          "open": "11:00",
+          "close": "22:00"
+        },
+        "sun": {
+          "open": "11:00",
+          "close": "22:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Beer Zelis",
+      "slug": "zelenogradsk-bar-beer-zelis",
+      "city_slug": "zelenogradsk",
+      "category": "bar",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "bar",
+        "tags": [
+          "indoor",
+          "open_late"
+        ],
+        "scenario_tags": [
+          "evening_plan"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/234433783",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9577925,
+      "lng": 20.4702037,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "23:00"
+        }
+      },
+      "average_visit_duration_minutes": 120,
+      "price_level": 2
+    },
+    {
+      "title": "У Нептуна",
+      "slug": "zelenogradsk-food-u-neptuna",
+      "city_slug": "zelenogradsk",
+      "category": "food",
+      "address": "улица Гагарина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "food",
+        "tags": [
+          "indoor"
+        ],
+        "scenario_tags": [
+          "food_now"
+        ],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/234513787",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9601794,
+      "lng": 20.4695011,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "23:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "23:00"
+        }
+      },
+      "average_visit_duration_minutes": 60,
+      "price_level": 2
+    },
+    {
+      "title": "Кандинский",
+      "slug": "zelenogradsk-hotel-kandinskiy",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": "улица Гагарина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/423071657",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9580738,
+      "lng": 20.4644581,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Золотая миля",
+      "slug": "zelenogradsk-hotel-zolotaya-milya",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": "улица Гагарина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/694311476",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9580345,
+      "lng": 20.4640744,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Роза ветров",
+      "slug": "zelenogradsk-attraction-roza-vetrov",
+      "city_slug": "zelenogradsk",
+      "category": "attraction",
+      "address": null,
+      "short_description": "",
+      "taxonomy": {
+        "category": "attraction",
+        "tags": [
+          "outdoor",
+          "photo_spot"
+        ],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/721242256",
+      "confidence": 0.6,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9634943,
+      "lng": 20.4819546,
+      "opening_hours": {
+        "mon": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "tue": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "wed": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "thu": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "fri": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sat": {
+          "open": "10:00",
+          "close": "19:00"
+        },
+        "sun": {
+          "open": "10:00",
+          "close": "19:00"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    },
+    {
+      "title": "Кристалл",
+      "slug": "zelenogradsk-hotel-kristall",
+      "city_slug": "zelenogradsk",
+      "category": "hotel",
+      "address": "улица Гагарина",
+      "short_description": "",
+      "taxonomy": {
+        "category": "hotel",
+        "tags": [],
+        "scenario_tags": [],
+        "vibe_tags": [],
+        "restriction_tags": []
+      },
+      "source": "osm",
+      "source_url": "https://www.openstreetmap.org/way/862095942",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-03",
+      "status": "active",
+      "lat": 54.9577036,
+      "lng": 20.4647874,
+      "opening_hours": {
+        "mon": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "tue": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "wed": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "thu": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "fri": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sat": {
+          "open": "00:00",
+          "close": "23:59"
+        },
+        "sun": {
+          "open": "00:00",
+          "close": "23:59"
+        }
+      },
+      "average_visit_duration_minutes": 30,
+      "price_level": 0
+    }
+  ],
+  "dry_run": true
+}

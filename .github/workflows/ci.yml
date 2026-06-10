@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Manual project checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Backend checks if present
+        shell: bash
+        run: |
+          if [ -f requirements.txt ] || [ -f pyproject.toml ]; then
+            python -m pip install --upgrade pip
+            if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+            if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+            pip install pytest
+            if [ -d tests ]; then DATABASE_URL=sqlite:///./ci_test.db pytest -q; fi
+          else
+            echo "Backend files are not present yet; skipping backend checks."
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Frontend checks if present
+        shell: bash
+        run: |
+          if [ -f frontend/package.json ]; then
+            cd frontend
+            npm ci
+            npm run lint --if-present
+            npm run test --if-present
+            npm run build --if-present
+          else
+            echo "Frontend files are not present yet; skipping frontend checks."
+          fi

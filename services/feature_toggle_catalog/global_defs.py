@@ -1,0 +1,26 @@
+from services.feature_toggle_catalog.types import ToggleDef
+
+GLOBAL_TOGGLES: tuple[ToggleDef, ...] = (
+    {"key": "web_app_enabled", "label": "Веб-приложение", "description": "Публичный сайт доступен", "default": True, "scope": "global", "group": "product"},
+    {"key": "telegram_bot_enabled", "label": "Telegram-бот", "description": "Бот отвечает пользователям", "default": True, "scope": "global", "group": "product"},
+    {"key": "maintenance_mode", "label": "Режим обслуживания", "description": "Публичный API недоступен (админка работает)", "default": False, "scope": "global", "group": "product"},
+    {"key": "payments_enabled", "label": "Платежи", "description": "Оплата и биллинг", "default": False, "scope": "global", "group": "product"},
+    {"key": "subscriptions_enabled", "label": "Подписки", "description": "Подписочная модель", "default": False, "scope": "global", "group": "product"},
+    {"key": "route_generation_enabled", "label": "Генерация маршрутов", "description": "Построение маршрутов на сервере", "default": True, "scope": "global", "group": "routes"},
+    {"key": "route_planning_engine_enabled", "label": "Route Planning Engine", "description": "Движок планирования маршрутов", "default": True, "scope": "global", "group": "routes"},
+    {"key": "correction_engine_enabled", "label": "Correction Engine", "description": "Коррекция маршрута", "default": True, "scope": "global", "group": "routes"},
+    {"key": "live_route_editing_enabled", "label": "Live route editing", "description": "Редактирование маршрута на ходу", "default": True, "scope": "global", "group": "routes"},
+    {"key": "active_route_session_enabled", "label": "Active route session", "description": "Активная сессия маршрута", "default": True, "scope": "global", "group": "routes"},
+    {"key": "route_recovery_enabled", "label": "Route recovery", "description": "Восстановление маршрута при отклонении", "default": True, "scope": "global", "group": "routes"},
+    {"key": "smart_detours_enabled", "label": "Smart detours", "description": "Умные объезды и детуры", "default": False, "scope": "global", "group": "routes"},
+    {"key": "personalization_enabled", "label": "Персонализация", "description": "Учёт предпочтений пользователя", "default": True, "scope": "global", "group": "routes"},
+    {"key": "ai_layer_enabled", "label": "AI-слой", "description": "AI-функции продукта", "default": True, "scope": "global", "group": "ai"},
+    {"key": "ai_intent_parsing_enabled", "label": "AI intent parsing", "description": "Разбор намерений из текста", "default": True, "scope": "global", "group": "ai"},
+    {"key": "ai_retrieval_enabled", "label": "AI retrieval", "description": "Поиск кандидатов через AI", "default": True, "scope": "global", "group": "ai"},
+    {"key": "admin_moderation_enabled", "label": "Админ-модерация", "description": "Операционные действия в админке", "default": True, "scope": "global", "group": "moderation"},
+    {"key": "place_verification_enabled", "label": "Верификация мест", "description": "Очередь проверки мест", "default": True, "scope": "global", "group": "moderation"},
+    {"key": "photo_moderation_enabled", "label": "Модерация фото", "description": "Очередь фото на проверке", "default": True, "scope": "global", "group": "moderation"},
+    {"key": "auto_import_enabled", "label": "Автоимпорт", "description": "Фоновые задачи импорта", "default": True, "scope": "global", "group": "data"},
+    {"key": "auto_enrichment_enabled", "label": "Автообогащение", "description": "Фоновое обогащение данных", "default": False, "scope": "global", "group": "data"},
+    {"key": "debug_mode", "label": "Debug mode", "description": "Расширенная диагностика в API", "default": False, "scope": "global", "group": "system"},
+)

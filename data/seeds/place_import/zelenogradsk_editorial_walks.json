@@ -1,0 +1,38 @@
+{
+  "items": [
+    {
+      "title": "Променад Зеленоградска",
+      "slug": "zelenogradsk-walk-promenad",
+      "city_slug": "zelenogradsk",
+      "category": "walk",
+      "address": "Зеленоградск, район улицы Володарского",
+      "short_description": "Главная прогулочная набережная Зеленоградска у Балтийского моря.",
+      "taxonomy": {
+        "category": "walk",
+        "tags": ["outdoor", "photo_spot"],
+        "scenario_tags": ["walk_now"],
+        "vibe_tags": ["calm", "touristy"],
+        "restriction_tags": []
+      },
+      "source": "tourist_page",
+      "source_url": "https://www.kp.ru/russia/zelenogradsk/mesta/promenad-zelenogradska/",
+      "confidence": 0.7,
+      "last_verified_at": "2026-06-04",
+      "status": "active",
+      "lat": 54.96125,
+      "lng": 20.47172,
+      "opening_hours": {
+        "mon": {"open": "00:00", "close": "23:59"},
+        "tue": {"open": "00:00", "close": "23:59"},
+        "wed": {"open": "00:00", "close": "23:59"},
+        "thu": {"open": "00:00", "close": "23:59"},
+        "fri": {"open": "00:00", "close": "23:59"},
+        "sat": {"open": "00:00", "close": "23:59"},
+        "sun": {"open": "00:00", "close": "23:59"}
+      },
+      "average_visit_duration_minutes": 45,
+      "price_level": 0
+    }
+  ],
+  "dry_run": true
+}
