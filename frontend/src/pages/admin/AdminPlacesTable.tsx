@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { placeAddressView } from '../../shared/place/placeAddress'
 import type { AdminPlace } from './adminTypes'
 
 type Props = {
@@ -12,6 +13,26 @@ type Props = {
 }
 
 const flag = (v: boolean) => (v ? '✓' : '—')
+
+const AdminAddressCell = ({ place }: { place: AdminPlace }) => {
+  const view = placeAddressView({
+    address: place.address ?? '',
+    category: place.category ?? '',
+    lat: place.lat,
+    lng: place.lng,
+  })
+
+  return (
+    <div className={view.unclear ? 'admin-muted' : ''}>
+      <span>{view.label}</span>
+      {view.unclear && view.mapUrl ? (
+        <div>
+          <a href={view.mapUrl} target="_blank" rel="noopener noreferrer">Открыть на карте</a>
+        </div>
+      ) : null}
+    </div>
+  )
+}
 
 export const AdminPlacesTable = ({ items, busy, selected, onToggle, onPublish, onUnpublish, onVerify }: Props) => (
   <div className="admin-table-wrap">
@@ -32,7 +53,7 @@ export const AdminPlacesTable = ({ items, busy, selected, onToggle, onPublish, o
               <div className="admin-muted">{p.slug}</div>
             </td>
             <td>{p.category ?? '—'}</td>
-            <td>{p.address ? '✓' : '—'}</td>
+            <td><AdminAddressCell place={p} /></td>
             <td><span className={`admin-badge pub-${p.publication_status}`}>{p.publication_status}</span></td>
             <td>{p.verification_status}</td>
             <td>{flag(p.is_route_eligible)}</td>
