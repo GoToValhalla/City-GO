@@ -14,7 +14,7 @@ const page1 = Array.from({ length: 50 }, (_, i) => ({
 class MockIntersectionObserver {
   observe = vi.fn()
   disconnect = vi.fn()
-  constructor(_cb: IntersectionObserverCallback, _opts?: IntersectionObserverInit) {}
+  constructor() {}
 }
 
 describe('AdminPlacesPage', () => {
