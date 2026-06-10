@@ -29,7 +29,7 @@ export const AdminAuditLogPage = () => {
       .finally(() => setLoading(false))
   }, [entityType, action, actor])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { void Promise.resolve().then(load) }, [load])
 
   return (
     <div>
