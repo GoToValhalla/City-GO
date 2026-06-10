@@ -88,11 +88,19 @@ export const AdminRouteDryRunPage = () => {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    adminGet<AdminCitiesResponse>('/admin/cities?limit=100').then((r) => setCities(r.items)).catch(() => {})
+    adminGet<AdminCitiesResponse>('/admin/cities?limit=100')
+      .then((response) => {
+        setCities(response.items)
+        setCitySlug((current) => current || response.items[0]?.slug || '')
+      })
+      .catch((e: Error) => setError(e.message))
   }, [])
 
   const run = async () => {
-    if (!citySlug) return
+    if (!citySlug) {
+      setError('Выберите город для dry-run.')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -123,7 +131,7 @@ export const AdminRouteDryRunPage = () => {
     <div>
       <h2 className="admin-page-title">Маршруты → Dry Run</h2>
       <div className="admin-filters">
-        <select value={citySlug} onChange={(e) => setCitySlug(e.target.value)}>
+        <select value={citySlug} onChange={(e) => setCitySlug(e.target.value)} aria-label="Город dry-run">
           <option value="">Город</option>
           {cities.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
         </select>
@@ -132,7 +140,7 @@ export const AdminRouteDryRunPage = () => {
         <input value={startLat} onChange={(e) => setStartLat(e.target.value)} placeholder="lat" />
         <input value={startLng} onChange={(e) => setStartLng(e.target.value)} placeholder="lng" />
         <input value={interests} onChange={(e) => setInterests(e.target.value)} placeholder="интересы (через запятую)" />
-        <button type="button" className="admin-btn" disabled={busy} onClick={run}>{busy ? '…' : 'Запустить'}</button>
+        <button type="button" className="admin-btn" disabled={busy || !citySlug} onClick={run}>{busy ? '…' : 'Запустить'}</button>
         {result && <button type="button" className="admin-btn admin-btn-sm" onClick={downloadJson}>JSON</button>}
       </div>
       {error && <AdminError message={error} />}
