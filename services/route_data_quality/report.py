@@ -89,8 +89,7 @@ def _issues(db: Session, city: City, total: int) -> list[dict[str, object]]:
         ("no_photo", base.filter(Place.image_url.is_(None))),
         ("no_address", base.filter(or_(Place.address.is_(None), Place.address == ""))),
         ("no_description", base.filter(or_(Place.short_description.is_(None), Place.short_description == ""))),
-        ("no_coordinates", base.filter(or_(Place.lat.is_(None), Place.lng.is_(None))),
-        ),
+        ("no_coordinates", base.filter(or_(Place.lat.is_(None), Place.lng.is_(None)))),
         ("forbidden_category", base.filter(Place.category.in_(tuple(ROUTE_FORBIDDEN_CATEGORIES)))),
         ("suspicious_category", base.filter(Place.category.in_(tuple(SUSPICIOUS_CATEGORIES)))),
         ("low_quality", None),
@@ -107,7 +106,7 @@ def _issues(db: Session, city: City, total: int) -> list[dict[str, object]]:
         issues.append({
             "code": code,
             "count": count,
-            "places_link": f"/admin/routes/eligibility?city={city.slug}&issue={code}",
+            "places_link": f"/admin/routes/eligibility?city_slug={city.slug}&issue={code}",
         })
     if total == 0:
         issues.append({"code": "empty_city", "count": 0, "places_link": f"/admin/places?city={city.slug}"})
@@ -232,7 +231,7 @@ def _action(
         "title": title,
         "count": count,
         "recommended_action": recommended_action,
-        "admin_link": f"/admin/routes/eligibility?city={city_slug}&issue={issue}",
+        "admin_link": f"/admin/routes/eligibility?city_slug={city_slug}&issue={issue}",
     }
 
 
