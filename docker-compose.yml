@@ -14,7 +14,7 @@ services:
       retries: 5
 
   migrate:
-    image: ghcr.io/gotovalhalla/app-backend:latest
+    image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
     command: alembic upgrade head
     env_file: .env
@@ -26,7 +26,7 @@ services:
     restart: "no"
 
   seed:
-    image: ghcr.io/gotovalhalla/app-backend:latest
+    image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
     command: bash -c "PYTHONPATH=/app python scripts/seed_minimal_data.py"
     env_file: .env
@@ -40,7 +40,7 @@ services:
   # Manual ops only (profile ops). Not part of default deploy chain — no geocode apply on deploy.
   address-backfill:
     profiles: ["ops"]
-    image: ghcr.io/gotovalhalla/app-backend:latest
+    image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
     command: bash -c "PYTHONPATH=/app python data/scripts/run_address_recovery_flow.py --all-cities --limit 500 --sleep 1.0 --no-apply"
     env_file: .env
@@ -54,7 +54,7 @@ services:
     restart: "no"
 
   place-enrichment-export:
-    image: ghcr.io/gotovalhalla/app-backend:latest
+    image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
     command: bash -c "PYTHONPATH=/app python data/scripts/run_place_enrichment_export.py --limit 100 --missing-fields address,photo,description --git-artifact"
     env_file: .env
@@ -70,7 +70,7 @@ services:
     restart: "no"
 
   backend:
-    image: ghcr.io/gotovalhalla/app-backend:latest
+    image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     env_file: .env
@@ -98,7 +98,7 @@ services:
       start_period: 10s
 
   import-worker:
-    image: ghcr.io/gotovalhalla/app-backend:latest
+    image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
     command: >
       bash -c 'while true; do
@@ -114,11 +114,11 @@ services:
     restart: unless-stopped
 
   bot:
-    image: ghcr.io/gotovalhalla/app-backend:latest
+    image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
     command: >
       sh -c "
-        if [ -z \"$$BOT_TOKEN\" ]; then
+        if [ -z "$$BOT_TOKEN" ]; then
           echo 'BOT_TOKEN не задан — бот не запущен. Добавь BOT_TOKEN в .env и перезапусти.';
           exit 0;
         fi;
@@ -140,7 +140,7 @@ services:
       start_period: 15s
 
   frontend:
-    image: ghcr.io/gotovalhalla/app-frontend:latest
+    image: ghcr.io/gotovalhalla/city-go-frontend:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile
