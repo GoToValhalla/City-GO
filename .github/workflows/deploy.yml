@@ -2,157 +2,180 @@ name: Deploy
 
 on:
   workflow_dispatch:
-    inputs:
-      app_dir:
-        description: "Production app directory"
-        required: false
-        default: "/srv/app"
-      branch:
-        description: "Branch/ref to deploy"
-        required: false
-        default: "main"
-      run_migrations:
-        description: "Run alembic migrations"
-        required: false
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
-      rebuild:
-        description: "Rebuild docker images on server"
-        required: false
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
-      prune_images:
-        description: "Run docker image prune after deploy"
-        required: false
-        default: "false"
-        type: choice
-        options:
-          - "true"
-          - "false"
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
-  deploy:
-    name: Deploy production over SSH
+  build:
+    name: Build and push production images
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate required secrets
+      - name: Set image names
+        shell: bash
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "BACKEND_IMAGE=ghcr.io/${OWNER}/app-backend" >> "$GITHUB_ENV"
+          echo "FRONTEND_IMAGE=ghcr.io/${OWNER}/app-frontend" >> "$GITHUB_ENV"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.BACKEND_IMAGE }}:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ env.FRONTEND_IMAGE }}:latest
+          build-args: |
+            VITE_ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  deploy:
+    name: Deploy to production server
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate existing production secrets
         shell: bash
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
         run: |
           set -euo pipefail
-          test -n "$DEPLOY_HOST" || (echo "DEPLOY_HOST secret is missing" >&2; exit 1)
-          test -n "$DEPLOY_USER" || (echo "DEPLOY_USER secret is missing" >&2; exit 1)
-          test -n "$DEPLOY_SSH_KEY" || (echo "DEPLOY_SSH_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
 
-      - name: Prepare SSH
+      - name: Setup SSH key
         shell: bash
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Deploy on server
+      - name: Deploy
         shell: bash
         env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-          APP_DIR: ${{ inputs.app_dir }}
-          DEPLOY_REF: ${{ inputs.branch }}
-          RUN_MIGRATIONS: ${{ inputs.run_migrations }}
-          REBUILD: ${{ inputs.rebuild }}
-          PRUNE_IMAGES: ${{ inputs.prune_images }}
+          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+          GH_REPO: ${{ github.repository }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "APP_DIR='$APP_DIR' DEPLOY_REF='$DEPLOY_REF' RUN_MIGRATIONS='$RUN_MIGRATIONS' REBUILD='$REBUILD' PRUNE_IMAGES='$PRUNE_IMAGES' bash -s" <<'REMOTE'
-          set -euo pipefail
-          cd "$APP_DIR"
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" bash <<EOF
+            set -euo pipefail
+            mkdir -p /srv/app
 
-          echo "=== server before ==="
-          pwd
-          git rev-parse HEAD || true
-          git status --short || true
+            echo "=== download compose from ${GH_REPO}@main ==="
+            curl -sf \
+              -H "Authorization: token ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github.raw" \
+              -o /srv/app/docker-compose.yml \
+              "https://api.github.com/repos/${GH_REPO}/contents/docker-compose.yml?ref=main"
 
-          echo "=== fetch/reset ==="
-          git fetch origin "$DEPLOY_REF"
-          git reset --hard "origin/$DEPLOY_REF"
-          git clean -fd
-          git rev-parse HEAD
-          git log --oneline -3
-
-          echo "=== docker compose config ==="
-          docker compose config --services
-
-          if [ "$REBUILD" = "true" ]; then
-            echo "=== build backend/frontend ==="
-            docker compose build backend frontend
-          fi
-
-          if [ "$RUN_MIGRATIONS" = "true" ]; then
-            echo "=== migrations ==="
-            docker compose up --build --abort-on-container-exit --exit-code-from migrate migrate
-            docker compose logs --tail=120 migrate || true
-          fi
-
-          echo "=== restart runtime services ==="
-          docker compose up -d --remove-orphans backend frontend import-worker bot
-
-          if [ "$PRUNE_IMAGES" = "true" ]; then
-            docker image prune -f || true
-          fi
-
-          echo "=== health checks ==="
-          for attempt in $(seq 1 30); do
-            if docker compose exec -T backend curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-              echo "backend health OK attempt=$attempt"
-              break
+            cd /srv/app
+            touch .env
+            if ! grep -q '^ADMIN_API_TOKEN=.' .env 2>/dev/null; then
+              if [ -n "${ADMIN_API_TOKEN}" ]; then
+                printf '%s\n' "ADMIN_API_TOKEN=${ADMIN_API_TOKEN}" >> .env
+              else
+                echo "WARN: ADMIN_API_TOKEN missing in .env and GitHub secret; admin frontend/backend auth may fail."
+              fi
             fi
-            if [ "$attempt" = "30" ]; then
-              echo "ERROR: backend health timeout" >&2
+            if ! grep -q '^APP_ENV=' .env 2>/dev/null; then
+              echo "APP_ENV=production" >> .env
+            fi
+
+            echo "=== docker login ==="
+            echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
+
+            echo "=== docker pull ==="
+            docker compose pull
+
+            echo "=== migrations ==="
+            set +e
+            docker compose up migrate
+            MIGRATE_EXIT=\$?
+            set -e
+            docker compose logs --tail=120 migrate || true
+            if [ "\$MIGRATE_EXIT" != "0" ]; then
+              echo "ERROR: Migrations failed (exit code \$MIGRATE_EXIT). Deploy aborted."
+              exit 1
+            fi
+            echo "=== migrations OK ==="
+
+            echo "=== restart services ==="
+            docker compose up -d --remove-orphans
+            docker image prune -f || true
+
+            echo "=== backend health ==="
+            BACKEND_OK=0
+            for attempt in \$(seq 1 30); do
+              if docker compose exec -T backend curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+                BACKEND_OK=1
+                echo "Backend health OK attempt=\$attempt"
+                break
+              fi
+              echo "Backend not ready yet attempt=\$attempt/30"
+              sleep 3
+            done
+            if [ "\$BACKEND_OK" != "1" ]; then
+              echo "ERROR: Backend health check failed after deploy."
               docker compose ps || true
               docker compose logs --tail=120 backend || true
               exit 1
             fi
-            sleep 3
-          done
 
-          docker compose exec -T backend curl -sf http://localhost:8000/ready || true
-          docker compose exec -T frontend wget -qO- http://127.0.0.1:80/ >/dev/null && echo "frontend OK" || echo "WARN: frontend check failed"
-
-          echo "=== code verification inside backend ==="
-          docker compose exec -T backend python - <<'PY'
+            echo "=== verify route eligibility code inside backend ==="
+            docker compose exec -T backend python - <<'PY'
           import inspect
           from services.route_eligibility import query_filters
           print(inspect.getsource(query_filters.route_eligible_sql_conditions))
           PY
 
-          echo "=== alembic current/head ==="
-          docker compose exec -T backend alembic current || true
-          docker compose exec -T backend alembic heads || true
+            echo "=== alembic current/head ==="
+            docker compose exec -T backend alembic current || true
+            docker compose exec -T backend alembic heads || true
 
-          echo "=== containers ==="
-          docker compose ps
-          REMOTE
+            echo "=== containers ==="
+            docker compose ps
+            echo "Deploy done: \$(date)"
+          EOF
