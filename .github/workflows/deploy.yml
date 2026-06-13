@@ -138,7 +138,24 @@ jobs:
             echo "=== migrations OK ==="
 
             echo "=== restart services ==="
+            set +e
             docker compose up -d --remove-orphans
+            UP_EXIT=\$?
+            set -e
+            if [ "\$UP_EXIT" != "0" ]; then
+              echo "ERROR: docker compose up failed (exit code \$UP_EXIT). Printing diagnostics."
+              echo "=== compose ps ==="
+              docker compose ps || true
+              echo "=== backend logs ==="
+              docker compose logs --tail=200 backend || true
+              echo "=== migrate logs ==="
+              docker compose logs --tail=120 migrate || true
+              echo "=== seed logs ==="
+              docker compose logs --tail=120 seed || true
+              echo "=== enrichment export logs ==="
+              docker compose logs --tail=120 place-enrichment-export || true
+              exit "\$UP_EXIT"
+            fi
             docker image prune -f || true
 
             echo "=== backend health ==="
@@ -155,7 +172,7 @@ jobs:
             if [ "\$BACKEND_OK" != "1" ]; then
               echo "ERROR: Backend health check failed after deploy."
               docker compose ps || true
-              docker compose logs --tail=120 backend || true
+              docker compose logs --tail=200 backend || true
               exit 1
             fi
 
