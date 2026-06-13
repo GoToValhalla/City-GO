@@ -22,7 +22,9 @@ export const AdminImportJobsPage = () => {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<number | null>(null)
+  const [allBusy, setAllBusy] = useState(false)
 
   const reload = useCallback(() => {
     setLoading(true)
@@ -43,6 +45,7 @@ export const AdminImportJobsPage = () => {
   const runAction = async (cityId: number, path: string) => {
     setBusy(cityId)
     setError(null)
+    setNotice(null)
     try {
       await adminPost(path, {})
       reload()
@@ -50,6 +53,19 @@ export const AdminImportJobsPage = () => {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка')
     } finally { setBusy(null) }
+  }
+
+  const runEnrichAll = async () => {
+    setAllBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const response = await adminPost<{ message?: string }>('/admin/import-jobs/enrich-all', {})
+      setNotice(response.message ?? 'Обогащение всех городов запущено.')
+      reload()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка')
+    } finally { setAllBusy(false) }
   }
 
   const progressPct = (j: AdminImportJob) => {
@@ -63,6 +79,12 @@ export const AdminImportJobsPage = () => {
     <div>
       <h2 className="admin-page-title">Импорты ({total})</h2>
       <p className="admin-page-subtitle">Pipeline: места → адреса → фото → качество → проверка</p>
+      <div className="admin-actions-cell" style={{ marginBottom: 16 }}>
+        <button type="button" className="admin-btn" disabled={allBusy || items.length === 0} onClick={runEnrichAll}>
+          {allBusy ? 'Запускаю…' : 'Обогатить все города'}
+        </button>
+      </div>
+      {notice && <p className="admin-success-text">{notice}</p>}
       {error && <AdminError message={error} />}
       {loading ? <AdminLoading /> : items.length === 0 ? (
         <AdminEmpty message="Задач импорта пока нет" />
