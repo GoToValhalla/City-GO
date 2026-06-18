@@ -65,7 +65,7 @@ def score_place_quality(place: Place, *, now: datetime | None = None) -> Quality
         maximum=100,
     )
     quality_tier = _quality_tier(place, quality_score)
-    eligibility = evaluate_place_route_eligibility(place)
+    eligibility = _evaluate_with_projected_quality_tier(place, quality_tier=quality_tier)
     return QualityScoreResult(
         quality_score=quality_score,
         quality_tier=quality_tier,
@@ -212,6 +212,15 @@ def _quality_tier(place: Place, quality_score: int) -> str:
     if quality_score >= BRONZE_MIN_SCORE:
         return "bronze"
     return "draft"
+
+
+def _evaluate_with_projected_quality_tier(place: Place, *, quality_tier: str):
+    original_quality_tier = place.quality_tier
+    try:
+        place.quality_tier = quality_tier
+        return evaluate_place_route_eligibility(place)
+    finally:
+        place.quality_tier = original_quality_tier
 
 
 def _has_text(value: str | None) -> bool:
