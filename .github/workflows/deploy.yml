@@ -30,11 +30,33 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push backend image
+      - name: Build backend image
         shell: bash
         run: |
           set -euo pipefail
           docker build -t "$BACKEND_IMAGE:latest" .
+
+      - name: Backend import smoke inside image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e DATABASE_URL='sqlite:///./ci_import_smoke.db' \
+            -e ADMIN_API_TOKEN='ci-admin-token' \
+            -e APP_ENV='test' \
+            "$BACKEND_IMAGE:latest" \
+            python - <<'PY'
+          import main
+          from core.router_setup import include_app_routers
+          print('backend_image_import_smoke_ok')
+          print(main.app.title)
+          print(include_app_routers.__name__)
+          PY
+
+      - name: Push backend image
+        shell: bash
+        run: |
+          set -euo pipefail
           docker push "$BACKEND_IMAGE:latest"
 
       - name: Build and push frontend image
@@ -130,9 +152,10 @@ jobs:
             docker compose up migrate
             MIGRATE_EXIT=\$?
             set -e
-            docker compose logs --tail=120 migrate || true
+            docker compose logs --tail=160 migrate || true
             if [ "\$MIGRATE_EXIT" != "0" ]; then
               echo "ERROR: Migrations failed (exit code \$MIGRATE_EXIT). Deploy aborted."
+              docker compose ps || true
               exit 1
             fi
             echo "=== migrations OK ==="
@@ -145,7 +168,7 @@ jobs:
 
             echo "=== backend startup diagnostics ==="
             docker compose ps || true
-            docker compose logs --tail=120 backend || true
+            docker compose logs --tail=160 backend || true
 
             echo "=== backend health ==="
             BACKEND_OK=0
@@ -156,7 +179,7 @@ jobs:
                 break
               fi
               echo "Backend not ready yet attempt=\$attempt/30"
-              docker compose logs --tail=60 backend || true
+              docker compose logs --tail=80 backend || true
               sleep 3
             done
             if [ "\$BACKEND_OK" != "1" ]; then
@@ -164,19 +187,49 @@ jobs:
               echo "=== compose ps ==="
               docker compose ps || true
               echo "=== backend logs ==="
-              docker compose logs --tail=240 backend || true
+              docker compose logs --tail=300 backend || true
               echo "=== migrate logs ==="
-              docker compose logs --tail=120 migrate || true
+              docker compose logs --tail=160 migrate || true
               echo "=== seed logs ==="
-              docker compose logs --tail=120 seed || true
+              docker compose logs --tail=160 seed || true
               echo "=== enrichment export logs ==="
-              docker compose logs --tail=120 place-enrichment-export || true
+              docker compose logs --tail=160 place-enrichment-export || true
               exit 1
             fi
 
             echo "=== start remaining services ==="
             docker compose up -d --no-deps frontend bot import-worker
-            docker image prune -f || true
+
+            echo "=== frontend health ==="
+            FRONTEND_OK=0
+            for attempt in \$(seq 1 20); do
+              if curl -sf http://localhost/ >/dev/null 2>&1; then
+                FRONTEND_OK=1
+                echo "Frontend health OK attempt=\$attempt"
+                break
+              fi
+              echo "Frontend not ready yet attempt=\$attempt/20"
+              docker compose logs --tail=80 frontend || true
+              sleep 3
+            done
+            if [ "\$FRONTEND_OK" != "1" ]; then
+              echo "ERROR: Frontend health check failed after deploy."
+              docker compose ps || true
+              docker compose logs --tail=240 frontend || true
+              exit 1
+            fi
+
+            echo "=== external local api proxy health ==="
+            curl -sf http://localhost/api/health >/dev/null || (echo "ERROR: frontend /api/health proxy failed"; docker compose logs --tail=160 frontend backend || true; exit 1)
+
+            echo "=== verify backend import inside running container ==="
+            docker compose exec -T backend python - <<'PY'
+          import main
+          from core.router_setup import include_app_routers
+          print('running_backend_import_smoke_ok')
+          print(main.app.title)
+          print(include_app_routers.__name__)
+          PY
 
             echo "=== verify route eligibility code inside backend ==="
             docker compose exec -T backend python - <<'PY'
@@ -189,7 +242,12 @@ jobs:
             docker compose exec -T backend alembic current || true
             docker compose exec -T backend alembic heads || true
 
-            echo "=== containers ==="
+            echo "=== final containers ==="
             docker compose ps
+            echo "=== final logs backend ==="
+            docker compose logs --tail=120 backend || true
+            echo "=== final logs frontend ==="
+            docker compose logs --tail=120 frontend || true
+            docker image prune -f || true
             echo "Deploy done: \$(date)"
           EOF
