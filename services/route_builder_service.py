@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 
 from services.context_merge_service import ContextMergeService, RequestContext
-from services.candidate_retrieval_service import CandidateRetrievalService
+from services.resilient_candidate_retrieval_service import ResilientCandidateRetrievalService
 from services.hard_filters_service import HardFiltersService
 from services.scoring_service import ScoringService
 from services.route_assembly_service import RouteAssemblyService
@@ -16,7 +16,7 @@ from schemas.user_profile import UserProfile
 class RouteBuilderService:
     def __init__(self):
         self.context_merge = ContextMergeService()
-        self.retrieval = CandidateRetrievalService()
+        self.retrieval = ResilientCandidateRetrievalService()
         self.filters = HardFiltersService()
         self.scoring = ScoringService()
         self.assembly = RouteAssemblyService()
