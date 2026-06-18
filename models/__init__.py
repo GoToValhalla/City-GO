@@ -13,6 +13,7 @@ import models.city_scope_import_state  # noqa: F401
 import models.collection  # noqa: F401
 import models.collection_place  # noqa: F401
 import models.country  # noqa: F401
+import models.data_foundation  # noqa: F401
 import models.import_batch  # noqa: F401
 import models.place_image  # noqa: F401
 import models.place_verification  # noqa: F401
