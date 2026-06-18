@@ -117,8 +117,13 @@ jobs:
           ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" bash <<EOF
-            set -euo pipefail
+          REMOTE_GH_TOKEN=$(printf '%q' "$GH_TOKEN")
+          REMOTE_GH_ACTOR=$(printf '%q' "$GH_ACTOR")
+          REMOTE_GH_REPO=$(printf '%q' "$GH_REPO")
+          REMOTE_ADMIN_API_TOKEN=$(printf '%q' "${ADMIN_API_TOKEN:-}")
+
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "GH_TOKEN=$REMOTE_GH_TOKEN GH_ACTOR=$REMOTE_GH_ACTOR GH_REPO=$REMOTE_GH_REPO ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN bash -seu -o pipefail" <<'REMOTE_EOF'
             mkdir -p /srv/app
 
             echo "=== download compose from ${GH_REPO}@main ==="
@@ -159,10 +164,10 @@ jobs:
                 REGISTRY_OK=1
                 break
               fi
-              echo "WARN: ghcr login/pull failed attempt=\$attempt/3"
+              echo "WARN: ghcr login/pull failed attempt=${attempt}/3"
               sleep 10
             done
-            if [ "\$REGISTRY_OK" != "1" ]; then
+            if [ "${REGISTRY_OK}" != "1" ]; then
               echo "ERROR: ghcr.io unavailable from production server. Existing local containers/images were left running."
               docker compose ps || true
               exit 1
@@ -171,11 +176,11 @@ jobs:
             echo "=== migrations ==="
             set +e
             docker compose up migrate
-            MIGRATE_EXIT=\$?
+            MIGRATE_EXIT=$?
             set -e
             docker compose logs --tail=160 migrate || true
-            if [ "\$MIGRATE_EXIT" != "0" ]; then
-              echo "ERROR: Migrations failed (exit code \$MIGRATE_EXIT). Deploy aborted before runtime restart."
+            if [ "$MIGRATE_EXIT" != "0" ]; then
+              echo "ERROR: Migrations failed (exit code $MIGRATE_EXIT). Deploy aborted before runtime restart."
               docker compose ps || true
               exit 1
             fi
@@ -193,17 +198,17 @@ jobs:
 
             echo "=== backend health ==="
             BACKEND_OK=0
-            for attempt in \$(seq 1 30); do
+            for attempt in $(seq 1 30); do
               if docker compose exec -T backend curl -sf http://localhost:8000/health >/dev/null 2>&1; then
                 BACKEND_OK=1
-                echo "Backend health OK attempt=\$attempt"
+                echo "Backend health OK attempt=$attempt"
                 break
               fi
-              echo "Backend not ready yet attempt=\$attempt/30"
+              echo "Backend not ready yet attempt=$attempt/30"
               docker compose logs --tail=80 backend || true
               sleep 3
             done
-            if [ "\$BACKEND_OK" != "1" ]; then
+            if [ "$BACKEND_OK" != "1" ]; then
               echo "ERROR: Backend health check failed after deploy. Frontend was not restarted."
               echo "=== compose ps ==="
               docker compose ps || true
@@ -219,17 +224,17 @@ jobs:
 
             echo "=== frontend health ==="
             FRONTEND_OK=0
-            for attempt in \$(seq 1 20); do
+            for attempt in $(seq 1 20); do
               if curl -sf http://localhost/ >/dev/null 2>&1; then
                 FRONTEND_OK=1
-                echo "Frontend health OK attempt=\$attempt"
+                echo "Frontend health OK attempt=$attempt"
                 break
               fi
-              echo "Frontend not ready yet attempt=\$attempt/20"
+              echo "Frontend not ready yet attempt=$attempt/20"
               docker compose logs --tail=80 frontend || true
               sleep 3
             done
-            if [ "\$FRONTEND_OK" != "1" ]; then
+            if [ "$FRONTEND_OK" != "1" ]; then
               echo "ERROR: Frontend health check failed after deploy."
               docker compose ps || true
               docker compose logs --tail=240 frontend || true
@@ -259,8 +264,8 @@ jobs:
             echo "=== final logs frontend ==="
             docker compose logs --tail=120 frontend || true
             docker image prune -f || true
-            echo "Deploy done: \$(date)"
-          EOF
+            echo "Deploy done: $(date)"
+          REMOTE_EOF
 
   notify:
     name: Notify deploy result
