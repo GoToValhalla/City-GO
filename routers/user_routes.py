@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import traceback
 from time import perf_counter
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
@@ -26,31 +28,51 @@ from services.user_route_edit_service import UserRouteEditService
 router = APIRouter(prefix="/user-routes", tags=["user-routes"])
 
 
+def _debug_route_error(exc: Exception, payload: object, endpoint: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "route_build_failed",
+            "endpoint": endpoint,
+            "exception_type": exc.__class__.__name__,
+            "message": str(exc),
+            "traceback": traceback.format_exc(),
+            "payload": payload.model_dump() if hasattr(payload, "model_dump") else str(payload),
+        },
+    )
+
+
 @router.post("/build", response_model=UserRouteState)
 def build_user_route(
     payload: UserRouteBuildRequest,
     db: Session = Depends(get_db),
-) -> UserRouteState:
+) -> UserRouteState | JSONResponse:
     started = perf_counter()
-    route = UserRouteBuildService().build(db=db, request=payload)
-    record_route_build(
-        db,
-        route,
-        source=f"user_route_build:{payload.build_mode}",
-        latency_ms=_latency_ms(started),
-        city_id=payload.city_id,
-        user_id=payload.user_id,
-    )
-    return route
+    try:
+        route = UserRouteBuildService().build(db=db, request=payload)
+        record_route_build(
+            db,
+            route,
+            source=f"user_route_build:{payload.build_mode}",
+            latency_ms=_latency_ms(started),
+            city_id=payload.city_id,
+            user_id=payload.user_id,
+        )
+        return route
+    except Exception as exc:
+        return _debug_route_error(exc, payload, "/v1/user-routes/build")
 
 
 @router.post("/preview", response_model=UserRouteState)
 def preview_user_route(
     payload: UserRoutePreviewRequest,
     db: Session = Depends(get_db),
-) -> UserRouteState:
-    route = UserRouteBuildService().build(db=db, request=UserRouteBuildRequest(**payload.model_dump()))
-    return route.model_copy(update={"status": "preview"})
+) -> UserRouteState | JSONResponse:
+    try:
+        route = UserRouteBuildService().build(db=db, request=UserRouteBuildRequest(**payload.model_dump()))
+        return route.model_copy(update={"status": "preview"})
+    except Exception as exc:
+        return _debug_route_error(exc, payload, "/v1/user-routes/preview")
 
 
 @router.post("/build-structured", response_model=UserRouteStructuredBuildResponse)
