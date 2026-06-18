@@ -95,6 +95,24 @@ Backend для городского гида в стиле Tripadvisor с упо
 - outdoor
 - is_active
 
+### Data Foundation P1
+
+Добавлены quality scoring и city readiness operations:
+
+- `services/quality_scoring.py` — пересчёт `quality_score`, `quality_tier`, component scores и route eligibility для места.
+- `services/city_readiness/score.py` — пересчёт city readiness и запись `CityQualitySnapshot`.
+- `POST /admin/routes/readiness/{city_slug}/recalculate` — админский пересчёт readiness по городу.
+- `scripts/recalculate_city_readiness.py` — серверный скрипт пересчёта.
+- `docs/data-foundation-p1.md` — полный операционный контракт P1.
+
+Примеры:
+
+```bash
+python scripts/recalculate_city_readiness.py --city zelenogradsk
+python scripts/recalculate_city_readiness.py --all
+python -m pytest tests/test_data_foundation_quality_readiness.py -q
+```
+
 ## Запуск через Docker
 
 ### Подготовка
@@ -201,3 +219,4 @@ docker compose run --rm migrate
 ├── alembic.ini
 ├── main.py
 └── requirements.txt
+```
