@@ -23,6 +23,12 @@ class Category(Base):
     # Признак активности категории.
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # Data Foundation flags: категории отдельно управляют каталогом, маршрутами и импортом.
+    is_route_eligible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    is_catalog_visible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    is_default_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    is_spam_category: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+
     # Дата и время создания записи.
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
