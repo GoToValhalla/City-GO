@@ -141,6 +141,12 @@ jobs:
               echo "APP_ENV=production" >> .env
             fi
 
+            echo "=== compose config validation ==="
+            docker compose config >/dev/null
+
+            echo "=== current containers before deploy ==="
+            docker compose ps || true
+
             echo "=== docker login ==="
             echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
 
@@ -154,14 +160,14 @@ jobs:
             set -e
             docker compose logs --tail=160 migrate || true
             if [ "\$MIGRATE_EXIT" != "0" ]; then
-              echo "ERROR: Migrations failed (exit code \$MIGRATE_EXIT). Deploy aborted."
+              echo "ERROR: Migrations failed (exit code \$MIGRATE_EXIT). Deploy aborted before runtime restart."
               docker compose ps || true
               exit 1
             fi
             echo "=== migrations OK ==="
 
-            echo "=== stop runtime services before staged restart ==="
-            docker compose stop frontend import-worker bot backend || true
+            echo "=== stop backend-side services only; keep current frontend alive until backend is healthy ==="
+            docker compose stop import-worker bot backend || true
 
             echo "=== start backend only ==="
             docker compose up -d --no-deps backend
@@ -183,7 +189,7 @@ jobs:
               sleep 3
             done
             if [ "\$BACKEND_OK" != "1" ]; then
-              echo "ERROR: Backend health check failed after deploy."
+              echo "ERROR: Backend health check failed after deploy. Frontend was not restarted."
               echo "=== compose ps ==="
               docker compose ps || true
               echo "=== backend logs ==="
