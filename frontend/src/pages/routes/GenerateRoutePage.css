@@ -3,7 +3,8 @@
 .route-hero-tile,
 .route-config-tile,
 .route-result-tile,
-.route-error-tile {
+.route-error-tile,
+.route-debug-tile {
   background: var(--canvas);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -81,6 +82,36 @@
 .route-data-notes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .route-data-notes span { padding: 8px 10px; background: rgba(255,255,255,.12); border-radius: 999px; }
 .route-error-tile { padding: 16px; color: var(--red); background: #fff4f2; }
+.route-debug-tile {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  background: #111827;
+  color: #e5e7eb;
+  border-color: #374151;
+}
+.route-debug-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  color: #f9fafb;
+}
+.route-debug-header span { color: #9ca3af; font-size: 12px; }
+.route-debug-tile pre {
+  overflow: auto;
+  max-height: 560px;
+  margin: 0;
+  padding: 12px;
+  background: #030712;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  color: #d1d5db;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .route-map-preview {
   position: relative;
   overflow: hidden;
