@@ -25,7 +25,9 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Manual bootstrap/ops job. Runtime services must not depend on seed.
   seed:
+    profiles: ["ops"]
     image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
     command: bash -c "PYTHONPATH=/app python scripts/seed_minimal_data.py"
@@ -49,11 +51,11 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      seed:
-        condition: service_completed_successfully
     restart: "no"
 
+  # Manual ops only. Data enrichment export must never block backend/frontend startup.
   place-enrichment-export:
+    profiles: ["ops"]
     image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
     command: bash -c "PYTHONPATH=/app python data/scripts/run_place_enrichment_export.py --limit 100 --missing-fields address,photo,description --git-artifact"
@@ -64,8 +66,6 @@ services:
       - enrichment_exports:/app/data/exports/place_enrichment
     depends_on:
       migrate:
-        condition: service_completed_successfully
-      seed:
         condition: service_completed_successfully
     restart: "no"
 
@@ -84,10 +84,6 @@ services:
       - enrichment_exports:/app/data/exports/place_enrichment
     depends_on:
       migrate:
-        condition: service_completed_successfully
-      seed:
-        condition: service_completed_successfully
-      place-enrichment-export:
         condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
@@ -147,7 +143,8 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
