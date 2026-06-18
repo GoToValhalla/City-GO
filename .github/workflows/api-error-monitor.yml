@@ -1,0 +1,136 @@
+name: API Error Monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  api-error-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      PROD_HOST: ${{ secrets.SSH_HOST }}
+      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Check public and admin API status codes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${PROD_HOST:-}" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+
+          BASE_URL="http://${PROD_HOST}"
+          FAILED=0
+          REPORT=""
+
+          check_get() {
+            local name="$1"
+            local path="$2"
+            local auth="$3"
+            local tmp
+            tmp=$(mktemp)
+
+            if [ "$auth" = "admin" ]; then
+              if [ -z "${ADMIN_API_TOKEN:-}" ]; then
+                echo "ERROR: ADMIN_API_TOKEN secret is missing" >&2
+                FAILED=1
+                REPORT+="❌ ${name} ${path} -> missing ADMIN_API_TOKEN%0A"
+                return
+              fi
+              STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' --connect-timeout 8 --max-time 25 \
+                -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+                "${BASE_URL}${path}" || echo "000")
+            else
+              STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' --connect-timeout 8 --max-time 25 \
+                "${BASE_URL}${path}" || echo "000")
+            fi
+
+            BODY=$(head -c 700 "$tmp" | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g')
+            rm -f "$tmp"
+
+            echo "${name} ${path} -> ${STATUS}"
+            if [ "$STATUS" = "000" ] || [ "$STATUS" -ge 400 ]; then
+              FAILED=1
+              REPORT+="❌ ${name} ${path} -> HTTP ${STATUS}%0A${BODY}%0A%0A"
+            fi
+          }
+
+          check_post_json() {
+            local name="$1"
+            local path="$2"
+            local body="$3"
+            local tmp
+            tmp=$(mktemp)
+
+            STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' --connect-timeout 8 --max-time 35 \
+              -H 'Content-Type: application/json' \
+              -d "$body" \
+              "${BASE_URL}${path}" || echo "000")
+
+            BODY=$(head -c 700 "$tmp" | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g')
+            rm -f "$tmp"
+
+            echo "${name} ${path} -> ${STATUS}"
+            if [ "$STATUS" = "000" ] || [ "$STATUS" -ge 400 ]; then
+              FAILED=1
+              REPORT+="❌ ${name} ${path} -> HTTP ${STATUS}%0A${BODY}%0A%0A"
+            fi
+          }
+
+          check_get "frontend" "/" "public"
+          check_get "api_health" "/api/health" "public"
+          check_get "backend_health" ":8000/health" "public"
+
+          check_get "admin_overview" "/admin/overview" "admin"
+          check_get "admin_metrics" "/admin/metrics/summary" "admin"
+          check_get "admin_coverage" "/admin/coverage/summary?limit=5" "admin"
+          check_get "admin_verification" "/admin/place-verifications/summary" "admin"
+          check_get "admin_route_eligibility" "/admin/routes/eligibility?limit=1" "admin"
+          check_get "admin_route_readiness" "/admin/routes/readiness?limit=10" "admin"
+
+          ROUTE_BODY='{"lat":40.1792,"lng":44.4991,"start_address":null,"start_source":"city_center","start":{"type":"city_center","lat":40.1792,"lng":44.4991,"address":null},"build_mode":"by_categories","time_budget_minutes":240,"time_of_day":null,"route_time_mode":"flexible","interests":["coffee","food","walk"],"avoided_categories":[],"excluded_place_ids":[],"budget_level":null,"pace_mode":null,"is_visiting":false,"city_id":"yerevan","visit_city_id":null,"visit_days":null,"user_id":"monitor"}'
+          check_post_json "route_preview_yerevan" "/v1/user-routes/preview" "$ROUTE_BODY"
+
+          if [ "$FAILED" != "0" ]; then
+            echo "API monitor failed"
+            echo "$REPORT"
+            echo "REPORT<<EOF" >> "$GITHUB_ENV"
+            echo "$REPORT" >> "$GITHUB_ENV"
+            echo "EOF" >> "$GITHUB_ENV"
+            exit 1
+          fi
+
+      - name: Telegram alert on API 4xx/5xx
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram notification skipped"
+            exit 0
+          fi
+          TEXT="❌ City Go API monitor detected HTTP 4xx/5xx%0AHost: ${PROD_HOST}%0A${REPORT:-No report captured}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
+
+      - name: Telegram OK on manual run
+        if: success() && github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram notification skipped"
+            exit 0
+          fi
+          TEXT="✅ City Go API monitor OK%0AHost: ${PROD_HOST}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
