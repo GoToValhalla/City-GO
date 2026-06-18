@@ -58,6 +58,16 @@ def get_admin_import_jobs(db: Session, *, limit: int = 50, offset: int = 0) -> t
     return [_import_job_payload(db, city) for city in cities], total
 
 
+def list_admin_import_jobs(db: Session, *, limit: int = 50, offset: int = 0) -> dict[str, object]:
+    """Compatibility wrapper for routers/admin_import_jobs.py.
+
+    Старый сервис возвращает tuple(items, total), а роутер enrich-all ожидает dict с ключами
+    items/total. Отсутствие этой функции ломало импорт backend на старте uvicorn.
+    """
+    items, total = get_admin_import_jobs(db, limit=limit, offset=offset)
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+
 def get_admin_import_job(db: Session, city_id: int) -> dict[str, object] | None:
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
