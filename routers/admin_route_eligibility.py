@@ -15,7 +15,11 @@ from schemas.admin_route_operations import (
     EligibilityPlaceRow,
 )
 from services.admin_audit_service import write_admin_audit_log
-from services.city_readiness import compute_city_readiness, list_cities_readiness
+from services.city_readiness import (
+    compute_city_readiness,
+    list_cities_readiness,
+    recalculate_city_readiness_snapshot,
+)
 from services.route_data_quality import build_route_data_quality_report
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 from services.route_eligibility_dashboard import list_eligibility_places
@@ -116,6 +120,40 @@ def list_city_readiness(
     return CityReadinessListResponse(
         items=[CityReadinessResponse.model_validate(row) for row in items],
     )
+
+
+@router.post("/readiness/{city_slug}/recalculate")
+def recalculate_city_readiness(
+    city_slug: str,
+    body: dict[str, object] | None = None,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    body = body or {}
+    payload = recalculate_city_readiness_snapshot(
+        db,
+        city_slug=city_slug,
+        reason=str(body.get("reason") or "admin_city_readiness_recalculation"),
+        recalculate_place_scores=body.get("recalculate_place_scores") is not False,
+    )
+    if payload is None:
+        raise HTTPException(404, "Город не найден")
+    write_admin_audit_log(
+        db,
+        actor=auth.actor_id,
+        action="recalculate_city_readiness",
+        entity_type="city",
+        entity_id=city_slug,
+        old_value=None,
+        new_value={
+            "readiness_score": payload["readiness_score"],
+            "status": payload["status"],
+            "snapshot_id": payload.get("snapshot_id"),
+        },
+        reason="data_foundation_action",
+    )
+    db.commit()
+    return payload
 
 
 @router.get("/readiness/{city_slug}", response_model=CityReadinessResponse)
