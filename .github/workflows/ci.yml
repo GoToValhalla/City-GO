@@ -23,6 +23,8 @@ jobs:
     timeout-minutes: 30
     env:
       DATABASE_URL: sqlite:///./ci_test.db
+      ADMIN_API_TOKEN: ci-admin-token
+      APP_ENV: test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +44,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+
+      - name: Backend import smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import main
+          from core.router_setup import include_app_routers
+          print('backend_import_smoke_ok')
+          print(main.app.title)
+          print(include_app_routers.__name__)
+          PY
 
       - name: Run backend tests
         shell: bash
