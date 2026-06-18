@@ -8,6 +8,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Query
 
 from models.place import Place
+from services.data_foundation_policy import ROUTE_ALLOWED_QUALITY_TIERS
 from services.place_public_visibility import public_route_place_conditions
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 
@@ -15,15 +16,27 @@ from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATE
 def route_eligible_sql_conditions() -> tuple[Any, ...]:
     """Возвращает единый SQL-фильтр видимости мест для маршрутов.
 
-    Важно: публичная витрина и диагностика маршрутов допускают NULL в legacy-флагах
-    is_active/status/is_published/is_visible_in_catalog/is_route_eligible. После импортов
-    старые записи часто не имеют этих флагов, поэтому строгие `is_(True)` здесь давали
-    расхождение: diagnostic geo_query_count видел сотни мест, а реальный retrieval — 0.
+    Data Foundation P0 меняет contract: в маршруты допускаются только active Gold/Silver
+    места без spam/duplicate/expired critical fields. Legacy NULL fallback сохранён там,
+    где старые записи ещё не мигрированы, но новые поля имеют безопасные defaults.
     """
     return (
         *public_route_place_conditions(),
         Place.lat.is_not(None),
         Place.lng.is_not(None),
+        Place.lifecycle_status == "active",
+        Place.quality_tier.in_(tuple(ROUTE_ALLOWED_QUALITY_TIERS)),
+        Place.is_spam_poi.is_(False),
+        Place.is_duplicate_suspected.is_(False),
+        Place.critical_field_expired.is_(False),
+        or_(
+            Place.canonical_category.is_not(None),
+            Place.category.is_not(None),
+        ),
+        or_(
+            Place.canonical_category.is_(None),
+            Place.canonical_category.notin_(tuple(ROUTE_FORBIDDEN_CATEGORIES)),
+        ),
         or_(
             Place.category.is_(None),
             Place.category.notin_(tuple(ROUTE_FORBIDDEN_CATEGORIES)),
