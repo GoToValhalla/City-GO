@@ -1,0 +1,56 @@
+name: Recover Frontend
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+    steps:
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Recover frontend from local image
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash <<'EOF'
+            set -euo pipefail
+            cd /srv/app
+            echo "=== current ps ==="
+            docker compose ps || true
+            echo "=== start frontend without dependencies ==="
+            docker compose up -d --no-deps frontend
+            echo "=== check frontend ==="
+            for attempt in $(seq 1 20); do
+              if curl -sf http://localhost/ >/dev/null 2>&1; then
+                echo "frontend_ok attempt=$attempt"
+                docker compose ps
+                exit 0
+              fi
+              docker compose logs --tail=80 frontend || true
+              sleep 3
+            done
+            echo "ERROR: frontend is not responding"
+            docker compose ps || true
+            docker compose logs --tail=240 frontend || true
+            exit 1
+          EOF
