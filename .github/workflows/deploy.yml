@@ -186,6 +186,9 @@ jobs:
             fi
             echo "=== migrations OK ==="
 
+            echo "=== production schema guard ==="
+            docker compose run --rm --no-deps backend python scripts/prod_schema_guard.py
+
             echo "=== stop backend-side services only; keep current frontend alive until backend is healthy ==="
             docker compose stop import-worker bot backend || true
 
