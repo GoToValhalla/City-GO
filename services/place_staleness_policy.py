@@ -33,7 +33,10 @@ def effective_place_status(place: object, now: datetime | None = None) -> str:
 
 
 def is_route_usable_place(place: object) -> bool:
-    active = bool(getattr(place, "is_active", True))
+    # Legacy imported places can have is_active=NULL. In SQL visibility NULL is already
+    # treated as public/active; the in-memory hard filter must follow the same contract.
+    raw_active = getattr(place, "is_active", True)
+    active = True if raw_active is None else bool(raw_active)
     status = normalize_place_status(str(getattr(place, "status", "") or ""))
     return active and status not in (PLACE_STATUS_CLOSED, PLACE_STATUS_TEMPORARILY_CLOSED)
 
