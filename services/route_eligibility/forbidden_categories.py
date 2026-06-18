@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
+from services.data_foundation_policy import SPAM_POI_CATEGORIES
 from services.import_quality_categories import NON_TOURIST_CATEGORIES
 from services.place_public_visibility import PUBLIC_HIDDEN_CATEGORIES
 
-# Канон + OSM-алиасы + служебные POI из product spec.
-_EXPLICIT_FORBIDDEN: frozenset[str] = frozenset({
-    "pharmacy", "hospital", "clinic", "bus_stop", "tram_stop",
-    "gas_station", "toilet", "police", "industrial", "office",
-    "generic_service", "transport_stop", "stop", "shelter",
-})
-
+# Канон + OSM-алиасы + служебные POI из Data Foundation spec.
 ROUTE_FORBIDDEN_CATEGORIES: frozenset[str] = (
-    PUBLIC_HIDDEN_CATEGORIES | NON_TOURIST_CATEGORIES | _EXPLICIT_FORBIDDEN
+    PUBLIC_HIDDEN_CATEGORIES | NON_TOURIST_CATEGORIES | SPAM_POI_CATEGORIES
 )
 
-ALGORITHM_VERSION = "route_eligibility_v1"
+ALGORITHM_VERSION = "route_eligibility_v2_data_foundation"
