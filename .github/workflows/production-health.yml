@@ -1,0 +1,120 @@
+name: Production Health
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    name: Production health check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Validate monitoring secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Check production services
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash <<'EOF'
+            set -euo pipefail
+            cd /srv/app
+
+            echo "=== compose ps ==="
+            docker compose ps
+
+            echo "=== backend container state ==="
+            docker compose ps backend | tee /tmp/citygo_backend_ps.txt
+            if ! docker compose ps backend | grep -q "Up"; then
+              echo "ERROR: backend container is not Up"
+              docker compose logs --tail=240 backend || true
+              exit 1
+            fi
+
+            echo "=== frontend container state ==="
+            docker compose ps frontend | tee /tmp/citygo_frontend_ps.txt
+            if ! docker compose ps frontend | grep -q "Up"; then
+              echo "ERROR: frontend container is not Up"
+              docker compose logs --tail=240 frontend || true
+              exit 1
+            fi
+
+            echo "=== backend /health ==="
+            curl -sf http://localhost:8000/health
+
+            echo "=== frontend / ==="
+            curl -sf http://localhost/ >/dev/null
+
+            echo "=== frontend /api/health proxy ==="
+            curl -sf http://localhost/api/health
+
+            echo "=== backend import smoke ==="
+            docker compose exec -T backend python - <<'PY'
+          import main
+          from core.router_setup import include_app_routers
+          print('production_backend_import_smoke_ok')
+          print(main.app.title)
+          print(include_app_routers.__name__)
+          PY
+
+            echo "=== alembic current ==="
+            docker compose exec -T backend alembic current || true
+
+            echo "=== health check OK ==="
+          EOF
+
+      - name: Notify Telegram on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing"
+            exit 0
+          fi
+          TEXT="❌ City Go production health failed%0AWorkflow: ${GITHUB_WORKFLOW}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
+
+      - name: Notify Telegram on recovery/manual success
+        if: success() && github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing"
+            exit 0
+          fi
+          TEXT="✅ City Go production health OK%0AWorkflow: ${GITHUB_WORKFLOW}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
