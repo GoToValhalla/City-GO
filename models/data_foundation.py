@@ -133,7 +133,7 @@ class PlaceStateTransition(Base):
     to_state: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     triggered_by: Mapped[str] = mapped_column(String(255), default="system", nullable=False, index=True)
     trigger_reason: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    metadata: Mapped[dict[str, object] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
+    transition_metadata: Mapped[dict[str, object] | None] = mapped_column("metadata", JSONB().with_variant(JSON(), "sqlite"), nullable=True)
     triggered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     place = relationship("Place", back_populates="state_transitions")
