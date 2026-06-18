@@ -147,11 +147,26 @@ jobs:
             echo "=== current containers before deploy ==="
             docker compose ps || true
 
-            echo "=== docker login ==="
-            echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
+            echo "=== rescue frontend with local image before registry operations ==="
+            if ! docker compose ps frontend 2>/dev/null | grep -q "Up"; then
+              docker compose up -d --no-deps frontend || true
+            fi
 
-            echo "=== docker pull ==="
-            docker compose pull
+            echo "=== docker login / pull ==="
+            REGISTRY_OK=0
+            for attempt in 1 2 3; do
+              if echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin && docker compose pull; then
+                REGISTRY_OK=1
+                break
+              fi
+              echo "WARN: ghcr login/pull failed attempt=${attempt}/3"
+              sleep 10
+            done
+            if [ "${REGISTRY_OK}" != "1" ]; then
+              echo "ERROR: ghcr.io unavailable from production server. Existing local containers/images were left running."
+              docker compose ps || true
+              exit 1
+            fi
 
             echo "=== migrations ==="
             set +e
@@ -196,10 +211,6 @@ jobs:
               docker compose logs --tail=300 backend || true
               echo "=== migrate logs ==="
               docker compose logs --tail=160 migrate || true
-              echo "=== seed logs ==="
-              docker compose logs --tail=160 seed || true
-              echo "=== enrichment export logs ==="
-              docker compose logs --tail=160 place-enrichment-export || true
               exit 1
             fi
 
@@ -235,13 +246,6 @@ jobs:
           print('running_backend_import_smoke_ok')
           print(main.app.title)
           print(include_app_routers.__name__)
-          PY
-
-            echo "=== verify route eligibility code inside backend ==="
-            docker compose exec -T backend python - <<'PY'
-          import inspect
-          from services.route_eligibility import query_filters
-          print(inspect.getsource(query_filters.route_eligible_sql_conditions))
           PY
 
             echo "=== alembic current/head ==="
