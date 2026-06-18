@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { addPlaceToUserRoute, buildRecommendationRoute, correctUserRoute } from '../../api/recommendations/recommendationRoute.api'
+import { addPlaceToUserRoute, ApiRequestError, buildRecommendationRoute, correctUserRoute } from '../../api/recommendations/recommendationRoute.api'
 import type {
   RecommendationRouteResponse,
   UserRouteCorrectionAction,
@@ -22,6 +22,20 @@ import './GenerateRoutePage.css'
 import './GenerateRouteControls.css'
 
 const GEO_SESSION_KEY = 'citygo:last-route-geolocation'
+
+type RouteDebugInfo = {
+  title: string
+  timestamp: string
+  citySlug: string
+  api?: {
+    method: string
+    url: string
+    status: number
+    responseBody: string
+  }
+  requestPayload?: unknown
+  error?: string
+}
 
 const loadFeatures = async (citySlug: string): Promise<string[]> => {
   const response = await fetch(buildApiUrl('/place-coverage/' + citySlug))
@@ -46,6 +60,31 @@ const saveStoredGeolocation = (lat: string, lng: string) => {
   window.sessionStorage.setItem(GEO_SESSION_KEY, JSON.stringify({ lat, lng }))
 }
 
+const buildDebugInfo = (err: unknown, citySlug: string, requestPayload?: unknown): RouteDebugInfo => {
+  if (err instanceof ApiRequestError) {
+    return {
+      title: 'Route API error',
+      timestamp: new Date().toISOString(),
+      citySlug,
+      api: {
+        method: err.method,
+        url: err.url,
+        status: err.status,
+        responseBody: err.responseBody,
+      },
+      requestPayload: err.requestBody ?? requestPayload,
+      error: err.message,
+    }
+  }
+  return {
+    title: 'Frontend route error',
+    timestamp: new Date().toISOString(),
+    citySlug,
+    requestPayload,
+    error: err instanceof Error ? `${err.name}: ${err.message}\n${err.stack ?? ''}` : String(err),
+  }
+}
+
 export const GenerateRoutePage = () => {
   const [city, setCity] = useState<CityOption>(getCurrentCity())
   const [features, setFeatures] = useState<string[]>([])
@@ -54,6 +93,7 @@ export const GenerateRoutePage = () => {
   const [geoStatus, setGeoStatus] = useState<string | null>(null)
   const [geoError, setGeoError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState<RouteDebugInfo | null>(null)
   const [route, setRoute] = useState<RecommendationRouteResponse | null>(null)
 
   useEffect(() => {
@@ -61,6 +101,7 @@ export const GenerateRoutePage = () => {
       const nextCity = getCurrentCity()
       setCity(nextCity)
       setRoute(null)
+      setDebugInfo(null)
       const nextFeatures = await loadFeatures(nextCity.slug)
       setFeatures(nextFeatures)
 
@@ -161,15 +202,30 @@ export const GenerateRoutePage = () => {
     const payload = buildRecommendationRouteRequest(sanitizedForm, city.slug)
     if (!payload.ok) {
       setError(payload.error)
+      setDebugInfo({
+        title: 'Frontend validation error',
+        timestamp: new Date().toISOString(),
+        citySlug: city.slug,
+        requestPayload: sanitizedForm,
+        error: payload.error,
+      })
       return
     }
 
     try {
       setLoading(true)
       setError(null)
+      setDebugInfo(null)
       const nextRoute = await buildRecommendationRoute(payload.value)
       if (!routeMatchesCity(nextRoute, city.slug)) {
         setError('Маршрут содержит точки другого города. Пересобери маршрут после смены города.')
+        setDebugInfo({
+          title: 'Route city mismatch',
+          timestamp: new Date().toISOString(),
+          citySlug: city.slug,
+          requestPayload: payload.value,
+          error: `Expected city ${city.slug}, got route context ${nextRoute.context?.city_id ?? 'unknown'}`,
+        })
         setRoute(null)
         return
       }
@@ -177,6 +233,7 @@ export const GenerateRoutePage = () => {
     } catch (err) {
       console.error(err)
       setError('Не удалось собрать маршрут')
+      setDebugInfo(buildDebugInfo(err, city.slug, payload.value))
       setRoute(null)
     } finally {
       setLoading(false)
@@ -188,15 +245,24 @@ export const GenerateRoutePage = () => {
     try {
       setLoading(true)
       setError(null)
+      setDebugInfo(null)
       const nextRoute = await correctUserRoute(route, action)
       if (!routeMatchesCity(nextRoute, city.slug)) {
         setError('Коррекция вернула точки другого города. Пересобери маршрут.')
+        setDebugInfo({
+          title: 'Correction city mismatch',
+          timestamp: new Date().toISOString(),
+          citySlug: city.slug,
+          requestPayload: { route, action },
+          error: `Expected city ${city.slug}, got route context ${nextRoute.context?.city_id ?? 'unknown'}`,
+        })
         return
       }
       setRoute(nextRoute)
     } catch (err) {
       console.error(err)
       setError('Не удалось скорректировать маршрут')
+      setDebugInfo(buildDebugInfo(err, city.slug, { route, action }))
     } finally {
       setLoading(false)
     }
@@ -207,15 +273,24 @@ export const GenerateRoutePage = () => {
     try {
       setLoading(true)
       setError(null)
+      setDebugInfo(null)
       const nextRoute = await addPlaceToUserRoute(route, placeId)
       if (!routeMatchesCity(nextRoute, city.slug)) {
         setError('Добавление вернуло точки другого города. Пересобери маршрут.')
+        setDebugInfo({
+          title: 'Add place city mismatch',
+          timestamp: new Date().toISOString(),
+          citySlug: city.slug,
+          requestPayload: { route, placeId },
+          error: `Expected city ${city.slug}, got route context ${nextRoute.context?.city_id ?? 'unknown'}`,
+        })
         return
       }
       setRoute(nextRoute)
     } catch (err) {
       console.error(err)
       setError('Не удалось добавить место в маршрут')
+      setDebugInfo(buildDebugInfo(err, city.slug, { route, placeId }))
     } finally {
       setLoading(false)
     }
@@ -253,6 +328,15 @@ export const GenerateRoutePage = () => {
             />
           </section>
           {error ? <section className="route-error-tile">{error}</section> : null}
+          {debugInfo ? (
+            <section className="route-debug-tile">
+              <div className="route-debug-header">
+                <strong>Route debug</strong>
+                <span>{debugInfo.timestamp}</span>
+              </div>
+              <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
+            </section>
+          ) : null}
           {route && !error ? <RouteResultPanel route={route} loading={loading} onAddCandidate={addCandidate} onCorrect={correct} /> : null}
         </main>
       </div>
