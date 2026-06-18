@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
-ROUTE_ALLOWED_QUALITY_TIERS: frozenset[str] = frozenset({"gold", "silver"})
+# Runtime route generation must not require only perfect data.
+# Gold/Silver are preferred by scoring, but Bronze is still route-eligible so cities with
+# incomplete enrichment can build a real route instead of failing with an empty candidate pool.
+ROUTE_ALLOWED_QUALITY_TIERS: frozenset[str] = frozenset({"gold", "silver", "bronze"})
 
 CANONICAL_CATEGORIES: tuple[str, ...] = (
     "museum",
