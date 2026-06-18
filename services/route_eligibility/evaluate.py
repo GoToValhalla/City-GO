@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from models.city import City
 from models.place import Place
-
+from services.data_foundation_policy import ROUTE_ALLOWED_QUALITY_TIERS
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 
 
@@ -14,6 +14,15 @@ from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATE
 class RouteEligibilityResult:
     eligible: bool
     reasons: tuple[str, ...]
+
+
+def _canonical_category(place: Place) -> str:
+    """Возвращает каноническую категорию с legacy fallback.
+
+    P0 добавляет `canonical_category`, но существующие места ещё могут иметь только `category`.
+    Fallback нужен, чтобы не обнулить маршруты до полной миграции данных.
+    """
+    return (getattr(place, "canonical_category", None) or place.category or "").strip().lower()
 
 
 def evaluate_place_route_eligibility(
@@ -33,6 +42,8 @@ def evaluate_place_route_eligibility(
         reasons.append("place_inactive")
     if getattr(place, "status", "active") != "active":
         reasons.append("place_status_not_active")
+    if getattr(place, "lifecycle_status", "active") != "active":
+        reasons.append("lifecycle_not_active")
     if not getattr(place, "is_published", True):
         reasons.append("place_not_published")
     if not getattr(place, "is_visible_in_catalog", True):
@@ -43,7 +54,24 @@ def evaluate_place_route_eligibility(
         reasons.append("missing_coordinates")
     elif place.lat == 0.0 and place.lng == 0.0:
         reasons.append("invalid_coordinates")
-    category = (place.category or "").strip().lower()
-    if category and category in ROUTE_FORBIDDEN_CATEGORIES:
+
+    category = _canonical_category(place)
+    if not category:
+        reasons.append("missing_canonical_category")
+    elif category in ROUTE_FORBIDDEN_CATEGORIES:
         reasons.append(f"forbidden_category:{category}")
+
+    quality_tier = (getattr(place, "quality_tier", "silver") or "").strip().lower()
+    if quality_tier not in ROUTE_ALLOWED_QUALITY_TIERS:
+        reasons.append(f"quality_tier_not_route_allowed:{quality_tier or 'empty'}")
+
+    if getattr(place, "is_spam_poi", False):
+        reasons.append("spam_poi")
+    if getattr(place, "is_duplicate_suspected", False):
+        reasons.append("duplicate_suspected")
+    if getattr(place, "critical_field_expired", False):
+        reasons.append("critical_field_expired")
+    if getattr(place, "publication_status", "published") == "archived":
+        reasons.append("place_archived")
+
     return RouteEligibilityResult(eligible=not reasons, reasons=tuple(reasons))
