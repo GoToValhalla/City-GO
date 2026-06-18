@@ -16,19 +16,22 @@ from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATE
 def route_eligible_sql_conditions() -> tuple[Any, ...]:
     """Возвращает единый SQL-фильтр видимости мест для маршрутов.
 
-    Data Foundation P0 меняет contract: в маршруты допускаются только active Gold/Silver
-    места без spam/duplicate/expired critical fields. Legacy NULL fallback сохранён там,
-    где старые записи ещё не мигрированы, но новые поля имеют безопасные defaults.
+    Route generation must work while enrichment is incomplete.
+    Legacy rows can still have NULL lifecycle_status / quality_tier / data-quality flags.
+    NULL means "not calculated yet", not "reject from routes".
     """
     return (
         *public_route_place_conditions(),
         Place.lat.is_not(None),
         Place.lng.is_not(None),
-        Place.lifecycle_status == "active",
-        Place.quality_tier.in_(tuple(ROUTE_ALLOWED_QUALITY_TIERS)),
-        Place.is_spam_poi.is_(False),
-        Place.is_duplicate_suspected.is_(False),
-        Place.critical_field_expired.is_(False),
+        or_(Place.lifecycle_status.is_(None), Place.lifecycle_status == "active"),
+        or_(
+            Place.quality_tier.is_(None),
+            Place.quality_tier.in_(tuple(ROUTE_ALLOWED_QUALITY_TIERS)),
+        ),
+        or_(Place.is_spam_poi.is_(False), Place.is_spam_poi.is_(None)),
+        or_(Place.is_duplicate_suspected.is_(False), Place.is_duplicate_suspected.is_(None)),
+        or_(Place.critical_field_expired.is_(False), Place.critical_field_expired.is_(None)),
         or_(
             Place.canonical_category.is_not(None),
             Place.category.is_not(None),
