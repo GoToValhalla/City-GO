@@ -159,10 +159,10 @@ jobs:
                 REGISTRY_OK=1
                 break
               fi
-              echo "WARN: ghcr login/pull failed attempt=${attempt}/3"
+              echo "WARN: ghcr login/pull failed attempt=\$attempt/3"
               sleep 10
             done
-            if [ "${REGISTRY_OK}" != "1" ]; then
+            if [ "\$REGISTRY_OK" != "1" ]; then
               echo "ERROR: ghcr.io unavailable from production server. Existing local containers/images were left running."
               docker compose ps || true
               exit 1
