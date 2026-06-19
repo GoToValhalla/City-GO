@@ -120,20 +120,29 @@ jobs:
       - name: Collect backend logs on failure
         if: failure()
         shell: bash
+        continue-on-error: true
         run: |
-          set -euo pipefail
+          set +e
           if [ -z "${SSH_PRIVATE_KEY_B64:-}" ] || [ -z "${SSH_USER:-}" ] || [ -z "${PROD_HOST:-}" ]; then
             echo "SSH diagnostics skipped: SSH secrets missing"
             exit 0
           fi
 
           mkdir -p ~/.ssh
-          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          printf '%s' "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key 2>/tmp/key_decode.err
+          if [ ! -s ~/.ssh/deploy_key ]; then
+            printf '%s\n' "$SSH_PRIVATE_KEY_B64" > ~/.ssh/deploy_key
+          fi
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$SSH_PORT" "$PROD_HOST" >> ~/.ssh/known_hosts
+          ssh-keyscan -p "${SSH_PORT:-22}" "$PROD_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-          set +e
-          DIAG=$(ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$PROD_HOST" bash <<'REMOTE_EOF'
+          DIAG=$(ssh \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=8 \
+            -i ~/.ssh/deploy_key \
+            -p "${SSH_PORT:-22}" \
+            "$SSH_USER@$PROD_HOST" bash <<'REMOTE_EOF' 2>&1
             cd /srv/app || exit 0
             echo "=== compose ps ==="
             docker compose ps || true
@@ -144,13 +153,15 @@ jobs:
           REMOTE_EOF
           )
           SSH_EXIT=$?
-          set -e
-
+          echo "SSH diagnostics exit=${SSH_EXIT}"
           echo "$DIAG"
-          ENCODED_DIAG=$(printf '%s' "$DIAG" | head -c 6000 | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g')
-          echo "REPORT<<EOF" >> "$GITHUB_ENV"
-          printf '%s%%0A%%0A%s\n' "${REPORT:-API monitor failed}" "$ENCODED_DIAG" >> "$GITHUB_ENV"
-          echo "EOF" >> "$GITHUB_ENV"
+
+          ENCODED_DIAG=$(printf '%s' "$DIAG" | head -c 9000 | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g')
+          {
+            echo "REPORT<<EOF"
+            printf '%s%%0A%%0A%s\n' "${REPORT:-API monitor failed}" "$ENCODED_DIAG"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
           exit 0
 
       - name: Telegram alert on API 4xx/5xx
