@@ -33,10 +33,15 @@ ROUTE_FRIENDLY_CATEGORIES = frozenset(
 
 FOOD_AND_REST_CATEGORIES = frozenset({"cafe", "coffee", "food", "restaurant", "bar", "pub"})
 
+# Города в UI могут быть в статусе "готовится" / preview, но уже иметь публичные
+# route-eligible места. Маршрутная сборка должна опираться на активность города и
+# качество мест, а не блокироваться launch_status == published.
+BLOCKED_CITY_LAUNCH_STATUSES = frozenset({"disabled", "archived", "hidden"})
+
 
 class CandidateRetrievalService:
-    MAX_CANDIDATES = 300
-    TARGET_CANDIDATES = 120
+    MAX_CANDIDATES = 500
+    TARGET_CANDIDATES = 180
 
     def get_candidates(
         self,
@@ -48,6 +53,9 @@ class CandidateRetrievalService:
 
         if len(candidates) < 20:
             candidates = self._fallback_expand_radius(db, ctx)
+
+        if len(candidates) < 20:
+            candidates = self._fallback_city_wide(db, ctx)
 
         if not candidates:
             return []
@@ -77,11 +85,16 @@ class CandidateRetrievalService:
         lat, lng = ctx.location
 
         distance_expr = self._distance_meters_expr(lat=lat, lng=lng)
-        query = select(Place).where(
-            distance_expr <= ctx.radius_meters,
-            *route_eligible_sql_conditions(),
+        query = self._base_query(ctx).where(distance_expr <= ctx.radius_meters)
+        query = query.order_by(distance_expr.asc()).limit(self.MAX_CANDIDATES)
+        return db.execute(query).scalars().all()
+
+    def _base_query(self, ctx: MergedContext):
+        query = select(Place).where(*route_eligible_sql_conditions())
+        query = query.join(City).where(
+            City.is_active.is_(True),
+            ~City.launch_status.in_(BLOCKED_CITY_LAUNCH_STATUSES),
         )
-        query = query.join(City).where(City.is_active.is_(True), City.launch_status == "published")
         if ctx.city_id:
             query = query.where(City.slug == str(ctx.city_id))
 
@@ -96,13 +109,7 @@ class CandidateRetrievalService:
         if ctx.avoided_categories:
             query = query.where(~Place.category.in_(ctx.avoided_categories))
 
-        query = query.order_by(distance_expr.asc())
-
-        query = query.limit(self.MAX_CANDIDATES)
-
-        result = db.execute(query).scalars().all()
-
-        return result
+        return query
 
     def _fallback_expand_radius(
         self,
@@ -112,11 +119,28 @@ class CandidateRetrievalService:
 
         expanded_ctx = ctx.model_copy(
             update={
-                "radius_meters": int(ctx.radius_meters * 1.5),
+                "radius_meters": max(12_000, int(ctx.radius_meters * 2.5)),
             },
         )
 
         return self._query_places(db, expanded_ctx)
+
+    def _fallback_city_wide(
+        self,
+        db: Session,
+        ctx: MergedContext,
+    ) -> list[Place]:
+        """Last retrieval fallback for active cities with usable data.
+
+        If the selected start point is outside the dense part of the city or the city is spread
+        wider than the walking radius, a strict radius query can return too few places even when
+        the city has hundreds of route-eligible items. In that case we still return nearest usable
+        city places, ordered by quality first and distance second downstream.
+        """
+        lat, lng = ctx.location
+        distance_expr = self._distance_meters_expr(lat=lat, lng=lng)
+        query = self._base_query(ctx).order_by(distance_expr.asc()).limit(self.MAX_CANDIDATES)
+        return db.execute(query).scalars().all()
 
     def _pre_rank_candidates(self, candidates: list[Place], ctx: MergedContext) -> list[Place]:
         """Sort route candidates by stable data quality signals before category balancing.
