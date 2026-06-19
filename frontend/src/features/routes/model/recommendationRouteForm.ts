@@ -21,6 +21,10 @@ type BuildResult =
   | { ok: true; value: RecommendationRouteRequest }
   | { ok: false; error: string }
 
+// Интересы в UI — это мягкая настройка, а не обязательное условие построения маршрута.
+// Если пользователь ничего не выбрал, строим обычную прогулку вместо пустого/непонятного запроса.
+export const DEFAULT_ROUTE_INTERESTS = ['walk']
+
 const parseNumber = (value: string): number | null => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
@@ -28,6 +32,11 @@ const parseNumber = (value: string): number | null => {
 
 export const toggleListValue = (values: string[], value: string): string[] => {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]
+}
+
+export const normalizeRouteInterests = (interests: string[]): string[] => {
+  const cleaned = interests.map((interest) => interest.trim()).filter(Boolean)
+  return cleaned.length ? cleaned : DEFAULT_ROUTE_INTERESTS
 }
 
 export const buildRecommendationRouteRequest = (
@@ -69,7 +78,7 @@ export const buildRecommendationRouteRequest = (
       time_budget_minutes: budget,
       time_of_day: form.timeOfDay || null,
       route_time_mode: form.routeTimeMode || 'flexible',
-      interests: form.interests,
+      interests: normalizeRouteInterests(form.interests),
       avoided_categories: form.avoidedCategories,
       excluded_place_ids: [],
       budget_level: form.budgetLevel ? Number(form.budgetLevel) : null,
