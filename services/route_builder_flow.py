@@ -18,7 +18,7 @@ from services.route_candidate_diagnostics import candidate_diagnostics
 from services.route_diversity_policy import add_category, can_use_category, normalize_category
 from services.route_generation_diagnostics.record import record_canonical_generation
 from services.route_geometry import walk_minutes_between
-from services.route_point_factory import route_point_from_scored
+from services.route_point_factory import route_point_from_scored, visit_minutes_for_scored
 from services.route_assembly_service import RoutePoint
 from services.route_quality_score import minimum_points_for_budget
 
@@ -26,6 +26,7 @@ MAX_CANDIDATE_OPTIONS = 40
 SOFT_BUDGET_FILL_RATIO = 0.9
 HARD_BUDGET_FILL_RATIO = 1.0
 ROUTE_FRIENDLY_FILL_CATEGORIES = {"walk", "park", "outdoor", "attraction", "culture", "coffee", "cafe", "museum", "gallery"}
+EMERGENCY_ROUTE_WARNING = "Emergency route fallback was used because standard route assembly returned zero points."
 
 
 def build_dynamic_route(
@@ -91,10 +92,17 @@ def _filtered(deps: object, candidates: list[object], ctx: object, now: datetime
     started = perf_counter()
     report = deps.filters.apply_with_report(candidates, ctx, now)
     warnings = filter_warnings(candidates, report.kept)
+    kept = report.kept
+    emergency_filter_fallback = False
+    if not kept and len(candidates) >= minimum_points_for_budget(_budget_minutes(ctx)):
+        kept = candidates[: min(len(candidates), 300)]
+        emergency_filter_fallback = True
+        warnings = [*warnings, EMERGENCY_ROUTE_WARNING]
     timed_trace(trace, "hard_filter", started, input_count=len(candidates),
-                kept_count=len(report.kept), removed_count=len(report.rejected),
-                fallback_used=report.fallback_used, reasons=report.reason_counts)
-    return report.kept, warnings
+                kept_count=len(kept), original_kept_count=len(report.kept), removed_count=len(report.rejected),
+                fallback_used=report.fallback_used, emergency_filter_fallback=emergency_filter_fallback,
+                reasons=report.reason_counts)
+    return kept, warnings
 
 
 def _scored(deps: object, filtered: list[object], ctx: object, trace: RoutePipelineTrace):
@@ -109,7 +117,15 @@ def _route(deps: object, scored: list[object], filtered: list[object], ctx: obje
     started = perf_counter()
     route = deps.assembly.build(scored, ctx)
     warnings = assembly_warnings(filtered, route)
-    timed_trace(trace, "assembly", started, selected_count=len(route), warning_count=len(warnings),
+    emergency_assembly_fallback = False
+    original_selected_count = len(route)
+    if not route and scored:
+        route = _emergency_route_from_scored(scored, ctx)
+        emergency_assembly_fallback = bool(route)
+        if emergency_assembly_fallback:
+            warnings = [*warnings, EMERGENCY_ROUTE_WARNING]
+    timed_trace(trace, "assembly", started, selected_count=len(route), original_selected_count=original_selected_count,
+                warning_count=len(warnings), emergency_assembly_fallback=emergency_assembly_fallback,
                 route_minutes=_route_minutes(route))
     route = deps.time_ordering.order(route, ctx, now)
     route = deps.time.apply(route, ctx, now)
@@ -125,12 +141,50 @@ def _budget_fit(deps: object, route: list[object], scored: list[object], ctx: ob
     timed_trace(trace, "budget_fit", started,
                 kept_count=len(final_fit.route),
                 warning_count=len(final_fit.warnings),
+                before_fit_input_count=len(route),
                 before_fill_count=len(first_fit.route),
                 after_fill_count=len(filled_route),
                 route_minutes=_route_minutes(final_fit.route),
                 target_minutes=_soft_budget_minutes(ctx),
                 hard_budget_minutes=_hard_budget_minutes(ctx))
     return final_fit
+
+
+def _emergency_route_from_scored(scored: list[object], ctx: object) -> list[RoutePoint]:
+    budget = _hard_budget_minutes(ctx)
+    min_points = minimum_points_for_budget(_budget_minutes(ctx))
+    target_points = max(min_points, min(8, int(getattr(ctx, "effective_num_stops", 0) or min_points)))
+    current: list[RoutePoint] = []
+    used_ids: set[str] = set()
+    remaining = list(scored[:300])
+
+    while remaining and len(current) < target_points and _route_minutes(current) < budget:
+        tail_lat, tail_lng = _tail_location(current, ctx)
+        selected = _nearest_emergency_candidate(remaining, tail_lat, tail_lng, ctx, budget - _route_minutes(current))
+        if selected is None:
+            break
+        point = route_point_from_scored(selected, ctx, RoutePoint)
+        point.estimated_walk_minutes = walk_minutes_between(tail_lat, tail_lng, point.lat, point.lng)
+        if _route_minutes(current) + _point_minutes(point) > budget and len(current) >= min_points:
+            break
+        current.append(point)
+        used_ids.add(str(point.place_id))
+        remaining = [item for item in remaining if str(getattr(item.place, "id", "")) not in used_ids]
+
+    return current
+
+
+def _nearest_emergency_candidate(scored: list[object], lat: float, lng: float, ctx: object, remaining_minutes: int) -> object | None:
+    feasible = []
+    for item in scored:
+        place = item.place
+        walk = walk_minutes_between(lat, lng, float(place.lat), float(place.lng))
+        visit = visit_minutes_for_scored(item, ctx)
+        total = walk + visit
+        if total <= remaining_minutes or remaining_minutes >= int(getattr(ctx, "min_stop_duration_minutes", 20) or 20):
+            feasible.append((walk, -float(getattr(item, "score", 0.0) or 0.0), total, item))
+    feasible.sort(key=lambda row: (row[0], row[1], row[2]))
+    return feasible[0][3] if feasible else None
 
 
 def _fill_budget_gap(route: list[object], scored: list[object], ctx: object) -> list[object]:
