@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field, ConfigDict
 # -----------------------------
 # ENUMS — перечисления уровня бюджета и темпа.
 # -----------------------------
-
 class BudgetLevel(int, Enum):
     FREE = 0
     LOW = 1
@@ -28,7 +27,6 @@ class PaceMode(str, Enum):
 # -----------------------------
 # CORE MODEL — основная модель контекста одного запроса на маршрут.
 # -----------------------------
-
 class MergedContext(BaseModel):
     """
     ЕДИНЫЙ ОБЪЕКТ КОНТЕКСТА
@@ -69,7 +67,7 @@ class MergedContext(BaseModel):
     visit_city_id: Optional[str] = None
     visit_days: int = 1
 
-    # --- GEO — радиус поиска вокруг старта.
+    # --- GEO — радиус поиска кандидатов вокруг старта.
     radius_meters: int
 
     # --- ROUTE SHAPE — целевое число остановок и минимальная длительность визита.
@@ -87,7 +85,6 @@ class MergedContext(BaseModel):
 # -----------------------------
 # HELPERS — функции расчёта радиуса, бюджета времени и числа остановок.
 # -----------------------------
-
 def mood_to_pace(pace_mode: PaceMode) -> float:
     """
     Преобразует pace_mode в multiplier времени на точке.
@@ -121,9 +118,14 @@ def compute_radius(
 
 def compute_effective_time_budget(time_budget_minutes: int) -> int:
     """
-    Учитываем overhead на перемещения (~20%)
+    Возвращает полный пользовательский бюджет маршрута.
+
+    Раньше здесь снималось 20% на overhead, но сам route pipeline уже считает walking
+    minutes между точками. Получалось двойное списание времени: 240 минут превращались
+    в 192, а затем из них ещё вычитались переходы. Для пользовательского маршрута
+    effective budget должен совпадать с выбранным временем.
     """
-    return int(time_budget_minutes * 0.8)
+    return int(time_budget_minutes)
 
 
 def compute_num_stops(
