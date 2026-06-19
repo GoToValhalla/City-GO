@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from sqlalchemy import case, func, literal, or_, select
+from sqlalchemy import case, func, literal, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from models.city import City
-from models.city_import_scope import CityImportScope
 from models.place import Place
-from models.place_scope_link import PlaceScopeLink
 from schemas.merged_context import MergedContext
 from services.candidate_category_budget import balance_candidates_by_category
 from services.place_public_image_attach_service import attach_public_images
@@ -86,7 +84,11 @@ class CandidateRetrievalService:
         query = query.join(City).where(City.is_active.is_(True), City.launch_status == "published")
         if ctx.city_id:
             query = query.where(City.slug == str(ctx.city_id))
-        query = query.where(_scope_is_route_visible())
+
+        # Важно: не фильтруем кандидатов по CityImportScope.status.
+        # В проде импортные места могут быть связаны со scope в статусе completed/ready,
+        # при этом сами места уже public + route_eligible. Старый _scope_is_route_visible()
+        # превращал город с тысячами доступных мест в 0 кандидатов для маршрута.
 
         if ctx.avoided_place_ids:
             query = query.where(~Place.id.in_(ctx.avoided_place_ids))
@@ -229,12 +231,3 @@ def _has_quality_validation(place: Place) -> bool:
 
 def _category(place: Place) -> str:
     return str(getattr(place, "category", "") or "").strip().casefold()
-
-
-def _scope_is_route_visible() -> ColumnElement[bool]:
-    linked = select(PlaceScopeLink.id).where(PlaceScopeLink.place_id == Place.id).exists()
-    published = select(PlaceScopeLink.id).join(CityImportScope).where(
-        PlaceScopeLink.place_id == Place.id,
-        CityImportScope.status == "published",
-    ).exists()
-    return or_(~linked, published)
