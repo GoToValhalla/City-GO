@@ -10,12 +10,38 @@ from services.route_quality_score import minimum_points_for_budget
 from services.route_walk_annotations import annotate_walks
 from services.scoring_service import ScoredPlace
 
-MIN_BUDGET_UTILIZATION = 0.78
-DEFAULT_MINUTES_PER_POINT = 24
+# Минимальная продуктовая утилизация бюджета при достаточном пуле кандидатов.
+MIN_BUDGET_UTILIZATION = 0.65
+# Выше этого значения маршрут уже считается достаточно наполненным и не добирается любой ценой.
+TARGET_BUDGET_UTILIZATION = 0.86
+# Базовая длительность точки для расчёта целевого количества остановок.
+DEFAULT_MINUTES_PER_POINT = 30
 MAX_TARGET_POINTS = 8
-MAX_RELAXATION_STAGE = 2
+MAX_RELAXATION_STAGE = 3
+# Ограничение на один пеший переход: раньше дальняя первая точка съедала почти весь бюджет.
+STRICT_MAX_WALK_MINUTES = 35
+RELAXED_MAX_WALK_MINUTES = 55
 WALK_INTERESTS = {"walk", "park", "outdoor", "sea"}
-WALK_ROUTE_CATEGORIES = {"walk", "park", "outdoor", "attraction", "culture", "coffee", "cafe"}
+WALK_ROUTE_CATEGORIES = {
+    "walk",
+    "park",
+    "outdoor",
+    "attraction",
+    "culture",
+    "coffee",
+    "cafe",
+    "museum",
+    "gallery",
+    "historic",
+    "history",
+    "landmark",
+    "monument",
+    "promenade",
+    "sightseeing",
+    "viewpoint",
+    "food",
+    "restaurant",
+}
 
 
 @dataclass(frozen=True)
@@ -32,13 +58,30 @@ class AssemblyState:
 
 
 def assemble_route(scored: list[ScoredPlace], ctx: MergedContext, point_cls: type) -> list[object]:
+    """Build a route that prioritizes product usefulness over premature strictness.
+
+    The old implementation could stop after one or two high-score but distant points.
+    This version still starts with scored candidates, then explicitly backfills by proximity
+    and relaxes diversity limits until the route reaches a reasonable point count or budget use.
+    """
+
+    if not scored:
+        return []
+
     lat, lng = ctx.location
     budget = _assembly_budget(ctx)
     target_points = _target_points(ctx, budget)
-    state = AssemblyState([], budget, lat, lng, {}, scored[:120], target_points)
+    candidate_pool = scored[:160]
+
+    state = AssemblyState([], budget, lat, lng, {}, candidate_pool, target_points)
     route = _select_until_done(state, ctx, point_cls)
+
     if _needs_time_fill(route, budget, target_points):
-        route = _fill_remaining_time(route, scored[:120], ctx, point_cls, budget, target_points)
+        route = _fill_remaining_time(route, candidate_pool, ctx, point_cls, budget, target_points)
+
+    if _needs_time_fill(route, budget, target_points):
+        route = _greedy_proximity_backfill(route, candidate_pool, ctx, point_cls, budget, target_points)
+
     return annotate_walks(_cleanup_loops(route), ctx.location)
 
 
@@ -63,6 +106,8 @@ def _select_until_done(state: AssemblyState, ctx: MergedContext, point_cls: type
 
 
 def _done(state: AssemblyState, ctx: MergedContext) -> bool:
+    # Не останавливаемся только потому, что уже набрали пару точек: сначала target_points
+    # или реальное исчерпание бюджета.
     return len(state.route) >= state.target_points or state.remaining <= ctx.min_stop_duration_minutes
 
 
@@ -74,7 +119,16 @@ def _best_candidate(state: AssemblyState, ctx: MergedContext) -> ScoredPlace | N
 def _fits(scored: ScoredPlace, state: AssemblyState, ctx: MergedContext) -> bool:
     category = str(getattr(scored.place, "category", "") or "")
     category_ok = _can_use_category_for_route(category, state.used_categories, state.relaxation_stage, len(state.route), ctx)
-    return category_ok and _total_minutes(scored, state, ctx) <= state.remaining
+    if not category_ok:
+        return False
+
+    total_minutes = _total_minutes(scored, state, ctx)
+    if total_minutes > state.remaining:
+        return False
+
+    # Защита от маршрутов, где одна дальняя точка съедает весь бюджет.
+    walk = walk_minutes_between(state.lat, state.lng, float(scored.place.lat), float(scored.place.lng))
+    return walk <= _max_walk_minutes_for_stage(state.relaxation_stage)
 
 
 def _can_use_category_for_route(
@@ -94,18 +148,18 @@ def _can_use_category_for_route(
         return can_use_category(category, used)
 
     min_points = minimum_points_for_budget(_assembly_budget(ctx))
-    if route_len >= min_points:
+    if route_len >= min_points and relaxation_stage < MAX_RELAXATION_STAGE:
         return _can_use_category_for_route(category, used, 0, route_len, ctx)
 
-    base_limit = 3 if (_is_walking_route(ctx) and normalized in WALK_ROUTE_CATEGORIES) else 2
-    bonus = 1 if relaxation_stage >= 1 and normalized in WALK_ROUTE_CATEGORIES else 0
-    bonus += 1 if relaxation_stage >= 2 and normalized not in WALK_ROUTE_CATEGORIES else 0
+    base_limit = 4 if (_is_walking_route(ctx) and normalized in WALK_ROUTE_CATEGORIES) else 3
+    bonus = relaxation_stage
     return used.get(normalized, 0) < base_limit + bonus
 
 
 def _relax_state(state: AssemblyState, ctx: MergedContext) -> AssemblyState | None:
     min_points = minimum_points_for_budget(_assembly_budget(ctx))
-    if len(state.route) < min_points and state.relaxation_stage < MAX_RELAXATION_STAGE:
+    underfilled = len(state.route) < max(min_points, min(5, state.target_points))
+    if underfilled and state.relaxation_stage < MAX_RELAXATION_STAGE:
         return AssemblyState(
             route=state.route,
             remaining=state.remaining,
@@ -148,14 +202,35 @@ def _assembly_score(scored: ScoredPlace, state: AssemblyState, ctx: MergedContex
     interest = float(scored.breakdown.get("interest", 0.0)) if isinstance(scored.breakdown, dict) else 0.0
     route_fit = _walk_route_fit(scored, ctx)
     diversity_penalty = _category_pressure(scored, state)
-    return float(scored.score) * 0.5 + min(1.0, value_per_minute * 20.0) * 0.25 + interest * 0.15 + route_fit * 0.1 - diversity_penalty
+    proximity_bonus = _proximity_bonus(scored, state)
+    return (
+        float(scored.score) * 0.42
+        + min(1.0, value_per_minute * 24.0) * 0.24
+        + interest * 0.12
+        + route_fit * 0.10
+        + proximity_bonus * 0.18
+        - diversity_penalty
+    )
+
+
+def _proximity_bonus(scored: ScoredPlace, state: AssemblyState) -> float:
+    walk = walk_minutes_between(state.lat, state.lng, float(scored.place.lat), float(scored.place.lng))
+    if walk <= 8:
+        return 1.0
+    if walk <= 18:
+        return 0.75
+    if walk <= 30:
+        return 0.45
+    if walk <= 45:
+        return 0.22
+    return 0.0
 
 
 def _category_pressure(scored: ScoredPlace, state: AssemblyState) -> float:
     category = normalize_category(getattr(scored.place, "category", ""))
     if not category:
         return 0.0
-    return min(0.25, state.used_categories.get(category, 0) * 0.08)
+    return min(0.22, state.used_categories.get(category, 0) * 0.06)
 
 
 def _next_state(state: AssemblyState, selected: ScoredPlace, point: object, walk: int) -> AssemblyState:
@@ -197,7 +272,7 @@ def _fill_remaining_time(
     for point in current:
         used_categories = add_category(str(getattr(point, "category", "") or ""), used_categories)
 
-    while len(current) < target_points:
+    while len(current) < target_points and _route_minutes(current) < int(budget * TARGET_BUDGET_UTILIZATION):
         lat, lng = _tail_location(current, ctx)
         remaining = budget - _route_minutes(current)
         if remaining <= ctx.min_stop_duration_minutes:
@@ -216,8 +291,60 @@ def _fill_remaining_time(
     return current
 
 
+def _greedy_proximity_backfill(
+    route: list[object],
+    scored: list[ScoredPlace],
+    ctx: MergedContext,
+    point_cls: type,
+    budget: int,
+    target_points: int,
+) -> list[object]:
+    current = list(route)
+    used_ids = {str(getattr(point, "place_id", "")) for point in current}
+    min_points = min(minimum_points_for_budget(budget), target_points)
+
+    while len(current) < target_points and _route_minutes(current) < int(budget * TARGET_BUDGET_UTILIZATION):
+        lat, lng = _tail_location(current, ctx)
+        remaining = budget - _route_minutes(current)
+        if remaining <= ctx.min_stop_duration_minutes:
+            break
+
+        candidates = [item for item in scored if str(getattr(item.place, "id", "")) not in used_ids]
+        selected = _nearest_feasible_candidate(candidates, lat, lng, remaining, ctx, require_close=len(current) >= min_points)
+        if selected is None:
+            break
+
+        point = route_point_from_scored(selected, ctx, point_cls)
+        point.estimated_walk_minutes = walk_minutes_between(lat, lng, point.lat, point.lng)
+        current.append(point)
+        used_ids.add(str(getattr(point, "place_id", "")))
+
+    return current
+
+
+def _nearest_feasible_candidate(
+    candidates: list[ScoredPlace],
+    lat: float,
+    lng: float,
+    remaining: int,
+    ctx: MergedContext,
+    require_close: bool,
+) -> ScoredPlace | None:
+    feasible = []
+    for item in candidates:
+        walk = walk_minutes_between(lat, lng, float(item.place.lat), float(item.place.lng))
+        total = walk + visit_minutes_for_scored(item, ctx)
+        max_walk = STRICT_MAX_WALK_MINUTES if require_close else RELAXED_MAX_WALK_MINUTES
+        if total <= remaining and walk <= max_walk:
+            feasible.append((walk, -float(item.score), item))
+    feasible.sort(key=lambda item: (item[0], item[1]))
+    return feasible[0][2] if feasible else None
+
+
 def _fill_stage(route: list[object], budget: int) -> int:
-    return 1 if len(route) < minimum_points_for_budget(budget) else 0
+    if len(route) < minimum_points_for_budget(budget):
+        return MAX_RELAXATION_STAGE
+    return 1
 
 
 def _tail_location(route: list[object], ctx: MergedContext) -> tuple[float, float]:
@@ -266,3 +393,11 @@ def _assembly_budget(ctx: MergedContext) -> int:
     effective = int(getattr(ctx, "effective_time_budget_minutes", 0) or 0)
     explicit = int(getattr(ctx, "time_budget_minutes", 0) or 0)
     return effective or int(explicit * 0.9)
+
+
+def _max_walk_minutes_for_stage(stage: int) -> int:
+    if stage <= 0:
+        return STRICT_MAX_WALK_MINUTES
+    if stage >= MAX_RELAXATION_STAGE:
+        return RELAXED_MAX_WALK_MINUTES
+    return STRICT_MAX_WALK_MINUTES + (stage * 8)
