@@ -5,19 +5,23 @@ from sqlalchemy.orm import Session
 
 from models.city import City
 from models.place import Place
-from services.candidate_retrieval_service import CandidateRetrievalService
+from services.candidate_retrieval_service import BLOCKED_CITY_LAUNCH_STATUSES, CandidateRetrievalService
 from services.place_public_visibility import public_place_conditions, public_route_place_conditions
 from services.route_eligibility import route_eligible_sql_conditions
 
 
 def candidate_diagnostics(db: Session, ctx: object) -> dict[str, object]:
     slug = str(getattr(ctx, "city_id", "") or "")
-    city_id = _city_id(db, slug)
+    city = _city(db, slug)
+    city_id = int(city.id) if city else None
     lat, lng = getattr(ctx, "location", (None, None))
     radius = int(getattr(ctx, "radius_meters", 0) or 0)
     return {
         "city_slug": slug or None,
         "city_db_id": city_id,
+        "city_launch_status": getattr(city, "launch_status", None),
+        "city_is_active": getattr(city, "is_active", None),
+        "city_is_blocked_for_routes": _is_blocked_city(city),
         "start_point": {"lat": lat, "lng": lng},
         "radius_meters": radius,
         "places_total_in_city": _count(db, city_id, _any_place),
@@ -29,6 +33,7 @@ def candidate_diagnostics(db: Session, ctx: object) -> dict[str, object]:
         "geo_query_count": _geo_count(db, city_id, lat, lng, radius),
         "geo_route_eligible_count": _geo_route_eligible_count(db, city_id, lat, lng, radius),
         "candidate_retrieval_expected_count": _candidate_expected_count(db, slug, lat, lng, radius),
+        "candidate_retrieval_city_wide_expected_count": _candidate_city_wide_expected_count(db, slug),
     }
 
 
@@ -74,7 +79,7 @@ def _candidate_expected_count(db: Session, slug: str, lat: object, lng: object, 
         .where(
             City.slug == slug,
             City.is_active.is_(True),
-            City.launch_status == "published",
+            ~City.launch_status.in_(BLOCKED_CITY_LAUNCH_STATUSES),
             distance <= radius,
             *route_eligible_sql_conditions(),
         )
@@ -82,10 +87,32 @@ def _candidate_expected_count(db: Session, slug: str, lat: object, lng: object, 
     return _safe_int(db.execute(query).scalar()) or 0
 
 
-def _city_id(db: Session, slug: str) -> int | None:
+def _candidate_city_wide_expected_count(db: Session, slug: str) -> int:
+    if not slug:
+        return 0
+    query = (
+        select(func.count(Place.id))
+        .join(City)
+        .where(
+            City.slug == slug,
+            City.is_active.is_(True),
+            ~City.launch_status.in_(BLOCKED_CITY_LAUNCH_STATUSES),
+            *route_eligible_sql_conditions(),
+        )
+    )
+    return _safe_int(db.execute(query).scalar()) or 0
+
+
+def _city(db: Session, slug: str) -> City | None:
     if not slug:
         return None
-    return _safe_int(db.execute(select(City.id).where(City.slug == slug)).scalar_one_or_none())
+    return db.execute(select(City).where(City.slug == slug)).scalar_one_or_none()
+
+
+def _is_blocked_city(city: City | None) -> bool:
+    if city is None:
+        return True
+    return bool(not city.is_active or city.launch_status in BLOCKED_CITY_LAUNCH_STATUSES)
 
 
 def _safe_int(value: object) -> int | None:
