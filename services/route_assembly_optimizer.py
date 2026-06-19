@@ -55,8 +55,6 @@ def assemble_route(scored: list[ScoredPlace], ctx: MergedContext, point_cls: typ
     # If the normal optimizer cannot pick the first point, do not return no_route for
     # a city that has scored candidates. The first leg may be far from ctx.location
     # because the UI start point can be city center / hotel / arbitrary map point.
-    # Pick a budget-feasible seed without the first-leg walk cap, then the existing
-    # fill/backfill logic continues from a real place and can build a connected route.
     if not route:
         route = _first_point_seed_fallback(candidate_pool, ctx, point_cls, budget)
 
@@ -65,6 +63,13 @@ def assemble_route(scored: list[ScoredPlace], ctx: MergedContext, point_cls: typ
 
     if _needs_time_fill(route, budget, target_points):
         route = _greedy_proximity_backfill(route, candidate_pool, ctx, point_cls, budget, target_points)
+
+    # Final product-safety fallback: for cities with many valid candidates the assembly
+    # must not degrade to 0-1 points just because walk caps/diversity cannot satisfy
+    # the ideal optimizer. This fallback keeps the budget guard, but ignores category
+    # pressure and per-leg walk caps until the minimum point count is reached.
+    if _needs_minimum_point_backfill(route, budget, candidate_pool):
+        route = _minimum_point_backfill(route, candidate_pool, ctx, point_cls, budget, target_points)
 
     return annotate_walks(_cleanup_loops(route), ctx.location)
 
@@ -271,6 +276,34 @@ def _first_point_seed_fallback(scored: list[ScoredPlace], ctx: MergedContext, po
     point = route_point_from_scored(item, ctx, point_cls)
     point.estimated_walk_minutes = walk_minutes_between(lat, lng, point.lat, point.lng)
     return [point]
+
+
+def _needs_minimum_point_backfill(route: list[object], budget: int, scored: list[ScoredPlace]) -> bool:
+    return bool(scored) and len(route) < minimum_points_for_budget(budget)
+
+
+def _minimum_point_backfill(route: list[object], scored: list[ScoredPlace], ctx: MergedContext, point_cls: type, budget: int, target_points: int) -> list[object]:
+    current = list(route)
+    used_ids = {str(getattr(point, "place_id", "")) for point in current}
+    min_points = min(minimum_points_for_budget(budget), target_points)
+
+    for item in scored:
+        if len(current) >= min_points:
+            break
+        place_id = str(getattr(item.place, "id", ""))
+        if not place_id or place_id in used_ids:
+            continue
+        tail_lat, tail_lng = _tail_location(current, ctx)
+        visit = visit_minutes_for_scored(item, ctx)
+        walk = walk_minutes_between(tail_lat, tail_lng, float(item.place.lat), float(item.place.lng))
+        if _route_minutes(current) + walk + visit > budget:
+            continue
+        point = route_point_from_scored(item, ctx, point_cls)
+        point.estimated_walk_minutes = walk
+        current.append(point)
+        used_ids.add(place_id)
+
+    return current
 
 
 def _fill_stage(route: list[object], budget: int) -> int:
