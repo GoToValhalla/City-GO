@@ -21,10 +21,10 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
-      - name: Check public and admin API status codes
+      - name: Check API and collect diagnostics
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
           test -n "${PROD_HOST:-}" || (echo "SSH_HOST secret is missing" >&2; exit 1)
 
           BASE_URL="http://${PROD_HOST}"
@@ -33,6 +33,10 @@ jobs:
 
           encode_body() {
             head -c 6000 "$1" | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g'
+          }
+
+          append_report() {
+            REPORT+="$1"
           }
 
           check_get() {
@@ -46,25 +50,27 @@ jobs:
               if [ -z "${ADMIN_API_TOKEN:-}" ]; then
                 echo "ERROR: ADMIN_API_TOKEN secret is missing" >&2
                 FAILED=1
-                REPORT+="❌ ${name} ${path} -> missing ADMIN_API_TOKEN%0A"
-                return
+                append_report "❌ ${name} ${path} -> missing ADMIN_API_TOKEN%0A"
+                rm -f "$tmp"
+                return 0
               fi
               STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' --connect-timeout 8 --max-time 25 \
                 -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
-                "${BASE_URL}${path}" || echo "000")
+                "${BASE_URL}${path}" 2>&1 || echo "000")
             else
               STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' --connect-timeout 8 --max-time 25 \
-                "${BASE_URL}${path}" || echo "000")
+                "${BASE_URL}${path}" 2>&1 || echo "000")
             fi
 
             BODY=$(encode_body "$tmp")
             rm -f "$tmp"
 
             echo "${name} ${path} -> ${STATUS}"
-            if [ "$STATUS" = "000" ] || [ "$STATUS" -ge 400 ]; then
+            if [ "$STATUS" = "000" ] || [ "${STATUS##*$'\n'}" -ge 400 ] 2>/dev/null; then
               FAILED=1
-              REPORT+="❌ ${name} ${path} -> HTTP ${STATUS}%0A${BODY}%0A%0A"
+              append_report "❌ ${name} ${path} -> HTTP ${STATUS}%0A${BODY}%0A%0A"
             fi
+            return 0
           }
 
           check_post_json() {
@@ -77,16 +83,57 @@ jobs:
             STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' --connect-timeout 8 --max-time 35 \
               -H 'Content-Type: application/json' \
               -d "$body" \
-              "${BASE_URL}${path}" || echo "000")
+              "${BASE_URL}${path}" 2>&1 || echo "000")
 
             BODY=$(encode_body "$tmp")
             rm -f "$tmp"
 
             echo "${name} ${path} -> ${STATUS}"
-            if [ "$STATUS" = "000" ] || [ "$STATUS" -ge 400 ]; then
+            if [ "$STATUS" = "000" ] || [ "${STATUS##*$'\n'}" -ge 400 ] 2>/dev/null; then
               FAILED=1
-              REPORT+="❌ ${name} ${path} -> HTTP ${STATUS}%0A${BODY}%0A%0A"
+              append_report "❌ ${name} ${path} -> HTTP ${STATUS}%0A${BODY}%0A%0A"
             fi
+            return 0
+          }
+
+          collect_backend_logs() {
+            echo "=== collect backend diagnostics ==="
+            if [ -z "${SSH_PRIVATE_KEY_B64:-}" ] || [ -z "${SSH_USER:-}" ] || [ -z "${PROD_HOST:-}" ]; then
+              echo "SSH diagnostics skipped: SSH secrets missing"
+              append_report "%0A⚠️ SSH diagnostics skipped: SSH secrets missing%0A"
+              return 0
+            fi
+
+            mkdir -p ~/.ssh
+            printf '%s' "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key 2>/tmp/key_decode.err
+            if [ ! -s ~/.ssh/deploy_key ]; then
+              printf '%s\n' "$SSH_PRIVATE_KEY_B64" > ~/.ssh/deploy_key
+            fi
+            chmod 600 ~/.ssh/deploy_key
+            ssh-keyscan -p "${SSH_PORT:-22}" "$PROD_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+            DIAG=$(ssh \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              -o ConnectTimeout=8 \
+              -i ~/.ssh/deploy_key \
+              -p "${SSH_PORT:-22}" \
+              "$SSH_USER@$PROD_HOST" bash <<'REMOTE_EOF' 2>&1
+              cd /srv/app || exit 0
+              echo "=== compose ps ==="
+              docker compose ps || true
+              echo "=== backend error grep ==="
+              docker compose logs --tail=1800 backend | grep -Ei -A 70 -B 30 'traceback|exception|error|critical|undefinedcolumn|undefinedtable|programmingerror|operationalerror|integrityerror|validationerror|sqlalchemy|psycopg' || true
+              echo "=== backend logs tail ==="
+              docker compose logs --tail=320 backend || true
+          REMOTE_EOF
+            )
+            SSH_EXIT=$?
+            echo "SSH diagnostics exit=${SSH_EXIT}"
+            echo "$DIAG"
+            ENCODED_DIAG=$(printf '%s' "$DIAG" | head -c 12000 | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g')
+            append_report "%0A🧪 Backend diagnostics:%0A${ENCODED_DIAG}%0A"
+            return 0
           }
 
           check_get "frontend" "/" "public"
@@ -110,59 +157,15 @@ jobs:
 
           if [ "$FAILED" != "0" ]; then
             echo "API monitor failed"
+            collect_backend_logs
             echo "$REPORT"
-            echo "REPORT<<EOF" >> "$GITHUB_ENV"
-            echo "$REPORT" >> "$GITHUB_ENV"
-            echo "EOF" >> "$GITHUB_ENV"
+            {
+              echo "REPORT<<EOF"
+              echo "$REPORT"
+              echo "EOF"
+            } >> "$GITHUB_ENV"
             exit 1
           fi
-
-      - name: Collect backend logs on failure
-        if: failure()
-        shell: bash
-        continue-on-error: true
-        run: |
-          set +e
-          if [ -z "${SSH_PRIVATE_KEY_B64:-}" ] || [ -z "${SSH_USER:-}" ] || [ -z "${PROD_HOST:-}" ]; then
-            echo "SSH diagnostics skipped: SSH secrets missing"
-            exit 0
-          fi
-
-          mkdir -p ~/.ssh
-          printf '%s' "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key 2>/tmp/key_decode.err
-          if [ ! -s ~/.ssh/deploy_key ]; then
-            printf '%s\n' "$SSH_PRIVATE_KEY_B64" > ~/.ssh/deploy_key
-          fi
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "${SSH_PORT:-22}" "$PROD_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-
-          DIAG=$(ssh \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ConnectTimeout=8 \
-            -i ~/.ssh/deploy_key \
-            -p "${SSH_PORT:-22}" \
-            "$SSH_USER@$PROD_HOST" bash <<'REMOTE_EOF' 2>&1
-            cd /srv/app || exit 0
-            echo "=== compose ps ==="
-            docker compose ps || true
-            echo "=== backend logs extracted ==="
-            docker compose logs --tail=1600 backend | grep -Ei -A 50 -B 20 'traceback|exception|error|critical|undefinedcolumn|undefinedtable|programmingerror|operationalerror|integrityerror|validationerror|sqlalchemy' || true
-            echo "=== backend logs tail ==="
-            docker compose logs --tail=260 backend || true
-          REMOTE_EOF
-          )
-          SSH_EXIT=$?
-          echo "SSH diagnostics exit=${SSH_EXIT}"
-          echo "$DIAG"
-
-          ENCODED_DIAG=$(printf '%s' "$DIAG" | head -c 9000 | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g')
-          {
-            echo "REPORT<<EOF"
-            printf '%s%%0A%%0A%s\n' "${REPORT:-API monitor failed}" "$ENCODED_DIAG"
-            echo "EOF"
-          } >> "$GITHUB_ENV"
-          exit 0
 
       - name: Telegram alert on API 4xx/5xx
         if: failure()
