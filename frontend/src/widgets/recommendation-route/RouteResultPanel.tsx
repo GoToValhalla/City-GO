@@ -183,7 +183,7 @@ export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect }: 
       </div>
       <RouteWarnings route={route} />
       {hasPoints ? <div className="route-result-tile"><h2>Карта маршрута</h2><RouteMapPreview points={route.points} /></div> : null}
-      <RouteDebugTrace trace={route.debug_trace} />
+      <RouteDebugTrace route={route} />
       {hasPoints ? <div className="route-result-tile"><h2>Точки маршрута</h2><RoutePointList points={route.points} reasons={reasons} /></div> : null}
       {hasPoints ? <div className="route-result-tile route-leg-list"><h2>Переходы между точками</h2>{route.points.slice(0, -1).map((point, index) => (
         <div key={`${point.place_id}-leg`} className="route-leg-row">
