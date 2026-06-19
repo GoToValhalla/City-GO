@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+import traceback
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,6 +41,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.exception_handler(Exception)
+async def temporary_debug_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Temporary production diagnostics for the broken route/admin endpoints.
+
+    Remove after the current 500 errors are fixed. This intentionally returns the traceback
+    to the frontend/API monitor so the failing code path can be identified without SSH access.
+    """
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "unhandled_exception",
+            "path": str(request.url.path),
+            "method": request.method,
+            "exception_type": exc.__class__.__name__,
+            "message": str(exc),
+            "traceback": traceback.format_exc(),
+        },
+    )
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=parse_cors_origins(settings.cors_origins),
@@ -63,6 +85,7 @@ async def request_logging_middleware(
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
     return await log_request(request, call_next)
+
 
 include_app_routers(app)
 
