@@ -1,7 +1,6 @@
 """
 Сборка MergedContext из HTTP/бот-запроса и опционального UserProfile (без обращений к БД).
 """
-
 from typing import Optional, List
 
 from schemas.merged_context import (
@@ -16,6 +15,9 @@ from schemas.merged_context import (
 )
 
 from schemas.user_profile import UserProfile
+
+
+DEFAULT_ROUTE_INTERESTS = ["walk"]
 
 
 # -----------------------------
@@ -82,14 +84,8 @@ class ContextMergeService:
         profile: Optional[UserProfile] = None,
     ) -> MergedContext:
 
-        # -----------------------------
-        # LOCATION — координаты старта (из запроса или профиля).
-        # -----------------------------
         location = self._resolve_location(request, profile)
 
-        # -----------------------------
-        # TIME BUDGET — лимит времени маршрута и эффективный бюджет после нормализации.
-        # -----------------------------
         time_budget = (
             request.time_budget_minutes
             or (profile.behavior.preferred_time_budget_minutes if profile else None)
@@ -97,60 +93,21 @@ class ContextMergeService:
         )
 
         effective_time_budget = compute_effective_time_budget(time_budget)
-
-        # -----------------------------
-        # INTERESTS (weighted union lite) — объединение списков интересов (лёгкий union).
-        # -----------------------------
         interests = self._merge_interests(request, profile)
-
-        # -----------------------------
-        # AVOIDS — категории и места, которые нужно исключить.
-        # -----------------------------
         avoided_categories = self._merge_avoided_categories(request, profile)
         avoided_place_ids = self._merge_avoided_places(request, profile)
-
-        # -----------------------------
-        # BUDGET — уровень цен (бюджет) пользователя.
-        # -----------------------------
         budget_level = self._resolve_budget(request, profile)
-
-        # -----------------------------
-        # PACE — темп маршрута (slow/normal/fast) и множитель длительности остановок.
-        # -----------------------------
         pace_mode = self._resolve_pace(request, profile)
         pace_multiplier = mood_to_pace(pace_mode)
-
-        # -----------------------------
-        # VISITING — режим «турист / свой город» и параметры поездки по дням.
-        # -----------------------------
         is_visiting = request.is_visiting or False
         visit_city_id = request.visit_city_id
         visit_days = request.visit_days or 1
-
-        # -----------------------------
-        # LOCAL VS TOURIST — баланс локальных vs туристических предпочтений (0..1).
-        # -----------------------------
-        local_vs_tourist = 0.5  # MVP дефолт
-
-        # -----------------------------
-        # NOVELTY MODE — включение упора на новизну/разнообразие.
-        # -----------------------------
+        local_vs_tourist = 0.5
         novelty_mode = self._resolve_novelty(profile)
-
-        # -----------------------------
-        # RADIUS — радиус поиска кандидатов в метрах.
-        # -----------------------------
         radius = compute_radius(time_budget, is_visiting)
-
-        # -----------------------------
-        # ROUTE SHAPE — целевое число остановок и минимальная длительность визита.
-        # -----------------------------
         num_stops = compute_num_stops(effective_time_budget, pace_multiplier)
         min_stop_duration = compute_min_stop_duration(pace_mode)
 
-        # -----------------------------
-        # BUILD CONTEXT
-        # -----------------------------
         return MergedContext(
             location=location,
             city_id=request.city_id,
@@ -185,10 +142,6 @@ class ContextMergeService:
             visited_place_ids=list(profile.history.visited_place_ids) if profile else [],
         )
 
-    # -----------------------------
-    # INTERNAL HELPERS — внутренние функции разрешения полей.
-    # -----------------------------
-
     def _resolve_location(
         self,
         request: RequestContext,
@@ -199,8 +152,6 @@ class ContextMergeService:
             return request.location
 
         if profile and profile.preferences.home_city_id:
-            # TODO: потом заменить на lookup координат города
-            # Заглушка: при отсутствии координат в запросе и наличии home_city_id вернуть (0,0) до реального геокодинга города.
             return (0.0, 0.0)
 
         raise ValueError("Location is required")
@@ -212,13 +163,13 @@ class ContextMergeService:
     ) -> List[str]:
 
         result = set()
+        result.update(str(item).strip() for item in request.interests if str(item).strip())
 
-        # TIER 1 — интересы из текущего запроса.
-        result.update(request.interests)
-
-        # TIER 2 — интересы из профиля пользователя (если есть).
         if profile:
-            result.update(profile.preferences.interests)
+            result.update(str(item).strip() for item in profile.preferences.interests if str(item).strip())
+
+        if not result:
+            result.update(DEFAULT_ROUTE_INTERESTS)
 
         return list(result)
 
@@ -271,16 +222,17 @@ class ContextMergeService:
         if request.pace_mode:
             return PaceMode(request.pace_mode)
 
-        if profile and profile.preferences.pace_mode:
+        if profile:
             return profile.preferences.pace_mode
 
         return self.DEFAULT_PACE
 
-    def _resolve_novelty(self, profile: Optional[UserProfile]) -> bool:
-        """
-        Включаем novelty только если есть хоть какая-то история.
-        """
+    def _resolve_novelty(
+        self,
+        profile: Optional[UserProfile],
+    ) -> bool:
+
         if not profile:
             return False
 
-        return profile.behavior.completed_routes_count >= 3
+        return profile.behavior.novelty_preference > 0.6
