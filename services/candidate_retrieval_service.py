@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from math import asin, cos, radians, sin, sqrt
+
 from sqlalchemy import case, func, literal, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
@@ -43,6 +45,9 @@ class CandidateRetrievalService:
     MAX_CANDIDATES = 500
     TARGET_CANDIDATES = 180
 
+    def __init__(self) -> None:
+        self.last_debug: dict[str, object] = {}
+
     def get_candidates(
         self,
         db: Session,
@@ -50,14 +55,20 @@ class CandidateRetrievalService:
     ) -> list[Place]:
 
         candidates = self._query_places(db, ctx)
+        raw_candidates_count = len(candidates)
+        fallback_radius_used = False
+        fallback_city_wide_used = False
 
         if len(candidates) < 20:
             candidates = self._fallback_expand_radius(db, ctx)
+            fallback_radius_used = True
 
         if len(candidates) < 20:
             candidates = self._fallback_city_wide(db, ctx)
+            fallback_city_wide_used = True
 
         if not candidates:
+            self.last_debug = self._debug_payload(ctx, raw_candidates_count, [], fallback_radius_used, fallback_city_wide_used)
             return []
 
         with_images = self._safe_attach_public_images(db, candidates)
@@ -66,7 +77,9 @@ class CandidateRetrievalService:
 
         # Защита от пустого маршрута после post-processing: SQL уже нашёл кандидатов,
         # поэтому ranking/balancing/image enrichment не имеют права обнулить пул.
-        return balanced or ranked or with_images or candidates
+        final = balanced or ranked or with_images or candidates
+        self.last_debug = self._debug_payload(ctx, raw_candidates_count, final, fallback_radius_used, fallback_city_wide_used)
+        return final
 
     def _safe_attach_public_images(self, db: Session, candidates: list[Place]) -> list[Place]:
         try:
@@ -203,6 +216,29 @@ class CandidateRetrievalService:
         value = getattr(place, "id", 0) or 0
         return int(value) if isinstance(value, int) else 0
 
+    def _debug_payload(
+        self,
+        ctx: MergedContext,
+        raw_candidates_count: int,
+        candidates: list[Place],
+        fallback_radius_used: bool,
+        fallback_city_wide_used: bool,
+    ) -> dict[str, object]:
+        lat, lng = ctx.location
+        return {
+            "query_limit": self.MAX_CANDIDATES,
+            "raw_candidates_count": raw_candidates_count,
+            "final_candidates_count": len(candidates),
+            "fallback_radius_used": fallback_radius_used,
+            "fallback_city_wide_used": fallback_city_wide_used,
+            "top_candidate_distances_meters": [
+                _distance_meters(lat, lng, float(place.lat), float(place.lng))
+                for place in candidates[:10]
+                if _has_number_coords(place)
+            ],
+            "sample_candidate_ids": [str(getattr(place, "id", "")) for place in candidates[:10]],
+        }
+
     def _distance_meters_expr(self, lat: float, lng: float) -> ColumnElement[float]:
         lat_delta = (func.radians(Place.lat) - func.radians(lat)) / 2
         lng_delta = (func.radians(Place.lng) - func.radians(lng)) / 2
@@ -256,3 +292,14 @@ def _has_quality_validation(place: Place) -> bool:
 
 def _category(place: Place) -> str:
     return str(getattr(place, "category", "") or "").strip().casefold()
+
+
+def _has_number_coords(place: object) -> bool:
+    return isinstance(getattr(place, "lat", None), (int, float)) and isinstance(getattr(place, "lng", None), (int, float))
+
+
+def _distance_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
+    lat_delta = (radians(lat2) - radians(lat1)) / 2
+    lng_delta = (radians(lng2) - radians(lng1)) / 2
+    value = sin(lat_delta) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(lng_delta) ** 2
+    return int(round(2 * 6_371_000 * asin(min(1.0, sqrt(value)))))

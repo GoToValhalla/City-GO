@@ -49,7 +49,7 @@ def build_dynamic_route(
     filtered, filtered_warnings = _filtered(deps, candidates, ctx, now, trace)
     scored = _scored(deps, filtered, ctx, trace)
     plan = _planned(scored, ctx, trace)
-    route, route_warnings = _route(deps, plan.scored, filtered, ctx, now, trace)
+    route, route_warnings = _route(deps, plan.scored, filtered, ctx, now, trace, plan.target_points)
     budget_fit = _budget_fit(deps, route, plan.scored, ctx, trace)
     gate = evaluate_quality_gates(
         budget_fit.route,
@@ -61,11 +61,14 @@ def build_dynamic_route(
     )
     trace.add(
         "quality_gates",
+        status=gate.route_quality_status,
         input_count=len(budget_fit.route),
         output_count=len(budget_fit.route),
         route_quality_status=gate.route_quality_status,
         route_completeness=gate.route_completeness,
         fallback_level=gate.fallback_level,
+        failed_gates=gate.warnings,
+        user_explanation=plan.user_explanation,
         warnings=gate.warnings[:DEBUG_SAMPLE_LIMIT],
     )
     warnings = _unique([*input_warnings, *filtered_warnings, *route_warnings,
@@ -89,6 +92,14 @@ def build_dynamic_route(
     final_route.candidate_options = _candidate_options(scored, ctx, budget_fit.route)
     final_route.generation_run_id = _record_generation(db, ctx, request, final_route)
     trace.add("generation_record", generation_run_id=final_route.generation_run_id)
+    trace.add(
+        "final",
+        final_points_count=len(getattr(final_route, "points", []) or []),
+        final_duration_minutes=getattr(final_route, "total_estimated_minutes", None) or getattr(final_route, "total_minutes", None),
+        final_distance_km=getattr(final_route, "estimated_distance", None),
+        final_place_ids=[str(getattr(point, "place_id", "")) for point in getattr(final_route, "points", []) or []],
+        failure_stage=_failure_stage(candidates, filtered, scored, route, budget_fit.route, gate),
+    )
     trace.add(
         "final_response",
         input_count=len(budget_fit.route),
@@ -144,6 +155,21 @@ def _ctx(deps: object, request: RequestContext, profile: UserProfile | None, tra
         excluded_place_ids=list(getattr(ctx, "excluded_place_ids", []) or []),
     )
     trace.add(
+        "context",
+        city_id=getattr(ctx, "city_id", None),
+        start_lat=_start_lat(ctx),
+        start_lng=_start_lng(ctx),
+        radius_meters=getattr(ctx, "radius_meters", None),
+        time_budget_minutes=getattr(ctx, "time_budget_minutes", None),
+        route_time_mode=getattr(ctx, "route_time_mode", None),
+        time_of_day=getattr(ctx, "time_of_day", None),
+        interests=list(getattr(ctx, "interests", []) or []),
+        avoided_categories=list(getattr(ctx, "avoided_categories", []) or []),
+        excluded_place_ids=list(getattr(ctx, "avoided_place_ids", []) or []),
+        budget_level=getattr(ctx, "budget_level", None),
+        pace_mode=getattr(ctx, "pace_mode", None),
+    )
+    trace.add(
         "context_normalization",
         input_count=1,
         output_count=1,
@@ -159,6 +185,8 @@ def _candidates(deps: object, db: Session, ctx: object, trace: RoutePipelineTrac
     started = perf_counter()
     candidates = deps.retrieval.get_candidates(db, ctx)
     diagnostics = candidate_diagnostics(db, ctx)
+    trace.add("city_stats", **_city_stats_payload(diagnostics))
+    trace.add("retrieval", **_retrieval_payload(deps, ctx, candidates, diagnostics))
     timed_trace(
         trace,
         "candidate_retrieval",
@@ -199,6 +227,14 @@ def _filtered(deps: object, candidates: list[object], ctx: object, now: datetime
                 rejected_sample=_rejected_sample(report.rejected, ctx),
                 warnings=warnings[:DEBUG_SAMPLE_LIMIT])
     trace.add(
+        "hard_filters",
+        input_count=len(candidates),
+        output_count=len(kept),
+        removed_count=len(report.rejected),
+        removal_reasons=report.reason_counts,
+        sample_removed=_filter_removed_sample(candidates, report.rejected),
+    )
+    trace.add(
         "hard_filtering",
         input_count=len(candidates),
         output_count=len(kept),
@@ -213,7 +249,7 @@ def _scored(deps: object, filtered: list[object], ctx: object, trace: RoutePipel
     scored = deps.scoring.score(filtered, ctx)
     timed_trace(
         trace,
-        "scoring",
+        "scoring_raw",
         started,
         input_count=len(filtered),
         count=len(scored),
@@ -228,14 +264,25 @@ def _scored(deps: object, filtered: list[object], ctx: object, trace: RoutePipel
 
 def _planned(scored: list[object], ctx: object, trace: RoutePipelineTrace) -> RoutePlan:
     plan = prepare_route_plan(scored, ctx)
+    trace.add("scoring", **_scoring_payload(plan.scored, ctx))
     trace.add(
         "interest_matching",
         input_count=len(scored),
-        output_count=plan.exact_count,
+        requested_interests=list(getattr(ctx, "interests", []) or []),
+        exact_matches_count=plan.exact_count,
+        related_matches_count=plan.related_count,
+        neutral_candidates_count=plan.neutral_count,
+        expansion_level=plan.expansion_level,
+        expanded_category_count=plan.expanded_category_count,
+        neutral_added_count=plan.neutral_added_count,
+        output_count=plan.expanded_pool_count,
         matched_interest_count=plan.exact_count,
         total_requested_interests=len(list(getattr(ctx, "interests", []) or [])),
         related_count=plan.related_count,
         neutral_count=plan.neutral_count,
+        sample_exact_ids=_sample_ids_by_point_type(plan.scored, "primary"),
+        sample_related_ids=_sample_ids_by_point_type(plan.scored, "related"),
+        sample_neutral_ids=_sample_ids_by_point_type(plan.scored, "neutral"),
         warnings=plan.warnings[:DEBUG_SAMPLE_LIMIT],
     )
     trace.add(
@@ -252,7 +299,7 @@ def _planned(scored: list[object], ctx: object, trace: RoutePipelineTrace) -> Ro
 
 
 def _route(deps: object, scored: list[object], filtered: list[object], ctx: object,
-           now: datetime, trace: RoutePipelineTrace):
+           now: datetime, trace: RoutePipelineTrace, target_points: int):
     started = perf_counter()
     trace.add(
         "assembly_input_debug",
@@ -266,8 +313,21 @@ def _route(deps: object, scored: list[object], filtered: list[object], ctx: obje
     warnings = assembly_warnings(filtered, route)
     original_selected_count = len(route)
     original_route_sample = _route_point_sample(route)
+    first_point_debug = _first_point_fit_debug(scored, ctx)
+    selected_ids = _route_ids(route)
+    rejected_count = max(0, len(scored) - len(selected_ids))
+    first_point_reasons = _first_point_rejection_reasons(first_point_debug)
     timed_trace(trace, "assembly", started, selected_count=len(route), original_selected_count=original_selected_count,
                 warning_count=len(warnings),
+                input_count=len(scored),
+                target_points=target_points,
+                rejected_count=rejected_count,
+                rejection_reasons=_assembly_rejection_reasons(rejected_count),
+                selected_ids=selected_ids,
+                rejected_sample=_assembly_rejected_sample(scored, selected_ids),
+                first_point_candidates_checked=first_point_debug.get("checked_count", 0),
+                first_point_rejection_reasons=first_point_reasons,
+                failure_reason=_assembly_failure_reason(route, scored, first_point_reasons),
                 route_minutes=_route_minutes(route),
                 original_route_sample=original_route_sample,
                 route_sample=_route_point_sample(route),
@@ -300,6 +360,7 @@ def _route(deps: object, scored: list[object], filtered: list[object], ctx: obje
 def _budget_fit(deps: object, route: list[object], scored: list[object], ctx: object, trace: RoutePipelineTrace):
     started = perf_counter()
     first_fit = deps.budget_fit.fit(route, ctx)
+    removed_by_budget = _removed_by_budget(route, first_fit.route)
     trace.add(
         "budget_fit_first",
         input_count=len(route),
@@ -327,8 +388,16 @@ def _budget_fit(deps: object, route: list[object], scored: list[object], ctx: ob
     )
     final_fit = first_fit
     timed_trace(trace, "budget_fit", started,
+                input_count=len(route),
+                output_count=len(final_fit.route),
                 kept_count=len(final_fit.route),
                 warning_count=len(final_fit.warnings),
+                requested_budget_minutes=_budget_minutes(ctx),
+                actual_duration_minutes=_route_minutes(final_fit.route),
+                route_completeness=_route_completeness(final_fit.route, len(route)),
+                removed_by_budget_count=len(removed_by_budget),
+                removed_by_budget_sample=_route_point_sample(removed_by_budget),
+                failure_reason=_budget_failure_reason(route, final_fit.route),
                 before_fit_input_count=len(route),
                 before_fill_count=len(first_fit.route),
                 after_fill_count=len(first_fit.route),
@@ -350,6 +419,76 @@ def _candidate_options(scored: list[object], ctx: object, route: list[object]) -
         if len(options) >= MAX_CANDIDATE_OPTIONS:
             break
     return options
+
+
+def _city_stats_payload(diagnostics: dict[str, object]) -> dict[str, object]:
+    keys = ("places_total_in_city", "places_public_catalog", "places_route_eligible", "places_active_legacy_safe")
+    return {key: diagnostics.get(key) for key in keys}
+
+
+def _retrieval_payload(deps: object, ctx: object, candidates: list[object], diagnostics: dict[str, object]) -> dict[str, object]:
+    debug = dict(getattr(getattr(deps, "retrieval", None), "last_debug", {}) or {})
+    final_count = int(debug.get("final_candidates_count") or len(candidates))
+    return {
+        "input_city_id": getattr(ctx, "city_id", None),
+        "requested_radius_meters": getattr(ctx, "radius_meters", None),
+        "query_limit": debug.get("query_limit"),
+        "raw_candidates_count": debug.get("raw_candidates_count", len(candidates)),
+        "after_city_filter_count": diagnostics.get("places_total_in_city"),
+        "after_route_eligible_count": diagnostics.get("places_route_eligible"),
+        "after_public_catalog_count": diagnostics.get("places_public_catalog"),
+        "after_coordinates_count": diagnostics.get("places_with_coords"),
+        "after_excluded_place_ids_count": final_count,
+        "after_avoided_categories_count": final_count,
+        "final_candidates_count": final_count,
+        "fallback_city_wide_used": bool(debug.get("fallback_city_wide_used", False)),
+        "fallback_radius_used": bool(debug.get("fallback_radius_used", False)),
+        "top_candidate_distances_meters": list(debug.get("top_candidate_distances_meters", []) or []),
+        "sample_candidate_ids": list(debug.get("sample_candidate_ids", []) or []),
+    }
+
+
+def _filter_removed_sample(candidates: list[object], rejected: object, limit: int = 10) -> list[dict[str, object]]:
+    by_id = {str(getattr(place, "id", "")): place for place in candidates}
+    rows = []
+    for item in list(rejected or [])[:limit]:
+        place = by_id.get(str(getattr(item, "place_id", "")))
+        rows.append({
+            "id": str(getattr(item, "place_id", "")),
+            "name": _text(getattr(place, "title", None) or getattr(place, "name", None)) if place else None,
+            "category": _text(getattr(place, "category", None)) if place else None,
+            "reason": getattr(item, "reason", None),
+        })
+    return rows
+
+
+def _scoring_payload(scored: list[object], ctx: object) -> dict[str, object]:
+    scores = [float(getattr(item, "score", 0.0) or 0.0) for item in scored]
+    return {
+        "input_count": len(scored),
+        "output_count": len(scored),
+        "min_score": round(min(scores), 4) if scores else None,
+        "max_score": round(max(scores), 4) if scores else None,
+        "avg_score": round(sum(scores) / len(scores), 4) if scores else None,
+        "top_scored_candidates": _top_scored_candidates(scored, ctx),
+    }
+
+
+def _top_scored_candidates(scored: list[object], ctx: object) -> list[dict[str, object]]:
+    return [_scored_debug_row(item, ctx) for item in list(scored or [])[:10]]
+
+
+def _scored_debug_row(item: object, ctx: object) -> dict[str, object]:
+    place = getattr(item, "place", None)
+    breakdown = dict(getattr(item, "breakdown", {}) or {})
+    return {
+        "id": str(getattr(place, "id", "") or ""),
+        "name": _text(getattr(place, "title", None) or getattr(place, "name", None)),
+        "category": _text(getattr(place, "category", None)),
+        "score": round(float(getattr(item, "score", 0.0) or 0.0), 4),
+        "distance_meters": _distance_meters_from_ctx(place, ctx),
+        "point_type": breakdown.get("route_match_type"),
+    }
 
 
 def _apply_adaptive_metadata(final_route: object, plan: RoutePlan, gate: object, ctx: object) -> None:
@@ -379,11 +518,121 @@ def _unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(item for item in values if item))
 
 
+def _sample_ids_by_point_type(scored: list[object], point_type: str) -> list[str]:
+    return [
+        str(getattr(getattr(item, "place", None), "id", ""))
+        for item in scored
+        if dict(getattr(item, "breakdown", {}) or {}).get("route_match_type") == point_type
+    ][:10]
+
+
+def _route_ids(route: list[object]) -> list[str]:
+    return [str(getattr(point, "place_id", "")) for point in route]
+
+
+def _assembly_rejected_sample(scored: list[object], selected_ids: list[str]) -> list[dict[str, object]]:
+    selected = set(selected_ids)
+    rows = []
+    for item in scored:
+        place = getattr(item, "place", None)
+        place_id = str(getattr(place, "id", "") or "")
+        if place_id in selected:
+            continue
+        rows.append({
+            "id": place_id,
+            "name": _text(getattr(place, "title", None) or getattr(place, "name", None)),
+            "category": _text(getattr(place, "category", None)),
+            "reason": "not_selected_by_optimizer",
+        })
+        if len(rows) >= 10:
+            break
+    return rows
+
+
+def _assembly_rejection_reasons(rejected_count: int) -> dict[str, int]:
+    return {"not_selected_by_optimizer": rejected_count} if rejected_count > 0 else {}
+
+
+def _first_point_rejection_reasons(debug: dict[str, object]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in list(debug.get("closest_candidates", []) or []):
+        if not isinstance(row, dict):
+            continue
+        for reason in list(row.get("reject_reasons_if_first", []) or []):
+            key = str(reason)
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _assembly_failure_reason(route: list[object], scored: list[object], first_point_reasons: dict[str, int]) -> str | None:
+    if route:
+        return None
+    if not scored:
+        return "no_scored_candidates"
+    if first_point_reasons:
+        return "first_point_candidates_rejected"
+    return "optimizer_selected_zero_points"
+
+
+def _removed_by_budget(input_route: list[object], output_route: list[object]) -> list[object]:
+    kept = {str(getattr(point, "place_id", "")) for point in output_route}
+    return [point for point in input_route if str(getattr(point, "place_id", "")) not in kept]
+
+
+def _budget_failure_reason(input_route: list[object], output_route: list[object]) -> str | None:
+    if input_route and not output_route:
+        return "budget_fit_removed_all_points"
+    if not input_route:
+        return "no_route_before_budget_fit"
+    return None
+
+
+def _route_completeness(route: list[object], target: int) -> float:
+    return round(len(route) / max(1, target), 3)
+
+
+def _failure_stage(candidates: list[object], filtered: list[object], scored: list[object], route: list[object], budget_route: list[object], gate: object) -> str:
+    if budget_route:
+        return "none"
+    if not candidates:
+        return "retrieval"
+    if not filtered:
+        return "hard_filters"
+    if not scored:
+        return "scoring"
+    if not route:
+        return "assembly"
+    if not budget_route:
+        return "budget_fit"
+    status = str(getattr(gate, "route_quality_status", "") or "")
+    return "quality_gates" if status in {"failed", "algorithm_error"} else "none"
+
+
 def _tail_location(route: list[object], ctx: object) -> tuple[float, float]:
     if route:
         last = route[-1]
         return float(getattr(last, "lat")), float(getattr(last, "lng"))
     return ctx.location
+
+
+def _start_lat(ctx: object) -> float | None:
+    lat, _lng = getattr(ctx, "location", (None, None))
+    return float(lat) if isinstance(lat, (int, float)) else None
+
+
+def _start_lng(ctx: object) -> float | None:
+    _lat, lng = getattr(ctx, "location", (None, None))
+    return float(lng) if isinstance(lng, (int, float)) else None
+
+
+def _distance_meters_from_ctx(place: object, ctx: object) -> int | None:
+    if place is None or getattr(place, "lat", None) is None or getattr(place, "lng", None) is None:
+        return None
+    lat, lng = getattr(ctx, "location", (None, None))
+    if lat is None or lng is None:
+        return None
+    minutes = walk_minutes_between(float(lat), float(lng), float(place.lat), float(place.lng))
+    return int(round(minutes * 80))
 
 
 def _soft_budget_minutes(ctx: object) -> int:

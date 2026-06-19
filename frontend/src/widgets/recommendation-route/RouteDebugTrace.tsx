@@ -52,6 +52,32 @@ const diagnosticKeys = [
   'warnings',
 ]
 
+const debugBlocks = [
+  ['context', 'Контекст'],
+  ['city_stats', 'Статистика города'],
+  ['retrieval', 'Retrieval'],
+  ['hard_filters', 'Hard filters'],
+  ['interest_matching', 'Interest matching'],
+  ['scoring', 'Scoring'],
+  ['assembly', 'Assembly'],
+  ['budget_fit', 'Budget fit'],
+  ['quality_gates', 'Quality gates'],
+  ['final', 'Final'],
+] as const
+
+const blockFields: Record<string, string[]> = {
+  context: ['city_id', 'start_lat', 'start_lng', 'radius_meters', 'time_budget_minutes', 'route_time_mode', 'time_of_day', 'interests', 'avoided_categories', 'excluded_place_ids', 'budget_level', 'pace_mode'],
+  city_stats: ['places_total_in_city', 'places_public_catalog', 'places_route_eligible', 'places_active_legacy_safe'],
+  retrieval: ['input_city_id', 'requested_radius_meters', 'query_limit', 'raw_candidates_count', 'after_city_filter_count', 'after_route_eligible_count', 'after_public_catalog_count', 'after_coordinates_count', 'after_excluded_place_ids_count', 'after_avoided_categories_count', 'final_candidates_count', 'fallback_city_wide_used', 'fallback_radius_used', 'top_candidate_distances_meters', 'sample_candidate_ids'],
+  hard_filters: ['input_count', 'output_count', 'removed_count', 'removal_reasons', 'sample_removed'],
+  interest_matching: ['input_count', 'requested_interests', 'exact_matches_count', 'related_matches_count', 'neutral_candidates_count', 'expansion_level', 'expanded_category_count', 'neutral_added_count', 'output_count', 'sample_exact_ids', 'sample_related_ids', 'sample_neutral_ids'],
+  scoring: ['input_count', 'output_count', 'min_score', 'max_score', 'avg_score', 'top_scored_candidates'],
+  assembly: ['input_count', 'target_points', 'selected_count', 'rejected_count', 'rejection_reasons', 'selected_ids', 'rejected_sample', 'first_point_candidates_checked', 'first_point_rejection_reasons', 'failure_reason'],
+  budget_fit: ['input_count', 'output_count', 'requested_budget_minutes', 'actual_duration_minutes', 'route_completeness', 'removed_by_budget_count', 'removed_by_budget_sample', 'failure_reason'],
+  quality_gates: ['status', 'warnings', 'failed_gates', 'user_explanation'],
+  final: ['final_points_count', 'final_duration_minutes', 'final_distance_km', 'final_place_ids', 'failure_stage'],
+}
+
 const value = (entry: RouteDebugTraceEntry, keys: string[]): string => {
   const found = keys.map((key) => entry[key]).find((item) => item !== undefined && item !== null)
   if (found === undefined || found === null) return '—'
@@ -81,6 +107,10 @@ const stageByName = (trace: RouteDebugTraceEntry[], stage: string): RouteDebugTr
 )
 
 const shortJson = (payload: unknown): string => JSON.stringify(payload, null, 2)
+
+const blockPayload = (entry: RouteDebugTraceEntry, fields: string[]): Record<string, unknown> => (
+  fields.reduce<Record<string, unknown>>((acc, key) => ({ ...acc, [key]: entry[key] ?? null }), {})
+)
 
 const fullDebugPayload = (route: RecommendationRouteResponse): Record<string, unknown> => ({
   route_id: route.route_id,
@@ -166,6 +196,18 @@ export const RouteDebugTrace = ({ route }: Props) => {
           <pre>{shortJson(route.warnings)}</pre>
         </div>
       ) : null}
+
+      <div className="route-debug-list">
+        {debugBlocks.map(([stage, title]) => {
+          const entry = stageByName(trace, stage) ?? { stage }
+          return (
+            <div className="route-debug-item" key={`canonical-${stage}`}>
+              <strong>{title}</strong>
+              <pre>{shortJson(blockPayload(entry, blockFields[stage] ?? []))}</pre>
+            </div>
+          )
+        })}
+      </div>
 
       <div className="route-debug-list">
         {trace.map((entry, index) => {

@@ -49,7 +49,7 @@ export type RecommendationRoutePoint = {
   estimated_departure_time?: string | null
   time_status?: string | null
   time_warning?: string | null
-  scoring_breakdown?: Record<string, number>
+  scoring_breakdown?: Record<string, number | string>
   // Navigation payload
   display_location?: string | null
   has_address?: boolean

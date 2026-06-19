@@ -62,6 +62,20 @@ curl -H "X-Debug: true" -X POST /v1/recommendations/route
 ]
 ```
 
+`debug_trace` в UI обязан показывать полную цепочку даже при пустом маршруте
+или ошибке сборки. Канонические блоки:
+
+- `context` — параметры запроса и нормализованный route context.
+- `city_stats` — общий объём мест города и пригодность к маршрутам.
+- `retrieval` — счётчики извлечения кандидатов, fallback и sample ids.
+- `hard_filters` — вход/выход, причины отбраковки и sample removed.
+- `interest_matching` — точные, related и neutral совпадения интересов.
+- `scoring` — диапазон score и top scored candidates.
+- `assembly` — выбранные/отклонённые точки и причины отказа первой точки.
+- `budget_fit` — соответствие маршрута time budget и снятые budget точки.
+- `quality_gates` — warnings, failed gates и пользовательское объяснение.
+- `final` — итоговые ids, длительность, дистанция и `failure_stage`.
+
 ## Тесты
 
 - `tests/test_hard_filters_service.py` — safety-фильтры и причины.
