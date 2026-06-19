@@ -11,9 +11,12 @@ permissions:
 jobs:
   api-error-monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     env:
       PROD_HOST: ${{ secrets.SSH_HOST }}
+      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -113,6 +116,42 @@ jobs:
             echo "EOF" >> "$GITHUB_ENV"
             exit 1
           fi
+
+      - name: Collect backend logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SSH_PRIVATE_KEY_B64:-}" ] || [ -z "${SSH_USER:-}" ] || [ -z "${PROD_HOST:-}" ]; then
+            echo "SSH diagnostics skipped: SSH secrets missing"
+            exit 0
+          fi
+
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$PROD_HOST" >> ~/.ssh/known_hosts
+
+          set +e
+          DIAG=$(ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$PROD_HOST" bash <<'REMOTE_EOF'
+            cd /srv/app || exit 0
+            echo "=== compose ps ==="
+            docker compose ps || true
+            echo "=== backend logs extracted ==="
+            docker compose logs --tail=1600 backend | grep -Ei -A 50 -B 20 'traceback|exception|error|critical|undefinedcolumn|undefinedtable|programmingerror|operationalerror|integrityerror|validationerror|sqlalchemy' || true
+            echo "=== backend logs tail ==="
+            docker compose logs --tail=260 backend || true
+          REMOTE_EOF
+          )
+          SSH_EXIT=$?
+          set -e
+
+          echo "$DIAG"
+          ENCODED_DIAG=$(printf '%s' "$DIAG" | head -c 6000 | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g')
+          echo "REPORT<<EOF" >> "$GITHUB_ENV"
+          printf '%s%%0A%%0A%s\n' "${REPORT:-API monitor failed}" "$ENCODED_DIAG" >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+          exit 0
 
       - name: Telegram alert on API 4xx/5xx
         if: failure()
