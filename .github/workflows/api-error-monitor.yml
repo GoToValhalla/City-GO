@@ -28,6 +28,10 @@ jobs:
           FAILED=0
           REPORT=""
 
+          encode_body() {
+            head -c 6000 "$1" | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g'
+          }
+
           check_get() {
             local name="$1"
             local path="$2"
@@ -50,7 +54,7 @@ jobs:
                 "${BASE_URL}${path}" || echo "000")
             fi
 
-            BODY=$(head -c 700 "$tmp" | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g')
+            BODY=$(encode_body "$tmp")
             rm -f "$tmp"
 
             echo "${name} ${path} -> ${STATUS}"
@@ -72,7 +76,7 @@ jobs:
               -d "$body" \
               "${BASE_URL}${path}" || echo "000")
 
-            BODY=$(head -c 700 "$tmp" | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g')
+            BODY=$(encode_body "$tmp")
             rm -f "$tmp"
 
             echo "${name} ${path} -> ${STATUS}"
@@ -86,15 +90,20 @@ jobs:
           check_get "api_health_proxy" "/api/health" "public"
           check_get "backend_health_direct" ":8000/health" "public"
 
-          check_get "admin_overview" "/api/admin/overview" "admin"
-          check_get "admin_metrics" "/api/admin/metrics/summary" "admin"
-          check_get "admin_coverage" "/api/admin/coverage/summary?limit=5" "admin"
-          check_get "admin_verification" "/api/admin/place-verifications/summary" "admin"
-          check_get "admin_route_eligibility" "/api/admin/routes/eligibility?limit=1" "admin"
-          check_get "admin_route_readiness" "/api/admin/routes/readiness?limit=10" "admin"
+          check_get "admin_overview_proxy" "/api/admin/overview" "admin"
+          check_get "admin_metrics_proxy" "/api/admin/metrics/summary" "admin"
+          check_get "admin_coverage_proxy" "/api/admin/coverage/summary?limit=5" "admin"
+          check_get "admin_verification_proxy" "/api/admin/place-verifications/summary" "admin"
+          check_get "admin_route_eligibility_proxy" "/api/admin/routes/eligibility?limit=1" "admin"
+          check_get "admin_route_readiness_proxy" "/api/admin/routes/readiness?limit=10" "admin"
+
+          check_get "admin_overview_backend" ":8000/admin/overview" "admin"
+          check_get "admin_coverage_backend" ":8000/admin/coverage/summary?limit=5" "admin"
+          check_get "admin_route_readiness_backend" ":8000/admin/routes/readiness?limit=10" "admin"
 
           ROUTE_BODY='{"lat":40.1792,"lng":44.4991,"start_address":null,"start_source":"city_center","start":{"type":"city_center","lat":40.1792,"lng":44.4991,"address":null},"build_mode":"by_categories","time_budget_minutes":240,"time_of_day":null,"route_time_mode":"flexible","interests":["coffee","food","walk"],"avoided_categories":[],"excluded_place_ids":[],"budget_level":null,"pace_mode":null,"is_visiting":false,"city_id":"yerevan","visit_city_id":null,"visit_days":null,"user_id":"monitor"}'
-          check_post_json "route_preview_yerevan" "/api/v1/user-routes/preview" "$ROUTE_BODY"
+          check_post_json "route_preview_yerevan_proxy" "/api/v1/user-routes/preview" "$ROUTE_BODY"
+          check_post_json "route_preview_yerevan_backend" ":8000/v1/user-routes/preview" "$ROUTE_BODY"
 
           if [ "$FAILED" != "0" ]; then
             echo "API monitor failed"
