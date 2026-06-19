@@ -31,6 +31,7 @@ export const RouteRequestForm = ({
   onSubmit,
 }: Props) => {
   const visibleInterestOptions = getInterestOptionsForFeatures(features)
+  const hasSelectedInterests = form.interests.length > 0
 
   return (
     <form className="route-form" onSubmit={onSubmit}>
@@ -79,6 +80,14 @@ export const RouteRequestForm = ({
           <Sparkles size={18} />
           <span>Что хочется в маршруте</span>
         </div>
+        <p className="route-start-note route-interest-note">
+          Это необязательно. Если ничего не выбрать, City Go всё равно соберёт обычную прогулку.
+        </p>
+        {!hasSelectedInterests ? (
+          <p className="route-start-note route-interest-fallback-note">
+            Сейчас выбран авто-режим: маршрут строится как прогулка без узкой привязки к интересам.
+          </p>
+        ) : null}
         <div className="route-chip-row">{visibleInterestOptions.map((option) => (
           <button className={form.interests.includes(option.value) ? 'is-selected' : ''}
             type="button" key={option.value} onClick={() => onToggleInterest(option.value)}>
