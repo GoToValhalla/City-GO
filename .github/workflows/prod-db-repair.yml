@@ -1,0 +1,96 @@
+name: Prod DB Repair
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prod-db-repair:
+    name: Repair production DB health
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Validate production SSH secrets
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+
+      - name: Setup SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Diagnose and restart production DB
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" bash -seu -o pipefail <<'REMOTE_EOF'
+            cd /srv/app
+
+            echo "=== compose config validation ==="
+            docker compose config >/dev/null
+
+            echo "=== db ps before repair ==="
+            docker compose ps db || true
+
+            echo "=== db logs before repair ==="
+            docker compose logs --tail=200 db || true
+
+            echo "=== db health inspect before repair ==="
+            docker inspect app-db-1 --format='{{json .State.Health}}' || true
+
+            echo "=== db pg_isready before repair ==="
+            docker compose exec -T db pg_isready -U postgres || true
+
+            echo "=== restart db ==="
+            docker compose restart db
+
+            echo "=== wait for db pg_isready ==="
+            for attempt in $(seq 1 30); do
+              docker compose ps db || true
+
+              if docker compose exec -T db pg_isready -U postgres >/dev/null 2>&1; then
+                echo "db pg_isready OK attempt=${attempt}"
+                echo "=== db health inspect after pg_isready OK ==="
+                docker inspect app-db-1 --format='{{json .State.Health}}' || true
+                echo "=== db ps after repair ==="
+                docker compose ps db || true
+                exit 0
+              fi
+
+              echo "db not ready attempt=${attempt}/30"
+              sleep 3
+            done
+
+            echo "DB still not ready after restart"
+            echo "=== db ps final ==="
+            docker compose ps db || true
+            echo "=== db logs final ==="
+            docker compose logs --tail=300 db || true
+            echo "=== db health inspect final ==="
+            docker inspect app-db-1 --format='{{json .State.Health}}' || true
+            exit 1
+          REMOTE_EOF
