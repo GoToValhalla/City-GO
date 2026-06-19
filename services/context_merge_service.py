@@ -17,9 +17,6 @@ from schemas.merged_context import (
 from schemas.user_profile import UserProfile
 
 
-DEFAULT_ROUTE_INTERESTS = ["walk"]
-
-
 # -----------------------------
 # INPUT MODELS (минимальные) — входные модели без привязки к Pydantic-схеме HTTP.
 # -----------------------------
@@ -168,9 +165,6 @@ class ContextMergeService:
         if profile:
             result.update(str(item).strip() for item in profile.preferences.interests if str(item).strip())
 
-        if not result:
-            result.update(DEFAULT_ROUTE_INTERESTS)
-
         return list(result)
 
     def _merge_avoided_categories(
@@ -222,7 +216,7 @@ class ContextMergeService:
         if request.pace_mode:
             return PaceMode(request.pace_mode)
 
-        if profile:
+        if profile and profile.preferences.pace_mode is not None:
             return profile.preferences.pace_mode
 
         return self.DEFAULT_PACE
@@ -235,4 +229,6 @@ class ContextMergeService:
         if not profile:
             return False
 
-        return profile.behavior.novelty_preference > 0.6
+        preference = getattr(profile.behavior, "novelty_preference", 0.0)
+        completed = int(getattr(profile.behavior, "completed_routes_count", 0) or 0)
+        return float(preference or 0.0) > 0.6 or completed >= 3

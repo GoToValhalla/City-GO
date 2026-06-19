@@ -104,17 +104,14 @@ Title/name места не используется.
 `services/route_assembly_optimizer.py` больше не использует безлимитный `relaxed_categories=True`.
 
 Текущая логика:
+- перед assembly `route_adaptive_plan` размечает scored pool как primary/related/neutral;
 - `relaxation_stage = 0` — обычные category caps;
-- `relaxation_stage = 1` — controlled relaxation для route-friendly категорий, только если маршрут ниже minimum viable route;
-- `relaxation_stage = 2` — ограниченное послабление для остальных категорий, только если маршрут всё ещё ниже минимума;
+- следующие relaxation stages ограниченно ослабляют category pressure, если адаптивный target ещё не достигнут;
 - при выборе кандидата применяется category pressure, чтобы не набивать маршрут одинаковыми категориями.
 
-Minimum viable route:
-- `< 45 мин` → минимум 1 точка;
-- `45–89 мин` → минимум 3 точки;
-- `90+ мин` → минимум 4 точки.
+Target route size теперь адаптивен: budget, средняя длительность визита, оценка переходов, плотность pool и pace.
 
-`_fill_budget_gap` теперь также соблюдает diversity policy и не добавляет точки в обход category caps.
+`_fill_budget_gap` удалён: route flow больше не добивает маршрут точками для искусственного заполнения бюджета.
 
 ## 7. Route quality layer
 

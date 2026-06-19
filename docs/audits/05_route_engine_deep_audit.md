@@ -47,7 +47,7 @@ context_merge → candidate retrieval → quality annotation → hard filters �
 | 5. Assembly | `route_assembly_optimizer.py::assemble_route` (`:32-40`) | scored → `list[RoutePoint]` | shrink (`scored[:120]`, diversity, budget) |
 | 6. Time ordering | `route_time_ordering_service.py::order` (`:14-21`) | points → reordered | none |
 | 7. Time aware | `time_aware_service.py::apply` (`:24-77`) | points → annotated | none |
-| 8. Budget fit + fill | `route_budget_fit_service.py::fit` + `route_builder_flow.py::_fill_budget_gap` (`:99-134`) | route → trimmed/filled | shrink then maybe grow |
+| 8. Budget fit | `route_budget_fit_service.py::fit` | route → trimmed/minimal route | shrink only |
 | 9. Finalize | `route_finalize_service.py::finalize` (`:18-68`) | route → `FinalRoute` | none |
 
 ---
@@ -61,7 +61,7 @@ Where the place list shrinks (with whether it is traced per-place):
 3. **Radius fallback** if `< 20` candidates (`:27-28`) → radius ×1.5 re-query (`:72`). **Not reflected in diagnostics.**
 4. **Hard filters** (`route_filter_policy.py:35-41`): strict pool; if `< MIN_POOL_SIZE=15` (`hard_filters_service.py:13`) relax only `price_budget`. Per-reason counts traced, **per-place IDs not**.
 5. **`scored[:120]`** assembly slice (`route_assembly_optimizer.py:36,39`) — only top 120 scored considered. **Silent.**
-6. **Diversity caps** (`route_diversity_policy.py:6-24`): coffee/food=2, walk=3, culture=3, default **2**; walk-interest exception up to **5** (`route_assembly_optimizer.py:87`). **No per-place trace.**
+6. **Diversity pressure** (`route_diversity_policy.py`, `route_assembly_optimizer.py`): repeated categories are penalized/limited during assembly, while adaptive planning exposes expansion in trace.
 7. **Budget trim** (`route_budget_fit_service.py:25-36`): tail points dropped when walk+visit exceeds `effective_time_budget_minutes`; first point kept even if over budget.
 
 ---

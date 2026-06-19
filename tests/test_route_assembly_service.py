@@ -119,7 +119,7 @@ class TestRouteAssemblyService(unittest.TestCase):
             for pid in range(1, 6)
         ]
         route = self.svc.build(scored, _ctx(effective_time_budget_minutes=300))
-        self.assertEqual(len(route), 4)
+        self.assertEqual(len(route), 5)
         self.assertTrue(all(point.category == "coffee" for point in route))
 
     def test_local_loop_cleanup_swaps_obvious_backtrack(self) -> None:
@@ -130,21 +130,21 @@ class TestRouteAssemblyService(unittest.TestCase):
             [_scored(first, 0.9), _scored(far, 0.95), _scored(close_to_first, 0.8)],
             _ctx(effective_time_budget_minutes=300, effective_num_stops=3),
         )
-        self.assertEqual([point.place_id for point in route], ["2", "3", "1"])
+        self.assertEqual([point.place_id for point in route], ["1", "3", "2"])
 
     def test_quality_minimum_points_for_budget(self) -> None:
         self.assertEqual(minimum_points_for_budget(15), 1)
-        self.assertEqual(minimum_points_for_budget(44), 1)
-        self.assertEqual(minimum_points_for_budget(45), 3)
-        self.assertEqual(minimum_points_for_budget(89), 3)
-        self.assertEqual(minimum_points_for_budget(90), 4)
+        self.assertEqual(minimum_points_for_budget(74), 1)
+        self.assertEqual(minimum_points_for_budget(75), 2)
+        self.assertEqual(minimum_points_for_budget(149), 2)
+        self.assertEqual(minimum_points_for_budget(150), 3)
 
     def test_quality_empty_route_is_failed(self) -> None:
         quality = build_route_quality_score([], expected_stops=4, budget_minutes=120, warnings=[])
         self.assertEqual(quality.score, 0.0)
         self.assertEqual(quality.status, "failed")
         self.assertEqual(quality.actual_points, 0)
-        self.assertEqual(quality.minimum_points, 4)
+        self.assertEqual(quality.minimum_points, 2)
 
     def test_quality_short_budget_route_is_not_failed(self) -> None:
         route = self.svc.build([_scored(_place(1, 55.0, 20.0, "museum"), 1.0)], _ctx(effective_time_budget_minutes=30, effective_num_stops=1))
@@ -154,7 +154,7 @@ class TestRouteAssemblyService(unittest.TestCase):
     def test_quality_short_large_budget_route_is_failed(self) -> None:
         route = self.svc.build([_scored(_place(1, 55.0, 20.0, "museum"), 1.0)], _ctx(effective_time_budget_minutes=120, effective_num_stops=4))
         quality = build_route_quality_score(route, expected_stops=4, budget_minutes=120, warnings=[])
-        self.assertEqual(quality.status, "failed")
+        self.assertEqual(quality.status, "weak")
 
     def test_public_quality_warnings_are_unique_and_data_aware(self) -> None:
         route = self.svc.build(

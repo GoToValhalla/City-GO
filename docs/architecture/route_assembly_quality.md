@@ -15,6 +15,17 @@
 - `services/route_point_factory.py` создаёт `RoutePoint` из `ScoredPlace`.
 - `services/route_walk_annotations.py` пересчитывает walk-minutes после loop cleanup.
 - `services/route_response_metrics.py` добавляет metadata для API/UI.
+- `services/route_adaptive_plan.py` классифицирует scored pool на primary/related/neutral.
+- `services/route_quality_gates.py` выставляет route-level status, completeness и warnings.
+
+## Adaptive Planning
+
+- interests являются soft preference и не удаляют кандидатов сами по себе;
+- отсутствие выбранных interests строит neutral route по лучшим доступным точкам города;
+- `exact_count = 0` расширяет pool через related/neutral и добавляет warning;
+- `exact_count = 1` помечает точку как anchor для assembly;
+- target size считается по budget, средней длительности визита, оценке переходов, плотности pool и pace;
+- длинный budget не заставляет добирать фиксированное число точек, если качественного pool мало.
 
 ## Selection
 
@@ -58,5 +69,14 @@ candidate.score * 0.7 + value_per_minute * 0.3
 - `time_breakdown.total_time_minutes`;
 - `time_breakdown.budget_utilization`;
 - `category_distribution`.
+- `route_quality_status`;
+- `route_completeness`;
+- `matched_interest_count`;
+- `total_requested_interests`;
+- `expansion_level`;
+- `neutral_added_count`;
+- `fallback_level`;
+- `user_explanation`;
+- `debug_trace`.
 
-`RouteBudgetFitService` остаётся страховкой после time-aware pass.
+`RouteBudgetFitService` остаётся страховкой после time-aware pass и не добивает маршрут точками для искусственного заполнения бюджета.

@@ -80,9 +80,9 @@ class TestRouteFinalizeNoWarnings(unittest.TestCase):
         ]
         fr = svc.finalize(route, _ctx())
         self.assertTrue(fr.has_warnings)
-        self.assertEqual(fr.warning_count, 4)
+        self.assertEqual(fr.warning_count, 3)
         self.assertEqual(fr.places_with_warnings, [])
-        self.assertEqual(fr.warnings, ["route_short_due_to_low_place_density", "some_places_have_no_address", "some_places_have_no_photo", "some_places_have_weak_description"])
+        self.assertEqual(fr.warnings, ["some_places_have_no_address", "some_places_have_no_photo", "some_places_have_weak_description"])
         self.assertGreaterEqual(fr.total_walk_distance_meters, 0)
         self.assertEqual(fr.category_distribution["cafe"], 2)
         self.assertEqual(fr.time_breakdown["visit_time_minutes"], 45.0)
@@ -208,7 +208,7 @@ class TestRouteFinalizeValidationRouteWarnings(unittest.TestCase):
             _point("2", 55.01, 20.0, 25, time_status="ok", estimated_arrival_time=t0 + timedelta(minutes=30), estimated_departure_time=t0 + timedelta(minutes=55)),
         ]
         fr = svc.finalize(route, _ctx())
-        self.assertEqual(fr.warnings, ["route_short_due_to_low_place_density", "some_places_have_no_address", "some_places_have_no_photo", "some_places_have_weak_description"])
+        self.assertEqual(fr.warnings, ["some_places_have_no_address", "some_places_have_no_photo", "some_places_have_weak_description"])
         self.assertTrue(fr.has_warnings)
 
 

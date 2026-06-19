@@ -23,7 +23,17 @@ def serialize_final_route(final: FinalRoute) -> dict[str, object]:
         "warning_count": int(getattr(final, "warning_count", 0) or 0),
         "places_with_warnings": list(getattr(final, "places_with_warnings", []) or []),
         "quality_score": float(getattr(final, "quality_score", 0.0) or 0.0),
+        "quality_status": str(getattr(final, "quality_status", "weak") or "weak"),
         "quality_breakdown": dict(getattr(final, "quality_breakdown", {}) or {}),
+        "route_quality_status": str(getattr(final, "route_quality_status", "") or ""),
+        "route_completeness": float(getattr(final, "route_completeness", 0.0) or 0.0),
+        "matched_interest_count": int(getattr(final, "matched_interest_count", 0) or 0),
+        "total_requested_interests": int(getattr(final, "total_requested_interests", 0) or 0),
+        "expansion_level": str(getattr(final, "expansion_level", "none") or "none"),
+        "expanded_category_count": int(getattr(final, "expanded_category_count", 0) or 0),
+        "neutral_added_count": int(getattr(final, "neutral_added_count", 0) or 0),
+        "fallback_level": str(getattr(final, "fallback_level", "none") or "none"),
+        "user_explanation": getattr(final, "user_explanation", None),
         "total_walk_distance_meters": int(getattr(final, "total_walk_distance_meters", 0) or 0),
         "time_breakdown": dict(getattr(final, "time_breakdown", {}) or {}),
         "category_distribution": dict(getattr(final, "category_distribution", {}) or {}),
@@ -33,6 +43,8 @@ def serialize_final_route(final: FinalRoute) -> dict[str, object]:
         ),
         "user_warnings": [*user_warnings(final), *missing_address_warning_items(final.points)],
         "points": [_serialize_point(point) for point in final.points],
+        "candidate_options": [_serialize_point(point) for point in getattr(final, "candidate_options", []) or []],
+        "debug_trace": list(getattr(final, "pipeline_trace", []) or []),
     }
 
 

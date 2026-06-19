@@ -103,8 +103,9 @@ class CandidateRetrievalService:
         # при этом сами места уже public + route_eligible. Старый _scope_is_route_visible()
         # превращал город с тысячами доступных мест в 0 кандидатов для маршрута.
 
-        if ctx.avoided_place_ids:
-            query = query.where(~Place.id.in_(ctx.avoided_place_ids))
+        avoided_place_ids = list(getattr(ctx, "avoided_place_ids", []) or [])
+        if avoided_place_ids:
+            query = query.where(~Place.id.in_(avoided_place_ids))
 
         if ctx.avoided_categories:
             query = query.where(~Place.category.in_(ctx.avoided_categories))

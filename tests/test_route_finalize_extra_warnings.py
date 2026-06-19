@@ -47,13 +47,12 @@ def test_finalize_includes_extra_route_warnings_once() -> None:
     )
     assert final.warnings == [
         warning,
-        "route_short_due_to_low_place_density",
         "some_places_have_no_address",
         "some_places_have_no_photo",
         "some_places_have_weak_description",
     ]
     assert final.has_warnings is True
-    assert final.warning_count == 5
+    assert final.warning_count == 4
 
 
 def test_finalize_empty_route_keeps_extra_warnings() -> None:

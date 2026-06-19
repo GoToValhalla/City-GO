@@ -21,10 +21,6 @@ type BuildResult =
   | { ok: true; value: RecommendationRouteRequest }
   | { ok: false; error: string }
 
-// Интересы в UI — это мягкая настройка, а не обязательное условие построения маршрута.
-// Если пользователь ничего не выбрал, строим обычную прогулку вместо пустого/непонятного запроса.
-export const DEFAULT_ROUTE_INTERESTS = ['walk']
-
 const parseNumber = (value: string): number | null => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
@@ -35,8 +31,7 @@ export const toggleListValue = (values: string[], value: string): string[] => {
 }
 
 export const normalizeRouteInterests = (interests: string[]): string[] => {
-  const cleaned = interests.map((interest) => interest.trim()).filter(Boolean)
-  return cleaned.length ? cleaned : DEFAULT_ROUTE_INTERESTS
+  return interests.map((interest) => interest.trim()).filter(Boolean)
 }
 
 export const buildRecommendationRouteRequest = (

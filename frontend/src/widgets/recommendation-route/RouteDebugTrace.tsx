@@ -12,7 +12,13 @@ const stageTitle: Record<string, string> = {
   candidate_retrieval: 'Поиск кандидатов',
   context_merge: 'Контекст запроса',
   hard_filter: 'Жёсткие фильтры',
+  hard_filtering: 'Жёсткие фильтры',
+  interest_matching: 'Совпадения интересов',
+  pool_expansion: 'Расширение пула',
   quality_annotation: 'Качество данных',
+  quality_gates: 'Quality gates маршрута',
+  final_response: 'Финальный ответ',
+  context_normalization: 'Нормализация контекста',
   route_quality_gate: 'Quality gate маршрута',
   scoring: 'Скоринг',
   time_aware: 'Проверка времени',
@@ -87,6 +93,14 @@ const fullDebugPayload = (route: RecommendationRouteResponse): Record<string, un
   total_walk_distance_meters: route.total_walk_distance_meters,
   quality_score: route.quality_score,
   quality_status: route.quality_status,
+  route_quality_status: route.route_quality_status,
+  route_completeness: route.route_completeness,
+  matched_interest_count: route.matched_interest_count,
+  total_requested_interests: route.total_requested_interests,
+  expansion_level: route.expansion_level,
+  neutral_added_count: route.neutral_added_count,
+  fallback_level: route.fallback_level,
+  user_explanation: route.user_explanation,
   quality_breakdown: route.quality_breakdown,
   time_breakdown: route.time_breakdown,
   category_distribution: route.category_distribution,
@@ -124,7 +138,7 @@ export const RouteDebugTrace = ({ route }: Props) => {
   const scoring = stageByName(trace, 'scoring') ?? emptyTraceEntry
   const assembly = stageByName(trace, 'assembly') ?? emptyTraceEntry
   const budgetFit = stageByName(trace, 'budget_fit') ?? emptyTraceEntry
-  const qualityGate = stageByName(trace, 'route_quality_gate') ?? emptyTraceEntry
+  const qualityGate = stageByName(trace, 'quality_gates') ?? stageByName(trace, 'route_quality_gate') ?? emptyTraceEntry
   const rawPayload = fullDebugPayload(route)
 
   return (
@@ -142,6 +156,8 @@ export const RouteDebugTrace = ({ route }: Props) => {
         <div><span>Budget fit</span><strong>{value(budgetFit, ['kept_count', 'after_budget_fit_count'])}</strong></div>
         <div><span>Итог</span><strong>{value(qualityGate, ['final_route_count'])}</strong></div>
         <div><span>Budget %</span><strong>{value(qualityGate, ['budget_utilization_pct'])}</strong></div>
+        <div><span>Route quality</span><strong>{route.route_quality_status ?? '—'}</strong></div>
+        <div><span>Expansion</span><strong>{route.expansion_level ?? '—'}</strong></div>
       </div>
 
       {route.warnings?.length ? (

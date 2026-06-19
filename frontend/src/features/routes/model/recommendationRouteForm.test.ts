@@ -29,4 +29,11 @@ describe('buildRecommendationRouteRequest', () => {
     expect(result.value.city_id).toBe('zelenogradsk')
   })
 
+  it('does not inject hidden walk interest when none selected', () => {
+    const result = buildRecommendationRouteRequest({ ...form, interests: [] }, 'zelenogradsk')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.interests).toEqual([])
+  })
 })

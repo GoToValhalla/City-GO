@@ -3,10 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from schemas.merged_context import MergedContext
+from services.route_adaptive_plan import adaptive_target_points
 from services.route_diversity_policy import add_category, can_use_category, normalize_category
 from services.route_geometry import walk_minutes_between
 from services.route_point_factory import route_point_from_scored, visit_minutes_for_scored
-from services.route_quality_score import minimum_points_for_budget
 from services.route_walk_annotations import annotate_walks
 from services.scoring_service import ScoredPlace
 
@@ -46,10 +46,12 @@ def assemble_route(scored: list[ScoredPlace], ctx: MergedContext, point_cls: typ
 
     lat, lng = ctx.location
     budget = _assembly_budget(ctx)
-    target_points = _target_points(ctx, budget)
+    target_points = _target_points(ctx, budget, scored)
     candidate_pool = scored[:MAX_CANDIDATE_POOL]
 
-    state = AssemblyState([], budget, lat, lng, {}, candidate_pool, target_points)
+    seed = _anchor_seed(candidate_pool, ctx, point_cls)
+    remaining_pool = [item for item in candidate_pool if str(getattr(item.place, "id", "")) not in _route_ids(seed)]
+    state = _initial_state(seed, budget, lat, lng, remaining_pool, target_points)
     route = _select_until_done(state, ctx, point_cls)
 
     # If the normal optimizer cannot pick the first point, do not return no_route for
@@ -68,7 +70,7 @@ def assemble_route(scored: list[ScoredPlace], ctx: MergedContext, point_cls: typ
     # must not degrade to 0-1 points just because walk caps/diversity cannot satisfy
     # the ideal optimizer. This fallback keeps the budget guard, but ignores category
     # pressure and per-leg walk caps until the minimum point count is reached.
-    if _needs_minimum_point_backfill(route, budget, candidate_pool):
+    if _needs_minimum_point_backfill(route, candidate_pool, target_points):
         route = _minimum_point_backfill(route, candidate_pool, ctx, point_cls, budget, target_points)
 
     return annotate_walks(_cleanup_loops(route), ctx.location)
@@ -92,6 +94,31 @@ def _select_until_done(state: AssemblyState, ctx: MergedContext, point_cls: type
     walk = walk_minutes_between(state.lat, state.lng, point.lat, point.lng)
     point.estimated_walk_minutes = walk
     return _select_until_done(_next_state(state, selected, point, walk), ctx, point_cls)
+
+
+def _anchor_seed(scored: list[ScoredPlace], ctx: MergedContext, point_cls: type) -> list[object]:
+    anchors = [item for item in scored if float(item.breakdown.get("route_anchor", 0.0) or 0.0) >= 1.0]
+    if len(anchors) != 1:
+        return []
+    lat, lng = ctx.location
+    point = route_point_from_scored(anchors[0], ctx, point_cls)
+    point.estimated_walk_minutes = walk_minutes_between(lat, lng, point.lat, point.lng)
+    return [point]
+
+
+def _initial_state(
+    seed: list[object], budget: int, lat: float, lng: float, candidates: list[ScoredPlace], target_points: int
+) -> AssemblyState:
+    if not seed:
+        return AssemblyState([], budget, lat, lng, {}, candidates, target_points)
+    point = seed[-1]
+    used = {normalize_category(getattr(point, "category", "")): 1}
+    spent = _route_minutes(seed)
+    return AssemblyState(seed, max(0, budget - spent), float(point.lat), float(point.lng), used, candidates, target_points)
+
+
+def _route_ids(route: list[object]) -> set[str]:
+    return {str(getattr(point, "place_id", "")) for point in route}
 
 
 def _done(state: AssemblyState, ctx: MergedContext) -> bool:
@@ -128,8 +155,7 @@ def _can_use_category_for_route(category: str, used: dict[str, int], relaxation_
             return used.get(normalized, 0) < 3
         return can_use_category(category, used)
 
-    min_points = minimum_points_for_budget(_assembly_budget(ctx))
-    if route_len >= min_points and relaxation_stage < MAX_RELAXATION_STAGE:
+    if route_len >= 2 and relaxation_stage < MAX_RELAXATION_STAGE:
         return _can_use_category_for_route(category, used, 0, route_len, ctx)
 
     base_limit = 5 if (_is_walking_route(ctx) and normalized in WALK_ROUTE_CATEGORIES) else 3
@@ -137,8 +163,7 @@ def _can_use_category_for_route(category: str, used: dict[str, int], relaxation_
 
 
 def _relax_state(state: AssemblyState, ctx: MergedContext) -> AssemblyState | None:
-    min_points = minimum_points_for_budget(_assembly_budget(ctx))
-    underfilled = len(state.route) < max(min_points, min(5, state.target_points))
+    underfilled = len(state.route) < min(3, state.target_points)
     if underfilled and state.relaxation_stage < MAX_RELAXATION_STAGE:
         return AssemblyState(state.route, state.remaining, state.lat, state.lng, state.used_categories, state.candidates, state.target_points, state.relaxed_budget, state.relaxation_stage + 1)
 
@@ -195,7 +220,7 @@ def _next_state(state: AssemblyState, selected: ScoredPlace, point: object, walk
 def _needs_time_fill(route: list[object], budget: int, target_points: int) -> bool:
     if not route:
         return False
-    if len(route) < min(minimum_points_for_budget(budget), target_points):
+    if len(route) < min(2, target_points):
         return True
     return len(route) < target_points and _route_minutes(route) < int(budget * MIN_BUDGET_UTILIZATION)
 
@@ -229,7 +254,7 @@ def _fill_remaining_time(route: list[object], scored: list[ScoredPlace], ctx: Me
 def _greedy_proximity_backfill(route: list[object], scored: list[ScoredPlace], ctx: MergedContext, point_cls: type, budget: int, target_points: int) -> list[object]:
     current = list(route)
     used_ids = {str(getattr(point, "place_id", "")) for point in current}
-    min_points = min(minimum_points_for_budget(budget), target_points)
+    min_points = min(2, target_points)
 
     while len(current) < target_points and _route_minutes(current) < int(budget * TARGET_BUDGET_UTILIZATION):
         lat, lng = _tail_location(current, ctx)
@@ -278,14 +303,14 @@ def _first_point_seed_fallback(scored: list[ScoredPlace], ctx: MergedContext, po
     return [point]
 
 
-def _needs_minimum_point_backfill(route: list[object], budget: int, scored: list[ScoredPlace]) -> bool:
-    return bool(scored) and len(route) < minimum_points_for_budget(budget)
+def _needs_minimum_point_backfill(route: list[object], scored: list[ScoredPlace], target_points: int) -> bool:
+    return bool(scored) and len(route) < min(2, target_points)
 
 
 def _minimum_point_backfill(route: list[object], scored: list[ScoredPlace], ctx: MergedContext, point_cls: type, budget: int, target_points: int) -> list[object]:
     current = list(route)
     used_ids = {str(getattr(point, "place_id", "")) for point in current}
-    min_points = min(minimum_points_for_budget(budget), target_points)
+    min_points = min(2, target_points)
 
     for item in scored:
         if len(current) >= min_points:
@@ -307,7 +332,7 @@ def _minimum_point_backfill(route: list[object], scored: list[ScoredPlace], ctx:
 
 
 def _fill_stage(route: list[object], budget: int) -> int:
-    if len(route) < minimum_points_for_budget(budget):
+    if len(route) < 2:
         return MAX_RELAXATION_STAGE
     return 1
 
@@ -323,17 +348,14 @@ def _route_minutes(route: list[object]) -> int:
     return sum(int(getattr(point, "visit_minutes", 0) or 0) + int(getattr(point, "estimated_walk_minutes", 0) or 0) for point in route)
 
 
-def _target_points(ctx: MergedContext, budget: int) -> int:
-    from_context = int(getattr(ctx, "effective_num_stops", 0) or 0)
-    by_budget = max(minimum_points_for_budget(budget), int(budget / DEFAULT_MINUTES_PER_POINT))
-    if _is_walking_route(ctx):
-        by_budget = max(5, by_budget)
-    return max(minimum_points_for_budget(budget), min(MAX_TARGET_POINTS, max(from_context, by_budget)))
+def _target_points(ctx: MergedContext, budget: int, scored: list[ScoredPlace]) -> int:
+    target = adaptive_target_points(scored, ctx)
+    return min(MAX_TARGET_POINTS, max(1, target or 1))
 
 
 def _is_walking_route(ctx: MergedContext) -> bool:
     interests = {str(item).strip().casefold() for item in getattr(ctx, "interests", []) or []}
-    return not interests or bool(interests & WALK_INTERESTS)
+    return bool(interests & WALK_INTERESTS)
 
 
 def _walk_route_fit(scored: ScoredPlace, ctx: MergedContext) -> float:

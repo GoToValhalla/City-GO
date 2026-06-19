@@ -86,11 +86,23 @@ class RecommendationRouteResponse(BaseModel):
     warning_count: int
     places_with_warnings: list[str]
     quality_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    quality_status: str | None = None
     quality_breakdown: dict[str, float] = Field(default_factory=dict)
+    route_quality_status: str | None = None
+    route_completeness: float = 0.0
+    matched_interest_count: int = 0
+    total_requested_interests: int = 0
+    expansion_level: str = "none"
+    expanded_category_count: int = 0
+    neutral_added_count: int = 0
+    fallback_level: str = "none"
+    user_explanation: str | None = None
     total_walk_distance_meters: int = Field(default=0, ge=0)
     time_breakdown: dict[str, float] = Field(default_factory=dict)
     category_distribution: dict[str, int] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
     user_warnings: list[RouteUserWarning] = Field(default_factory=list)
     points: list[RecommendationRoutePointResponse]
+    candidate_options: list[RecommendationRoutePointResponse] = Field(default_factory=list)
+    debug_trace: list[dict[str, Any]] = Field(default_factory=list)
     explanation: dict[str, Any]

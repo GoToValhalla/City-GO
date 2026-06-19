@@ -1,5 +1,4 @@
 import type { RecommendationRouteFormState } from '../../features/routes/model/recommendationRouteForm'
-import { DEFAULT_ROUTE_INTERESTS } from '../../features/routes/model/recommendationRouteForm'
 import { getCurrentCity, getCurrentCityCoordinates } from '../../shared/city/currentCity'
 
 const currentCity = getCurrentCity()
@@ -14,7 +13,7 @@ export const initialRouteForm: RecommendationRouteFormState = {
   timeOfDay: '',
   routeTimeMode: 'flexible',
   useTimeBudget: true,
-  interests: [...DEFAULT_ROUTE_INTERESTS],
+  interests: [],
   avoidedCategories: [],
   budgetLevel: '',
   paceMode: '',

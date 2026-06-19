@@ -1,5 +1,21 @@
 # CHANGE HISTORY
 
+## 2026-06-20
+
+### Adaptive route refactor
+- Route builder no longer injects hidden `walk` interests on backend or frontend.
+- Added adaptive interest expansion: primary exact matches, related categories,
+  neutral POI and explicit warnings/user explanation.
+- Removed emergency assembly fallback and budget gap fill from recommendation
+  route flow; short routes now remain honest instead of being silently padded.
+- Added route-level metadata: `route_quality_status`, `route_completeness`,
+  `matched_interest_count`, `expansion_level`, `fallback_level`,
+  `user_explanation` and `debug_trace`.
+- Added regression tests for no interests, zero/one/many exact matches, sparse
+  pool, budget target sizing, same-category pools, hard avoided categories,
+  budget-fit minimal routes, far starts and algorithm-error gates.
+- Architecture note added: `docs/routes/adaptive_route_refactor.md`.
+
 ## 2026-06-06
 
 ### Route builder P0 stabilization

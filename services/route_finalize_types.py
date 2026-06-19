@@ -30,6 +30,15 @@ class FinalRoute:
         category_distribution: dict[str, int] | None = None,
         status: str = "ready",
         partial_reason: str | None = None,
+        route_quality_status: str | None = None,
+        route_completeness: float = 0.0,
+        matched_interest_count: int = 0,
+        total_requested_interests: int = 0,
+        expansion_level: str = "none",
+        expanded_category_count: int = 0,
+        neutral_added_count: int = 0,
+        fallback_level: str = "none",
+        user_explanation: str | None = None,
     ):
         self.route_id = route_id
         self.status = status
@@ -52,6 +61,15 @@ class FinalRoute:
         self.total_walk_distance_meters = int(total_walk_distance_meters)
         self.time_breakdown = _dict_or_empty(time_breakdown)
         self.category_distribution = _dict_or_empty(category_distribution)
+        self.route_quality_status = route_quality_status or quality_status
+        self.route_completeness = float(route_completeness)
+        self.matched_interest_count = int(matched_interest_count)
+        self.total_requested_interests = int(total_requested_interests)
+        self.expansion_level = expansion_level
+        self.expanded_category_count = int(expanded_category_count)
+        self.neutral_added_count = int(neutral_added_count)
+        self.fallback_level = fallback_level
+        self.user_explanation = user_explanation
 
 
 def _list_or_empty(value: list | None) -> list:

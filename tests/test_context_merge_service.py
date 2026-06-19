@@ -40,6 +40,10 @@ class TestContextMergeService(unittest.TestCase):
         self.assertEqual(ctx.route_time_mode, "flexible")
         self.assertGreaterEqual(ctx.effective_num_stops, 1)
 
+    def test_merge_empty_interests_stays_empty(self) -> None:
+        ctx = self.svc.merge(RequestContext(location=(55.0, 20.0), interests=[]), profile=None)
+        self.assertEqual(ctx.interests, [])
+
     # Если в запросе нет time_budget, подставляется preferred_time_budget_minutes из профиля.
     def test_merge_time_budget_from_profile(self) -> None:
         req = RequestContext(location=(1.0, 2.0), time_budget_minutes=None)

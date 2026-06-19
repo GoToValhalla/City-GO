@@ -107,7 +107,7 @@ def _clean_url(value: object) -> str | None:
 
 def _is_walking_route(ctx: MergedContext) -> bool:
     interests = {str(item).strip().casefold() for item in getattr(ctx, "interests", []) or []}
-    return not interests or bool(interests & WALK_INTERESTS)
+    return bool(interests & WALK_INTERESTS)
 
 
 def _validation(place: object) -> dict[str, Any] | None:

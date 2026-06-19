@@ -107,6 +107,15 @@ export type RecommendationRouteResponse = {
   quality_score?: number
   quality_status?: RouteQualityStatus
   quality_breakdown?: Record<string, number | string>
+  route_quality_status?: string | null
+  route_completeness?: number
+  matched_interest_count?: number
+  total_requested_interests?: number
+  expansion_level?: string
+  expanded_category_count?: number
+  neutral_added_count?: number
+  fallback_level?: string
+  user_explanation?: string | null
   total_walk_distance_meters?: number
   time_breakdown?: Record<string, number>
   category_distribution?: Record<string, number>

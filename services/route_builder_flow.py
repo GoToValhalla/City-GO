@@ -16,18 +16,17 @@ from services.route_quality_warnings import route_quality_warnings
 from services.route_start_time import effective_route_start
 from models.city import City
 from services.route_candidate_diagnostics import candidate_diagnostics
-from services.route_diversity_policy import add_category, can_use_category, normalize_category
+from services.route_adaptive_plan import prepare_route_plan
+from services.route_adaptive_types import RoutePlan
 from services.route_generation_diagnostics.record import record_canonical_generation
 from services.route_geometry import walk_minutes_between
 from services.route_point_factory import route_point_from_scored, visit_minutes_for_scored
 from services.route_assembly_service import RoutePoint
-from services.route_quality_score import minimum_points_for_budget
+from services.route_quality_gates import evaluate_quality_gates
 
 MAX_CANDIDATE_OPTIONS = 40
 SOFT_BUDGET_FILL_RATIO = 0.9
 HARD_BUDGET_FILL_RATIO = 1.0
-ROUTE_FRIENDLY_FILL_CATEGORIES = {"walk", "park", "outdoor", "attraction", "culture", "coffee", "cafe", "museum", "gallery"}
-EMERGENCY_ROUTE_WARNING = "Emergency route fallback was used because standard route assembly returned zero points."
 DEBUG_SAMPLE_LIMIT = 12
 
 
@@ -46,15 +45,35 @@ def build_dynamic_route(
     ctx = _ctx(deps, request, profile, trace)
     now = effective_route_start(datetime.utcnow(), getattr(ctx, "time_of_day", None))
     trace.add("route_start_time", now_iso=now.isoformat(), route_time_mode=getattr(ctx, "route_time_mode", None), time_of_day=getattr(ctx, "time_of_day", None))
-    candidates, input_warnings = _candidates(deps, db, ctx, trace)
+    candidates, input_warnings, diagnostics = _candidates(deps, db, ctx, trace)
     filtered, filtered_warnings = _filtered(deps, candidates, ctx, now, trace)
     scored = _scored(deps, filtered, ctx, trace)
-    route, route_warnings = _route(deps, scored, filtered, ctx, now, trace)
-    budget_fit = _budget_fit(deps, route, scored, ctx, trace)
-    warnings = [*input_warnings, *filtered_warnings, *route_warnings,
-                *route_quality_warnings(budget_fit.route, ctx.effective_num_stops),
-                *budget_fit.warnings]
+    plan = _planned(scored, ctx, trace)
+    route, route_warnings = _route(deps, plan.scored, filtered, ctx, now, trace)
+    budget_fit = _budget_fit(deps, route, plan.scored, ctx, trace)
+    gate = evaluate_quality_gates(
+        budget_fit.route,
+        plan,
+        diagnostics,
+        list(getattr(ctx, "avoided_place_ids", []) or []),
+        list(getattr(ctx, "avoided_categories", []) or []),
+        bool(route and not budget_fit.route),
+    )
+    trace.add(
+        "quality_gates",
+        input_count=len(budget_fit.route),
+        output_count=len(budget_fit.route),
+        route_quality_status=gate.route_quality_status,
+        route_completeness=gate.route_completeness,
+        fallback_level=gate.fallback_level,
+        warnings=gate.warnings[:DEBUG_SAMPLE_LIMIT],
+    )
+    warnings = _unique([*input_warnings, *filtered_warnings, *route_warnings,
+                        *plan.warnings, *gate.warnings,
+                        *route_quality_warnings(budget_fit.route, plan.target_points),
+                        *budget_fit.warnings])
     final_route = deps.finalize.finalize(budget_fit.route, ctx, extra_warnings=warnings)
+    _apply_adaptive_metadata(final_route, plan, gate, ctx)
     trace.add(
         "finalize",
         input_count=len(budget_fit.route),
@@ -70,6 +89,14 @@ def build_dynamic_route(
     final_route.candidate_options = _candidate_options(scored, ctx, budget_fit.route)
     final_route.generation_run_id = _record_generation(db, ctx, request, final_route)
     trace.add("generation_record", generation_run_id=final_route.generation_run_id)
+    trace.add(
+        "final_response",
+        input_count=len(budget_fit.route),
+        output_count=len(getattr(final_route, "places", []) or getattr(final_route, "points", []) or []),
+        route_quality_status=getattr(final_route, "route_quality_status", None),
+        route_completeness=getattr(final_route, "route_completeness", None),
+        warnings=list(getattr(final_route, "warnings", []) or [])[:DEBUG_SAMPLE_LIMIT],
+    )
     final_route.pipeline_trace = trace.snapshot()
     log_route_trace(str(final_route.route_id), trace)
     return final_route
@@ -116,6 +143,15 @@ def _ctx(deps: object, request: RequestContext, profile: UserProfile | None, tra
         avoided_categories=list(getattr(ctx, "avoided_categories", []) or []),
         excluded_place_ids=list(getattr(ctx, "excluded_place_ids", []) or []),
     )
+    trace.add(
+        "context_normalization",
+        input_count=1,
+        output_count=1,
+        city_id=getattr(ctx, "city_id", None),
+        total_requested_interests=len(list(getattr(ctx, "interests", []) or [])),
+        interests=list(getattr(ctx, "interests", []) or []),
+        warnings=[],
+    )
     return ctx
 
 
@@ -146,7 +182,7 @@ def _candidates(deps: object, db: Session, ctx: object, trace: RoutePipelineTrac
         validation_issue_counts=_validation_issue_counts(annotated),
         sample_candidates=_place_sample(annotated, ctx),
     )
-    return annotated, warnings
+    return annotated, warnings, diagnostics
 
 
 def _filtered(deps: object, candidates: list[object], ctx: object, now: datetime, trace: RoutePipelineTrace):
@@ -154,19 +190,21 @@ def _filtered(deps: object, candidates: list[object], ctx: object, now: datetime
     report = deps.filters.apply_with_report(candidates, ctx, now)
     warnings = filter_warnings(candidates, report.kept)
     kept = report.kept
-    emergency_filter_fallback = False
-    if not kept and len(candidates) >= minimum_points_for_budget(_budget_minutes(ctx)):
-        kept = candidates[: min(len(candidates), 300)]
-        emergency_filter_fallback = True
-        warnings = [*warnings, EMERGENCY_ROUTE_WARNING]
     timed_trace(trace, "hard_filter", started, input_count=len(candidates),
                 kept_count=len(kept), original_kept_count=len(report.kept), removed_count=len(report.rejected),
-                fallback_used=report.fallback_used, emergency_filter_fallback=emergency_filter_fallback,
+                fallback_used=report.fallback_used,
                 reasons=report.reason_counts,
                 kept_categories=_category_counts(kept),
                 kept_sample=_place_sample(kept, ctx),
                 rejected_sample=_rejected_sample(report.rejected, ctx),
                 warnings=warnings[:DEBUG_SAMPLE_LIMIT])
+    trace.add(
+        "hard_filtering",
+        input_count=len(candidates),
+        output_count=len(kept),
+        drop_reason=report.reason_counts,
+        warnings=warnings[:DEBUG_SAMPLE_LIMIT],
+    )
     return kept, warnings
 
 
@@ -188,6 +226,31 @@ def _scored(deps: object, filtered: list[object], ctx: object, trace: RoutePipel
     return scored
 
 
+def _planned(scored: list[object], ctx: object, trace: RoutePipelineTrace) -> RoutePlan:
+    plan = prepare_route_plan(scored, ctx)
+    trace.add(
+        "interest_matching",
+        input_count=len(scored),
+        output_count=plan.exact_count,
+        matched_interest_count=plan.exact_count,
+        total_requested_interests=len(list(getattr(ctx, "interests", []) or [])),
+        related_count=plan.related_count,
+        neutral_count=plan.neutral_count,
+        warnings=plan.warnings[:DEBUG_SAMPLE_LIMIT],
+    )
+    trace.add(
+        "pool_expansion",
+        input_count=plan.exact_count,
+        output_count=plan.expanded_pool_count,
+        expansion_level=plan.expansion_level,
+        expanded_category_count=plan.expanded_category_count,
+        neutral_added_count=plan.neutral_added_count,
+        target_points=plan.target_points,
+        warnings=plan.warnings[:DEBUG_SAMPLE_LIMIT],
+    )
+    return plan
+
+
 def _route(deps: object, scored: list[object], filtered: list[object], ctx: object,
            now: datetime, trace: RoutePipelineTrace):
     started = perf_counter()
@@ -196,22 +259,15 @@ def _route(deps: object, scored: list[object], filtered: list[object], ctx: obje
         scored_count=len(scored),
         filtered_count=len(filtered),
         budget_minutes=_budget_minutes(ctx),
-        min_points=minimum_points_for_budget(_budget_minutes(ctx)),
         top_scored=_scored_sample(scored, ctx),
         first_point_fit_debug=_first_point_fit_debug(scored, ctx),
     )
     route = deps.assembly.build(scored, ctx)
     warnings = assembly_warnings(filtered, route)
-    emergency_assembly_fallback = False
     original_selected_count = len(route)
     original_route_sample = _route_point_sample(route)
-    if not route and scored:
-        route = _emergency_route_from_scored(scored, ctx)
-        emergency_assembly_fallback = bool(route)
-        if emergency_assembly_fallback:
-            warnings = [*warnings, EMERGENCY_ROUTE_WARNING]
     timed_trace(trace, "assembly", started, selected_count=len(route), original_selected_count=original_selected_count,
-                warning_count=len(warnings), emergency_assembly_fallback=emergency_assembly_fallback,
+                warning_count=len(warnings),
                 route_minutes=_route_minutes(route),
                 original_route_sample=original_route_sample,
                 route_sample=_route_point_sample(route),
@@ -255,106 +311,33 @@ def _budget_fit(deps: object, route: list[object], scored: list[object], ctx: ob
         input_route=_route_point_sample(route),
         kept_route=_route_point_sample(first_fit.route),
     )
-    filled_route = _fill_budget_gap(first_fit.route, scored, ctx)
     trace.add(
         "budget_gap_fill",
         input_count=len(first_fit.route),
         scored_count=len(scored),
-        output_count=len(filled_route),
-        added_count=max(0, len(filled_route) - len(first_fit.route)),
+        output_count=len(first_fit.route),
+        added_count=0,
         input_minutes=_route_minutes(first_fit.route),
-        output_minutes=_route_minutes(filled_route),
-        route_sample=_route_point_sample(filled_route),
-        remaining_top_scored=_scored_sample([item for item in scored if str(getattr(item.place, "id", "")) not in {str(getattr(point, "place_id", "")) for point in filled_route}], ctx),
+        output_minutes=_route_minutes(first_fit.route),
+        route_sample=_route_point_sample(first_fit.route),
+        remaining_top_scored=_scored_sample(
+            [item for item in scored if str(getattr(item.place, "id", "")) not in {str(getattr(point, "place_id", "")) for point in first_fit.route}],
+            ctx,
+        ),
     )
-    final_fit = deps.budget_fit.fit(filled_route, ctx)
+    final_fit = first_fit
     timed_trace(trace, "budget_fit", started,
                 kept_count=len(final_fit.route),
                 warning_count=len(final_fit.warnings),
                 before_fit_input_count=len(route),
                 before_fill_count=len(first_fit.route),
-                after_fill_count=len(filled_route),
+                after_fill_count=len(first_fit.route),
                 route_minutes=_route_minutes(final_fit.route),
                 target_minutes=_soft_budget_minutes(ctx),
                 hard_budget_minutes=_hard_budget_minutes(ctx),
                 warnings=list(final_fit.warnings)[:DEBUG_SAMPLE_LIMIT],
                 final_route_sample=_route_point_sample(final_fit.route))
     return final_fit
-
-
-def _emergency_route_from_scored(scored: list[object], ctx: object) -> list[RoutePoint]:
-    budget = _hard_budget_minutes(ctx)
-    min_points = minimum_points_for_budget(_budget_minutes(ctx))
-    target_points = max(min_points, min(8, int(getattr(ctx, "effective_num_stops", 0) or min_points)))
-    current: list[RoutePoint] = []
-    used_ids: set[str] = set()
-    remaining = list(scored[:300])
-
-    while remaining and len(current) < target_points and _route_minutes(current) < budget:
-        tail_lat, tail_lng = _tail_location(current, ctx)
-        selected = _nearest_emergency_candidate(remaining, tail_lat, tail_lng, ctx, budget - _route_minutes(current))
-        if selected is None:
-            break
-        point = route_point_from_scored(selected, ctx, RoutePoint)
-        point.estimated_walk_minutes = walk_minutes_between(tail_lat, tail_lng, point.lat, point.lng)
-        if _route_minutes(current) + _point_minutes(point) > budget and len(current) >= min_points:
-            break
-        current.append(point)
-        used_ids.add(str(point.place_id))
-        remaining = [item for item in remaining if str(getattr(item.place, "id", "")) not in used_ids]
-
-    return current
-
-
-def _nearest_emergency_candidate(scored: list[object], lat: float, lng: float, ctx: object, remaining_minutes: int) -> object | None:
-    feasible = []
-    for item in scored:
-        place = item.place
-        walk = walk_minutes_between(lat, lng, float(place.lat), float(place.lng))
-        visit = visit_minutes_for_scored(item, ctx)
-        total = walk + visit
-        if total <= remaining_minutes or remaining_minutes >= int(getattr(ctx, "min_stop_duration_minutes", 20) or 20):
-            feasible.append((walk, -float(getattr(item, "score", 0.0) or 0.0), total, item))
-    feasible.sort(key=lambda row: (row[0], row[1], row[2]))
-    return feasible[0][3] if feasible else None
-
-
-def _fill_budget_gap(route: list[object], scored: list[object], ctx: object) -> list[object]:
-    current = list(route)
-    used_ids = {str(getattr(point, "place_id", "")) for point in current}
-    used_categories = _used_categories(current)
-
-    for item in scored:
-        if _route_minutes(current) >= _soft_budget_minutes(ctx):
-            break
-        place_id = str(getattr(item.place, "id", ""))
-        if not place_id or place_id in used_ids:
-            continue
-        category = normalize_category(getattr(item.place, "category", ""))
-        if not _can_fill_category(category, used_categories, len(current), ctx):
-            continue
-        point = route_point_from_scored(item, ctx, RoutePoint)
-        tail_lat, tail_lng = _tail_location(current, ctx)
-        point.estimated_walk_minutes = walk_minutes_between(tail_lat, tail_lng, point.lat, point.lng)
-        next_minutes = _route_minutes(current) + _point_minutes(point)
-        if next_minutes > _hard_budget_minutes(ctx):
-            continue
-        current.append(point)
-        used_ids.add(place_id)
-        used_categories = add_category(category, used_categories)
-
-    return current
-
-
-def _can_fill_category(category: str, used_categories: dict[str, int], route_len: int, ctx: object) -> bool:
-    if can_use_category(category, used_categories):
-        return True
-    min_points = minimum_points_for_budget(_budget_minutes(ctx))
-    if route_len >= min_points:
-        return False
-    if category in ROUTE_FRIENDLY_FILL_CATEGORIES:
-        return used_categories.get(category, 0) < 3
-    return False
 
 
 def _candidate_options(scored: list[object], ctx: object, route: list[object]) -> list[RoutePoint]:
@@ -369,11 +352,31 @@ def _candidate_options(scored: list[object], ctx: object, route: list[object]) -
     return options
 
 
-def _used_categories(route: list[object]) -> dict[str, int]:
-    result: dict[str, int] = {}
-    for point in route:
-        result = add_category(str(getattr(point, "category", "") or ""), result)
-    return result
+def _apply_adaptive_metadata(final_route: object, plan: RoutePlan, gate: object, ctx: object) -> None:
+    fields = {
+        "route_quality_status": getattr(gate, "route_quality_status", "unknown"),
+        "route_completeness": getattr(gate, "route_completeness", 0.0),
+        "matched_interest_count": plan.exact_count,
+        "total_requested_interests": len(list(getattr(ctx, "interests", []) or [])),
+        "expansion_level": plan.expansion_level,
+        "expanded_category_count": plan.expanded_category_count,
+        "neutral_added_count": plan.neutral_added_count,
+        "fallback_level": getattr(gate, "fallback_level", "unknown"),
+        "user_explanation": plan.user_explanation,
+    }
+    for name, value in fields.items():
+        setattr(final_route, name, value)
+    status = str(fields["route_quality_status"])
+    if status in {"algorithm_error", "failed"}:
+        final_route.status = "failed"
+    elif status in {"partial", "degraded"} and getattr(final_route, "total_places", 0):
+        final_route.status = "partial_route"
+    if getattr(gate, "partial_reason", None):
+        final_route.partial_reason = getattr(gate, "partial_reason")
+
+
+def _unique(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(item for item in values if item))
 
 
 def _tail_location(route: list[object], ctx: object) -> tuple[float, float]:
@@ -567,10 +570,17 @@ def _score_max(scored: list[object]) -> float | None:
     return round(max(float(getattr(item, "score", 0.0) or 0.0) for item in scored), 4)
 
 
-def _safe_breakdown(value: object) -> dict[str, float]:
+def _safe_breakdown(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
-    return {str(key): round(float(raw or 0.0), 4) for key, raw in value.items()}
+    return {str(key): _debug_breakdown_value(raw) for key, raw in value.items()}
+
+
+def _debug_breakdown_value(value: object) -> object:
+    try:
+        return round(float(value or 0.0), 4)
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _rounded(value: object) -> float | None:
