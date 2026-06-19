@@ -82,7 +82,8 @@
 .route-data-notes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .route-data-notes span { padding: 8px 10px; background: rgba(255,255,255,.12); border-radius: 999px; }
 .route-error-tile { padding: 16px; color: var(--red); background: #fff4f2; }
-.route-debug-tile {
+.route-debug-tile,
+.route-debug-trace {
   display: grid;
   gap: 10px;
   padding: 16px;
@@ -98,9 +99,10 @@
   color: #f9fafb;
 }
 .route-debug-header span { color: #9ca3af; font-size: 12px; }
-.route-debug-tile pre {
+.route-debug-tile pre,
+.route-debug-trace pre {
   overflow: auto;
-  max-height: 560px;
+  max-height: 720px;
   margin: 0;
   padding: 12px;
   background: #030712;
@@ -112,6 +114,35 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+.route-debug-trace summary {
+  cursor: pointer;
+  color: #f9fafb;
+  font-size: 16px;
+  font-weight: 800;
+}
+.route-debug-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.route-debug-summary-grid > div,
+.route-debug-warning-box,
+.route-debug-item,
+.route-debug-raw {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  background: #030712;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+}
+.route-debug-summary-grid span,
+.route-debug-item span { color: #9ca3af; font-size: 12px; }
+.route-debug-summary-grid strong,
+.route-debug-item strong,
+.route-debug-warning-box strong { color: #f9fafb; }
+.route-debug-list { display: grid; gap: 8px; }
+.route-debug-raw summary { font-size: 14px; }
 .route-map-preview {
   position: relative;
   overflow: hidden;
@@ -163,6 +194,9 @@
   .route-result-tile { padding: 18px; }
   .route-result-top { display: grid; }
   .route-insights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .route-debug-summary-grid { grid-template-columns: 1fr; }
+  .route-debug-tile pre,
+  .route-debug-trace pre { max-height: 900px; font-size: 11px; }
   .route-map-preview { min-height: 280px; padding: 12px; }
   .route-map-preview svg { min-height: 220px; }
   .route-leg-row { display: grid; }
