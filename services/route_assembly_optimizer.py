@@ -13,10 +13,12 @@ from services.scoring_service import ScoredPlace
 MIN_BUDGET_UTILIZATION = 0.65
 TARGET_BUDGET_UTILIZATION = 0.86
 DEFAULT_MINUTES_PER_POINT = 30
+DEFAULT_ASSEMBLY_BUDGET_MINUTES = 240
 MAX_TARGET_POINTS = 8
 MAX_RELAXATION_STAGE = 3
 STRICT_MAX_WALK_MINUTES = 45
 RELAXED_MAX_WALK_MINUTES = 90
+MAX_CANDIDATE_POOL = 500
 WALK_INTERESTS = {"walk", "park", "outdoor", "sea"}
 WALK_ROUTE_CATEGORIES = {
     "walk", "park", "outdoor", "attraction", "culture", "coffee", "cafe",
@@ -45,10 +47,18 @@ def assemble_route(scored: list[ScoredPlace], ctx: MergedContext, point_cls: typ
     lat, lng = ctx.location
     budget = _assembly_budget(ctx)
     target_points = _target_points(ctx, budget)
-    candidate_pool = scored[:220]
+    candidate_pool = scored[:MAX_CANDIDATE_POOL]
 
     state = AssemblyState([], budget, lat, lng, {}, candidate_pool, target_points)
     route = _select_until_done(state, ctx, point_cls)
+
+    # If the normal optimizer cannot pick the first point, do not return no_route for
+    # a city that has scored candidates. The first leg may be far from ctx.location
+    # because the UI start point can be city center / hotel / arbitrary map point.
+    # Pick a budget-feasible seed without the first-leg walk cap, then the existing
+    # fill/backfill logic continues from a real place and can build a connected route.
+    if not route:
+        route = _first_point_seed_fallback(candidate_pool, ctx, point_cls, budget)
 
     if _needs_time_fill(route, budget, target_points):
         route = _fill_remaining_time(route, candidate_pool, ctx, point_cls, budget, target_points)
@@ -95,6 +105,11 @@ def _fits(scored: ScoredPlace, state: AssemblyState, ctx: MergedContext) -> bool
     if _total_minutes(scored, state, ctx) > state.remaining:
         return False
     walk = walk_minutes_between(state.lat, state.lng, float(scored.place.lat), float(scored.place.lng))
+    # The first leg must not be allowed to kill the whole route. For the first point
+    # the user may start outside the dense POI cluster, while later legs still need
+    # walk caps to keep the route sane.
+    if not state.route:
+        return True
     return walk <= _max_walk_minutes_for_stage(state.relaxation_stage)
 
 
@@ -239,6 +254,25 @@ def _nearest_feasible_candidate(candidates: list[ScoredPlace], lat: float, lng: 
     return feasible[0][2] if feasible else None
 
 
+def _first_point_seed_fallback(scored: list[ScoredPlace], ctx: MergedContext, point_cls: type, budget: int) -> list[object]:
+    lat, lng = ctx.location
+    feasible = []
+    for item in scored:
+        visit = visit_minutes_for_scored(item, ctx)
+        if visit > budget:
+            continue
+        walk = walk_minutes_between(lat, lng, float(item.place.lat), float(item.place.lng))
+        # Order by quality first, but keep the seed reasonably close when possible.
+        feasible.append((-float(item.score), walk, visit, item))
+    feasible.sort(key=lambda row: (row[0], row[1], row[2]))
+    if not feasible:
+        return []
+    item = feasible[0][3]
+    point = route_point_from_scored(item, ctx, point_cls)
+    point.estimated_walk_minutes = walk_minutes_between(lat, lng, point.lat, point.lng)
+    return [point]
+
+
 def _fill_stage(route: list[object], budget: int) -> int:
     if len(route) < minimum_points_for_budget(budget):
         return MAX_RELAXATION_STAGE
@@ -290,7 +324,8 @@ def _swap_shortens(first: object, second: object, third: object) -> bool:
 def _assembly_budget(ctx: MergedContext) -> int:
     effective = int(getattr(ctx, "effective_time_budget_minutes", 0) or 0)
     explicit = int(getattr(ctx, "time_budget_minutes", 0) or 0)
-    return effective or explicit
+    budget = effective or explicit
+    return budget if budget > 0 else DEFAULT_ASSEMBLY_BUDGET_MINUTES
 
 
 def _max_walk_minutes_for_stage(stage: int) -> int:
