@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from models.city import City
@@ -27,6 +27,8 @@ def candidate_diagnostics(db: Session, ctx: object) -> dict[str, object]:
         "places_active_legacy_safe": _count(db, city_id, _active_place),
         "places_with_coords": _count(db, city_id, _with_coords),
         "geo_query_count": _geo_count(db, city_id, lat, lng, radius),
+        "geo_route_eligible_count": _geo_route_eligible_count(db, city_id, lat, lng, radius),
+        "candidate_retrieval_expected_count": _candidate_expected_count(db, slug, lat, lng, radius),
     }
 
 
@@ -50,6 +52,36 @@ def _geo_count(db: Session, city_id: int | None, lat: object, lng: object, radiu
     return _safe_int(db.execute(query).scalar()) or 0
 
 
+def _geo_route_eligible_count(db: Session, city_id: int | None, lat: object, lng: object, radius: int) -> int:
+    if city_id is None or not _is_number(lat) or not _is_number(lng) or radius <= 0:
+        return 0
+    distance = CandidateRetrievalService()._distance_meters_expr(lat=float(lat), lng=float(lng))
+    query = select(func.count(Place.id)).where(
+        Place.city_id == city_id,
+        distance <= radius,
+        *route_eligible_sql_conditions(),
+    )
+    return _safe_int(db.execute(query).scalar()) or 0
+
+
+def _candidate_expected_count(db: Session, slug: str, lat: object, lng: object, radius: int) -> int:
+    if not slug or not _is_number(lat) or not _is_number(lng) or radius <= 0:
+        return 0
+    distance = CandidateRetrievalService()._distance_meters_expr(lat=float(lat), lng=float(lng))
+    query = (
+        select(func.count(Place.id))
+        .join(City)
+        .where(
+            City.slug == slug,
+            City.is_active.is_(True),
+            City.launch_status == "published",
+            distance <= radius,
+            *route_eligible_sql_conditions(),
+        )
+    )
+    return _safe_int(db.execute(query).scalar()) or 0
+
+
 def _city_id(db: Session, slug: str) -> int | None:
     if not slug:
         return None
@@ -65,5 +97,5 @@ def _is_number(value: object) -> bool:
 
 
 _any_place = Place.id.is_not(None)
-_active_place = or_(Place.is_active.is_(True), Place.is_active.is_(None)) & or_(Place.status.is_(None), Place.status == "active")
+_active_place = Place.is_active.is_(True) & ((Place.status.is_(None)) | (Place.status == "active"))
 _with_coords = Place.lat.is_not(None) & Place.lng.is_not(None)
