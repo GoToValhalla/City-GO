@@ -10,37 +10,18 @@ from services.route_quality_score import minimum_points_for_budget
 from services.route_walk_annotations import annotate_walks
 from services.scoring_service import ScoredPlace
 
-# Минимальная продуктовая утилизация бюджета при достаточном пуле кандидатов.
 MIN_BUDGET_UTILIZATION = 0.65
-# Выше этого значения маршрут уже считается достаточно наполненным и не добирается любой ценой.
 TARGET_BUDGET_UTILIZATION = 0.86
-# Базовая длительность точки для расчёта целевого количества остановок.
 DEFAULT_MINUTES_PER_POINT = 30
 MAX_TARGET_POINTS = 8
 MAX_RELAXATION_STAGE = 3
-# Ограничение на один пеший переход: раньше дальняя первая точка съедала почти весь бюджет.
-STRICT_MAX_WALK_MINUTES = 35
-RELAXED_MAX_WALK_MINUTES = 55
+STRICT_MAX_WALK_MINUTES = 45
+RELAXED_MAX_WALK_MINUTES = 90
 WALK_INTERESTS = {"walk", "park", "outdoor", "sea"}
 WALK_ROUTE_CATEGORIES = {
-    "walk",
-    "park",
-    "outdoor",
-    "attraction",
-    "culture",
-    "coffee",
-    "cafe",
-    "museum",
-    "gallery",
-    "historic",
-    "history",
-    "landmark",
-    "monument",
-    "promenade",
-    "sightseeing",
-    "viewpoint",
-    "food",
-    "restaurant",
+    "walk", "park", "outdoor", "attraction", "culture", "coffee", "cafe",
+    "museum", "gallery", "historic", "history", "landmark", "monument",
+    "promenade", "sightseeing", "viewpoint", "food", "restaurant",
 }
 
 
@@ -58,20 +39,13 @@ class AssemblyState:
 
 
 def assemble_route(scored: list[ScoredPlace], ctx: MergedContext, point_cls: type) -> list[object]:
-    """Build a route that prioritizes product usefulness over premature strictness.
-
-    The old implementation could stop after one or two high-score but distant points.
-    This version still starts with scored candidates, then explicitly backfills by proximity
-    and relaxes diversity limits until the route reaches a reasonable point count or budget use.
-    """
-
     if not scored:
         return []
 
     lat, lng = ctx.location
     budget = _assembly_budget(ctx)
     target_points = _target_points(ctx, budget)
-    candidate_pool = scored[:160]
+    candidate_pool = scored[:220]
 
     state = AssemblyState([], budget, lat, lng, {}, candidate_pool, target_points)
     route = _select_until_done(state, ctx, point_cls)
@@ -106,8 +80,6 @@ def _select_until_done(state: AssemblyState, ctx: MergedContext, point_cls: type
 
 
 def _done(state: AssemblyState, ctx: MergedContext) -> bool:
-    # Не останавливаемся только потому, что уже набрали пару точек: сначала target_points
-    # или реальное исчерпание бюджета.
     return len(state.route) >= state.target_points or state.remaining <= ctx.min_stop_duration_minutes
 
 
@@ -118,26 +90,15 @@ def _best_candidate(state: AssemblyState, ctx: MergedContext) -> ScoredPlace | N
 
 def _fits(scored: ScoredPlace, state: AssemblyState, ctx: MergedContext) -> bool:
     category = str(getattr(scored.place, "category", "") or "")
-    category_ok = _can_use_category_for_route(category, state.used_categories, state.relaxation_stage, len(state.route), ctx)
-    if not category_ok:
+    if not _can_use_category_for_route(category, state.used_categories, state.relaxation_stage, len(state.route), ctx):
         return False
-
-    total_minutes = _total_minutes(scored, state, ctx)
-    if total_minutes > state.remaining:
+    if _total_minutes(scored, state, ctx) > state.remaining:
         return False
-
-    # Защита от маршрутов, где одна дальняя точка съедает весь бюджет.
     walk = walk_minutes_between(state.lat, state.lng, float(scored.place.lat), float(scored.place.lng))
     return walk <= _max_walk_minutes_for_stage(state.relaxation_stage)
 
 
-def _can_use_category_for_route(
-    category: str,
-    used: dict[str, int],
-    relaxation_stage: int,
-    route_len: int,
-    ctx: MergedContext,
-) -> bool:
+def _can_use_category_for_route(category: str, used: dict[str, int], relaxation_stage: int, route_len: int, ctx: MergedContext) -> bool:
     normalized = normalize_category(category)
     if not normalized:
         return can_use_category(category, used)
@@ -151,41 +112,19 @@ def _can_use_category_for_route(
     if route_len >= min_points and relaxation_stage < MAX_RELAXATION_STAGE:
         return _can_use_category_for_route(category, used, 0, route_len, ctx)
 
-    base_limit = 4 if (_is_walking_route(ctx) and normalized in WALK_ROUTE_CATEGORIES) else 3
-    bonus = relaxation_stage
-    return used.get(normalized, 0) < base_limit + bonus
+    base_limit = 5 if (_is_walking_route(ctx) and normalized in WALK_ROUTE_CATEGORIES) else 3
+    return used.get(normalized, 0) < base_limit + relaxation_stage
 
 
 def _relax_state(state: AssemblyState, ctx: MergedContext) -> AssemblyState | None:
     min_points = minimum_points_for_budget(_assembly_budget(ctx))
     underfilled = len(state.route) < max(min_points, min(5, state.target_points))
     if underfilled and state.relaxation_stage < MAX_RELAXATION_STAGE:
-        return AssemblyState(
-            route=state.route,
-            remaining=state.remaining,
-            lat=state.lat,
-            lng=state.lng,
-            used_categories=state.used_categories,
-            candidates=state.candidates,
-            target_points=state.target_points,
-            relaxed_budget=state.relaxed_budget,
-            relaxation_stage=state.relaxation_stage + 1,
-        )
+        return AssemblyState(state.route, state.remaining, state.lat, state.lng, state.used_categories, state.candidates, state.target_points, state.relaxed_budget, state.relaxation_stage + 1)
 
     if not state.relaxed_budget and len(state.route) == 0:
         extra = _assembly_budget(ctx)
-        target_budget = max(state.remaining, int(extra * 1.1))
-        return AssemblyState(
-            route=state.route,
-            remaining=target_budget,
-            lat=state.lat,
-            lng=state.lng,
-            used_categories=state.used_categories,
-            candidates=state.candidates,
-            target_points=state.target_points,
-            relaxed_budget=True,
-            relaxation_stage=min(MAX_RELAXATION_STAGE, state.relaxation_stage + 1),
-        )
+        return AssemblyState(state.route, max(state.remaining, int(extra * 1.1)), state.lat, state.lng, state.used_categories, state.candidates, state.target_points, True, min(MAX_RELAXATION_STAGE, state.relaxation_stage + 1))
 
     return None
 
@@ -203,14 +142,7 @@ def _assembly_score(scored: ScoredPlace, state: AssemblyState, ctx: MergedContex
     route_fit = _walk_route_fit(scored, ctx)
     diversity_penalty = _category_pressure(scored, state)
     proximity_bonus = _proximity_bonus(scored, state)
-    return (
-        float(scored.score) * 0.42
-        + min(1.0, value_per_minute * 24.0) * 0.24
-        + interest * 0.12
-        + route_fit * 0.10
-        + proximity_bonus * 0.18
-        - diversity_penalty
-    )
+    return float(scored.score) * 0.42 + min(1.0, value_per_minute * 24.0) * 0.24 + interest * 0.12 + route_fit * 0.10 + proximity_bonus * 0.18 - diversity_penalty
 
 
 def _proximity_bonus(scored: ScoredPlace, state: AssemblyState) -> float:
@@ -230,24 +162,14 @@ def _category_pressure(scored: ScoredPlace, state: AssemblyState) -> float:
     category = normalize_category(getattr(scored.place, "category", ""))
     if not category:
         return 0.0
-    return min(0.22, state.used_categories.get(category, 0) * 0.06)
+    return min(0.18, state.used_categories.get(category, 0) * 0.04)
 
 
 def _next_state(state: AssemblyState, selected: ScoredPlace, point: object, walk: int) -> AssemblyState:
     left = [item for item in state.candidates if item is not selected]
     spent = walk + int(getattr(point, "visit_minutes", 0) or 0)
     used = add_category(str(getattr(point, "category", "") or ""), state.used_categories)
-    return AssemblyState(
-        [*state.route, point],
-        state.remaining - spent,
-        point.lat,
-        point.lng,
-        used,
-        left,
-        state.target_points,
-        state.relaxed_budget,
-        state.relaxation_stage,
-    )
+    return AssemblyState([*state.route, point], state.remaining - spent, point.lat, point.lng, used, left, state.target_points, state.relaxed_budget, state.relaxation_stage)
 
 
 def _needs_time_fill(route: list[object], budget: int, target_points: int) -> bool:
@@ -258,14 +180,7 @@ def _needs_time_fill(route: list[object], budget: int, target_points: int) -> bo
     return len(route) < target_points and _route_minutes(route) < int(budget * MIN_BUDGET_UTILIZATION)
 
 
-def _fill_remaining_time(
-    route: list[object],
-    scored: list[ScoredPlace],
-    ctx: MergedContext,
-    point_cls: type,
-    budget: int,
-    target_points: int,
-) -> list[object]:
+def _fill_remaining_time(route: list[object], scored: list[ScoredPlace], ctx: MergedContext, point_cls: type, budget: int, target_points: int) -> list[object]:
     current = list(route)
     used_ids = {str(getattr(point, "place_id", "")) for point in current}
     used_categories: dict[str, int] = {}
@@ -291,14 +206,7 @@ def _fill_remaining_time(
     return current
 
 
-def _greedy_proximity_backfill(
-    route: list[object],
-    scored: list[ScoredPlace],
-    ctx: MergedContext,
-    point_cls: type,
-    budget: int,
-    target_points: int,
-) -> list[object]:
+def _greedy_proximity_backfill(route: list[object], scored: list[ScoredPlace], ctx: MergedContext, point_cls: type, budget: int, target_points: int) -> list[object]:
     current = list(route)
     used_ids = {str(getattr(point, "place_id", "")) for point in current}
     min_points = min(minimum_points_for_budget(budget), target_points)
@@ -308,28 +216,18 @@ def _greedy_proximity_backfill(
         remaining = budget - _route_minutes(current)
         if remaining <= ctx.min_stop_duration_minutes:
             break
-
         candidates = [item for item in scored if str(getattr(item.place, "id", "")) not in used_ids]
         selected = _nearest_feasible_candidate(candidates, lat, lng, remaining, ctx, require_close=len(current) >= min_points)
         if selected is None:
             break
-
         point = route_point_from_scored(selected, ctx, point_cls)
         point.estimated_walk_minutes = walk_minutes_between(lat, lng, point.lat, point.lng)
         current.append(point)
         used_ids.add(str(getattr(point, "place_id", "")))
-
     return current
 
 
-def _nearest_feasible_candidate(
-    candidates: list[ScoredPlace],
-    lat: float,
-    lng: float,
-    remaining: int,
-    ctx: MergedContext,
-    require_close: bool,
-) -> ScoredPlace | None:
+def _nearest_feasible_candidate(candidates: list[ScoredPlace], lat: float, lng: float, remaining: int, ctx: MergedContext, require_close: bool) -> ScoredPlace | None:
     feasible = []
     for item in candidates:
         walk = walk_minutes_between(lat, lng, float(item.place.lat), float(item.place.lng))
@@ -362,7 +260,7 @@ def _target_points(ctx: MergedContext, budget: int) -> int:
     from_context = int(getattr(ctx, "effective_num_stops", 0) or 0)
     by_budget = max(minimum_points_for_budget(budget), int(budget / DEFAULT_MINUTES_PER_POINT))
     if _is_walking_route(ctx):
-        by_budget = max(4, by_budget)
+        by_budget = max(5, by_budget)
     return max(minimum_points_for_budget(budget), min(MAX_TARGET_POINTS, max(from_context, by_budget)))
 
 
@@ -392,7 +290,7 @@ def _swap_shortens(first: object, second: object, third: object) -> bool:
 def _assembly_budget(ctx: MergedContext) -> int:
     effective = int(getattr(ctx, "effective_time_budget_minutes", 0) or 0)
     explicit = int(getattr(ctx, "time_budget_minutes", 0) or 0)
-    return effective or int(explicit * 0.9)
+    return effective or explicit
 
 
 def _max_walk_minutes_for_stage(stage: int) -> int:
@@ -400,4 +298,4 @@ def _max_walk_minutes_for_stage(stage: int) -> int:
         return STRICT_MAX_WALK_MINUTES
     if stage >= MAX_RELAXATION_STAGE:
         return RELAXED_MAX_WALK_MINUTES
-    return STRICT_MAX_WALK_MINUTES + (stage * 8)
+    return STRICT_MAX_WALK_MINUTES + (stage * 12)
