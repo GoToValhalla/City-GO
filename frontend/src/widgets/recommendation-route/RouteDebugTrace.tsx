@@ -4,6 +4,8 @@ type Props = {
   route: RecommendationRouteResponse
 }
 
+const emptyTraceEntry: RouteDebugTraceEntry = { stage: 'empty' }
+
 const stageTitle: Record<string, string> = {
   assembly: 'Сборка маршрута',
   budget_fit: 'Подгонка под бюджет',
@@ -117,12 +119,12 @@ const fullDebugPayload = (route: RecommendationRouteResponse): Record<string, un
 
 export const RouteDebugTrace = ({ route }: Props) => {
   const trace = route.debug_trace ?? []
-  const retrieval = stageByName(trace, 'candidate_retrieval')
-  const hardFilter = stageByName(trace, 'hard_filter')
-  const scoring = stageByName(trace, 'scoring')
-  const assembly = stageByName(trace, 'assembly')
-  const budgetFit = stageByName(trace, 'budget_fit')
-  const qualityGate = stageByName(trace, 'route_quality_gate')
+  const retrieval = stageByName(trace, 'candidate_retrieval') ?? emptyTraceEntry
+  const hardFilter = stageByName(trace, 'hard_filter') ?? emptyTraceEntry
+  const scoring = stageByName(trace, 'scoring') ?? emptyTraceEntry
+  const assembly = stageByName(trace, 'assembly') ?? emptyTraceEntry
+  const budgetFit = stageByName(trace, 'budget_fit') ?? emptyTraceEntry
+  const qualityGate = stageByName(trace, 'route_quality_gate') ?? emptyTraceEntry
   const rawPayload = fullDebugPayload(route)
 
   return (
@@ -133,13 +135,13 @@ export const RouteDebugTrace = ({ route }: Props) => {
         <div><span>Статус</span><strong>{route.status ?? '—'}</strong></div>
         <div><span>Точек</span><strong>{route.total_places}</strong></div>
         <div><span>Минут</span><strong>{route.total_estimated_minutes}</strong></div>
-        <div><span>Кандидатов</span><strong>{value(retrieval ?? {}, ['count', 'candidate_count'])}</strong></div>
-        <div><span>После фильтров</span><strong>{value(hardFilter ?? {}, ['kept_count'])}</strong></div>
-        <div><span>Скоринг</span><strong>{value(scoring ?? {}, ['count', 'scored_count'])}</strong></div>
-        <div><span>Assembly</span><strong>{value(assembly ?? {}, ['selected_count', 'initial_route_count'])}</strong></div>
-        <div><span>Budget fit</span><strong>{value(budgetFit ?? {}, ['kept_count', 'after_budget_fit_count'])}</strong></div>
-        <div><span>Итог</span><strong>{value(qualityGate ?? {}, ['final_route_count'])}</strong></div>
-        <div><span>Budget %</span><strong>{value(qualityGate ?? {}, ['budget_utilization_pct'])}</strong></div>
+        <div><span>Кандидатов</span><strong>{value(retrieval, ['count', 'candidate_count'])}</strong></div>
+        <div><span>После фильтров</span><strong>{value(hardFilter, ['kept_count'])}</strong></div>
+        <div><span>Скоринг</span><strong>{value(scoring, ['count', 'scored_count'])}</strong></div>
+        <div><span>Assembly</span><strong>{value(assembly, ['selected_count', 'initial_route_count'])}</strong></div>
+        <div><span>Budget fit</span><strong>{value(budgetFit, ['kept_count', 'after_budget_fit_count'])}</strong></div>
+        <div><span>Итог</span><strong>{value(qualityGate, ['final_route_count'])}</strong></div>
+        <div><span>Budget %</span><strong>{value(qualityGate, ['budget_utilization_pct'])}</strong></div>
       </div>
 
       {route.warnings?.length ? (
