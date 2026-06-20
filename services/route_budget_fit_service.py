@@ -37,6 +37,10 @@ class RouteBudgetFitService:
                     route=[route[0]],
                     warnings=[ROUTE_BUDGET_SINGLE_POINT_WARNING],
                 )
+            # The surrounding flow has a legacy recovery branch that restores route[0]
+            # when budget fit returns an empty route. Clearing the local route prevents
+            # a fake one-point route when even the first visit cannot fit the budget.
+            route.clear()
             return BudgetFitResult(
                 route=[],
                 warnings=[ROUTE_BUDGET_TOO_TIGHT_WARNING],
