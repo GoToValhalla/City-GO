@@ -6,7 +6,6 @@ on:
 permissions:
   contents: read
   packages: write
-  actions: read
 
 jobs:
   build:
@@ -88,34 +87,6 @@ jobs:
             -t "$FRONTEND_IMAGE:latest" \
             ./frontend
           docker push "$FRONTEND_IMAGE:latest"
-
-      - name: Write build mini report
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts/messages
-          short_sha="${GITHUB_SHA:0:7}"
-          status="${{ job.status }}"
-          {
-            echo "Build worker"
-            echo "Status: ${status}"
-            echo "Run type: Production image build"
-            echo "Backend image: ${BACKEND_IMAGE:-ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/city-go-backend}:latest"
-            echo "Frontend image: ${FRONTEND_IMAGE:-ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/city-go-frontend}:latest"
-            echo "Commit: ${short_sha}"
-            echo "Run: #${GITHUB_RUN_NUMBER} attempt ${GITHUB_RUN_ATTEMPT}"
-            echo "GitHub: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          } > artifacts/messages/deploy-build.txt
-          cat artifacts/messages/deploy-build.txt
-
-      - name: Upload build mini report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: deploy-build-report
-          path: artifacts/messages/deploy-build.txt
-          if-no-files-found: warn
 
   deploy:
     name: Deploy to production server
@@ -340,36 +311,6 @@ jobs:
             echo "Deploy done: $(date)"
           REMOTE_EOF
 
-      - name: Write deploy mini report
-        if: always()
-        shell: bash
-        env:
-          BUILD_RESULT: ${{ needs.build.result }}
-        run: |
-          set -euo pipefail
-          mkdir -p artifacts/messages
-          short_sha="${GITHUB_SHA:0:7}"
-          status="${{ job.status }}"
-          {
-            echo "Deploy worker"
-            echo "Status: ${status}"
-            echo "Build dependency: ${BUILD_RESULT}"
-            echo "Run type: Production server deploy"
-            echo "Health checks: backend, frontend, /api/health"
-            echo "Commit: ${short_sha}"
-            echo "Run: #${GITHUB_RUN_NUMBER} attempt ${GITHUB_RUN_ATTEMPT}"
-            echo "GitHub: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          } > artifacts/messages/deploy-server.txt
-          cat artifacts/messages/deploy-server.txt
-
-      - name: Upload deploy mini report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: deploy-server-report
-          path: artifacts/messages/deploy-server.txt
-          if-no-files-found: warn
-
   notify:
     name: Notify deploy result
     runs-on: ubuntu-latest
@@ -378,12 +319,6 @@ jobs:
       - deploy
     if: always()
     steps:
-      - name: Download deploy mini reports
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          path: artifacts/deploy
-
       - name: Telegram deploy notification
         shell: bash
         env:
@@ -393,50 +328,17 @@ jobs:
           DEPLOY_RESULT: ${{ needs.deploy.result }}
         run: |
           set -euo pipefail
-          mkdir -p artifacts/deploy
           if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
             echo "Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing"
             exit 0
           fi
-
-          overall="OK"
-          icon="✅"
-          if [ "$BUILD_RESULT" != "success" ] || [ "$DEPLOY_RESULT" != "success" ]; then
-            overall="FAILED"
-            icon="❌"
+          if [ "$BUILD_RESULT" = "success" ] && [ "$DEPLOY_RESULT" = "success" ]; then
+            STATUS="✅ City Go deploy OK"
+          else
+            STATUS="❌ City Go deploy FAILED"
           fi
-
-          short_sha="${GITHUB_SHA:0:7}"
-          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          header="${icon} City Go deploy ${overall}
-Build: ${BUILD_RESULT}
-Deploy: ${DEPLOY_RESULT}
-Branch: ${GITHUB_REF_NAME}
-Commit: ${short_sha}
-Run: ${GITHUB_RUN_NUMBER} attempt ${GITHUB_RUN_ATTEMPT}
-${run_url}"
-
-          mapfile -t files < <(find artifacts/deploy -type f -name '*.txt' | sort)
-          if [ "${#files[@]}" -eq 0 ]; then
-            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-              --data-urlencode "text=${header}" \
-              -d "disable_web_page_preview=true"
-            exit 0
-          fi
-
-          for file in "${files[@]}"; do
-            body="$(cat "$file")"
-            message="${header}
-
-${body}"
-            if [ "${#message}" -gt 3900 ]; then
-              message="$(printf '%s' "$message" | head -c 3900)
-
-… trimmed; see GitHub Actions logs."
-            fi
-            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-              --data-urlencode "text=${message}" \
-              -d "disable_web_page_preview=true"
-          done
+          TEXT="${STATUS}%0ABuild: ${BUILD_RESULT}%0ADeploy: ${DEPLOY_RESULT}%0ACommit: ${GITHUB_SHA}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
