@@ -23,6 +23,14 @@ jobs:
           echo "BACKEND_IMAGE=ghcr.io/${OWNER}/city-go-backend" >> "$GITHUB_ENV"
           echo "FRONTEND_IMAGE=ghcr.io/${OWNER}/city-go-frontend" >> "$GITHUB_ENV"
 
+      - name: Set build metadata
+        shell: bash
+        run: |
+          echo "CITY_GO_BUILD_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "CITY_GO_BUILD_RUN_ID=${GITHUB_RUN_ID}" >> "$GITHUB_ENV"
+          echo "CITY_GO_BUILD_RUN_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
+          echo "CITY_GO_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -34,7 +42,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build -t "$BACKEND_IMAGE:latest" .
+          docker build \
+            --build-arg CITY_GO_BUILD_SHA="$CITY_GO_BUILD_SHA" \
+            --build-arg CITY_GO_BUILD_RUN_ID="$CITY_GO_BUILD_RUN_ID" \
+            --build-arg CITY_GO_BUILD_RUN_NUMBER="$CITY_GO_BUILD_RUN_NUMBER" \
+            --build-arg CITY_GO_BUILD_TIME="$CITY_GO_BUILD_TIME" \
+            -t "$BACKEND_IMAGE:latest" .
 
       - name: Backend import smoke inside image
         shell: bash
@@ -67,6 +80,10 @@ jobs:
           set -euo pipefail
           docker build \
             --build-arg VITE_ADMIN_API_TOKEN="$ADMIN_API_TOKEN" \
+            --build-arg VITE_BUILD_SHA="$CITY_GO_BUILD_SHA" \
+            --build-arg VITE_BUILD_RUN_ID="$CITY_GO_BUILD_RUN_ID" \
+            --build-arg VITE_BUILD_RUN_NUMBER="$CITY_GO_BUILD_RUN_NUMBER" \
+            --build-arg VITE_BUILD_TIME="$CITY_GO_BUILD_TIME" \
             -t "$FRONTEND_IMAGE:latest" \
             ./frontend
           docker push "$FRONTEND_IMAGE:latest"
