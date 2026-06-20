@@ -3,14 +3,17 @@ from services.route_status_service import route_status
 
 
 def test_compute_num_stops_uses_target_route_shape() -> None:
-    assert compute_num_stops(15, 1.0) == 3
-    assert compute_num_stops(60, 1.0) == 3
+    assert compute_num_stops(15, 1.0) == 2
+    assert compute_num_stops(60, 1.0) == 2
     assert compute_num_stops(120, 1.0) == 4
     assert compute_num_stops(180, 1.0) == 6
     assert compute_num_stops(300, 1.0) == 8
 
 
 def test_route_status_uses_soft_ready_thresholds() -> None:
+    assert route_status(0, 2) == "no_route"
+    assert route_status(1, 2) == "partial_route"
+    assert route_status(2, 2) == "ready"
     assert route_status(0, 3) == "no_route"
     assert route_status(1, 3) == "partial_route"
     assert route_status(2, 3) == "ready"
