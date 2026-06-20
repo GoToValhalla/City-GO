@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import traceback
 from time import perf_counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
@@ -28,27 +26,11 @@ from services.user_route_edit_service import UserRouteEditService
 router = APIRouter(prefix="/user-routes", tags=["user-routes"])
 
 
-def _debug_route_error(exc: Exception, payload: object, endpoint: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": "route_build_failed",
-            "endpoint": endpoint,
-            "exception_type": exc.__class__.__name__,
-            "message": str(exc),
-            "traceback": traceback.format_exc(),
-            "payload": payload.model_dump() if hasattr(payload, "model_dump") else str(payload),
-        },
-    )
-
-
 @router.post("/build", response_model=UserRouteState)
 def build_user_route(
     payload: UserRouteBuildRequest,
     db: Session = Depends(get_db),
 ) -> UserRouteState:
-    if not payload.city_id:
-        raise HTTPException(status_code=422, detail="city_id is required")
     if payload.start_source == "current_location" and (payload.lat is None or payload.lng is None):
         raise HTTPException(status_code=422, detail="lat/lng required for current_location")
 
@@ -69,12 +51,33 @@ def build_user_route(
 def preview_user_route(
     payload: UserRoutePreviewRequest,
     db: Session = Depends(get_db),
-) -> UserRouteState | JSONResponse:
+) -> UserRouteState:
     try:
         route = UserRouteBuildService().build(db=db, request=UserRouteBuildRequest(**payload.model_dump()))
         return route.model_copy(update={"status": "preview"})
     except Exception as exc:
-        return _debug_route_error(exc, payload, "/v1/user-routes/preview")
+        return UserRouteState(
+            route_id="preview-unavailable",
+            status="preview",
+            partial_reason="preview_build_failed",
+            context=payload,
+            total_places=0,
+            total_minutes=0,
+            total_estimated_minutes=0,
+            estimated_distance=0.0,
+            has_warnings=True,
+            warning_count=1,
+            quality_score=0.0,
+            quality_status="failed",
+            warnings=["preview_build_failed"],
+            debug_trace=[
+                {
+                    "step": "preview",
+                    "error": exc.__class__.__name__,
+                    "message": str(exc),
+                }
+            ],
+        )
 
 
 @router.post("/build-structured", response_model=UserRouteStructuredBuildResponse)
