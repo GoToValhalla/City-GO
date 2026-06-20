@@ -1,0 +1,135 @@
+name: Telegram Notifications
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+      - Deploy
+      - API Error Monitor
+      - Admin Smoke
+      - Backend Error Diagnostics
+      - City Import
+      - Data Enrichment
+      - Prod DB Repair
+      - Production Docker Cleanup
+      - Production Health
+      - Recover Frontend
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  notify:
+    name: Send Telegram workflow report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Send Telegram report
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing"
+            exit 0
+          fi
+
+          # Scheduled monitors run often. Success is intentionally silent to avoid chat noise;
+          # scheduled failures still send the summary and a separate failure dump.
+          if [ "${RUN_EVENT}" = "schedule" ] && [ "${RUN_CONCLUSION}" = "success" ]; then
+            echo "Scheduled success notification skipped for ${RUN_NAME}"
+            exit 0
+          fi
+
+          send_telegram() {
+            local text="$1"
+            curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text=${text}" \
+              -d "disable_web_page_preview=true" >/dev/null
+          }
+
+          short_sha="${RUN_SHA:0:7}"
+          status_icon="OK"
+          if [ "${RUN_CONCLUSION}" != "success" ]; then
+            status_icon="FAILED"
+          fi
+
+          mkdir -p artifacts
+          gh run download "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" -D artifacts >/dev/null 2>&1 || true
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs" --paginate > jobs.json
+
+          job_lines="$(jq -r '.jobs[] | "- " + .name + ": " + ((.conclusion // .status) | tostring)' jobs.json | head -n 30)"
+          failed_jobs="$(jq -r '.jobs[] | select((.conclusion // .status) != "success" and (.conclusion // .status) != "skipped") | "- " + .name + ": " + ((.conclusion // .status) | tostring)' jobs.json | head -n 20)"
+
+          artifact_report=""
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            artifact_report+=$'\n--- '
+            artifact_report+="$(basename "$file")"
+            artifact_report+=$' ---\n'
+            artifact_report+="$(head -c 1800 "$file")"
+            artifact_report+=$'\n'
+          done < <(find artifacts -type f -name '*.txt' | sort | head -n 4)
+
+          summary="City Go workflow ${status_icon}
+Workflow: ${RUN_NAME}
+Conclusion: ${RUN_CONCLUSION}
+Event: ${RUN_EVENT}
+Branch: ${RUN_BRANCH}
+Commit: ${short_sha}
+Run: #${RUN_NUMBER} attempt ${RUN_ATTEMPT}
+URL: ${RUN_URL}
+
+Jobs:
+${job_lines}"
+
+          if [ -n "${artifact_report}" ]; then
+            summary+=$'\n\nArtifacts summary:'
+            summary+="${artifact_report}"
+          fi
+
+          if [ "${#summary}" -gt 3900 ]; then
+            summary="$(printf '%s' "$summary" | head -c 3900)
+
+... trimmed; open GitHub Actions for full report."
+          fi
+          send_telegram "$summary"
+
+          if [ "${RUN_CONCLUSION}" != "success" ]; then
+            gh run view "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" --log-failed > failed.log 2>&1 || true
+            if [ ! -s failed.log ]; then
+              printf '%s\n' "${failed_jobs:-No failed job details returned by GitHub API.}" > failed.log
+            fi
+            failure_body="City Go failure details
+Workflow: ${RUN_NAME}
+Run: ${RUN_URL}
+
+Failed jobs:
+${failed_jobs:-No failed jobs listed.}
+
+Logs:
+$(head -c 3200 failed.log)"
+            if [ "${#failure_body}" -gt 3900 ]; then
+              failure_body="$(printf '%s' "$failure_body" | head -c 3900)
+
+... trimmed; send me this message or open the run logs."
+            fi
+            send_telegram "$failure_body"
+          fi
