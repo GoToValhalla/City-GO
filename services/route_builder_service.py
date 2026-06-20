@@ -8,8 +8,8 @@ from services.route_assembly_service import RouteAssemblyService
 from services.route_time_ordering_service import RouteTimeOrderingService
 from services.time_aware_service import TimeAwareService
 from services.route_budget_fit_service import RouteBudgetFitService
+from services.route_engine import RouteEngine
 from services.route_finalize_service import RouteFinalizeService
-from services.route_builder_flow import build_dynamic_route
 from schemas.user_profile import UserProfile
 
 
@@ -24,6 +24,7 @@ class RouteBuilderService:
         self.time = TimeAwareService()
         self.budget_fit = RouteBudgetFitService()
         self.finalize = RouteFinalizeService()
+        self.engine = RouteEngine()
 
     def build_route(
         self,
@@ -31,4 +32,4 @@ class RouteBuilderService:
         request: RequestContext,
         profile: UserProfile | None = None,
     ):
-        return build_dynamic_route(self, db, request, profile)
+        return self.engine.build(self, db, request, profile)
