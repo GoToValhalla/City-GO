@@ -21,7 +21,16 @@ class UserRouteBuildService:
             request=to_request_context(resolved_request),
             profile=build_user_profile_from_signals(db, resolved_request.user_id),
         )
-        return final_route_to_state(final, resolved_request, revision=1, status="ready")
+        state = final_route_to_state(final, resolved_request, revision=1, status="ready")
+        # Временный hard log для диагностики production-сборки маршрута.
+        print("DEBUG BUILD RESULT:", {
+            "status": state.status,
+            "partial_reason": state.partial_reason,
+            "total_places": state.total_places,
+            "debug_trace_keys": [item.get("stage") or item.get("step") for item in (state.debug_trace or [])],
+            "first_trace": state.debug_trace[0] if state.debug_trace else None,
+        })
+        return state
 
     def _resolve_start_context(self, db: Session, request: UserRouteBuildRequest) -> UserRouteBuildRequest:
         # Если пользователь ввёл адрес, пробуем получить координаты через Geoapify.
