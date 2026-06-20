@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from schemas.merged_context import BudgetLevel, MergedContext, PaceMode
 from services.route_budget_fit_service import (
     ROUTE_BUDGET_SINGLE_POINT_WARNING,
+    ROUTE_BUDGET_TOO_TIGHT_WARNING,
     ROUTE_BUDGET_TRIMMED_WARNING,
     RouteBudgetFitService,
 )
@@ -57,18 +58,19 @@ def test_fit_skips_oversized_middle_point_when_later_point_fits() -> None:
     route = [_point("1", 20, 5), _point("2", 60, 5), _point("3", 15, 5)]
     result = RouteBudgetFitService().fit(route, _ctx(50))
     assert [point.place_id for point in result.route] == ["1", "3"]
-    assert result.warnings == [ROUTE_BUDGET_TRIMMED_WARNING]
+    assert result.warnings == [ROUTE_BUDGET_TRIMMED_WARNING, ROUTE_BUDGET_SINGLE_POINT_WARNING]
 
 
-def test_fit_keeps_first_point_when_even_first_exceeds_budget() -> None:
-    route = [_point("1", 70, 10), _point("2", 10, 5)]
+def test_fit_keeps_first_point_when_visit_fits_but_transfer_exceeds_budget() -> None:
+    route = [_point("1", 20, 20), _point("2", 10, 5)]
     result = RouteBudgetFitService().fit(route, _ctx(30))
     assert [point.place_id for point in result.route] == ["1"]
     assert result.warnings == [ROUTE_BUDGET_SINGLE_POINT_WARNING]
 
 
-def test_budget_fit_does_not_reduce_non_empty_route_to_zero() -> None:
+def test_budget_fit_returns_empty_when_even_first_visit_exceeds_budget() -> None:
     route = [_point("oversized", 240, 80)]
     result = RouteBudgetFitService().fit(route, _ctx(30))
-    assert [point.place_id for point in result.route] == ["oversized"]
-    assert ROUTE_BUDGET_SINGLE_POINT_WARNING in result.warnings
+    assert result.route == []
+    assert result.warnings == [ROUTE_BUDGET_TOO_TIGHT_WARNING]
+    assert route == []
