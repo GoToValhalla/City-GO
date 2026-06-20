@@ -49,12 +49,14 @@ POST /routes/generate
 X-Deprecated: Use POST /v1/user-routes/build instead
 ```
 
-Новая цепочка route building:
+Текущая цепочка route building:
 
 ```text
 POST /v1/user-routes/build
 → UserRouteBuildService
 → RouteBuilderService
+→ RouteEngine
+→ InstantRouteStrategy
 → build_dynamic_route
 → context_merge
 → candidate_retrieval
@@ -70,6 +72,12 @@ POST /v1/user-routes/build
 → finalize
 → UserRouteState
 ```
+
+`RouteEngine` сейчас является безопасным тонким слоем над существующим пайплайном. Он нужен как точка расширения под будущие стратегии:
+
+- `InstantRouteStrategy` — маршрут сейчас / от выбранной стартовой точки;
+- `PlannedRouteStrategy` — планирование на дату и время;
+- `RecomputeRouteStrategy` — пересборка активного маршрута от текущей позиции.
 
 ## Статусы маршрута
 
@@ -98,18 +106,18 @@ POST /v1/user-routes/build
 
 ## Текущая логика route building
 
-Маршрут должен стремиться к минимально полезной форме:
+Маршрут должен стремиться к полезной форме, но target по точкам является soft target, а не жёстким правилом.
 
-| Время | Цель по точкам |
-|---:|---:|
-| до 60 минут | 3 точки |
-| до 120 минут | 4 точки |
-| до 240 минут | 6 точек |
-| больше 240 минут | до 8 точек |
+| Время | Цель по точкам | Минимум для `ready` |
+|---:|---:|---:|
+| до 60 минут | 3 точки | 2 точки |
+| до 120 минут | 4 точки | 3 точки |
+| до 240 минут | 6 точек | 5 точек |
+| больше 240 минут | до 8 точек | 6 точек |
 
 Правила деградации:
-- маршрут из 1–2 точек не считается полноценным `ready`;
-- короткий маршрут возвращается как `partial_route` с понятным warning;
+- маршрут из 1 точки не считается полноценным `ready`;
+- короткий маршрут возвращается как `partial_route` с понятным warning, если не проходит soft threshold;
 - если времени не хватает даже на одно место, возвращается `no_route` / `time_budget_too_tight`;
 - если интересы не совпали с местами, система должна использовать fallback на близкие категории или нейтральные точки;
 - если radius слишком узкий, candidate retrieval использует расширение радиуса и city-wide fallback;
@@ -211,6 +219,8 @@ python -m pytest tests/test_data_foundation_quality_readiness.py -q
 - Снять реальный `DEBUG BUILD RESULT` для `/v1/user-routes/build`.
 - Убрать временный hard log после диагностики.
 - Разобрать `debug_trace` реального запроса: retrieval, hard_filters, scoring, assembly, budget_fit, finalize.
+- Расширить `RouteEngine`: добавить `PlannedRouteStrategy` и `RecomputeRouteStrategy` без переписывания текущего instant-пайплайна.
+- Добавить доменные сущности для real-time: `RoutePlan`, `RouteSession`, `Waypoint`, `RouteEvent`.
 - Доработать route planning режим: маршрут не только “сейчас”, но и заранее на дату/время.
 - Доработать real-time режим: старт/пауза/завершение, перестроение от текущей точки, замена следующей точки.
 - Продумать карту и список маршрута: активные точки, закрытые/недоступные точки, описание места во внутреннем фрейме.
