@@ -10,6 +10,30 @@ _WARNING_CODE_MESSAGES: dict[str, tuple[str, str, str, str]] = {
         "Не удалось собрать маршрут по выбранным параметрам.",
         "Измените время, интересы или стартовую точку.",
     ),
+    "budget_too_tight": (
+        "budget_too_tight",
+        "error",
+        "Слишком мало времени даже для одного места.",
+        "Попробуйте выбрать время от 60 минут.",
+    ),
+    "budget_very_tight": (
+        "budget_very_tight",
+        "warning",
+        "Времени хватает только на очень короткий маршрут.",
+        "Увеличьте время, чтобы добавить больше мест.",
+    ),
+    "route_trimmed_by_budget": (
+        "route_trimmed_by_budget",
+        "info",
+        "Часть мест убрана, чтобы маршрут уложился во время.",
+        "Увеличьте время или добавьте место вручную.",
+    ),
+    "route_underfilled_by_budget": (
+        "route_underfilled_by_budget",
+        "info",
+        "Маршрут использует меньше половины выбранного времени.",
+        "Можно добавить ещё место вручную.",
+    ),
     "route_short_due_to_time_budget": (
         "route_short_due_to_time_budget",
         "info",
