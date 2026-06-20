@@ -166,8 +166,20 @@ jobs:
             echo "=== compose config validation ==="
             docker compose config >/dev/null
 
-            echo "=== current containers before deploy ==="
+            echo "=== production diagnostic before deploy ==="
+            df -h || true
+            docker system df || true
             docker compose ps || true
+            docker compose images || true
+            echo "--- backend /version before ---"
+            curl -sf http://localhost/api/version || curl -sf http://localhost:8000/version || true
+            echo
+            echo "--- frontend debug marker before ---"
+            if curl -sf http://localhost/ | grep -q "City Go Debug"; then
+              echo "frontend_debug_marker=present"
+            else
+              echo "frontend_debug_marker=missing"
+            fi
 
             echo "=== rescue frontend with local image before registry operations ==="
             if ! docker compose ps frontend 2>/dev/null | grep -q "Up"; then
@@ -182,6 +194,7 @@ jobs:
                 break
               fi
               echo "WARN: ghcr login/pull failed attempt=${attempt}/3"
+              docker image prune -f || true
               sleep 10
             done
             if [ "${REGISTRY_OK}" != "1" ]; then
@@ -209,8 +222,8 @@ jobs:
             echo "=== stop backend-side services only; keep current frontend alive until backend is healthy ==="
             docker compose stop import-worker bot backend || true
 
-            echo "=== start backend only ==="
-            docker compose up -d --no-deps backend
+            echo "=== force recreate backend ==="
+            docker compose up -d --no-deps --force-recreate backend
 
             echo "=== backend startup diagnostics ==="
             docker compose ps || true
@@ -239,8 +252,8 @@ jobs:
               exit 1
             fi
 
-            echo "=== start remaining services ==="
-            docker compose up -d --no-deps frontend bot import-worker
+            echo "=== force recreate remaining services ==="
+            docker compose up -d --no-deps --force-recreate frontend bot import-worker
 
             echo "=== frontend health ==="
             FRONTEND_OK=0
@@ -277,8 +290,19 @@ jobs:
             docker compose exec -T backend alembic current || true
             docker compose exec -T backend alembic heads || true
 
-            echo "=== final containers ==="
-            docker compose ps
+            echo "=== production diagnostic after deploy ==="
+            docker compose ps || true
+            docker compose images || true
+            echo "--- backend /version after ---"
+            curl -sf http://localhost/api/version || curl -sf http://localhost:8000/version || true
+            echo
+            echo "--- frontend debug marker after ---"
+            if curl -sf http://localhost/ | grep -q "City Go Debug"; then
+              echo "frontend_debug_marker=present"
+            else
+              echo "frontend_debug_marker=missing"
+            fi
+
             echo "=== final logs backend ==="
             docker compose logs --tail=120 backend || true
             echo "=== final logs frontend ==="
