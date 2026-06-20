@@ -42,8 +42,11 @@ def evaluate_place_route_eligibility(
         reasons.append("place_inactive")
     if getattr(place, "status", "active") != "active":
         reasons.append("place_status_not_active")
-    if getattr(place, "lifecycle_status", "active") != "active":
+
+    lifecycle_status = getattr(place, "lifecycle_status", None) or "active"
+    if lifecycle_status != "active":
         reasons.append("lifecycle_not_active")
+
     if not getattr(place, "is_published", True):
         reasons.append("place_not_published")
     if not getattr(place, "is_visible_in_catalog", True):
@@ -61,7 +64,7 @@ def evaluate_place_route_eligibility(
     elif category in ROUTE_FORBIDDEN_CATEGORIES:
         reasons.append(f"forbidden_category:{category}")
 
-    quality_tier = (getattr(place, "quality_tier", "silver") or "").strip().lower()
+    quality_tier = (getattr(place, "quality_tier", None) or "silver").strip().lower()
     if quality_tier not in ROUTE_ALLOWED_QUALITY_TIERS:
         reasons.append(f"quality_tier_not_route_allowed:{quality_tier or 'empty'}")
 
