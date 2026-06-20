@@ -39,7 +39,7 @@ def adaptive_target_points(scored: list[ScoredPlace], ctx: MergedContext) -> int
         return 0
     budget = int(ctx.effective_time_budget_minutes or ctx.time_budget_minutes or 0)
     if budget <= 60:
-        target = 3
+        target = 2
     elif budget <= 120:
         target = 4
     elif budget <= 240:
@@ -52,7 +52,7 @@ def adaptive_target_points(scored: list[ScoredPlace], ctx: MergedContext) -> int
     elif str(ctx.pace_mode) == "fast":
         target += 1
 
-    return min(len(scored), max(3, min(8, target)))
+    return min(len(scored), max(1, min(8, target)))
 
 
 def _prioritized_scored(
