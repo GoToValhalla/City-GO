@@ -9,14 +9,14 @@ export class ApiRequestError extends Error {
   status: number
   url: string
   method: string
-  responseBody: string
+  responseBody: unknown
   requestBody?: unknown
 
   constructor(params: {
     status: number
     url: string
     method: string
-    responseBody: string
+    responseBody: unknown
     requestBody?: unknown
   }) {
     super(`HTTP ${params.status}`)
@@ -29,11 +29,11 @@ export class ApiRequestError extends Error {
   }
 }
 
-const readErrorBody = async (response: Response): Promise<string> => {
+const readResponseBody = async (response: Response): Promise<unknown> => {
   const contentType = response.headers.get('content-type') || ''
   try {
     if (contentType.includes('application/json')) {
-      return JSON.stringify(await response.json(), null, 2)
+      return await response.json()
     }
     return await response.text()
   } catch (err) {
@@ -50,7 +50,7 @@ const assertOk = async (
     status: response.status,
     url: params.url,
     method: params.method,
-    responseBody: await readErrorBody(response),
+    responseBody: await readResponseBody(response),
     requestBody: params.requestBody,
   })
 }
@@ -65,8 +65,17 @@ export const buildRecommendationRoute = async (
     body: JSON.stringify(payload),
   })
 
-  await assertOk(response, { url, method: 'POST', requestBody: payload })
-  return response.json()
+  const body = await readResponseBody(response)
+  if (!response.ok) {
+    throw new ApiRequestError({
+      status: response.status,
+      url,
+      method: 'POST',
+      responseBody: body,
+      requestBody: payload,
+    })
+  }
+  return body as RecommendationRouteResponse
 }
 
 export const sendRouteFeedback = async (
