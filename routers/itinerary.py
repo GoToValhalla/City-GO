@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
@@ -17,22 +17,24 @@ from services.route_toggle_guard import assert_route_generation_allowed
 router = APIRouter(prefix="/routes", tags=["itinerary"])
 
 
-@router.post("/generate", response_model=ItineraryGenerateResponse)
+@router.post("/generate", response_model=ItineraryGenerateResponse, deprecated=True)
 def generate_itinerary(
     request: ItineraryGenerateRequest,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ItineraryGenerateResponse:
+    response.headers["X-Deprecated"] = "Use POST /v1/user-routes/build instead"
     assert_route_generation_allowed(db, city_slug=request.city_slug)
     log_route_generation_started(db, source="itinerary_generate", city_slug=request.city_slug)
-    response = generate_itinerary_stub(db=db, request=request)
-    stops = len(response.points or [])
+    response_body = generate_itinerary_stub(db=db, request=request)
+    stops = len(response_body.points or [])
     if stops > 0:
         log_route_generation_success(db, source="itinerary_generate", city_slug=request.city_slug, stops=stops)
     else:
         log_route_generation_failed(
             db, source="itinerary_generate", city_slug=request.city_slug, reason="no_selected_places",
         )
-    return response
+    return response_body
 
 
 @router.post("/replan", response_model=ItineraryReplanResponse)
