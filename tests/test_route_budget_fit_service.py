@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from schemas.merged_context import BudgetLevel, MergedContext, PaceMode
 from services.route_budget_fit_service import (
     ROUTE_BUDGET_SINGLE_POINT_WARNING,
-    ROUTE_BUDGET_TOO_TIGHT_WARNING,
     ROUTE_BUDGET_TRIMMED_WARNING,
     RouteBudgetFitService,
 )
@@ -68,9 +67,9 @@ def test_fit_keeps_first_point_when_visit_fits_but_transfer_exceeds_budget() -> 
     assert result.warnings == [ROUTE_BUDGET_SINGLE_POINT_WARNING]
 
 
-def test_budget_fit_returns_empty_when_even_first_visit_exceeds_budget() -> None:
+def test_budget_fit_keeps_first_point_when_even_first_visit_exceeds_budget() -> None:
     route = [_point("oversized", 240, 80)]
     result = RouteBudgetFitService().fit(route, _ctx(30))
-    assert result.route == []
-    assert result.warnings == [ROUTE_BUDGET_TOO_TIGHT_WARNING]
-    assert route == []
+    assert [point.place_id for point in result.route] == ["oversized"]
+    assert result.warnings == [ROUTE_BUDGET_SINGLE_POINT_WARNING]
+    assert [point.place_id for point in route] == ["oversized"]
