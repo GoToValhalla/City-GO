@@ -22,6 +22,7 @@ const stageTitle: Record<string, string> = {
   final_response: 'Финальный ответ',
   context_normalization: 'Нормализация контекста',
   route_quality_gate: 'Quality gate маршрута',
+  retrieval: 'Retrieval',
   scoring: 'Скоринг',
   time_aware: 'Проверка времени',
 }
@@ -39,6 +40,9 @@ const diagnosticKeys = [
   'places_active_geocoded',
   'places_with_coords',
   'geo_query_count',
+  'geo_route_eligible_count',
+  'candidate_retrieval_expected_count',
+  'candidate_retrieval_city_wide_expected_count',
   'requested_budget_minutes',
   'effective_budget_minutes',
   'candidate_count',
@@ -58,6 +62,8 @@ const debugBlocks = [
   ['context', 'Контекст'],
   ['city_stats', 'Статистика города'],
   ['retrieval', 'Retrieval'],
+  ['candidate_retrieval', 'Candidate retrieval raw'],
+  ['quality_annotation', 'Quality annotation'],
   ['hard_filters', 'Hard filters'],
   ['interest_matching', 'Interest matching'],
   ['adaptive_plan', 'Adaptive plan'],
@@ -76,6 +82,8 @@ const blockFields: Record<string, string[]> = {
   context: ['city_id', 'start_lat', 'start_lng', 'radius_meters', 'time_budget_minutes', 'route_time_mode', 'time_of_day', 'interests', 'interest_removed_due_to_avoidance', 'avoided_categories', 'excluded_place_ids', 'budget_level', 'pace_mode'],
   city_stats: ['places_total_in_city', 'places_public_catalog', 'places_route_eligible', 'places_active_legacy_safe', 'places_with_coords'],
   retrieval: ['input_city_id', 'requested_radius_meters', 'query_limit', 'healthy_min_candidates', 'raw_candidates_count', 'after_radius_count', 'expanded_radius_candidates_count', 'city_wide_candidates_count', 'retrieval_strategy_used', 'retrieval_coverage_pct', 'low_coverage_threshold_pct', 'after_city_filter_count', 'after_route_eligible_count', 'after_public_catalog_count', 'after_coordinates_count', 'after_excluded_place_ids_count', 'after_avoided_categories_count', 'final_candidates_count', 'fallback_city_wide_used', 'fallback_radius_used', 'center_used', 'places_within_500m', 'places_within_1km', 'places_within_2km', 'places_within_5km', 'places_within_10km', 'city_wide_eligible', 'spatial_density', 'top_candidate_distances_meters', 'sample_candidate_ids'],
+  candidate_retrieval: ['count', 'city_slug', 'city_db_id', 'city_launch_status', 'city_is_active', 'city_is_blocked_for_routes', 'start_point', 'radius_meters', 'places_total_in_city', 'places_public_catalog', 'places_route_visible', 'places_route_eligible', 'places_active_legacy_safe', 'places_with_coords', 'geo_query_count', 'geo_route_eligible_count', 'candidate_retrieval_expected_count', 'candidate_retrieval_city_wide_expected_count', 'categories', 'sample_candidates'],
+  quality_annotation: ['input_count', 'output_count', 'warning_count', 'validation_issue_counts', 'sample_candidates', 'warnings'],
   hard_filters: ['input_count', 'strict_kept', 'relaxed_kept', 'fallback_used', 'output_count', 'removed_count', 'removal_reasons', 'strict_removal_reasons', 'relaxed_removal_reasons', 'sample_removed'],
   interest_matching: ['input_count', 'requested_interests', 'interest_removed_due_to_avoidance', 'exact_count', 'exact_matches_count', 'related_matches_count', 'neutral_candidates_count', 'expansion_level', 'expanded_category_count', 'neutral_added_count', 'target_points', 'output_count', 'sample_exact_ids', 'sample_related_ids', 'sample_neutral_ids'],
   adaptive_plan: ['input_count', 'output_count', 'target_points', 'expansion_level', 'exact_count', 'related_count', 'neutral_count', 'expanded_category_count', 'neutral_added_count', 'user_explanation', 'warnings'],
@@ -95,6 +103,15 @@ const value = (entry: RouteDebugTraceEntry, keys: string[]): string => {
   if (found === undefined || found === null) return '—'
   if (typeof found === 'object') return JSON.stringify(found)
   return String(found)
+}
+
+const rawValue = (entry: RouteDebugTraceEntry, keys: string[]): unknown => (
+  keys.map((key) => entry[key]).find((item) => item !== undefined && item !== null)
+)
+
+const numberValue = (entry: RouteDebugTraceEntry, keys: string[]): number | null => {
+  const raw = rawValue(entry, keys)
+  return typeof raw === 'number' ? raw : null
 }
 
 const reasons = (entry: RouteDebugTraceEntry): string => {
@@ -173,25 +190,62 @@ const fullDebugPayload = (route: RecommendationRouteResponse): Record<string, un
   debug_trace: route.debug_trace,
 })
 
+const retrievalDiagnosis = (retrieval: RouteDebugTraceEntry, candidateRetrieval: RouteDebugTraceEntry): Record<string, unknown> => {
+  const finalCandidates = numberValue(retrieval, ['final_candidates_count', 'count']) ?? numberValue(candidateRetrieval, ['count'])
+  const cityWideExpected = numberValue(candidateRetrieval, ['candidate_retrieval_city_wide_expected_count', 'places_route_eligible'])
+  const radiusExpected = numberValue(candidateRetrieval, ['candidate_retrieval_expected_count', 'geo_route_eligible_count', 'geo_query_count'])
+  const routeVisible = numberValue(candidateRetrieval, ['places_route_visible'])
+  const status = finalCandidates === 0 && (cityWideExpected ?? 0) > 0
+    ? 'CRITICAL: city-wide candidates exist, but retrieval returned 0'
+    : finalCandidates === 0 && (routeVisible ?? 0) > 0
+      ? 'CRITICAL: route-visible places exist, but retrieval returned 0'
+      : finalCandidates !== null && finalCandidates < 40
+        ? 'LOW: retrieval returned less than healthy threshold'
+        : 'OK'
+
+  return {
+    status,
+    final_candidates: finalCandidates,
+    radius_expected: radiusExpected,
+    city_wide_expected: cityWideExpected,
+    route_visible: routeVisible,
+    radius_meters: value(candidateRetrieval, ['radius_meters']),
+    start_point: rawValue(candidateRetrieval, ['start_point']),
+    retrieval_stage: value(retrieval, ['retrieval_strategy_used']),
+    fallback_radius_used: rawValue(retrieval, ['fallback_radius_used']),
+    fallback_city_wide_used: rawValue(retrieval, ['fallback_city_wide_used']),
+    sample_candidate_ids: rawValue(retrieval, ['sample_candidate_ids']),
+  }
+}
+
 export const RouteDebugTrace = ({ route }: Props) => {
   const trace = route.debug_trace ?? []
   const retrieval = stageByName(trace, 'retrieval') ?? stageByName(trace, 'candidate_retrieval') ?? emptyTraceEntry
+  const candidateRetrieval = stageByName(trace, 'candidate_retrieval') ?? emptyTraceEntry
   const hardFilter = stageByName(trace, 'hard_filters') ?? stageByName(trace, 'hard_filter') ?? emptyTraceEntry
   const scoring = stageByName(trace, 'scoring') ?? emptyTraceEntry
   const assembly = stageByName(trace, 'assembly') ?? emptyTraceEntry
   const budgetFit = stageByName(trace, 'budget_fit') ?? emptyTraceEntry
   const qualityGate = stageByName(trace, 'quality_gates') ?? stageByName(trace, 'route_quality_gate') ?? emptyTraceEntry
   const rawPayload = fullDebugPayload(route)
+  const retrievalDeathCheck = retrievalDiagnosis(retrieval, candidateRetrieval)
 
   return (
     <details className="route-result-tile route-debug-trace" open>
       <summary>Debug маршрута — полный разбор</summary>
+
+      <div className="route-debug-warning-box">
+        <strong>Retrieval death check</strong>
+        <pre>{shortJson(retrievalDeathCheck)}</pre>
+      </div>
 
       <div className="route-debug-summary-grid">
         <div><span>Статус</span><strong>{route.status ?? '—'}</strong></div>
         <div><span>Точек</span><strong>{route.total_places}</strong></div>
         <div><span>Минут</span><strong>{route.total_estimated_minutes}</strong></div>
         <div><span>Кандидатов</span><strong>{value(retrieval, ['final_candidates_count', 'count', 'candidate_count'])}</strong></div>
+        <div><span>City-wide expected</span><strong>{value(candidateRetrieval, ['candidate_retrieval_city_wide_expected_count'])}</strong></div>
+        <div><span>Radius expected</span><strong>{value(candidateRetrieval, ['candidate_retrieval_expected_count', 'geo_route_eligible_count'])}</strong></div>
         <div><span>После фильтров</span><strong>{value(hardFilter, ['output_count', 'kept_count'])}</strong></div>
         <div><span>Скоринг</span><strong>{value(scoring, ['count', 'scored_count'])}</strong></div>
         <div><span>Assembly</span><strong>{value(assembly, ['selected_count', 'initial_route_count'])}</strong></div>
