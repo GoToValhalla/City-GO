@@ -57,6 +57,7 @@ class CandidateRetrievalService:
     ) -> list[Place]:
 
         density = self._safe_spatial_density(db, ctx)
+        retrieval_counts = self._safe_retrieval_counts(db, ctx)
         city_wide_eligible = _safe_int(density.get("city_wide_eligible"))
 
         candidates = self._query_places(db, ctx)
@@ -92,6 +93,7 @@ class CandidateRetrievalService:
                 fallback_radius_used,
                 fallback_city_wide_used,
                 density=density,
+                retrieval_counts=retrieval_counts,
                 expanded_candidates_count=expanded_candidates_count,
                 city_wide_candidates_count=city_wide_candidates_count,
                 retrieval_strategy_used="empty",
@@ -112,6 +114,7 @@ class CandidateRetrievalService:
             fallback_radius_used,
             fallback_city_wide_used,
             density=density,
+            retrieval_counts=retrieval_counts,
             expanded_candidates_count=expanded_candidates_count,
             city_wide_candidates_count=city_wide_candidates_count,
             retrieval_strategy_used=retrieval_strategy_used,
@@ -139,7 +142,7 @@ class CandidateRetrievalService:
         query = query.order_by(distance_expr.asc()).limit(self.MAX_CANDIDATES)
         return db.execute(query).scalars().all()
 
-    def _base_query(self, ctx: MergedContext):
+    def _base_query(self, ctx: MergedContext, *, apply_user_exclusions: bool = True):
         query = select(Place).where(*route_eligible_sql_conditions())
         query = query.join(City).where(
             City.is_active.is_(True),
@@ -152,6 +155,9 @@ class CandidateRetrievalService:
         # В проде импортные места могут быть связаны со scope в статусе completed/ready,
         # при этом сами места уже public + route_eligible. Старый _scope_is_route_visible()
         # превращал город с тысячами доступных мест в 0 кандидатов для маршрута.
+
+        if not apply_user_exclusions:
+            return query
 
         avoided_place_ids = list(getattr(ctx, "avoided_place_ids", []) or [])
         if avoided_place_ids:
@@ -224,8 +230,59 @@ class CandidateRetrievalService:
                 "city_wide_eligible": None,
             }
 
-    def _count_places(self, db: Session, ctx: MergedContext, max_distance_meters: int | None) -> int:
-        query = self._base_query(ctx)
+    def _safe_retrieval_counts(self, db: Session, ctx: MergedContext) -> dict[str, object]:
+        """Return step-by-step retrieval counters for visible UI debugging.
+
+        This intentionally duplicates a few cheap count queries because the route builder is in
+        active stabilization. The goal is to see exactly whether candidates die in radius search,
+        route eligibility, user exclusions, or post-processing.
+        """
+        try:
+            radius = int(getattr(ctx, "radius_meters", 0) or 0)
+            expanded_radius = max(12_000, int(radius * 2.5)) if radius else 12_000
+            route_before_exclusions = self._count_places(db, ctx, None, apply_user_exclusions=False)
+            route_after_exclusions = self._count_places(db, ctx, None, apply_user_exclusions=True)
+            radius_before_exclusions = self._count_places(db, ctx, radius, apply_user_exclusions=False)
+            radius_after_exclusions = self._count_places(db, ctx, radius, apply_user_exclusions=True)
+            expanded_before_exclusions = self._count_places(db, ctx, expanded_radius, apply_user_exclusions=False)
+            expanded_after_exclusions = self._count_places(db, ctx, expanded_radius, apply_user_exclusions=True)
+            return {
+                "city_scope_total": self._count_city_scope_places(db, ctx),
+                "route_eligible_before_user_exclusions": route_before_exclusions,
+                "route_eligible_after_user_exclusions": route_after_exclusions,
+                "radius_meters": radius,
+                "radius_before_user_exclusions": radius_before_exclusions,
+                "radius_after_user_exclusions": radius_after_exclusions,
+                "expanded_radius_meters": expanded_radius,
+                "expanded_radius_before_user_exclusions": expanded_before_exclusions,
+                "expanded_radius_after_user_exclusions": expanded_after_exclusions,
+                "city_wide_after_user_exclusions": route_after_exclusions,
+                "lost_by_user_exclusions_city_wide": max(0, route_before_exclusions - route_after_exclusions),
+                "lost_by_user_exclusions_radius": max(0, radius_before_exclusions - radius_after_exclusions),
+                "applied_avoided_categories": sorted(_category_variants(getattr(ctx, "avoided_categories", []) or [])),
+                "applied_avoided_place_ids_count": len(list(getattr(ctx, "avoided_place_ids", []) or [])),
+            }
+        except Exception as exc:
+            return {"error": f"{type(exc).__name__}: {exc}"}
+
+    def _count_city_scope_places(self, db: Session, ctx: MergedContext) -> int:
+        query = select(func.count()).select_from(Place).join(City).where(
+            City.is_active.is_(True),
+            ~City.launch_status.in_(BLOCKED_CITY_LAUNCH_STATUSES),
+        )
+        if ctx.city_id:
+            query = query.where(City.slug == str(ctx.city_id))
+        return int(db.execute(query).scalar() or 0)
+
+    def _count_places(
+        self,
+        db: Session,
+        ctx: MergedContext,
+        max_distance_meters: int | None,
+        *,
+        apply_user_exclusions: bool = True,
+    ) -> int:
+        query = self._base_query(ctx, apply_user_exclusions=apply_user_exclusions)
         if max_distance_meters is not None:
             lat, lng = ctx.location
             query = query.where(self._distance_meters_expr(lat=lat, lng=lng) <= max_distance_meters)
@@ -301,6 +358,7 @@ class CandidateRetrievalService:
         fallback_city_wide_used: bool,
         *,
         density: dict[str, int | None] | None = None,
+        retrieval_counts: dict[str, object] | None = None,
         expanded_candidates_count: int | None = None,
         city_wide_candidates_count: int | None = None,
         retrieval_strategy_used: str = "radius",
@@ -308,6 +366,7 @@ class CandidateRetrievalService:
         lat, lng = ctx.location
         city_wide_eligible = _safe_int((density or {}).get("city_wide_eligible"))
         coverage_pct = round((len(candidates) / city_wide_eligible) * 100, 2) if city_wide_eligible else None
+        counts = retrieval_counts or {}
         return {
             "query_limit": self.MAX_CANDIDATES,
             "healthy_min_candidates": self.MIN_HEALTHY_RETRIEVAL_CANDIDATES,
@@ -323,6 +382,22 @@ class CandidateRetrievalService:
             "fallback_city_wide_used": fallback_city_wide_used,
             "center_used": {"lat": lat, "lng": lng},
             "spatial_density": density or {},
+            "retrieval_counts": counts,
+            "city_scope_total": counts.get("city_scope_total"),
+            "route_eligible_before_user_exclusions": counts.get("route_eligible_before_user_exclusions"),
+            "route_eligible_after_user_exclusions": counts.get("route_eligible_after_user_exclusions"),
+            "radius_before_user_exclusions": counts.get("radius_before_user_exclusions"),
+            "radius_after_user_exclusions": counts.get("radius_after_user_exclusions"),
+            "expanded_radius_meters": counts.get("expanded_radius_meters"),
+            "expanded_radius_before_user_exclusions": counts.get("expanded_radius_before_user_exclusions"),
+            "expanded_radius_after_user_exclusions": counts.get("expanded_radius_after_user_exclusions"),
+            "city_wide_after_user_exclusions": counts.get("city_wide_after_user_exclusions"),
+            "lost_by_user_exclusions_city_wide": counts.get("lost_by_user_exclusions_city_wide"),
+            "lost_by_user_exclusions_radius": counts.get("lost_by_user_exclusions_radius"),
+            "applied_avoided_categories": counts.get("applied_avoided_categories"),
+            "applied_avoided_place_ids_count": counts.get("applied_avoided_place_ids_count"),
+            "retrieval_loss_summary": _retrieval_loss_summary(raw_candidates_count, len(candidates), city_wide_eligible, counts),
+            "final_candidate_categories": _category_count_map(candidates),
             "places_within_500m": (density or {}).get("places_within_500m"),
             "places_within_1km": (density or {}).get("places_within_1km"),
             "places_within_2km": (density or {}).get("places_within_2km"),
@@ -335,6 +410,7 @@ class CandidateRetrievalService:
                 if _has_number_coords(place)
             ],
             "sample_candidate_ids": [str(getattr(place, "id", "")) for place in candidates[:10]],
+            "sample_candidates": [_candidate_debug_row(place, lat, lng) for place in candidates[:10]],
         }
 
     def _distance_meters_expr(self, lat: float, lng: float) -> ColumnElement[float]:
@@ -426,3 +502,46 @@ def _distance_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
     lng_delta = (radians(lng2) - radians(lng1)) / 2
     value = sin(lat_delta) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(lng_delta) ** 2
     return int(round(2 * 6_371_000 * asin(min(1.0, sqrt(value)))))
+
+
+def _category_count_map(candidates: list[Place]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for place in candidates:
+        category = _category(place) or "unknown"
+        counts[category] = counts.get(category, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: item[1], reverse=True)[:20])
+
+
+def _candidate_debug_row(place: Place, start_lat: float, start_lng: float) -> dict[str, object]:
+    lat = getattr(place, "lat", None)
+    lng = getattr(place, "lng", None)
+    return {
+        "id": str(getattr(place, "id", "") or ""),
+        "name": str(getattr(place, "title", None) or getattr(place, "name", None) or ""),
+        "category": _category(place),
+        "lat": lat,
+        "lng": lng,
+        "distance_meters": _distance_meters(start_lat, start_lng, float(lat), float(lng)) if _has_number_coords(place) else None,
+    }
+
+
+def _retrieval_loss_summary(
+    raw_candidates_count: int,
+    final_candidates_count: int,
+    city_wide_eligible: int | None,
+    counts: dict[str, object],
+) -> dict[str, object]:
+    route_after = _safe_int(counts.get("route_eligible_after_user_exclusions"))
+    radius_after = _safe_int(counts.get("radius_after_user_exclusions"))
+    expanded_after = _safe_int(counts.get("expanded_radius_after_user_exclusions"))
+    return {
+        "city_wide_eligible": city_wide_eligible,
+        "route_eligible_after_user_exclusions": route_after,
+        "radius_after_user_exclusions": radius_after,
+        "expanded_radius_after_user_exclusions": expanded_after,
+        "raw_radius_candidates": raw_candidates_count,
+        "final_candidates": final_candidates_count,
+        "lost_before_radius": max(0, (route_after or 0) - (radius_after or 0)) if route_after is not None and radius_after is not None else None,
+        "lost_after_post_processing": max(0, raw_candidates_count - final_candidates_count),
+        "coverage_pct": round((final_candidates_count / city_wide_eligible) * 100, 2) if city_wide_eligible else None,
+    }
