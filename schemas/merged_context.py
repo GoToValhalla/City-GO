@@ -44,9 +44,11 @@ class MergedContext(BaseModel):
     effective_time_budget_minutes: int
     time_of_day: Optional[str] = None
     route_time_mode: str = "flexible"
+    require_known_hours: bool = False
 
     # --- USER INTENT — интересы и исключения пользователя.
     interests: List[str] = Field(default_factory=list)
+    interest_removed_due_to_avoidance: List[str] = Field(default_factory=list)
 
     avoided_categories: List[str] = Field(default_factory=list)
     avoided_place_ids: List[str] = Field(default_factory=list)

@@ -60,12 +60,14 @@ class CandidateRetrievalService:
         fallback_city_wide_used = False
 
         if len(candidates) < 20:
-            candidates = self._fallback_expand_radius(db, ctx)
+            candidates = self._fallback_expand_radius(db, ctx) or candidates
             fallback_radius_used = True
 
         if len(candidates) < 20:
-            candidates = self._fallback_city_wide(db, ctx)
-            fallback_city_wide_used = True
+            city_wide = self._fallback_city_wide(db, ctx)
+            if isinstance(city_wide, list):
+                candidates = city_wide or candidates
+                fallback_city_wide_used = bool(city_wide)
 
         if not candidates:
             self.last_debug = self._debug_payload(ctx, raw_candidates_count, [], fallback_radius_used, fallback_city_wide_used)
@@ -120,8 +122,9 @@ class CandidateRetrievalService:
         if avoided_place_ids:
             query = query.where(~Place.id.in_(avoided_place_ids))
 
-        if ctx.avoided_categories:
-            query = query.where(~Place.category.in_(ctx.avoided_categories))
+        avoided_categories = list(getattr(ctx, "avoided_categories", []) or [])
+        if avoided_categories:
+            query = query.where(~Place.category.in_(avoided_categories))
 
         return query
 
@@ -228,6 +231,7 @@ class CandidateRetrievalService:
         return {
             "query_limit": self.MAX_CANDIDATES,
             "raw_candidates_count": raw_candidates_count,
+            "after_radius_count": raw_candidates_count,
             "final_candidates_count": len(candidates),
             "fallback_radius_used": fallback_radius_used,
             "fallback_city_wide_used": fallback_city_wide_used,

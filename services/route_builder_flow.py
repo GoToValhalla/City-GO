@@ -22,6 +22,7 @@ from services.route_generation_diagnostics.record import record_canonical_genera
 from services.route_geometry import walk_minutes_between
 from services.route_point_factory import route_point_from_scored, visit_minutes_for_scored
 from services.route_assembly_service import RoutePoint
+from services.route_budget_fit_service import BudgetFitResult
 from services.route_quality_gates import evaluate_quality_gates
 
 MAX_CANDIDATE_OPTIONS = 40
@@ -40,7 +41,7 @@ def build_dynamic_route(
     trace.add(
         "debug_route_contract",
         purpose="temporary_full_route_chain_debug_visible_in_ui",
-        expected_chain="context -> retrieval -> quality -> filters -> scoring -> assembly -> time_aware -> budget_fit -> finalize",
+        expected_chain="context -> retrieval -> hard_filters -> scoring -> interest_matching -> adaptive_plan -> assembly -> time_ordering -> time_aware -> budget_fit -> quality_gates -> finalize -> final",
     )
     ctx = _ctx(deps, request, profile, trace)
     now = effective_route_start(datetime.utcnow(), getattr(ctx, "time_of_day", None))
@@ -71,7 +72,8 @@ def build_dynamic_route(
         user_explanation=plan.user_explanation,
         warnings=gate.warnings[:DEBUG_SAMPLE_LIMIT],
     )
-    warnings = _unique([*input_warnings, *filtered_warnings, *route_warnings,
+    warnings = _unique([*_interest_normalization_warnings(ctx),
+                        *input_warnings, *filtered_warnings, *route_warnings,
                         *plan.warnings, *gate.warnings,
                         *route_quality_warnings(budget_fit.route, plan.target_points),
                         *budget_fit.warnings])
@@ -151,6 +153,7 @@ def _ctx(deps: object, request: RequestContext, profile: UserProfile | None, tra
         route_time_mode=getattr(ctx, "route_time_mode", None),
         time_of_day=getattr(ctx, "time_of_day", None),
         interests=list(getattr(ctx, "interests", []) or []),
+        interest_removed_due_to_avoidance=list(getattr(ctx, "interest_removed_due_to_avoidance", []) or []),
         avoided_categories=list(getattr(ctx, "avoided_categories", []) or []),
         excluded_place_ids=list(getattr(ctx, "excluded_place_ids", []) or []),
     )
@@ -164,6 +167,7 @@ def _ctx(deps: object, request: RequestContext, profile: UserProfile | None, tra
         route_time_mode=getattr(ctx, "route_time_mode", None),
         time_of_day=getattr(ctx, "time_of_day", None),
         interests=list(getattr(ctx, "interests", []) or []),
+        interest_removed_due_to_avoidance=list(getattr(ctx, "interest_removed_due_to_avoidance", []) or []),
         avoided_categories=list(getattr(ctx, "avoided_categories", []) or []),
         excluded_place_ids=list(getattr(ctx, "avoided_place_ids", []) or []),
         budget_level=getattr(ctx, "budget_level", None),
@@ -176,7 +180,8 @@ def _ctx(deps: object, request: RequestContext, profile: UserProfile | None, tra
         city_id=getattr(ctx, "city_id", None),
         total_requested_interests=len(list(getattr(ctx, "interests", []) or [])),
         interests=list(getattr(ctx, "interests", []) or []),
-        warnings=[],
+        interest_removed_due_to_avoidance=list(getattr(ctx, "interest_removed_due_to_avoidance", []) or []),
+        warnings=_interest_normalization_warnings(ctx),
     )
     return ctx
 
@@ -219,9 +224,13 @@ def _filtered(deps: object, candidates: list[object], ctx: object, now: datetime
     warnings = filter_warnings(candidates, report.kept)
     kept = report.kept
     timed_trace(trace, "hard_filter", started, input_count=len(candidates),
+                strict_kept_count=report.strict_kept_count,
+                relaxed_kept_count=report.relaxed_kept_count,
                 kept_count=len(kept), original_kept_count=len(report.kept), removed_count=len(report.rejected),
                 fallback_used=report.fallback_used,
                 reasons=report.reason_counts,
+                strict_removal_reasons=report.strict_reason_counts,
+                relaxed_removal_reasons=report.relaxed_reason_counts,
                 kept_categories=_category_counts(kept),
                 kept_sample=_place_sample(kept, ctx),
                 rejected_sample=_rejected_sample(report.rejected, ctx),
@@ -229,9 +238,14 @@ def _filtered(deps: object, candidates: list[object], ctx: object, now: datetime
     trace.add(
         "hard_filters",
         input_count=len(candidates),
+        strict_kept=report.strict_kept_count,
+        relaxed_kept=report.relaxed_kept_count,
+        fallback_used=report.fallback_used,
         output_count=len(kept),
         removed_count=len(report.rejected),
         removal_reasons=report.reason_counts,
+        strict_removal_reasons=report.strict_reason_counts,
+        relaxed_removal_reasons=report.relaxed_reason_counts,
         sample_removed=_filter_removed_sample(candidates, report.rejected),
     )
     trace.add(
@@ -269,6 +283,8 @@ def _planned(scored: list[object], ctx: object, trace: RoutePipelineTrace) -> Ro
         "interest_matching",
         input_count=len(scored),
         requested_interests=list(getattr(ctx, "interests", []) or []),
+        interest_removed_due_to_avoidance=list(getattr(ctx, "interest_removed_due_to_avoidance", []) or []),
+        exact_count=plan.exact_count,
         exact_matches_count=plan.exact_count,
         related_matches_count=plan.related_count,
         neutral_candidates_count=plan.neutral_count,
@@ -276,6 +292,7 @@ def _planned(scored: list[object], ctx: object, trace: RoutePipelineTrace) -> Ro
         expanded_category_count=plan.expanded_category_count,
         neutral_added_count=plan.neutral_added_count,
         output_count=plan.expanded_pool_count,
+        target_points=plan.target_points,
         matched_interest_count=plan.exact_count,
         total_requested_interests=len(list(getattr(ctx, "interests", []) or [])),
         related_count=plan.related_count,
@@ -283,6 +300,20 @@ def _planned(scored: list[object], ctx: object, trace: RoutePipelineTrace) -> Ro
         sample_exact_ids=_sample_ids_by_point_type(plan.scored, "primary"),
         sample_related_ids=_sample_ids_by_point_type(plan.scored, "related"),
         sample_neutral_ids=_sample_ids_by_point_type(plan.scored, "neutral"),
+        warnings=plan.warnings[:DEBUG_SAMPLE_LIMIT],
+    )
+    trace.add(
+        "adaptive_plan",
+        input_count=len(scored),
+        output_count=len(plan.scored),
+        target_points=plan.target_points,
+        expansion_level=plan.expansion_level,
+        exact_count=plan.exact_count,
+        related_count=plan.related_count,
+        neutral_count=plan.neutral_count,
+        expanded_category_count=plan.expanded_category_count,
+        neutral_added_count=plan.neutral_added_count,
+        user_explanation=plan.user_explanation,
         warnings=plan.warnings[:DEBUG_SAMPLE_LIMIT],
     )
     trace.add(
@@ -310,7 +341,13 @@ def _route(deps: object, scored: list[object], filtered: list[object], ctx: obje
         first_point_fit_debug=_first_point_fit_debug(scored, ctx),
     )
     route = deps.assembly.build(scored, ctx)
+    fallback_used = False
+    if not route and scored:
+        route = _minimal_route_from_scored(scored, ctx, target_points)
+        fallback_used = bool(route)
     warnings = assembly_warnings(filtered, route)
+    if fallback_used:
+        warnings = _unique([*warnings, "assembly_zero_recovered_by_minimal_fallback"])
     original_selected_count = len(route)
     original_route_sample = _route_point_sample(route)
     first_point_debug = _first_point_fit_debug(scored, ctx)
@@ -320,7 +357,9 @@ def _route(deps: object, scored: list[object], filtered: list[object], ctx: obje
     timed_trace(trace, "assembly", started, selected_count=len(route), original_selected_count=original_selected_count,
                 warning_count=len(warnings),
                 input_count=len(scored),
+                input_scored_count=len(scored),
                 target_points=target_points,
+                selected_count_before_budget=len(route),
                 rejected_count=rejected_count,
                 rejection_reasons=_assembly_rejection_reasons(rejected_count),
                 selected_ids=selected_ids,
@@ -328,6 +367,8 @@ def _route(deps: object, scored: list[object], filtered: list[object], ctx: obje
                 first_point_candidates_checked=first_point_debug.get("checked_count", 0),
                 first_point_rejection_reasons=first_point_reasons,
                 failure_reason=_assembly_failure_reason(route, scored, first_point_reasons),
+                fallback_used=fallback_used,
+                fallback_triggers=["assembly_selected_zero"] if fallback_used else [],
                 route_minutes=_route_minutes(route),
                 original_route_sample=original_route_sample,
                 route_sample=_route_point_sample(route),
@@ -348,6 +389,7 @@ def _route(deps: object, scored: list[object], filtered: list[object], ctx: obje
         "time_aware",
         started,
         input_count=len(before_time_apply),
+        output_count=len(route),
         count=len(route),
         removed_count=max(0, len(before_time_apply) - len(route)),
         route_minutes=_route_minutes(route),
@@ -387,6 +429,8 @@ def _budget_fit(deps: object, route: list[object], scored: list[object], ctx: ob
         ),
     )
     final_fit = first_fit
+    if route and not final_fit.route:
+        final_fit = BudgetFitResult([route[0]], _unique([*final_fit.warnings, "budget_fit_recovered_first_point"]))
     timed_trace(trace, "budget_fit", started,
                 input_count=len(route),
                 output_count=len(final_fit.route),
@@ -421,6 +465,40 @@ def _candidate_options(scored: list[object], ctx: object, route: list[object]) -
     return options
 
 
+def _minimal_route_from_scored(scored: list[object], ctx: object, target_points: int) -> list[RoutePoint]:
+    limit = max(1, min(2, target_points or 1))
+    route: list[RoutePoint] = []
+    used_ids: set[str] = set()
+    for item in _fallback_order(scored, ctx):
+        place_id = str(getattr(getattr(item, "place", None), "id", "") or "")
+        if not place_id or place_id in used_ids:
+            continue
+        tail_lat, tail_lng = _tail_location(route, ctx)
+        point = route_point_from_scored(item, ctx, RoutePoint)
+        point.estimated_walk_minutes = walk_minutes_between(tail_lat, tail_lng, point.lat, point.lng)
+        route.append(point)
+        used_ids.add(place_id)
+        if len(route) >= limit:
+            break
+    return route
+
+
+def _fallback_order(scored: list[object], ctx: object) -> list[object]:
+    lat, lng = getattr(ctx, "location", (None, None))
+    return sorted(list(scored or []), key=lambda item: (-_score(item), _walk_from(lat, lng, item)))
+
+
+def _score(item: object) -> float:
+    return float(getattr(item, "score", 0.0) or 0.0)
+
+
+def _walk_from(lat: object, lng: object, item: object) -> int:
+    place = getattr(item, "place", None)
+    if lat is None or lng is None or place is None:
+        return 999_999
+    return walk_minutes_between(float(lat), float(lng), float(place.lat), float(place.lng))
+
+
 def _city_stats_payload(diagnostics: dict[str, object]) -> dict[str, object]:
     keys = ("places_total_in_city", "places_public_catalog", "places_route_eligible", "places_active_legacy_safe")
     return {key: diagnostics.get(key) for key in keys}
@@ -434,6 +512,7 @@ def _retrieval_payload(deps: object, ctx: object, candidates: list[object], diag
         "requested_radius_meters": getattr(ctx, "radius_meters", None),
         "query_limit": debug.get("query_limit"),
         "raw_candidates_count": debug.get("raw_candidates_count", len(candidates)),
+        "after_radius_count": debug.get("after_radius_count", debug.get("raw_candidates_count", len(candidates))),
         "after_city_filter_count": diagnostics.get("places_total_in_city"),
         "after_route_eligible_count": diagnostics.get("places_route_eligible"),
         "after_public_catalog_count": diagnostics.get("places_public_catalog"),
@@ -516,6 +595,11 @@ def _apply_adaptive_metadata(final_route: object, plan: RoutePlan, gate: object,
 
 def _unique(values: list[str]) -> list[str]:
     return list(dict.fromkeys(item for item in values if item))
+
+
+def _interest_normalization_warnings(ctx: object) -> list[str]:
+    removed = list(getattr(ctx, "interest_removed_due_to_avoidance", []) or [])
+    return ["interest_removed_due_to_avoidance"] if removed else []
 
 
 def _sample_ids_by_point_type(scored: list[object], point_type: str) -> list[str]:

@@ -17,6 +17,8 @@ const stageTitle: Record<string, string> = {
   pool_expansion: 'Расширение пула',
   quality_annotation: 'Качество данных',
   quality_gates: 'Quality gates маршрута',
+  adaptive_plan: 'Адаптивный план',
+  finalize: 'Финализация',
   final_response: 'Финальный ответ',
   context_normalization: 'Нормализация контекста',
   route_quality_gate: 'Quality gate маршрута',
@@ -58,23 +60,33 @@ const debugBlocks = [
   ['retrieval', 'Retrieval'],
   ['hard_filters', 'Hard filters'],
   ['interest_matching', 'Interest matching'],
+  ['adaptive_plan', 'Adaptive plan'],
+  ['pool_expansion', 'Pool expansion'],
   ['scoring', 'Scoring'],
   ['assembly', 'Assembly'],
+  ['time_ordering', 'Time ordering'],
+  ['time_aware', 'Time aware'],
   ['budget_fit', 'Budget fit'],
   ['quality_gates', 'Quality gates'],
+  ['finalize', 'Finalize'],
   ['final', 'Final'],
 ] as const
 
 const blockFields: Record<string, string[]> = {
-  context: ['city_id', 'start_lat', 'start_lng', 'radius_meters', 'time_budget_minutes', 'route_time_mode', 'time_of_day', 'interests', 'avoided_categories', 'excluded_place_ids', 'budget_level', 'pace_mode'],
+  context: ['city_id', 'start_lat', 'start_lng', 'radius_meters', 'time_budget_minutes', 'route_time_mode', 'time_of_day', 'interests', 'interest_removed_due_to_avoidance', 'avoided_categories', 'excluded_place_ids', 'budget_level', 'pace_mode'],
   city_stats: ['places_total_in_city', 'places_public_catalog', 'places_route_eligible', 'places_active_legacy_safe'],
-  retrieval: ['input_city_id', 'requested_radius_meters', 'query_limit', 'raw_candidates_count', 'after_city_filter_count', 'after_route_eligible_count', 'after_public_catalog_count', 'after_coordinates_count', 'after_excluded_place_ids_count', 'after_avoided_categories_count', 'final_candidates_count', 'fallback_city_wide_used', 'fallback_radius_used', 'top_candidate_distances_meters', 'sample_candidate_ids'],
-  hard_filters: ['input_count', 'output_count', 'removed_count', 'removal_reasons', 'sample_removed'],
-  interest_matching: ['input_count', 'requested_interests', 'exact_matches_count', 'related_matches_count', 'neutral_candidates_count', 'expansion_level', 'expanded_category_count', 'neutral_added_count', 'output_count', 'sample_exact_ids', 'sample_related_ids', 'sample_neutral_ids'],
+  retrieval: ['input_city_id', 'requested_radius_meters', 'query_limit', 'raw_candidates_count', 'after_radius_count', 'after_city_filter_count', 'after_route_eligible_count', 'after_public_catalog_count', 'after_coordinates_count', 'after_excluded_place_ids_count', 'after_avoided_categories_count', 'final_candidates_count', 'fallback_city_wide_used', 'fallback_radius_used', 'top_candidate_distances_meters', 'sample_candidate_ids'],
+  hard_filters: ['input_count', 'strict_kept', 'relaxed_kept', 'fallback_used', 'output_count', 'removed_count', 'removal_reasons', 'strict_removal_reasons', 'relaxed_removal_reasons', 'sample_removed'],
+  interest_matching: ['input_count', 'requested_interests', 'interest_removed_due_to_avoidance', 'exact_count', 'exact_matches_count', 'related_matches_count', 'neutral_candidates_count', 'expansion_level', 'expanded_category_count', 'neutral_added_count', 'target_points', 'output_count', 'sample_exact_ids', 'sample_related_ids', 'sample_neutral_ids'],
+  adaptive_plan: ['input_count', 'output_count', 'target_points', 'expansion_level', 'exact_count', 'related_count', 'neutral_count', 'expanded_category_count', 'neutral_added_count', 'user_explanation', 'warnings'],
+  pool_expansion: ['input_count', 'output_count', 'expansion_level', 'expanded_category_count', 'neutral_added_count', 'target_points', 'warnings'],
   scoring: ['input_count', 'output_count', 'min_score', 'max_score', 'avg_score', 'top_scored_candidates'],
-  assembly: ['input_count', 'target_points', 'selected_count', 'rejected_count', 'rejection_reasons', 'selected_ids', 'rejected_sample', 'first_point_candidates_checked', 'first_point_rejection_reasons', 'failure_reason'],
+  assembly: ['input_count', 'input_scored_count', 'target_points', 'selected_count', 'selected_count_before_budget', 'rejected_count', 'rejection_reasons', 'selected_ids', 'fallback_used', 'fallback_triggers', 'rejected_sample', 'first_point_candidates_checked', 'first_point_rejection_reasons', 'failure_reason'],
+  time_ordering: ['input_count', 'output_count', 'input_route', 'output_route'],
+  time_aware: ['input_count', 'output_count', 'removed_count', 'route_minutes', 'input_route', 'output_route'],
   budget_fit: ['input_count', 'output_count', 'requested_budget_minutes', 'actual_duration_minutes', 'route_completeness', 'removed_by_budget_count', 'removed_by_budget_sample', 'failure_reason'],
   quality_gates: ['status', 'warnings', 'failed_gates', 'user_explanation'],
+  finalize: ['input_count', 'final_places_count', 'final_total_minutes', 'final_total_km', 'partial_reason', 'warning_count', 'warnings', 'final_points'],
   final: ['final_points_count', 'final_duration_minutes', 'final_distance_km', 'final_place_ids', 'failure_stage'],
 }
 
@@ -163,8 +175,8 @@ const fullDebugPayload = (route: RecommendationRouteResponse): Record<string, un
 
 export const RouteDebugTrace = ({ route }: Props) => {
   const trace = route.debug_trace ?? []
-  const retrieval = stageByName(trace, 'candidate_retrieval') ?? emptyTraceEntry
-  const hardFilter = stageByName(trace, 'hard_filter') ?? emptyTraceEntry
+  const retrieval = stageByName(trace, 'retrieval') ?? stageByName(trace, 'candidate_retrieval') ?? emptyTraceEntry
+  const hardFilter = stageByName(trace, 'hard_filters') ?? stageByName(trace, 'hard_filter') ?? emptyTraceEntry
   const scoring = stageByName(trace, 'scoring') ?? emptyTraceEntry
   const assembly = stageByName(trace, 'assembly') ?? emptyTraceEntry
   const budgetFit = stageByName(trace, 'budget_fit') ?? emptyTraceEntry
@@ -179,8 +191,8 @@ export const RouteDebugTrace = ({ route }: Props) => {
         <div><span>Статус</span><strong>{route.status ?? '—'}</strong></div>
         <div><span>Точек</span><strong>{route.total_places}</strong></div>
         <div><span>Минут</span><strong>{route.total_estimated_minutes}</strong></div>
-        <div><span>Кандидатов</span><strong>{value(retrieval, ['count', 'candidate_count'])}</strong></div>
-        <div><span>После фильтров</span><strong>{value(hardFilter, ['kept_count'])}</strong></div>
+        <div><span>Кандидатов</span><strong>{value(retrieval, ['final_candidates_count', 'count', 'candidate_count'])}</strong></div>
+        <div><span>После фильтров</span><strong>{value(hardFilter, ['output_count', 'kept_count'])}</strong></div>
         <div><span>Скоринг</span><strong>{value(scoring, ['count', 'scored_count'])}</strong></div>
         <div><span>Assembly</span><strong>{value(assembly, ['selected_count', 'initial_route_count'])}</strong></div>
         <div><span>Budget fit</span><strong>{value(budgetFit, ['kept_count', 'after_budget_fit_count'])}</strong></div>

@@ -65,3 +65,10 @@ def test_fit_keeps_first_point_when_even_first_exceeds_budget() -> None:
     result = RouteBudgetFitService().fit(route, _ctx(30))
     assert [point.place_id for point in result.route] == ["1"]
     assert result.warnings == [ROUTE_BUDGET_SINGLE_POINT_WARNING]
+
+
+def test_budget_fit_does_not_reduce_non_empty_route_to_zero() -> None:
+    route = [_point("oversized", 240, 80)]
+    result = RouteBudgetFitService().fit(route, _ctx(30))
+    assert [point.place_id for point in result.route] == ["oversized"]
+    assert ROUTE_BUDGET_SINGLE_POINT_WARNING in result.warnings

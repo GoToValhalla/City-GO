@@ -74,7 +74,7 @@ def _is_now_mode(ctx: MergedContext) -> bool:
 
 
 def _is_strict_hours_category(ctx: MergedContext) -> bool:
-    return _is_now_mode(ctx)
+    return bool(getattr(ctx, "require_known_hours", False))
 
 
 def _has_bad_coordinates(place: object) -> bool:
@@ -90,4 +90,5 @@ def _category(place: object) -> str:
 
 
 def _norm(value: str) -> str:
-    return value.strip().casefold()
+    text = value.strip().casefold()
+    return text[:-1] if len(text) > 3 and text.endswith("s") else text

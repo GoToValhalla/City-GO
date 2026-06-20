@@ -9,7 +9,7 @@ Route pipeline должен быть проверяемым: команда ви
 ## Архитектурное решение
 
 - `RouteBuilderService` остаётся точкой входа и хранит зависимости pipeline.
-- `services/route_builder_flow.py` выполняет поток `context -> candidates -> filters -> scoring -> assembly -> time -> budget -> finalize`.
+- `services/route_builder_flow.py` выполняет поток `context -> retrieval -> hard_filters -> scoring -> interest_matching -> adaptive_plan -> assembly -> time_ordering -> time_aware -> budget_fit -> quality_gates -> finalize -> final`.
 - `services/route_pipeline_trace.py` собирает stage trace и пишет structured JSON log.
 - `services/route_filter_policy.py` собирает `FilterReport`, а `route_filter_reasons.py` хранит чистые функции причин отбраковки.
 - `FinalRoute.pipeline_trace` хранит trace внутри backend.
@@ -21,16 +21,17 @@ Route pipeline должен быть проверяемым: команда ви
 
 - `kept` — кандидаты, прошедшие фильтр;
 - `rejected` — пары `place_id/reason`;
-- `reason_counts` — агрегат причин для trace.
+- `reason_counts` — агрегат причин для trace;
+- `strict_kept_count` / `relaxed_kept_count` — где видно, сработал ли relaxed fallback.
 
-Fallback теперь ослабляет только budget. Он не возвращает:
+Fallback ослабляет budget. Он не возвращает:
 
 - `closed` / `temporarily_closed`;
 - `is_active=false`;
 - места без координат;
 - явно исключённые места и категории;
 - closed-now;
-- unknown hours, если передан `time_of_day`.
+- unknown hours только если контекст явно требует `require_known_hours=true`.
 
 ## Semantic Interests
 
@@ -43,6 +44,8 @@ Fallback теперь ослабляет только budget. Он не возв
 - `семья`, `дети` -> `family`, `park`, `indoor`.
 
 Это boost в scoring, не hard filter. Если интересы пустые, компонент остаётся нейтральным.
+Если интерес совпадает с `avoided_categories`, он удаляется на этапе merge и попадает в
+`interest_removed_due_to_avoidance`, чтобы запрещённая категория не стала route anchor.
 
 ## Debug Contract
 
@@ -70,15 +73,26 @@ curl -H "X-Debug: true" -X POST /v1/recommendations/route
 - `retrieval` — счётчики извлечения кандидатов, fallback и sample ids.
 - `hard_filters` — вход/выход, причины отбраковки и sample removed.
 - `interest_matching` — точные, related и neutral совпадения интересов.
+- `adaptive_plan` — target points, expansion level и user explanation.
+- `pool_expansion` — расширение пула до related/neutral кандидатов.
 - `scoring` — диапазон score и top scored candidates.
-- `assembly` — выбранные/отклонённые точки и причины отказа первой точки.
+- `assembly` — выбранные/отклонённые точки, fallback triggers и причины отказа первой точки.
+- `time_ordering` — порядок точек до и после time ordering.
+- `time_aware` — вход/выход time-aware pass и removed count.
 - `budget_fit` — соответствие маршрута time budget и снятые budget точки.
 - `quality_gates` — warnings, failed gates и пользовательское объяснение.
+- `finalize` — финальная сериализация route object.
 - `final` — итоговые ids, длительность, дистанция и `failure_stage`.
+
+Если после hard filters/scoring есть кандидаты, но assembly вернул 0, flow включает
+minimal fallback из top scored candidates. Он не нарушает explicit exclusions/status/coords,
+потому что работает только с уже отфильтрованным scored pool, и отдаёт partial/minimal route
+с warning вместо тихого no-route.
 
 ## Тесты
 
 - `tests/test_hard_filters_service.py` — safety-фильтры и причины.
 - `tests/test_scoring_service.py` — semantic interests.
 - `tests/test_route_builder_pipeline_smoke.py` — trace на полном smoke-flow.
+- `tests/test_route_pipeline_stability_new.py` — conflict interests, minimal fallback и failure stage.
 - `tests/test_recommendations_route_router.py` — `_trace` только по debug header.

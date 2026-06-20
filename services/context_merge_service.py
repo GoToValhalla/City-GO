@@ -90,8 +90,10 @@ class ContextMergeService:
         )
 
         effective_time_budget = compute_effective_time_budget(time_budget)
-        interests = self._merge_interests(request, profile)
         avoided_categories = self._merge_avoided_categories(request, profile)
+        raw_interests = self._merge_raw_interests(request, profile)
+        interests = self._allowed_interests(raw_interests, avoided_categories)
+        removed_interests = [item for item in raw_interests if item not in interests]
         avoided_place_ids = self._merge_avoided_places(request, profile)
         budget_level = self._resolve_budget(request, profile)
         pace_mode = self._resolve_pace(request, profile)
@@ -115,6 +117,7 @@ class ContextMergeService:
             route_time_mode=request.route_time_mode,
 
             interests=interests,
+            interest_removed_due_to_avoidance=removed_interests,
             avoided_categories=avoided_categories,
             avoided_place_ids=avoided_place_ids,
 
@@ -153,19 +156,25 @@ class ContextMergeService:
 
         raise ValueError("Location is required")
 
-    def _merge_interests(
+    def _merge_raw_interests(
         self,
         request: RequestContext,
         profile: Optional[UserProfile],
     ) -> List[str]:
-
-        result = set()
-        result.update(str(item).strip() for item in request.interests if str(item).strip())
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in request.interests:
+            self._append_unique_clean(result, seen, item)
 
         if profile:
-            result.update(str(item).strip() for item in profile.preferences.interests if str(item).strip())
+            for item in profile.preferences.interests:
+                self._append_unique_clean(result, seen, item)
 
-        return list(result)
+        return result
+
+    def _allowed_interests(self, interests: List[str], avoided_categories: List[str]) -> List[str]:
+        avoided = {_category_key(item) for item in avoided_categories}
+        return [item for item in interests if _category_key(item) not in avoided]
 
     def _merge_avoided_categories(
         self,
@@ -173,12 +182,19 @@ class ContextMergeService:
         profile: Optional[UserProfile],
     ) -> List[str]:
 
-        result = set(request.avoided_categories)
+        result = {_category_key(item) for item in request.avoided_categories if _category_key(item)}
 
         if profile:
-            result.update(profile.preferences.avoided_categories)
+            result.update(_category_key(item) for item in profile.preferences.avoided_categories if _category_key(item))
 
         return list(result)
+
+    def _append_unique_clean(self, result: list[str], seen: set[str], value: object) -> None:
+        text = str(value).strip()
+        key = _category_key(text)
+        if text and key not in seen:
+            result.append(text)
+            seen.add(key)
 
     def _merge_avoided_places(
         self,
@@ -232,3 +248,8 @@ class ContextMergeService:
         preference = getattr(profile.behavior, "novelty_preference", 0.0)
         completed = int(getattr(profile.behavior, "completed_routes_count", 0) or 0)
         return float(preference or 0.0) > 0.6 or completed >= 3
+
+
+def _category_key(value: object) -> str:
+    text = str(value or "").strip().casefold()
+    return text[:-1] if len(text) > 3 and text.endswith("s") else text

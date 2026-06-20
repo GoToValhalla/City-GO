@@ -44,6 +44,21 @@ class TestContextMergeService(unittest.TestCase):
         ctx = self.svc.merge(RequestContext(location=(55.0, 20.0), interests=[]), profile=None)
         self.assertEqual(ctx.interests, [])
 
+    def test_interest_conflict_with_avoided_category_is_normalized(self) -> None:
+        ctx = self.svc.merge(
+            RequestContext(
+                location=(55.0, 20.0),
+                interests=["coffee", "museum", "walk"],
+                avoided_categories=["museums"],
+            ),
+            profile=None,
+        )
+
+        self.assertEqual(ctx.avoided_categories, ["museum"])
+        self.assertNotIn("museum", ctx.interests)
+        self.assertCountEqual(ctx.interests, ["coffee", "walk"])
+        self.assertEqual(ctx.interest_removed_due_to_avoidance, ["museum"])
+
     # Если в запросе нет time_budget, подставляется preferred_time_budget_minutes из профиля.
     def test_merge_time_budget_from_profile(self) -> None:
         req = RequestContext(location=(1.0, 2.0), time_budget_minutes=None)

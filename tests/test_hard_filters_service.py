@@ -109,12 +109,19 @@ class TestHardFiltersService(unittest.TestCase):
         self.assertEqual(len(out), 1)
 
     @patch("services.hard_filters_service.is_place_open_at", return_value=None)
-    def test_drops_unknown_hours_when_time_sensitive(self, _mock_open) -> None:
+    def test_drops_unknown_hours_when_explicitly_required(self, _mock_open) -> None:
         places = [_place(1, opening_hours=None)]
-        ctx = _ctx(route_time_mode="now")
+        ctx = _ctx(route_time_mode="now", require_known_hours=True)
         with unittest.mock.patch.object(HardFiltersService, "MIN_POOL_SIZE", 0):
             out = self.svc.apply(places, ctx, self.now)
         self.assertEqual(out, [])
+
+    @patch("services.hard_filters_service.is_place_open_at", return_value=None)
+    def test_now_mode_unknown_hours_does_not_kill_all_places_unless_strictly_required(self, _mock_open) -> None:
+        places = [_place(1, opening_hours=None), _place(2, opening_hours=None)]
+        with unittest.mock.patch.object(HardFiltersService, "MIN_POOL_SIZE", 0):
+            out = self.svc.apply(places, _ctx(route_time_mode="now"), self.now)
+        self.assertEqual([place.id for place in out], [1, 2])
 
     @patch("services.hard_filters_service.is_place_open_at", return_value=True)
     def test_drops_closed_status_even_with_fallback(self, _mock_open) -> None:
