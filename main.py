@@ -18,6 +18,7 @@ from core.readiness import check_database_ready
 from core.request_logging import log_request
 from core.public_access_middleware import public_access_middleware
 from core.router_setup import include_app_routers
+from core.version import get_backend_version
 
 
 @asynccontextmanager
@@ -93,6 +94,11 @@ include_app_routers(app)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/version")
+def version() -> dict[str, str]:
+    return get_backend_version()
 
 
 @app.get("/ready", response_model=None)
