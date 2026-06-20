@@ -3,7 +3,7 @@ from __future__ import annotations
 import traceback
 from time import perf_counter
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -46,21 +46,23 @@ def _debug_route_error(exc: Exception, payload: object, endpoint: str) -> JSONRe
 def build_user_route(
     payload: UserRouteBuildRequest,
     db: Session = Depends(get_db),
-) -> UserRouteState | JSONResponse:
+) -> UserRouteState:
+    if not payload.city_id:
+        raise HTTPException(status_code=422, detail="city_id is required")
+    if payload.start_source == "current_location" and (payload.lat is None or payload.lng is None):
+        raise HTTPException(status_code=422, detail="lat/lng required for current_location")
+
     started = perf_counter()
-    try:
-        route = UserRouteBuildService().build(db=db, request=payload)
-        record_route_build(
-            db,
-            route,
-            source=f"user_route_build:{payload.build_mode}",
-            latency_ms=_latency_ms(started),
-            city_id=payload.city_id,
-            user_id=payload.user_id,
-        )
-        return route
-    except Exception as exc:
-        return _debug_route_error(exc, payload, "/v1/user-routes/build")
+    route = UserRouteBuildService().build(db=db, request=payload)
+    record_route_build(
+        db,
+        route,
+        source=f"user_route_build:{payload.build_mode}",
+        latency_ms=_latency_ms(started),
+        city_id=payload.city_id,
+        user_id=payload.user_id,
+    )
+    return route
 
 
 @router.post("/preview", response_model=UserRouteState)
