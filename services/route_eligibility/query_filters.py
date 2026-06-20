@@ -8,7 +8,6 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Query
 
 from models.place import Place
-from services.data_foundation_policy import ROUTE_ALLOWED_QUALITY_TIERS
 from services.place_public_visibility import public_route_place_conditions
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 
@@ -16,26 +15,24 @@ from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATE
 def route_eligible_sql_conditions() -> tuple[Any, ...]:
     """Возвращает единый SQL-фильтр видимости мест для маршрутов.
 
-    Route generation must work while enrichment is incomplete.
-    Legacy rows can still have NULL lifecycle_status / quality_tier / data-quality flags.
-    NULL means "not calculated yet", not "reject from routes".
+    Важно: route generation не должен схлопываться из-за неполного enrichment.
+    Для городов на этапе заполнения данных публичное route-visible место с координатами
+    лучше, чем пустой маршрут. Поэтому SQL-eligibility оставляет только настоящие hard
+    constraints:
+
+    - место публично и доступно для маршрутов;
+    - есть координаты;
+    - категория не входит в технический/запрещённый список.
+
+    Data-quality поля вроде quality_tier, lifecycle_status, critical_field_expired,
+    duplicate/spam flags и canonical_category не должны быть hard blocker на этапе
+    candidate retrieval. Их нужно учитывать ниже как quality signals/warnings, иначе
+    город с 215 route-visible местами превращается в 19 кандидатов и no_route.
     """
     return (
         *public_route_place_conditions(),
         Place.lat.is_not(None),
         Place.lng.is_not(None),
-        or_(Place.lifecycle_status.is_(None), Place.lifecycle_status == "active"),
-        or_(
-            Place.quality_tier.is_(None),
-            Place.quality_tier.in_(tuple(ROUTE_ALLOWED_QUALITY_TIERS)),
-        ),
-        or_(Place.is_spam_poi.is_(False), Place.is_spam_poi.is_(None)),
-        or_(Place.is_duplicate_suspected.is_(False), Place.is_duplicate_suspected.is_(None)),
-        or_(Place.critical_field_expired.is_(False), Place.critical_field_expired.is_(None)),
-        or_(
-            Place.canonical_category.is_not(None),
-            Place.category.is_not(None),
-        ),
         or_(
             Place.canonical_category.is_(None),
             Place.canonical_category.notin_(tuple(ROUTE_FORBIDDEN_CATEGORIES)),
