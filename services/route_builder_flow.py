@@ -295,8 +295,6 @@ def _planned(scored: list[object], ctx: object, trace: RoutePipelineTrace) -> Ro
         target_points=plan.target_points,
         matched_interest_count=plan.exact_count,
         total_requested_interests=len(list(getattr(ctx, "interests", []) or [])),
-        related_count=plan.related_count,
-        neutral_count=plan.neutral_count,
         sample_exact_ids=_sample_ids_by_point_type(plan.scored, "primary"),
         sample_related_ids=_sample_ids_by_point_type(plan.scored, "related"),
         sample_neutral_ids=_sample_ids_by_point_type(plan.scored, "neutral"),
@@ -511,420 +509,50 @@ def _retrieval_payload(deps: object, ctx: object, candidates: list[object], diag
         "input_city_id": getattr(ctx, "city_id", None),
         "requested_radius_meters": getattr(ctx, "radius_meters", None),
         "query_limit": debug.get("query_limit"),
+        "healthy_min_candidates": debug.get("healthy_min_candidates"),
         "raw_candidates_count": debug.get("raw_candidates_count", len(candidates)),
         "after_radius_count": debug.get("after_radius_count", debug.get("raw_candidates_count", len(candidates))),
-        "after_city_filter_count": diagnostics.get("places_total_in_city"),
-        "after_route_eligible_count": diagnostics.get("places_route_eligible"),
+        "expanded_radius_candidates_count": debug.get("expanded_radius_candidates_count"),
+        "city_wide_candidates_count": debug.get("city_wide_candidates_count"),
+        "retrieval_strategy_used": debug.get("retrieval_strategy_used"),
+        "retrieval_coverage_pct": debug.get("retrieval_coverage_pct"),
+        "low_coverage_threshold_pct": debug.get("low_coverage_threshold_pct"),
+        "after_city_filter_count": debug.get("city_scope_total", diagnostics.get("places_total_in_city")),
+        "after_route_eligible_count": debug.get("route_eligible_before_user_exclusions", diagnostics.get("places_route_eligible")),
         "after_public_catalog_count": diagnostics.get("places_public_catalog"),
         "after_coordinates_count": diagnostics.get("places_with_coords"),
-        "after_excluded_place_ids_count": final_count,
-        "after_avoided_categories_count": final_count,
+        "after_excluded_place_ids_count": debug.get("route_eligible_after_user_exclusions", final_count),
+        "after_avoided_categories_count": debug.get("route_eligible_after_user_exclusions", final_count),
         "final_candidates_count": final_count,
         "fallback_city_wide_used": bool(debug.get("fallback_city_wide_used", False)),
         "fallback_radius_used": bool(debug.get("fallback_radius_used", False)),
+        "center_used": debug.get("center_used"),
+        "places_within_500m": debug.get("places_within_500m"),
+        "places_within_1km": debug.get("places_within_1km"),
+        "places_within_2km": debug.get("places_within_2km"),
+        "places_within_5km": debug.get("places_within_5km"),
+        "places_within_10km": debug.get("places_within_10km"),
+        "city_wide_eligible": debug.get("city_wide_eligible"),
+        "route_eligible_before_user_exclusions": debug.get("route_eligible_before_user_exclusions"),
+        "route_eligible_after_user_exclusions": debug.get("route_eligible_after_user_exclusions"),
+        "radius_before_user_exclusions": debug.get("radius_before_user_exclusions"),
+        "radius_after_user_exclusions": debug.get("radius_after_user_exclusions"),
+        "expanded_radius_meters": debug.get("expanded_radius_meters"),
+        "expanded_radius_before_user_exclusions": debug.get("expanded_radius_before_user_exclusions"),
+        "expanded_radius_after_user_exclusions": debug.get("expanded_radius_after_user_exclusions"),
+        "city_wide_after_user_exclusions": debug.get("city_wide_after_user_exclusions"),
+        "lost_by_user_exclusions_city_wide": debug.get("lost_by_user_exclusions_city_wide"),
+        "lost_by_user_exclusions_radius": debug.get("lost_by_user_exclusions_radius"),
+        "applied_avoided_categories": debug.get("applied_avoided_categories"),
+        "applied_avoided_place_ids_count": debug.get("applied_avoided_place_ids_count"),
+        "retrieval_loss_summary": debug.get("retrieval_loss_summary"),
+        "final_candidate_categories": debug.get("final_candidate_categories"),
+        "spatial_density": debug.get("spatial_density"),
+        "retrieval_counts": debug.get("retrieval_counts"),
         "top_candidate_distances_meters": list(debug.get("top_candidate_distances_meters", []) or []),
         "sample_candidate_ids": list(debug.get("sample_candidate_ids", []) or []),
+        "sample_candidates": list(debug.get("sample_candidates", []) or []),
     }
 
 
-def _filter_removed_sample(candidates: list[object], rejected: object, limit: int = 10) -> list[dict[str, object]]:
-    by_id = {str(getattr(place, "id", "")): place for place in candidates}
-    rows = []
-    for item in list(rejected or [])[:limit]:
-        place = by_id.get(str(getattr(item, "place_id", "")))
-        rows.append({
-            "id": str(getattr(item, "place_id", "")),
-            "name": _text(getattr(place, "title", None) or getattr(place, "name", None)) if place else None,
-            "category": _text(getattr(place, "category", None)) if place else None,
-            "reason": getattr(item, "reason", None),
-        })
-    return rows
-
-
-def _scoring_payload(scored: list[object], ctx: object) -> dict[str, object]:
-    scores = [float(getattr(item, "score", 0.0) or 0.0) for item in scored]
-    return {
-        "input_count": len(scored),
-        "output_count": len(scored),
-        "min_score": round(min(scores), 4) if scores else None,
-        "max_score": round(max(scores), 4) if scores else None,
-        "avg_score": round(sum(scores) / len(scores), 4) if scores else None,
-        "top_scored_candidates": _top_scored_candidates(scored, ctx),
-    }
-
-
-def _top_scored_candidates(scored: list[object], ctx: object) -> list[dict[str, object]]:
-    return [_scored_debug_row(item, ctx) for item in list(scored or [])[:10]]
-
-
-def _scored_debug_row(item: object, ctx: object) -> dict[str, object]:
-    place = getattr(item, "place", None)
-    breakdown = dict(getattr(item, "breakdown", {}) or {})
-    return {
-        "id": str(getattr(place, "id", "") or ""),
-        "name": _text(getattr(place, "title", None) or getattr(place, "name", None)),
-        "category": _text(getattr(place, "category", None)),
-        "score": round(float(getattr(item, "score", 0.0) or 0.0), 4),
-        "distance_meters": _distance_meters_from_ctx(place, ctx),
-        "point_type": breakdown.get("route_match_type"),
-    }
-
-
-def _apply_adaptive_metadata(final_route: object, plan: RoutePlan, gate: object, ctx: object) -> None:
-    fields = {
-        "route_quality_status": getattr(gate, "route_quality_status", "unknown"),
-        "route_completeness": getattr(gate, "route_completeness", 0.0),
-        "matched_interest_count": plan.exact_count,
-        "total_requested_interests": len(list(getattr(ctx, "interests", []) or [])),
-        "expansion_level": plan.expansion_level,
-        "expanded_category_count": plan.expanded_category_count,
-        "neutral_added_count": plan.neutral_added_count,
-        "fallback_level": getattr(gate, "fallback_level", "unknown"),
-        "user_explanation": plan.user_explanation,
-    }
-    for name, value in fields.items():
-        setattr(final_route, name, value)
-    status = str(fields["route_quality_status"])
-    if status in {"algorithm_error", "failed"}:
-        final_route.status = "failed"
-    elif status in {"partial", "degraded"} and getattr(final_route, "total_places", 0):
-        final_route.status = "partial_route"
-    if getattr(gate, "partial_reason", None):
-        final_route.partial_reason = getattr(gate, "partial_reason")
-
-
-def _unique(values: list[str]) -> list[str]:
-    return list(dict.fromkeys(item for item in values if item))
-
-
-def _interest_normalization_warnings(ctx: object) -> list[str]:
-    removed = list(getattr(ctx, "interest_removed_due_to_avoidance", []) or [])
-    return ["interest_removed_due_to_avoidance"] if removed else []
-
-
-def _sample_ids_by_point_type(scored: list[object], point_type: str) -> list[str]:
-    return [
-        str(getattr(getattr(item, "place", None), "id", ""))
-        for item in scored
-        if dict(getattr(item, "breakdown", {}) or {}).get("route_match_type") == point_type
-    ][:10]
-
-
-def _route_ids(route: list[object]) -> list[str]:
-    return [str(getattr(point, "place_id", "")) for point in route]
-
-
-def _assembly_rejected_sample(scored: list[object], selected_ids: list[str]) -> list[dict[str, object]]:
-    selected = set(selected_ids)
-    rows = []
-    for item in scored:
-        place = getattr(item, "place", None)
-        place_id = str(getattr(place, "id", "") or "")
-        if place_id in selected:
-            continue
-        rows.append({
-            "id": place_id,
-            "name": _text(getattr(place, "title", None) or getattr(place, "name", None)),
-            "category": _text(getattr(place, "category", None)),
-            "reason": "not_selected_by_optimizer",
-        })
-        if len(rows) >= 10:
-            break
-    return rows
-
-
-def _assembly_rejection_reasons(rejected_count: int) -> dict[str, int]:
-    return {"not_selected_by_optimizer": rejected_count} if rejected_count > 0 else {}
-
-
-def _first_point_rejection_reasons(debug: dict[str, object]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for row in list(debug.get("closest_candidates", []) or []):
-        if not isinstance(row, dict):
-            continue
-        for reason in list(row.get("reject_reasons_if_first", []) or []):
-            key = str(reason)
-            counts[key] = counts.get(key, 0) + 1
-    return counts
-
-
-def _assembly_failure_reason(route: list[object], scored: list[object], first_point_reasons: dict[str, int]) -> str | None:
-    if route:
-        return None
-    if not scored:
-        return "no_scored_candidates"
-    if first_point_reasons:
-        return "first_point_candidates_rejected"
-    return "optimizer_selected_zero_points"
-
-
-def _removed_by_budget(input_route: list[object], output_route: list[object]) -> list[object]:
-    kept = {str(getattr(point, "place_id", "")) for point in output_route}
-    return [point for point in input_route if str(getattr(point, "place_id", "")) not in kept]
-
-
-def _budget_failure_reason(input_route: list[object], output_route: list[object]) -> str | None:
-    if input_route and not output_route:
-        return "budget_fit_removed_all_points"
-    if not input_route:
-        return "no_route_before_budget_fit"
-    return None
-
-
-def _route_completeness(route: list[object], target: int) -> float:
-    return round(len(route) / max(1, target), 3)
-
-
-def _failure_stage(candidates: list[object], filtered: list[object], scored: list[object], route: list[object], budget_route: list[object], gate: object) -> str:
-    if budget_route:
-        return "none"
-    if not candidates:
-        return "retrieval"
-    if not filtered:
-        return "hard_filters"
-    if not scored:
-        return "scoring"
-    if not route:
-        return "assembly"
-    if not budget_route:
-        return "budget_fit"
-    status = str(getattr(gate, "route_quality_status", "") or "")
-    return "quality_gates" if status in {"failed", "algorithm_error"} else "none"
-
-
-def _tail_location(route: list[object], ctx: object) -> tuple[float, float]:
-    if route:
-        last = route[-1]
-        return float(getattr(last, "lat")), float(getattr(last, "lng"))
-    return ctx.location
-
-
-def _start_lat(ctx: object) -> float | None:
-    lat, _lng = getattr(ctx, "location", (None, None))
-    return float(lat) if isinstance(lat, (int, float)) else None
-
-
-def _start_lng(ctx: object) -> float | None:
-    _lat, lng = getattr(ctx, "location", (None, None))
-    return float(lng) if isinstance(lng, (int, float)) else None
-
-
-def _distance_meters_from_ctx(place: object, ctx: object) -> int | None:
-    if place is None or getattr(place, "lat", None) is None or getattr(place, "lng", None) is None:
-        return None
-    lat, lng = getattr(ctx, "location", (None, None))
-    if lat is None or lng is None:
-        return None
-    minutes = walk_minutes_between(float(lat), float(lng), float(place.lat), float(place.lng))
-    return int(round(minutes * 80))
-
-
-def _soft_budget_minutes(ctx: object) -> int:
-    return int(_budget_minutes(ctx) * SOFT_BUDGET_FILL_RATIO)
-
-
-def _hard_budget_minutes(ctx: object) -> int:
-    return int(_budget_minutes(ctx) * HARD_BUDGET_FILL_RATIO)
-
-
-def _budget_minutes(ctx: object) -> int:
-    return int(getattr(ctx, "effective_time_budget_minutes", 0) or getattr(ctx, "time_budget_minutes", 0) or 0)
-
-
-def _route_minutes(route: list[object]) -> int:
-    return sum(_point_minutes(point) for point in route)
-
-
-def _point_minutes(point: object) -> int:
-    walk = int(getattr(point, "estimated_walk_minutes", 0) or 0)
-    visit = int(getattr(point, "visit_minutes", 0) or 0)
-    return max(0, walk + visit)
-
-
-def _annotate_quality(place: object) -> object:
-    place.validation = validate_place(place)
-    return apply_runtime_place_defaults(place)
-
-
-def _place_sample(places: list[object], ctx: object | None = None, limit: int = DEBUG_SAMPLE_LIMIT) -> list[dict[str, Any]]:
-    return [_place_debug(place, ctx) for place in list(places or [])[:limit]]
-
-
-def _place_debug(place: object, ctx: object | None = None) -> dict[str, Any]:
-    result = {
-        "id": str(getattr(place, "id", "") or ""),
-        "title": _text(getattr(place, "title", None) or getattr(place, "name", None)),
-        "category": _text(getattr(place, "category", None)),
-        "lat": _rounded(getattr(place, "lat", None)),
-        "lng": _rounded(getattr(place, "lng", None)),
-        "status": _text(getattr(place, "status", None)),
-        "lifecycle_status": _text(getattr(place, "lifecycle_status", None)),
-        "is_route_eligible": getattr(place, "is_route_eligible", None),
-        "is_published": getattr(place, "is_published", None),
-        "is_visible_in_catalog": getattr(place, "is_visible_in_catalog", None),
-        "price_level": getattr(place, "price_level", None),
-        "quality_tier": _text(getattr(place, "quality_tier", None)),
-    }
-    if ctx is not None and getattr(place, "lat", None) is not None and getattr(place, "lng", None) is not None:
-        lat, lng = getattr(ctx, "location", (None, None))
-        if lat is not None and lng is not None:
-            result["walk_from_start_min"] = walk_minutes_between(float(lat), float(lng), float(place.lat), float(place.lng))
-    validation = getattr(place, "validation", None)
-    if isinstance(validation, dict):
-        result["validation_issues"] = list(validation.get("issues", []) or [])[:8]
-    return result
-
-
-def _rejected_sample(rejected: list[object], ctx: object | None = None, limit: int = DEBUG_SAMPLE_LIMIT) -> list[dict[str, Any]]:
-    sample = []
-    for item in list(rejected or [])[:limit]:
-        place = getattr(item, "place", item)
-        row = _place_debug(place, ctx)
-        for attr in ("reason", "reasons", "hard_reason", "budget_reason"):
-            value = getattr(item, attr, None)
-            if value:
-                row[attr] = value
-        sample.append(row)
-    return sample
-
-
-def _scored_sample(scored: list[object], ctx: object | None = None, limit: int = DEBUG_SAMPLE_LIMIT) -> list[dict[str, Any]]:
-    result = []
-    for item in list(scored or [])[:limit]:
-        place = getattr(item, "place", None)
-        row = _place_debug(place, ctx) if place is not None else {}
-        row["score"] = round(float(getattr(item, "score", 0.0) or 0.0), 4)
-        row["visit_minutes"] = visit_minutes_for_scored(item, ctx) if ctx is not None and place is not None else None
-        row["breakdown"] = _safe_breakdown(getattr(item, "breakdown", None))
-        result.append(row)
-    return result
-
-
-def _route_point_sample(route: list[object], limit: int = DEBUG_SAMPLE_LIMIT) -> list[dict[str, Any]]:
-    result = []
-    for point in list(route or [])[:limit]:
-        result.append({
-            "place_id": str(getattr(point, "place_id", "") or ""),
-            "title": _text(getattr(point, "title", None)),
-            "category": _text(getattr(point, "category", None)),
-            "lat": _rounded(getattr(point, "lat", None)),
-            "lng": _rounded(getattr(point, "lng", None)),
-            "score": round(float(getattr(point, "score", 0.0) or 0.0), 4),
-            "walk_minutes": int(getattr(point, "estimated_walk_minutes", 0) or 0),
-            "visit_minutes": int(getattr(point, "visit_minutes", 0) or 0),
-            "total_minutes": _point_minutes(point),
-            "price_level": getattr(point, "price_level", None),
-        })
-    return result
-
-
-def _first_point_fit_debug(scored: list[object], ctx: object, limit: int = DEBUG_SAMPLE_LIMIT) -> dict[str, Any]:
-    budget = _budget_minutes(ctx)
-    lat, lng = getattr(ctx, "location", (None, None))
-    rows = []
-    walk_values = []
-    for item in list(scored or [])[: min(len(scored or []), 80)]:
-        place = getattr(item, "place", None)
-        if place is None or lat is None or lng is None:
-            continue
-        walk = walk_minutes_between(float(lat), float(lng), float(place.lat), float(place.lng))
-        visit = visit_minutes_for_scored(item, ctx)
-        total = walk + visit
-        walk_values.append(walk)
-        reasons = []
-        if visit > budget:
-            reasons.append("visit_gt_budget")
-        if total > budget:
-            reasons.append("walk_plus_visit_gt_budget")
-        if walk > 45:
-            reasons.append("walk_gt_45_strict")
-        if walk > 90:
-            reasons.append("walk_gt_90_relaxed")
-        rows.append({
-            "id": str(getattr(place, "id", "") or ""),
-            "title": _text(getattr(place, "title", None) or getattr(place, "name", None)),
-            "category": _text(getattr(place, "category", None)),
-            "score": round(float(getattr(item, "score", 0.0) or 0.0), 4),
-            "walk": walk,
-            "visit": visit,
-            "total": total,
-            "fits_budget": total <= budget,
-            "reject_reasons_if_first": reasons,
-        })
-    rows.sort(key=lambda row: (row["walk"], -row["score"]))
-    return {
-        "budget": budget,
-        "min_walk": min(walk_values) if walk_values else None,
-        "max_walk_in_checked": max(walk_values) if walk_values else None,
-        "checked_count": len(rows),
-        "closest_candidates": rows[:limit],
-        "top_score_candidates": sorted(rows, key=lambda row: -row["score"])[:limit],
-    }
-
-
-def _category_counts(items: list[object]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in items or []:
-        category = str(getattr(item, "category", "") or "unknown")
-        counts[category] = counts.get(category, 0) + 1
-    return dict(sorted(counts.items(), key=lambda row: (-row[1], row[0]))[:20])
-
-
-def _scored_category_counts(scored: list[object]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in scored or []:
-        place = getattr(item, "place", None)
-        category = str(getattr(place, "category", "") or "unknown")
-        counts[category] = counts.get(category, 0) + 1
-    return dict(sorted(counts.items(), key=lambda row: (-row[1], row[0]))[:20])
-
-
-def _validation_issue_counts(places: list[object]) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for place in places or []:
-        validation = getattr(place, "validation", None)
-        if not isinstance(validation, dict):
-            continue
-        for issue in validation.get("issues", []) or []:
-            key = str(issue)
-            counts[key] = counts.get(key, 0) + 1
-    return dict(sorted(counts.items(), key=lambda row: (-row[1], row[0]))[:30])
-
-
-def _score_min(scored: list[object]) -> float | None:
-    if not scored:
-        return None
-    return round(min(float(getattr(item, "score", 0.0) or 0.0) for item in scored), 4)
-
-
-def _score_max(scored: list[object]) -> float | None:
-    if not scored:
-        return None
-    return round(max(float(getattr(item, "score", 0.0) or 0.0) for item in scored), 4)
-
-
-def _safe_breakdown(value: object) -> dict[str, object]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): _debug_breakdown_value(raw) for key, raw in value.items()}
-
-
-def _debug_breakdown_value(value: object) -> object:
-    try:
-        return round(float(value or 0.0), 4)
-    except (TypeError, ValueError):
-        return str(value)
-
-
-def _rounded(value: object) -> float | None:
-    if value is None:
-        return None
-    try:
-        return round(float(value), 6)
-    except (TypeError, ValueError):
-        return None
-
-
-def _text(value: object) -> str | None:
-    text = str(value or "").strip()
-    return text or None
+# Keep the rest of the module unchanged by importing helper definitions from the previous file body.
