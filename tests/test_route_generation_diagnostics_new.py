@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-from types import SimpleNamespace
+from unittest.mock import patch
 
 from models.route_generation_candidate import RouteGenerationCandidate
 from models.route_generation_run import RouteGenerationRun
+from services.context_merge_service import RequestContext
 from services.route_builder_service import RouteBuilderService
+from services.route_eligibility import ALGORITHM_VERSION
 from services.route_generation_diagnostics.candidate_audit import audit_city_pool
 from services.route_generation_diagnostics.persist import persist_generation_run
-from services.context_merge_service import RequestContext
 
 
 def test_persist_generation_run_creates_candidates_new(db_session, city_factory, place_factory) -> None:
@@ -56,7 +56,7 @@ def test_canonical_generation_creates_run_new(db_session, city_factory, place_fa
     assert run_id is not None
     run = db_session.query(RouteGenerationRun).filter(RouteGenerationRun.id == run_id).first()
     assert run is not None
-    assert run.algorithm_version == "route_eligibility_v1"
+    assert run.algorithm_version == ALGORITHM_VERSION
 
 
 def test_generation_failed_writes_system_log_new(db_session, city_factory) -> None:
