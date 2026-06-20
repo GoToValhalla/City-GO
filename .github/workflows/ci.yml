@@ -25,6 +25,7 @@ jobs:
       DATABASE_URL: sqlite:///./ci_test.db
       ADMIN_API_TOKEN: ci-admin-token
       APP_ENV: test
+      CITY_GO_TEST_RUN_TYPE: regression
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,32 +58,27 @@ jobs:
           print(include_app_routers.__name__)
           PY
 
-      - name: Run backend tests
-        shell: bash
-        run: |
-          python -m pytest -q --no-cov
-
-      - name: Telegram alert on backend CI failure
-        if: failure()
-        env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Run backend regression tests with Allure
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${TG_TOKEN:-}" ] || [ -z "${TG_CHAT:-}" ]; then
-            echo "Telegram notification skipped: missing Telegram secrets"
-            exit 0
-          fi
-          MESSAGE="❌ City Go CI failed
-          Job: Backend tests
-          Branch: ${GITHUB_REF_NAME}
-          Commit: ${GITHUB_SHA}
-          Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TG_CHAT}" \
-            --data-urlencode "text=${MESSAGE}" \
-            --data-urlencode "disable_web_page_preview=true"
+          mkdir -p artifacts/junit artifacts/allure-results/backend artifacts/messages
+          set +e
+          python -m pytest -q --no-cov --junitxml=artifacts/junit/backend.xml --alluredir=artifacts/allure-results/backend
+          TEST_EXIT=$?
+          set -e
+          python scripts/ci_test_summary.py --junit artifacts/junit/backend.xml --output artifacts/messages/backend.txt --job-name "Backend tests" --run-type "Regression" --artifact-hint "backend-test-artifacts" --exit-code "$TEST_EXIT"
+
+      - name: Upload backend test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-artifacts
+          path: |
+            artifacts/junit/backend.xml
+            artifacts/allure-results/backend
+            artifacts/messages/backend.txt
+          if-no-files-found: warn
 
   frontend-tests:
     name: Frontend lint, tests and build
@@ -106,36 +102,40 @@ jobs:
         shell: bash
         run: npm ci
 
-      - name: Run frontend lint
-        shell: bash
-        run: npm run lint
-
-      - name: Run frontend tests
-        shell: bash
-        run: npm run test
-
-      - name: Build frontend
-        shell: bash
-        run: npm run build
-
-      - name: Telegram alert on frontend CI failure
-        if: failure()
-        env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Run frontend lint, tests and build with report
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${TG_TOKEN:-}" ] || [ -z "${TG_CHAT:-}" ]; then
-            echo "Telegram notification skipped: missing Telegram secrets"
-            exit 0
+          mkdir -p ../artifacts/junit ../artifacts/messages
+          set +e
+          npm run lint
+          LINT_EXIT=$?
+          npm run test:ci
+          TEST_EXIT=$?
+          npm run build
+          BUILD_EXIT=$?
+          set -e
+          OVERALL_EXIT=0
+          if [ "$LINT_EXIT" != "0" ] || [ "$TEST_EXIT" != "0" ] || [ "$BUILD_EXIT" != "0" ]; then
+            OVERALL_EXIT=1
           fi
-          MESSAGE="❌ City Go CI failed
-          Job: Frontend lint/tests/build
-          Branch: ${GITHUB_REF_NAME}
-          Commit: ${GITHUB_SHA}
-          Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TG_CHAT}" \
-            --data-urlencode "text=${MESSAGE}" \
-            --data-urlencode "disable_web_page_preview=true"
+          python ../scripts/ci_test_summary.py --junit ../artifacts/junit/frontend.xml --output ../artifacts/messages/frontend.txt --job-name "Frontend lint/tests/build" --run-type "Frontend Regression" --artifact-hint "frontend-test-artifacts" --exit-code 0
+          {
+            echo ""
+            echo "Stages:"
+            if [ "$LINT_EXIT" = "0" ]; then echo "Lint: PASSED"; else echo "Lint: FAILED"; fi
+            if [ "$TEST_EXIT" = "0" ]; then echo "Vitest: PASSED"; else echo "Vitest: FAILED"; fi
+            if [ "$BUILD_EXIT" = "0" ]; then echo "Build: PASSED"; else echo "Build: FAILED"; fi
+          } >> ../artifacts/messages/frontend.txt
+          cat ../artifacts/messages/frontend.txt
+          exit "$OVERALL_EXIT"
+
+      - name: Upload frontend test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-test-artifacts
+          path: |
+            artifacts/junit/frontend.xml
+            artifacts/messages/frontend.txt
+          if-no-files-found: warn
