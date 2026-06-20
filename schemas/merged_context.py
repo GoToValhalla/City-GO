@@ -135,15 +135,23 @@ def compute_num_stops(
     pace_multiplier: float,
 ) -> int:
     """
-    Определяет количество точек маршрута.
+    Определяет продуктовую цель по количеству точек маршрута.
     """
-    base_stop_time = 25 * pace_multiplier
-    if base_stop_time <= 0:
-        return 1
+    if effective_time_budget <= 60:
+        target = 3
+    elif effective_time_budget <= 120:
+        target = 4
+    elif effective_time_budget <= 240:
+        target = 6
+    else:
+        target = 8
 
-    stops = int(effective_time_budget / base_stop_time)
+    if pace_multiplier >= 1.25:
+        target -= 1
+    elif pace_multiplier <= 0.85:
+        target += 1
 
-    return max(1, min(stops, 6))
+    return max(3, min(target, 8))
 
 
 def compute_min_stop_duration(pace_mode: PaceMode) -> int:
