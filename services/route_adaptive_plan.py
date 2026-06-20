@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from statistics import mean
 from typing import Any
 
 from schemas.merged_context import MergedContext
@@ -10,7 +9,6 @@ from services.route_interest_match import (
     interest_related_match,
     related_categories_for_interests,
 )
-from services.route_point_factory import visit_minutes_for_scored
 from services.scoring_service import ScoredPlace
 
 
@@ -40,13 +38,21 @@ def adaptive_target_points(scored: list[ScoredPlace], ctx: MergedContext) -> int
     if not scored:
         return 0
     budget = int(ctx.effective_time_budget_minutes or ctx.time_budget_minutes or 0)
-    visits = [visit_minutes_for_scored(item, ctx) for item in scored[:80]]
-    avg_visit = max(12, int(mean(visits))) if visits else 25
-    travel = 8 if len(scored) >= 30 else 12 if len(scored) >= 10 else 18
-    pace_cap = 6 if str(ctx.pace_mode) == "slow" else 8
-    by_budget = max(1, int(budget / max(1, avg_visit + travel)))
-    short_cap = 2 if budget <= 75 else pace_cap
-    return min(len(scored), max(1, min(short_cap, by_budget, pace_cap)))
+    if budget <= 60:
+        target = 3
+    elif budget <= 120:
+        target = 4
+    elif budget <= 240:
+        target = 6
+    else:
+        target = 8
+
+    if str(ctx.pace_mode) == "slow":
+        target -= 1
+    elif str(ctx.pace_mode) == "fast":
+        target += 1
+
+    return min(len(scored), max(3, min(8, target)))
 
 
 def _prioritized_scored(
