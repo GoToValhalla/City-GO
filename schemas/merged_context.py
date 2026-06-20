@@ -138,7 +138,7 @@ def compute_num_stops(
     Определяет продуктовую цель по количеству точек маршрута.
     """
     if effective_time_budget <= 60:
-        target = 3
+        target = 2
     elif effective_time_budget <= 120:
         target = 4
     elif effective_time_budget <= 240:
@@ -151,7 +151,7 @@ def compute_num_stops(
     elif pace_multiplier <= 0.85:
         target += 1
 
-    return max(3, min(target, 8))
+    return max(1, min(target, 8))
 
 
 def compute_min_stop_duration(pace_mode: PaceMode) -> int:
