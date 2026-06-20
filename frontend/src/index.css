@@ -78,10 +78,10 @@ a {
 .app-debug-panel {
   position: fixed;
   right: 8px;
-  bottom: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   z-index: 9999;
   width: min(420px, calc(100vw - 16px));
-  max-height: 62vh;
+  max-height: min(34svh, 320px);
   overflow: auto;
   padding: 10px;
   color: rgba(255, 255, 255, 0.92);
@@ -93,12 +93,36 @@ a {
   line-height: 1.35;
 }
 
+.app-debug-panel--expanded {
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  right: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  left: auto;
+  width: min(720px, calc(100vw - 16px));
+  max-height: none;
+}
+
 .app-debug-header,
 .app-debug-actions {
   display: flex;
   gap: 8px;
   align-items: center;
   justify-content: space-between;
+}
+
+.app-debug-header {
+  position: sticky;
+  top: -10px;
+  z-index: 1;
+  margin: -10px -10px 0;
+  padding: 10px;
+  background: rgba(19, 20, 24, 0.98);
+  border-radius: 12px 12px 0 0;
+}
+
+.app-debug-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .app-debug-actions button,
@@ -140,8 +164,8 @@ a {
 }
 
 .app-debug-details pre {
-  max-height: 260px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   margin: 8px 0 0;
   padding: 8px;
   color: rgba(255, 255, 255, 0.88);
@@ -155,7 +179,7 @@ a {
 .app-debug-toggle {
   position: fixed;
   right: 8px;
-  bottom: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   z-index: 9999;
   background: rgba(19, 20, 24, 0.88);
 }
@@ -177,6 +201,12 @@ a {
     left: 8px;
     right: 8px;
     width: auto;
-    max-height: 50vh;
+    max-height: 28svh;
+  }
+
+  .app-debug-panel--expanded {
+    top: calc(8px + env(safe-area-inset-top, 0px));
+    bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    max-height: none;
   }
 }
