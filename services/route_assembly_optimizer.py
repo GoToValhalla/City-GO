@@ -67,9 +67,8 @@ def assemble_route(scored: list[ScoredPlace], ctx: MergedContext, point_cls: typ
         route = _greedy_proximity_backfill(route, candidate_pool, ctx, point_cls, budget, target_points)
 
     # Final product-safety fallback: for cities with many valid candidates the assembly
-    # must not degrade to 0-1 points just because walk caps/diversity cannot satisfy
-    # the ideal optimizer. This fallback keeps the budget guard, but ignores category
-    # pressure and per-leg walk caps until the minimum point count is reached.
+    # should try to reach the minimum useful 3-point route. The budget guard still wins,
+    # so genuinely short routes become partial instead of fake-ready.
     if _needs_minimum_point_backfill(route, candidate_pool, target_points):
         route = _minimum_point_backfill(route, candidate_pool, ctx, point_cls, budget, target_points)
 
@@ -254,7 +253,7 @@ def _fill_remaining_time(route: list[object], scored: list[ScoredPlace], ctx: Me
 def _greedy_proximity_backfill(route: list[object], scored: list[ScoredPlace], ctx: MergedContext, point_cls: type, budget: int, target_points: int) -> list[object]:
     current = list(route)
     used_ids = {str(getattr(point, "place_id", "")) for point in current}
-    min_points = min(2, target_points)
+    min_points = min(3, target_points, len(scored))
 
     while len(current) < target_points and _route_minutes(current) < int(budget * TARGET_BUDGET_UTILIZATION):
         lat, lng = _tail_location(current, ctx)
@@ -304,13 +303,13 @@ def _first_point_seed_fallback(scored: list[ScoredPlace], ctx: MergedContext, po
 
 
 def _needs_minimum_point_backfill(route: list[object], scored: list[ScoredPlace], target_points: int) -> bool:
-    return bool(scored) and len(route) < min(2, target_points)
+    return bool(scored) and len(route) < _minimum_fallback_points(scored, target_points)
 
 
 def _minimum_point_backfill(route: list[object], scored: list[ScoredPlace], ctx: MergedContext, point_cls: type, budget: int, target_points: int) -> list[object]:
     current = list(route)
     used_ids = {str(getattr(point, "place_id", "")) for point in current}
-    min_points = min(2, target_points)
+    min_points = _minimum_fallback_points(scored, target_points)
 
     for item in scored:
         if len(current) >= min_points:
@@ -329,6 +328,10 @@ def _minimum_point_backfill(route: list[object], scored: list[ScoredPlace], ctx:
         used_ids.add(place_id)
 
     return current
+
+
+def _minimum_fallback_points(scored: list[ScoredPlace], target_points: int) -> int:
+    return min(3, max(1, target_points), len(scored))
 
 
 def _fill_stage(route: list[object], budget: int) -> int:
