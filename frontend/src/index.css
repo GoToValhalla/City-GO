@@ -75,6 +75,22 @@ a {
   color: inherit;
 }
 
+.app-version-badge {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  z-index: 9999;
+  padding: 4px 7px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(29, 29, 31, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
 @media (max-width: 720px) {
   :root {
     font-size: 16px;
