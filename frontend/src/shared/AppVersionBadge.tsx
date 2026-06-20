@@ -5,6 +5,7 @@ import { env } from './config/env'
 import { frontendBuildInfo } from './config/buildInfo'
 
 const STORAGE_KEY = 'city-go-debug-panel-hidden'
+const EXPANDED_STORAGE_KEY = 'city-go-debug-panel-expanded'
 
 type HealthPayload = {
   status?: string
@@ -25,19 +26,21 @@ const initialProbe = <T,>(): ServiceProbe<T> => ({
   checkedAt: null,
 })
 
-const readHiddenState = (): boolean => {
+const readLocalFlag = (key: string, defaultValue: boolean): boolean => {
   try {
-    return window.localStorage.getItem(STORAGE_KEY) === '1'
+    const value = window.localStorage.getItem(key)
+    if (value === null) return defaultValue
+    return value === '1'
   } catch {
-    return false
+    return defaultValue
   }
 }
 
-const persistHiddenState = (hidden: boolean): void => {
+const persistLocalFlag = (key: string, enabled: boolean): void => {
   try {
-    window.localStorage.setItem(STORAGE_KEY, hidden ? '1' : '0')
+    window.localStorage.setItem(key, enabled ? '1' : '0')
   } catch {
-    // localStorage can be blocked in private mode; the panel still works for the session.
+    return
   }
 }
 
@@ -52,7 +55,8 @@ const fetchHealth = async (): Promise<HealthPayload> => {
 }
 
 export function AppVersionBadge() {
-  const [hidden, setHidden] = useState(readHiddenState)
+  const [hidden, setHidden] = useState(() => readLocalFlag(STORAGE_KEY, false))
+  const [expanded, setExpanded] = useState(() => readLocalFlag(EXPANDED_STORAGE_KEY, false))
   const [backendVersion, setBackendVersion] = useState<ServiceProbe<BackendVersion>>(initialProbe)
   const [backendHealth, setBackendHealth] = useState<ServiceProbe<HealthPayload>>(initialProbe)
   const [now, setNow] = useState(() => new Date().toISOString())
@@ -94,14 +98,20 @@ export function AppVersionBadge() {
   }, [])
 
   const hide = () => {
-    persistHiddenState(true)
+    persistLocalFlag(STORAGE_KEY, true)
     setHidden(true)
   }
 
   const show = () => {
-    persistHiddenState(false)
+    persistLocalFlag(STORAGE_KEY, false)
     setHidden(false)
     refresh()
+  }
+
+  const toggleExpanded = () => {
+    const nextExpanded = !expanded
+    persistLocalFlag(EXPANDED_STORAGE_KEY, nextExpanded)
+    setExpanded(nextExpanded)
   }
 
   if (hidden) {
@@ -115,13 +125,15 @@ export function AppVersionBadge() {
   const backendSha = backendVersion.data?.build_sha_short ?? backendVersion.status
   const backendRun = backendVersion.data?.build_run_number ?? backendVersion.status
   const healthStatus = backendHealth.data?.status ?? backendHealth.status
+  const panelClassName = expanded ? 'app-debug-panel app-debug-panel--expanded' : 'app-debug-panel'
 
   return (
-    <aside className="app-debug-panel" aria-label="City Go debug panel">
+    <aside className={panelClassName} aria-label="City Go debug panel">
       <div className="app-debug-header">
         <strong>City Go Debug</strong>
         <div className="app-debug-actions">
           <button type="button" onClick={refresh}>Обновить</button>
+          <button type="button" onClick={toggleExpanded}>{expanded ? 'Свернуть' : 'Развернуть'}</button>
           <button type="button" onClick={hide}>Скрыть</button>
         </div>
       </div>
@@ -139,19 +151,21 @@ export function AppVersionBadge() {
         <span>now</span><strong>{now}</strong>
       </div>
 
-      <details className="app-debug-details">
-        <summary>Служебная информация</summary>
-        <pre>{JSON.stringify({
-          frontend: frontendBuildInfo,
-          backendVersion,
-          backendHealth,
-          endpoints: {
-            version: buildApiUrl('/version'),
-            health: buildHealthUrl(),
-          },
-          runtime: runtimeInfo,
-        }, null, 2)}</pre>
-      </details>
+      {expanded ? (
+        <details className="app-debug-details" open>
+          <summary>Служебная информация</summary>
+          <pre>{JSON.stringify({
+            frontend: frontendBuildInfo,
+            backendVersion,
+            backendHealth,
+            endpoints: {
+              version: buildApiUrl('/version'),
+              health: buildHealthUrl(),
+            },
+            runtime: runtimeInfo,
+          }, null, 2)}</pre>
+        </details>
+      ) : null}
     </aside>
   )
 }
