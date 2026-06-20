@@ -41,8 +41,6 @@ const persistHiddenState = (hidden: boolean): void => {
   }
 }
 
-const short = (value: string | undefined | null): string => value?.trim() || 'unknown'
-
 const buildHealthUrl = (): string => buildApiUrl('/health')
 
 const fetchHealth = async (): Promise<HealthPayload> => {
