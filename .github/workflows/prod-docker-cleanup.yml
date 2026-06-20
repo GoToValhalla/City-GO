@@ -1,0 +1,99 @@
+name: Production Docker Cleanup
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_deploy:
+        description: Trigger production deploy after cleanup
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cleanup:
+    name: Clean safe Docker garbage on production
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+    steps:
+      - name: Validate existing production secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Show disk state, prune safe Docker garbage, show result
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash <<'EOF'
+            set -euo pipefail
+            cd /srv/app
+
+            echo "=== before cleanup: df -h ==="
+            df -h
+
+            echo "=== before cleanup: docker system df ==="
+            docker system df
+
+            echo "=== before cleanup: docker compose ps ==="
+            docker compose ps
+
+            echo "=== prune stopped containers ==="
+            docker container prune -f
+
+            echo "=== prune dangling images only ==="
+            docker image prune -f
+
+            echo "=== prune unused build cache ==="
+            docker builder prune -f
+
+            echo "=== prune unused networks ==="
+            docker network prune -f
+
+            echo "=== after cleanup: df -h ==="
+            df -h
+
+            echo "=== after cleanup: docker system df ==="
+            docker system df
+
+            echo "=== after cleanup: docker compose ps ==="
+            docker compose ps
+          EOF
+
+  trigger-deploy:
+    name: Trigger production deploy
+    runs-on: ubuntu-latest
+    needs: cleanup
+    if: ${{ inputs.run_deploy }}
+    timeout-minutes: 5
+    steps:
+      - name: Trigger existing Deploy workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh workflow run deploy.yml --ref main
+          echo "Triggered deploy.yml on main."
+          gh run list --workflow deploy.yml --branch main --limit 3
