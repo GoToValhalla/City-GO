@@ -11,6 +11,9 @@ jobs:
     name: Repair production DB health
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
 
     steps:
       - name: Validate production SSH secrets
@@ -94,3 +97,29 @@ jobs:
             docker inspect app-db-1 --format='{{json .State.Health}}' || true
             exit 1
           REMOTE_EOF
+
+      - name: Telegram mini report
+        if: always()
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram notification skipped"
+            exit 0
+          fi
+          status="${{ job.status }}"
+          icon="✅"
+          if [ "$status" != "success" ]; then icon="❌"; fi
+          message="${icon} City Go Prod DB Repair
+Status: ${status}
+Host: ${SSH_HOST}
+Action: diagnose DB, restart db, wait pg_isready
+Branch: ${GITHUB_REF_NAME}
+Commit: ${GITHUB_SHA:0:7}
+Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${message}" \
+            -d "disable_web_page_preview=true"
