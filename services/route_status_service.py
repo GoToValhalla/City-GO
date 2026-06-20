@@ -29,4 +29,10 @@ def _has_any(text: str, needles: tuple[str, ...]) -> bool:
 
 
 def _expected_min(expected_stops: int) -> int:
-    return max(3, min(3, expected_stops))
+    if expected_stops <= 3:
+        return 3
+    if expected_stops <= 4:
+        return 4
+    if expected_stops <= 6:
+        return 5
+    return 6
