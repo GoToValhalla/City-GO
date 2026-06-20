@@ -97,3 +97,45 @@ jobs:
           gh workflow run deploy.yml --ref main
           echo "Triggered deploy.yml on main."
           gh run list --workflow deploy.yml --branch main --limit 3
+
+  notify:
+    name: Notify Docker cleanup result
+    runs-on: ubuntu-latest
+    needs:
+      - cleanup
+      - trigger-deploy
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Telegram mini report
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CLEANUP_RESULT: ${{ needs.cleanup.result }}
+          TRIGGER_DEPLOY_RESULT: ${{ needs.trigger-deploy.result }}
+          RUN_DEPLOY: ${{ inputs.run_deploy }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram notification skipped"
+            exit 0
+          fi
+          icon="✅"
+          overall="OK"
+          if [ "$CLEANUP_RESULT" != "success" ]; then
+            icon="❌"
+            overall="FAILED"
+          fi
+          message="${icon} City Go Production Docker Cleanup ${overall}
+Cleanup: ${CLEANUP_RESULT}
+Trigger deploy input: ${RUN_DEPLOY}
+Trigger deploy job: ${TRIGGER_DEPLOY_RESULT}
+Action: safe prune stopped containers, dangling images, build cache, networks
+Branch: ${GITHUB_REF_NAME}
+Commit: ${GITHUB_SHA:0:7}
+Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${message}" \
+            -d "disable_web_page_preview=true"
