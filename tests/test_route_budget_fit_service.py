@@ -58,7 +58,7 @@ def test_fit_skips_oversized_middle_point_when_later_point_fits() -> None:
     route = [_point("1", 20, 5), _point("2", 60, 5), _point("3", 15, 5)]
     result = RouteBudgetFitService().fit(route, _ctx(50))
     assert [point.place_id for point in result.route] == ["1", "3"]
-    assert result.warnings == [ROUTE_BUDGET_TRIMMED_WARNING, ROUTE_BUDGET_SINGLE_POINT_WARNING]
+    assert result.warnings == [ROUTE_BUDGET_TRIMMED_WARNING]
 
 
 def test_fit_keeps_first_point_when_visit_fits_but_transfer_exceeds_budget() -> None:
