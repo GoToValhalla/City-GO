@@ -44,6 +44,8 @@ BLOCKED_CITY_LAUNCH_STATUSES = frozenset({"disabled", "archived", "hidden"})
 class CandidateRetrievalService:
     MAX_CANDIDATES = 500
     TARGET_CANDIDATES = 180
+    MIN_HEALTHY_RETRIEVAL_CANDIDATES = 40
+    LOW_COVERAGE_RATIO = 0.30
 
     def __init__(self) -> None:
         self.last_debug: dict[str, object] = {}
@@ -54,23 +56,46 @@ class CandidateRetrievalService:
         ctx: MergedContext,
     ) -> list[Place]:
 
+        density = self._safe_spatial_density(db, ctx)
+        city_wide_eligible = _safe_int(density.get("city_wide_eligible"))
+
         candidates = self._query_places(db, ctx)
         raw_candidates_count = len(candidates)
+        expanded_candidates_count: int | None = None
+        city_wide_candidates_count: int | None = None
         fallback_radius_used = False
         fallback_city_wide_used = False
+        retrieval_strategy_used = "radius"
 
-        if len(candidates) < 20:
-            candidates = self._fallback_expand_radius(db, ctx) or candidates
+        if len(candidates) < self.MIN_HEALTHY_RETRIEVAL_CANDIDATES:
+            expanded = self._fallback_expand_radius(db, ctx)
+            expanded_candidates_count = len(expanded)
             fallback_radius_used = True
+            if expanded:
+                candidates = expanded
+                retrieval_strategy_used = "expanded_radius"
 
-        if len(candidates) < 20:
+        if self._needs_city_wide_fallback(candidates, city_wide_eligible):
             city_wide = self._fallback_city_wide(db, ctx)
             if isinstance(city_wide, list):
-                candidates = city_wide or candidates
-                fallback_city_wide_used = bool(city_wide)
+                city_wide_candidates_count = len(city_wide)
+                if len(city_wide) > len(candidates):
+                    candidates = city_wide
+                    fallback_city_wide_used = True
+                    retrieval_strategy_used = "city_wide_fallback"
 
         if not candidates:
-            self.last_debug = self._debug_payload(ctx, raw_candidates_count, [], fallback_radius_used, fallback_city_wide_used)
+            self.last_debug = self._debug_payload(
+                ctx,
+                raw_candidates_count,
+                [],
+                fallback_radius_used,
+                fallback_city_wide_used,
+                density=density,
+                expanded_candidates_count=expanded_candidates_count,
+                city_wide_candidates_count=city_wide_candidates_count,
+                retrieval_strategy_used="empty",
+            )
             return []
 
         with_images = self._safe_attach_public_images(db, candidates)
@@ -80,7 +105,17 @@ class CandidateRetrievalService:
         # Защита от пустого маршрута после post-processing: SQL уже нашёл кандидатов,
         # поэтому ranking/balancing/image enrichment не имеют права обнулить пул.
         final = balanced or ranked or with_images or candidates
-        self.last_debug = self._debug_payload(ctx, raw_candidates_count, final, fallback_radius_used, fallback_city_wide_used)
+        self.last_debug = self._debug_payload(
+            ctx,
+            raw_candidates_count,
+            final,
+            fallback_radius_used,
+            fallback_city_wide_used,
+            density=density,
+            expanded_candidates_count=expanded_candidates_count,
+            city_wide_candidates_count=city_wide_candidates_count,
+            retrieval_strategy_used=retrieval_strategy_used,
+        )
         return final
 
     def _safe_attach_public_images(self, db: Session, candidates: list[Place]) -> list[Place]:
@@ -122,9 +157,9 @@ class CandidateRetrievalService:
         if avoided_place_ids:
             query = query.where(~Place.id.in_(avoided_place_ids))
 
-        avoided_categories = list(getattr(ctx, "avoided_categories", []) or [])
+        avoided_categories = _category_variants(getattr(ctx, "avoided_categories", []) or [])
         if avoided_categories:
-            query = query.where(~Place.category.in_(avoided_categories))
+            query = query.where(~func.lower(Place.category).in_(sorted(avoided_categories)))
 
         return query
 
@@ -158,6 +193,44 @@ class CandidateRetrievalService:
         distance_expr = self._distance_meters_expr(lat=lat, lng=lng)
         query = self._base_query(ctx).order_by(distance_expr.asc()).limit(self.MAX_CANDIDATES)
         return db.execute(query).scalars().all()
+
+    def _needs_city_wide_fallback(self, candidates: list[Place], city_wide_eligible: int | None) -> bool:
+        if not candidates:
+            return True
+        if len(candidates) < self.MIN_HEALTHY_RETRIEVAL_CANDIDATES:
+            return True
+        if city_wide_eligible and city_wide_eligible >= self.MIN_HEALTHY_RETRIEVAL_CANDIDATES:
+            coverage = len(candidates) / city_wide_eligible
+            return coverage < self.LOW_COVERAGE_RATIO
+        return False
+
+    def _safe_spatial_density(self, db: Session, ctx: MergedContext) -> dict[str, int | None]:
+        try:
+            return {
+                "places_within_500m": self._count_places(db, ctx, 500),
+                "places_within_1km": self._count_places(db, ctx, 1_000),
+                "places_within_2km": self._count_places(db, ctx, 2_000),
+                "places_within_5km": self._count_places(db, ctx, 5_000),
+                "places_within_10km": self._count_places(db, ctx, 10_000),
+                "city_wide_eligible": self._count_places(db, ctx, None),
+            }
+        except Exception:
+            return {
+                "places_within_500m": None,
+                "places_within_1km": None,
+                "places_within_2km": None,
+                "places_within_5km": None,
+                "places_within_10km": None,
+                "city_wide_eligible": None,
+            }
+
+    def _count_places(self, db: Session, ctx: MergedContext, max_distance_meters: int | None) -> int:
+        query = self._base_query(ctx)
+        if max_distance_meters is not None:
+            lat, lng = ctx.location
+            query = query.where(self._distance_meters_expr(lat=lat, lng=lng) <= max_distance_meters)
+        count_query = select(func.count()).select_from(query.subquery())
+        return int(db.execute(count_query).scalar() or 0)
 
     def _pre_rank_candidates(self, candidates: list[Place], ctx: MergedContext) -> list[Place]:
         """Sort route candidates by stable data quality signals before category balancing.
@@ -226,15 +299,36 @@ class CandidateRetrievalService:
         candidates: list[Place],
         fallback_radius_used: bool,
         fallback_city_wide_used: bool,
+        *,
+        density: dict[str, int | None] | None = None,
+        expanded_candidates_count: int | None = None,
+        city_wide_candidates_count: int | None = None,
+        retrieval_strategy_used: str = "radius",
     ) -> dict[str, object]:
         lat, lng = ctx.location
+        city_wide_eligible = _safe_int((density or {}).get("city_wide_eligible"))
+        coverage_pct = round((len(candidates) / city_wide_eligible) * 100, 2) if city_wide_eligible else None
         return {
             "query_limit": self.MAX_CANDIDATES,
+            "healthy_min_candidates": self.MIN_HEALTHY_RETRIEVAL_CANDIDATES,
+            "low_coverage_threshold_pct": int(self.LOW_COVERAGE_RATIO * 100),
+            "retrieval_strategy_used": retrieval_strategy_used,
             "raw_candidates_count": raw_candidates_count,
             "after_radius_count": raw_candidates_count,
+            "expanded_radius_candidates_count": expanded_candidates_count,
+            "city_wide_candidates_count": city_wide_candidates_count,
             "final_candidates_count": len(candidates),
+            "retrieval_coverage_pct": coverage_pct,
             "fallback_radius_used": fallback_radius_used,
             "fallback_city_wide_used": fallback_city_wide_used,
+            "center_used": {"lat": lat, "lng": lng},
+            "spatial_density": density or {},
+            "places_within_500m": (density or {}).get("places_within_500m"),
+            "places_within_1km": (density or {}).get("places_within_1km"),
+            "places_within_2km": (density or {}).get("places_within_2km"),
+            "places_within_5km": (density or {}).get("places_within_5km"),
+            "places_within_10km": (density or {}).get("places_within_10km"),
+            "city_wide_eligible": city_wide_eligible,
             "top_candidate_distances_meters": [
                 _distance_meters(lat, lng, float(place.lat), float(place.lng))
                 for place in candidates[:10]
@@ -296,6 +390,31 @@ def _has_quality_validation(place: Place) -> bool:
 
 def _category(place: Place) -> str:
     return str(getattr(place, "category", "") or "").strip().casefold()
+
+
+def _category_variants(categories: object) -> set[str]:
+    variants: set[str] = set()
+    for value in list(categories or []):
+        raw = str(value or "").strip().casefold()
+        if not raw:
+            continue
+        variants.add(raw)
+        if raw.endswith("s") and raw not in {"bus", "gas"}:
+            variants.add(raw[:-1])
+        else:
+            variants.add(f"{raw}s")
+    return variants
+
+
+def _safe_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _has_number_coords(place: object) -> bool:
