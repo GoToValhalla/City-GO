@@ -1,16 +1,18 @@
-# City Guide API
+# City Go
 
-Backend для городского гида в стиле Tripadvisor с упором на сценарный поиск, маршруты, города и места.
+City Go — городской travel/local guide сервис с упором на места, маршруты, планирование прогулок и дальнейший AI-слой рекомендаций.
 
 ## Что это
 
-Проект представляет собой backend на Python для будущего городского travel/local guide сервиса.
+Проект объединяет backend, frontend, админку и Telegram-бота для городского гида. Основной пользовательский сценарий — собрать полезный маршрут по городу от выбранной стартовой точки с учётом времени, интересов, бюджета, темпа и качества данных по местам.
 
-Текущая цель:
-- построить чистую backend-основу
-- заложить архитектуру под масштабирование на другие города
-- подготовить API для мест, городов и категорий
-- сделать базу для дальнейшей разработки фильтров, тегов, подборок, маршрутов и AI-логики
+Текущая продуктовая цель:
+- строить маршруты в реальном времени;
+- строить маршрут от нужного места: центр города, текущая геолокация, адрес, точка на карте или выбранное место;
+- поддержать планирование маршрутов заранее;
+- дать пользователю понятный маршрут списком и на карте;
+- объяснять, почему маршрут не собрался или получился частичным;
+- подготовить основу для live route editing: заменить, удалить, добавить место, перестроить от текущей точки.
 
 Пилотный город:
 - Зеленоградск, Калининградская область
@@ -24,16 +26,105 @@ Backend для городского гида в стиле Tripadvisor с упо
 - SQLAlchemy 2.0
 - Pydantic
 - Uvicorn
+- React / Vite
+- Docker Compose
+
+## Основной маршрутный API
+
+Новая пользовательская сборка маршрутов работает через:
+
+```http
+POST /v1/user-routes/build
+```
+
+Старый endpoint:
+
+```http
+POST /routes/generate
+```
+
+объявлен legacy и помечен как deprecated. В ответ добавляется header:
+
+```http
+X-Deprecated: Use POST /v1/user-routes/build instead
+```
+
+Новая цепочка route building:
+
+```text
+POST /v1/user-routes/build
+→ UserRouteBuildService
+→ RouteBuilderService
+→ build_dynamic_route
+→ context_merge
+→ candidate_retrieval
+→ hard_filters
+→ scoring
+→ interest_matching
+→ adaptive_plan
+→ assembly
+→ time_ordering
+→ time_aware
+→ budget_fit
+→ quality_gates
+→ finalize
+→ UserRouteState
+```
+
+## Статусы маршрута
+
+`/v1/user-routes/build` возвращает доменный результат, а не только сетевую ошибку.
+
+| Статус | Значение |
+|---|---|
+| `ready` | Маршрут собран в полезном виде. |
+| `partial_route` | Маршрут собран частично, его можно показать пользователю с предупреждением. |
+| `no_route` | Маршрут не собран, причина должна быть в `partial_reason` и `debug_trace`. |
+| `failed` | Системная или алгоритмическая ошибка качества маршрута. |
+
+Ключевые поля ответа:
+
+```json
+{
+  "status": "ready | partial_route | no_route | failed",
+  "partial_reason": "not_enough_route_points | time_budget_too_tight | filters_too_strict | interests_not_matched | ...",
+  "total_places": 3,
+  "points": [],
+  "warnings": [],
+  "user_warnings": [],
+  "debug_trace": []
+}
+```
+
+## Текущая логика route building
+
+Маршрут должен стремиться к минимально полезной форме:
+
+| Время | Цель по точкам |
+|---:|---:|
+| до 60 минут | 3 точки |
+| до 120 минут | 4 точки |
+| до 240 минут | 6 точек |
+| больше 240 минут | до 8 точек |
+
+Правила деградации:
+- маршрут из 1–2 точек не считается полноценным `ready`;
+- короткий маршрут возвращается как `partial_route` с понятным warning;
+- если времени не хватает даже на одно место, возвращается `no_route` / `time_budget_too_tight`;
+- если интересы не совпали с местами, система должна использовать fallback на близкие категории или нейтральные точки;
+- если radius слишком узкий, candidate retrieval использует расширение радиуса и city-wide fallback;
+- если hard filters удалили всё, debug trace должен показывать причины удаления;
+- frontend отдельно обрабатывает `ready`, `partial_route` и `no_route`.
 
 ## Что уже реализовано
 
 ### Инфраструктура
-- поднят FastAPI-проект
-- настроено виртуальное окружение
-- подключен PostgreSQL
-- настроен Alembic для миграций
-- вынесен конфиг в `core/config.py`
-- настроены сессии БД и зависимости
+- поднят FastAPI-проект;
+- подключен PostgreSQL;
+- настроен Alembic для миграций;
+- вынесен конфиг в `core/config.py`;
+- настроены сессии БД и зависимости;
+- Docker Compose запускает backend, frontend, bot и миграции.
 
 ### Города
 Реализовано API для городов:
@@ -42,14 +133,14 @@ Backend для городского гида в стиле Tripadvisor с упо
 - `GET /cities/by-slug/{slug}`
 
 Что хранится у города:
-- slug
-- name
-- region
-- country
-- timezone
-- center_lat
-- center_lng
-- is_active
+- slug;
+- name;
+- region;
+- country;
+- timezone;
+- center_lat;
+- center_lng;
+- is_active.
 
 ### Категории
 Реализовано API для категорий:
@@ -58,12 +149,12 @@ Backend для городского гида в стиле Tripadvisor с упо
 - `GET /categories/by-code/{code}`
 
 Что хранится у категории:
-- code
-- name
-- is_active
+- code;
+- name;
+- is_active.
 
 ### Места
-Реализован базовый CRUD для мест:
+Реализован CRUD и публичный каталог мест:
 - `GET /places/`
 - `GET /places/{place_id}`
 - `GET /places/by-slug/{slug}`
@@ -72,28 +163,29 @@ Backend для городского гида в стиле Tripadvisor с упо
 - `DELETE /places/{place_id}`
 
 Поддерживаются фильтры:
-- `city_id`
-- `city_slug`
-- `category_id`
-- комбинированная фильтрация, например:
-  - `/places/?city_slug=zelenogradsk&category_id=1`
+- `city_id`;
+- `city_slug`;
+- `category_id`;
+- комбинированная фильтрация.
 
 Что хранится у места:
-- city_id
-- category_id
-- slug
-- title
-- short_description
-- category
-- address
-- lat
-- lng
-- price_level
-- dog_friendly
-- family_friendly
-- indoor
-- outdoor
-- is_active
+- city_id;
+- category_id;
+- slug;
+- title;
+- short_description;
+- category;
+- address;
+- lat;
+- lng;
+- price_level;
+- dog_friendly;
+- family_friendly;
+- indoor;
+- outdoor;
+- is_active;
+- route eligibility / visibility flags;
+- quality score / quality tier.
 
 ### Data Foundation P1
 
@@ -113,6 +205,16 @@ python scripts/recalculate_city_readiness.py --all
 python -m pytest tests/test_data_foundation_quality_readiness.py -q
 ```
 
+## Ближайшие задачи по маршрутам
+
+- Проверить production deploy после route building fixes.
+- Снять реальный `DEBUG BUILD RESULT` для `/v1/user-routes/build`.
+- Убрать временный hard log после диагностики.
+- Разобрать `debug_trace` реального запроса: retrieval, hard_filters, scoring, assembly, budget_fit, finalize.
+- Доработать route planning режим: маршрут не только “сейчас”, но и заранее на дату/время.
+- Доработать real-time режим: старт/пауза/завершение, перестроение от текущей точки, замена следующей точки.
+- Продумать карту и список маршрута: активные точки, закрытые/недоступные точки, описание места во внутреннем фрейме.
+
 ## Запуск через Docker
 
 ### Подготовка
@@ -125,7 +227,7 @@ cp .env.example .env
 
 Убедись, что в `.env` указан правильный хост базы данных для Docker:
 
-```
+```env
 DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/city_guide
 ```
 
@@ -146,8 +248,6 @@ docker compose up --build
 Миграции применяются автоматически при старте.
 
 ### Разработка
-
-Бот для локальной разработки: @cityGuideDevBot
 
 Backend запускается с `--reload`, фронтенд — через Vite dev server с hot reload.
 
@@ -176,47 +276,4 @@ docker compose logs -f bot
 
 # Применить миграции вручную
 docker compose run --rm migrate
-```
-
-## Структура проекта
-
-```text
-.
-├── core/
-│   ├── __init__.py
-│   └── config.py
-├── db/
-│   ├── __init__.py
-│   ├── base.py
-│   ├── dependencies.py
-│   └── session.py
-├── migrations/
-│   ├── versions/
-│   ├── env.py
-│   └── script.py.mako
-├── models/
-│   ├── __init__.py
-│   ├── category.py
-│   ├── city.py
-│   └── place.py
-├── routers/
-│   ├── __init__.py
-│   ├── categories.py
-│   ├── cities.py
-│   └── places.py
-├── schemas/
-│   ├── __init__.py
-│   ├── category.py
-│   ├── city.py
-│   └── place.py
-├── services/
-│   ├── __init__.py
-│   ├── category_service.py
-│   ├── city_service.py
-│   └── place_service.py
-├── .env
-├── .env.example
-├── alembic.ini
-├── main.py
-└── requirements.txt
 ```
