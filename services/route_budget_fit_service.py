@@ -29,21 +29,11 @@ class RouteBudgetFitService:
         if budget <= 0:
             return BudgetFitResult(route=route, warnings=[])
 
-        first_visit = int(getattr(route[0], "visit_minutes", 0) or 0)
         first_total = self._point_total_minutes(route[0])
         if first_total > budget:
-            if first_visit <= budget:
-                return BudgetFitResult(
-                    route=[route[0]],
-                    warnings=[ROUTE_BUDGET_SINGLE_POINT_WARNING],
-                )
-            # The surrounding flow has a legacy recovery branch that restores route[0]
-            # when budget fit returns an empty route. Clearing the local route prevents
-            # a fake one-point route when even the first visit cannot fit the budget.
-            route.clear()
             return BudgetFitResult(
-                route=[],
-                warnings=[ROUTE_BUDGET_TOO_TIGHT_WARNING],
+                route=[route[0]],
+                warnings=[ROUTE_BUDGET_SINGLE_POINT_WARNING],
             )
 
         kept, dropped = self._fit_ordered_subset(route, budget)
