@@ -31,9 +31,10 @@ type RouteDebugInfo = {
     method: string
     url: string
     status: number
-    responseBody: string
+    responseBody: unknown
   }
   requestPayload?: unknown
+  responseBody?: unknown
   error?: string
 }
 
@@ -85,6 +86,49 @@ const buildDebugInfo = (err: unknown, citySlug: string, requestPayload?: unknown
   }
 }
 
+const buildRouteStateDebugInfo = (
+  title: string,
+  citySlug: string,
+  route: RecommendationRouteResponse,
+  requestPayload: unknown,
+): RouteDebugInfo => ({
+  title,
+  timestamp: new Date().toISOString(),
+  citySlug,
+  requestPayload,
+  responseBody: {
+    status: route.status,
+    partial_reason: route.partial_reason,
+    total_places: route.total_places,
+    warnings: route.warnings,
+    user_warnings: route.user_warnings,
+    debug_trace: route.debug_trace,
+  },
+})
+
+const getNoRouteMessage = (reason?: string | null): string => {
+  const messages: Record<string, string> = {
+    no_places_in_city: 'В этом городе пока нет мест. Скоро добавим.',
+    radius_too_small: 'Нет мест рядом со стартовой точкой. Попробуй другую точку старта.',
+    all_places_closed: 'Все подходящие места сейчас закрыты. Попробуй другое время.',
+    budget_too_strict: 'Не нашли мест в выбранный бюджет. Попробуй увеличить бюджет.',
+    time_budget_too_tight: 'Слишком мало времени. Попробуй выбрать от 60 минут.',
+    interests_not_matched: 'Нет точных мест по выбранным интересам. Попробуй другие категории.',
+    filters_too_strict: 'Слишком много ограничений. Попробуй сбросить часть фильтров.',
+    not_enough_route_points: 'Не хватило подходящих точек для маршрута. Попробуй увеличить время или изменить интересы.',
+  }
+  return messages[reason ?? ''] ?? 'Не удалось построить маршрут. Попробуй изменить параметры.'
+}
+
+const getPartialRouteMessage = (route: RecommendationRouteResponse): string => {
+  const firstWarning = route.user_warnings?.[0]?.user_message
+  if (firstWarning) return firstWarning
+  if (route.partial_reason === 'not_enough_route_points') {
+    return 'Маршрут получился коротким. Показываем то, что удалось собрать.'
+  }
+  return 'Маршрут собран частично. Проверь предупреждения перед стартом.'
+}
+
 export const GenerateRoutePage = () => {
   const [city, setCity] = useState<CityOption>(getCurrentCity())
   const [features, setFeatures] = useState<string[]>([])
@@ -93,6 +137,7 @@ export const GenerateRoutePage = () => {
   const [geoStatus, setGeoStatus] = useState<string | null>(null)
   const [geoError, setGeoError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [routeWarning, setRouteWarning] = useState<string | null>(null)
   const [debugInfo, setDebugInfo] = useState<RouteDebugInfo | null>(null)
   const [route, setRoute] = useState<RecommendationRouteResponse | null>(null)
 
@@ -101,6 +146,7 @@ export const GenerateRoutePage = () => {
       const nextCity = getCurrentCity()
       setCity(nextCity)
       setRoute(null)
+      setRouteWarning(null)
       setDebugInfo(null)
       const nextFeatures = await loadFeatures(nextCity.slug)
       setFeatures(nextFeatures)
@@ -202,6 +248,7 @@ export const GenerateRoutePage = () => {
     const payload = buildRecommendationRouteRequest(sanitizedForm, city.slug)
     if (!payload.ok) {
       setError(payload.error)
+      setRouteWarning(null)
       setDebugInfo({
         title: 'Frontend validation error',
         timestamp: new Date().toISOString(),
@@ -215,6 +262,7 @@ export const GenerateRoutePage = () => {
     try {
       setLoading(true)
       setError(null)
+      setRouteWarning(null)
       setDebugInfo(null)
       const nextRoute = await buildRecommendationRoute(payload.value)
       if (!routeMatchesCity(nextRoute, city.slug)) {
@@ -229,10 +277,22 @@ export const GenerateRoutePage = () => {
         setRoute(null)
         return
       }
+
+      if (nextRoute.status === 'no_route' || nextRoute.status === 'failed') {
+        setError(getNoRouteMessage(nextRoute.partial_reason))
+        setDebugInfo(buildRouteStateDebugInfo('Route no_route response', city.slug, nextRoute, payload.value))
+        setRoute(null)
+        return
+      }
+
+      if (nextRoute.status === 'partial_route') {
+        setRouteWarning(getPartialRouteMessage(nextRoute))
+      }
       setRoute(nextRoute)
     } catch (err) {
       console.error(err)
-      setError('Не удалось собрать маршрут')
+      setError('Технический сбой. Попробуй ещё раз.')
+      setRouteWarning(null)
       setDebugInfo(buildDebugInfo(err, city.slug, payload.value))
       setRoute(null)
     } finally {
@@ -245,6 +305,7 @@ export const GenerateRoutePage = () => {
     try {
       setLoading(true)
       setError(null)
+      setRouteWarning(null)
       setDebugInfo(null)
       const nextRoute = await correctUserRoute(route, action)
       if (!routeMatchesCity(nextRoute, city.slug)) {
@@ -258,6 +319,7 @@ export const GenerateRoutePage = () => {
         })
         return
       }
+      setRouteWarning(nextRoute.status === 'partial_route' ? getPartialRouteMessage(nextRoute) : null)
       setRoute(nextRoute)
     } catch (err) {
       console.error(err)
@@ -273,6 +335,7 @@ export const GenerateRoutePage = () => {
     try {
       setLoading(true)
       setError(null)
+      setRouteWarning(null)
       setDebugInfo(null)
       const nextRoute = await addPlaceToUserRoute(route, placeId)
       if (!routeMatchesCity(nextRoute, city.slug)) {
@@ -286,6 +349,7 @@ export const GenerateRoutePage = () => {
         })
         return
       }
+      setRouteWarning(nextRoute.status === 'partial_route' ? getPartialRouteMessage(nextRoute) : null)
       setRoute(nextRoute)
     } catch (err) {
       console.error(err)
@@ -328,6 +392,7 @@ export const GenerateRoutePage = () => {
             />
           </section>
           {error ? <section className="route-error-tile">{error}</section> : null}
+          {routeWarning ? <section className="route-error-tile">{routeWarning}</section> : null}
           {debugInfo ? (
             <section className="route-debug-tile">
               <div className="route-debug-header">
