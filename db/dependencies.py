@@ -1,5 +1,5 @@
 """
-FastAPI-зависимости для доступа к БД: одна сессия на запрос, закрытие в finally.
+FastAPI-зависимости для доступа к БД: одна сессия на запрос, rollback при ошибке, закрытие в finally.
 """
 
 from collections.abc import Generator
@@ -12,5 +12,8 @@ def get_db() -> Generator:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
