@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from services.candidate_category_budget import balance_candidates_by_category
 
 
-def _candidate(category: str, idx: int) -> SimpleNamespace:
+def _candidate(category: str | None, idx: int) -> SimpleNamespace:
     return SimpleNamespace(category=category, idx=idx)
 
 
@@ -25,3 +25,16 @@ def test_balance_candidates_by_category_respects_limit() -> None:
 
 def test_balance_candidates_by_category_handles_empty_list() -> None:
     assert balance_candidates_by_category([], limit=10) == []
+
+
+def test_balance_candidates_by_category_never_empties_non_empty_pool() -> None:
+    candidates = [_candidate("", 1), _candidate(None, 2), _candidate("museum", 3)]
+
+    result = balance_candidates_by_category(candidates, limit=10)
+
+    assert result
+    assert len(result) == len(candidates)
+
+
+def test_balance_candidates_by_category_handles_zero_limit() -> None:
+    assert balance_candidates_by_category([_candidate("museum", 1)], limit=0) == []
