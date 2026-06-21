@@ -65,13 +65,13 @@ class Place(Base):
     needs_recheck_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     verification_comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
-    # Для legacy/seed-created мест default=True, чтобы не сломать существующий публичный каталог.
-    # Admin-created/imported places должны явно приходить как draft/unpublished через admin API/import worker.
-    is_published: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    is_visible_in_catalog: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    is_route_eligible: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    is_searchable: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-    publication_status: Mapped[str] = mapped_column(String(32), default="published", index=True)
+    # Новые импортированные и вручную созданные места безопасно остаются draft.
+    # Публикация выполняется отдельным admin-действием после quality gate города.
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_visible_in_catalog: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_route_eligible: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_searchable: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    publication_status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
     publication_comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     unpublished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
