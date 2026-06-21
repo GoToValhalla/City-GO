@@ -15,10 +15,11 @@ TARGET_BUDGET_UTILIZATION = 0.86
 DEFAULT_MINUTES_PER_POINT = 30
 DEFAULT_ASSEMBLY_BUDGET_MINUTES = 240
 MAX_TARGET_POINTS = 8
-MAX_RELAXATION_STAGE = 3
+MAX_RELAXATION_STAGE = 4
 STRICT_MAX_WALK_MINUTES = 45
-RELAXED_MAX_WALK_MINUTES = 90
+RELAXED_MAX_WALK_MINUTES = 120
 MAX_CANDIDATE_POOL = 500
+EMERGENCY_SEED_TARGET_POINTS = 2
 WALK_INTERESTS = {"walk", "park", "outdoor", "sea"}
 WALK_ROUTE_CATEGORIES = {
     "walk", "park", "outdoor", "attraction", "culture", "coffee", "cafe",
@@ -71,6 +72,11 @@ def assemble_route(scored: list[ScoredPlace], ctx: MergedContext, point_cls: typ
     # so genuinely short routes become partial instead of fake-ready.
     if _needs_minimum_point_backfill(route, candidate_pool, target_points):
         route = _minimum_point_backfill(route, candidate_pool, ctx, point_cls, budget, target_points)
+
+    # Emergency seed: if strict walk/budget heuristics still leave fewer than MVP points,
+    # preserve the best scored places as a partial route instead of returning no_route.
+    if _needs_emergency_seed(route, candidate_pool, target_points):
+        route = _emergency_seed_backfill(route, candidate_pool, ctx, point_cls, budget, target_points)
 
     return annotate_walks(_cleanup_loops(route), ctx.location)
 
@@ -199,6 +205,8 @@ def _proximity_bonus(scored: ScoredPlace, state: AssemblyState) -> float:
         return 0.45
     if walk <= 45:
         return 0.22
+    if walk <= 90:
+        return 0.08
     return 0.0
 
 
@@ -330,8 +338,59 @@ def _minimum_point_backfill(route: list[object], scored: list[ScoredPlace], ctx:
     return current
 
 
+def _needs_emergency_seed(route: list[object], scored: list[ScoredPlace], target_points: int) -> bool:
+    return bool(scored) and len(route) < _emergency_seed_points(scored, target_points)
+
+
+def _emergency_seed_backfill(route: list[object], scored: list[ScoredPlace], ctx: MergedContext, point_cls: type, budget: int, target_points: int) -> list[object]:
+    current = list(route)
+    used_ids = {str(getattr(point, "place_id", "")) for point in current}
+    min_points = _emergency_seed_points(scored, target_points)
+
+    for item in _fallback_order(scored, ctx):
+        if len(current) >= min_points:
+            break
+        place_id = str(getattr(item.place, "id", ""))
+        if not place_id or place_id in used_ids:
+            continue
+        visit = visit_minutes_for_scored(item, ctx)
+        if visit > budget:
+            continue
+        tail_lat, tail_lng = _tail_location(current, ctx)
+        walk = walk_minutes_between(tail_lat, tail_lng, float(item.place.lat), float(item.place.lng))
+        point = route_point_from_scored(item, ctx, point_cls)
+        point.estimated_walk_minutes = walk
+        _mark_emergency_seed(point, walk)
+        current.append(point)
+        used_ids.add(place_id)
+
+    return current
+
+
+def _fallback_order(scored: list[ScoredPlace], ctx: MergedContext) -> list[ScoredPlace]:
+    lat, lng = ctx.location
+    return sorted(
+        list(scored or []),
+        key=lambda item: (-float(item.score), walk_minutes_between(lat, lng, float(item.place.lat), float(item.place.lng))),
+    )
+
+
+def _mark_emergency_seed(point: object, walk: int) -> None:
+    breakdown = getattr(point, "scoring_breakdown", None)
+    if not isinstance(breakdown, dict):
+        breakdown = {}
+    breakdown["route_assembly_fallback"] = "emergency_seed"
+    if walk > STRICT_MAX_WALK_MINUTES:
+        breakdown["long_walk_segment"] = True
+    point.scoring_breakdown = breakdown
+
+
 def _minimum_fallback_points(scored: list[ScoredPlace], target_points: int) -> int:
     return min(3, max(1, target_points), len(scored))
+
+
+def _emergency_seed_points(scored: list[ScoredPlace], target_points: int) -> int:
+    return min(EMERGENCY_SEED_TARGET_POINTS, max(1, target_points), len(scored))
 
 
 def _fill_stage(route: list[object], budget: int) -> int:
@@ -391,4 +450,4 @@ def _max_walk_minutes_for_stage(stage: int) -> int:
         return STRICT_MAX_WALK_MINUTES
     if stage >= MAX_RELAXATION_STAGE:
         return RELAXED_MAX_WALK_MINUTES
-    return STRICT_MAX_WALK_MINUTES + (stage * 12)
+    return STRICT_MAX_WALK_MINUTES + (stage * 18)
