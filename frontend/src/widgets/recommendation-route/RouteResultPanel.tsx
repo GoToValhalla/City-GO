@@ -126,7 +126,7 @@ const RouteMapPreview = ({ points }: { points: RecommendationRoutePoint[] }) => 
 
 export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect }: Props) => {
   const [ratingStatus, setRatingStatus] = useState<string | null>(null)
-  const summary = route.explanation.summary ?? `Маршрут ${route.route_id}`
+  const summary = route.explanation?.summary ?? `Маршрут ${route.route_id}`
   const quality = route.quality_score ?? 0
   const qualityStatus = normalizeQualityStatus(route)
   const hasPoints = route.total_places > 0
@@ -134,7 +134,7 @@ export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect }: 
   const isEmpty = route.status === 'no_route' || !hasPoints || qualityStatus === 'failed'
   const walkKm = Math.round((route.total_walk_distance_meters ?? route.estimated_distance * 1000) / 100) / 10
   const reasons = Object.fromEntries(
-    (route.explanation.points ?? []).map((point) => [point.place_id, point.reason]),
+    (route.explanation?.points ?? []).map((point) => [point.place_id, point.reason]),
   )
 
   const rateRoute = async (rating: number) => {
