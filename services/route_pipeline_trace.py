@@ -165,6 +165,7 @@ def route_debug_summary(route_id: str, trace: list[dict[str, Any]] | None) -> di
     final_points = _pick_number(final, "final_points_count")
     budget_output = _pick_number(budget_fit, "output_count", "kept_count")
     assembly_output = _pick_number(assembly, "output_count", "selected_count")
+    hard_filter_reasons = _hard_filter_reasons(hard_filter)
     return {
         "route_id": route_id,
         "failure_stage": final.get("failure_stage") or _first_zero_stage(entries),
@@ -190,6 +191,16 @@ def route_debug_summary(route_id: str, trace: list[dict[str, Any]] | None) -> di
             "places_route_visible": candidate_retrieval.get("places_route_visible"),
             "places_route_eligible": candidate_retrieval.get("places_route_eligible") or retrieval.get("after_route_eligible_count"),
             "geo_query_count": candidate_retrieval.get("geo_query_count"),
+        },
+        "hard_filters": {
+            "input_count": hard_filter.get("input_count"),
+            "output_count": hard_filter.get("output_count") or hard_filter.get("kept_count"),
+            "removed_count": hard_filter.get("removed_count"),
+            "fallback_used": hard_filter.get("fallback_used"),
+            "dropped_by_status": _reason_count(hard_filter_reasons, "dropped_by_status"),
+            "dropped_by_exclusion": _reason_count(hard_filter_reasons, "dropped_by_exclusion"),
+            "dropped_by_time": _reason_count(hard_filter_reasons, "dropped_by_time"),
+            "reason_counts": hard_filter_reasons,
         },
         "pipeline_counts": {
             "hard_filter_input": hard_filter.get("input_count"),
@@ -290,6 +301,19 @@ def _pick_number(payload: dict[str, Any], *keys: str) -> int | float | None:
         if isinstance(value, (int, float)):
             return value
     return None
+
+
+def _reason_count(payload: dict[str, Any], key: str) -> int:
+    value = payload.get(key)
+    return int(value) if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def _hard_filter_reasons(hard_filter: dict[str, Any]) -> dict[str, Any]:
+    for key in ("removal_reasons", "reasons", "drop_reason"):
+        value = hard_filter.get(key)
+        if isinstance(value, dict):
+            return value
+    return {}
 
 
 def _first_zero_stage(entries: list[dict[str, Any]]) -> str | None:
