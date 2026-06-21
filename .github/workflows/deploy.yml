@@ -203,20 +203,39 @@ jobs:
             fi
 
             echo "=== migrations ==="
+            docker compose rm -sf migrate || true
             set +e
-            docker compose up migrate
+            docker compose run --rm migrate
             MIGRATE_EXIT=$?
             set -e
             docker compose logs --tail=160 migrate || true
             if [ "$MIGRATE_EXIT" != "0" ]; then
               echo "ERROR: Migrations failed (exit code $MIGRATE_EXIT). Deploy aborted before runtime restart."
+              echo "--- alembic heads in backend image ---"
+              docker compose run --rm --no-deps backend alembic heads || true
+              echo "--- alembic current in database ---"
+              docker compose run --rm --no-deps backend alembic current || true
               docker compose ps || true
               exit 1
             fi
             echo "=== migrations OK ==="
 
             echo "=== production schema guard ==="
-            docker compose run --rm --no-deps backend python scripts/prod_schema_guard.py
+            SCHEMA_GUARD_OK=0
+            for attempt in 1 2 3; do
+              if docker compose run --rm --no-deps backend python scripts/prod_schema_guard.py; then
+                SCHEMA_GUARD_OK=1
+                break
+              fi
+              echo "WARN: schema guard failed attempt=${attempt}/3"
+              docker compose ps || true
+              docker compose logs --tail=120 db || true
+              sleep 5
+            done
+            if [ "$SCHEMA_GUARD_OK" != "1" ]; then
+              echo "ERROR: production schema guard failed after retries."
+              exit 1
+            fi
 
             echo "=== stop backend-side services only; keep current frontend alive until backend is healthy ==="
             docker compose stop import-worker bot backend || true
