@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -58,7 +58,7 @@ class UserRoutePoint(BaseModel):
     estimated_departure_time: str | None = None
     time_status: str | None = None
     time_warning: str | None = None
-    scoring_breakdown: dict[str, float] = Field(default_factory=dict)
+    scoring_breakdown: dict[str, Any] = Field(default_factory=dict)
     # Navigation payload — вычисляется при сериализации
     display_location: str | None = None
     has_address: bool = False
