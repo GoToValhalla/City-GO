@@ -11,6 +11,8 @@ from models.place_image import PLACE_IMAGE_STATUS_NEEDS_REVIEW, PlaceImage
 from services.import_pipeline.progress import is_stalled, step_label
 from services.import_pipeline.steps import STEP_QUEUED, STEP_READY_FOR_REVIEW, TERMINAL_STEPS
 
+PUBLISHABLE_CITY_STATUSES = {"review_required", "imported", "success", "unpublished"}
+
 
 def _latest_job(db: Session, city_id: int) -> CityAdminImportJob | None:
     return (
@@ -39,6 +41,8 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "city_slug": city.slug,
         "city_name": city.name,
         "status": status,
+        "launch_status": city.launch_status,
+        "is_city_active": bool(city.is_active),
         "current_step": current_step,
         "current_step_label": step_label(current_step),
         "source": job.source if job is not None else "admin_city_import",
@@ -46,7 +50,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "places_published": places_published,
         "places_unpublished": max(places_total - places_published, 0),
         "pending_photos": pending_photos,
-        "next_step": _import_next_step(current_step, status),
+        "next_step": _import_next_step(current_step, status, city.launch_status),
         "job_id": job.id if job is not None else None,
         "scopes_total": job.scopes_total if job is not None else 0,
         "scopes_succeeded": job.scopes_succeeded if job is not None else 0,
@@ -67,6 +71,8 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "can_run": _can_run(job, city),
         "can_retry": _can_retry(job, status),
         "can_cancel": _can_cancel(job, status),
+        "can_publish": _can_publish(city, places_total),
+        "can_unpublish": _can_unpublish(city),
         "report_url": f"/admin/routes/data-quality/{city.slug}",
         "logs_url": f"/admin/system-logs?city_slug={city.slug}&module=import",
     }
@@ -92,9 +98,19 @@ def _can_cancel(job: CityAdminImportJob | None, status: str) -> bool:
     return status in {"running", "queued"} or job.current_step not in TERMINAL_STEPS
 
 
-def _import_next_step(current_step: str, status: str) -> str:
-    if current_step == STEP_READY_FOR_REVIEW or status in {"success", "imported"}:
-        return "Проверьте качество данных и опубликуйте город вручную."
+def _can_publish(city: City, places_total: int) -> bool:
+    return places_total > 0 and city.launch_status in PUBLISHABLE_CITY_STATUSES and not bool(city.is_active)
+
+
+def _can_unpublish(city: City) -> bool:
+    return city.launch_status == "published" and bool(city.is_active)
+
+
+def _import_next_step(current_step: str, status: str, launch_status: str) -> str:
+    if launch_status == "published":
+        return "Город опубликован и доступен на сайте."
+    if current_step == STEP_READY_FOR_REVIEW or status in {"success", "imported"} or launch_status == "review_required":
+        return "Проверьте качество данных и нажмите «Опубликовать город»."
     if status in {"failed", "import_failed"}:
         return "Проверьте ошибку и нажмите «Повторить»."
     if current_step in {STEP_QUEUED, "queued"}:
