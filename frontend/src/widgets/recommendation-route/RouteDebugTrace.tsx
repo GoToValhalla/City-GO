@@ -126,8 +126,13 @@ const IMPORTANT_TRACE_KEYS = new Set([
   'route_minutes',
   'actual_duration_minutes',
   'requested_budget_minutes',
+  'requested_time_budget_minutes',
   'target_minutes',
+  'target_time_minutes',
   'hard_budget_minutes',
+  'hard_time_budget_minutes',
+  'budget_kind',
+  'budget_unit',
   'before_fill_count',
   'after_fill_count',
   'route_completeness',
@@ -158,14 +163,28 @@ const stageTitles: Record<string, string> = {
   assembly: '7.1. Assembly',
   time_ordering: '8. Time Ordering',
   time_aware: '8.1. Time Aware',
-  budget_fit_first: '9. Budget Fit First Pass',
-  budget_gap_fill: '9.1. Budget Gap Fill',
-  budget_fit: '9.2. Budget Fit Result',
+  budget_fit_first: '9. Time Budget Fit First Pass',
+  budget_gap_fill: '9.1. Time Budget Gap Fill',
+  budget_fit: '9.2. Time Budget Fit Result',
   quality_gates: '10. Quality Gates',
   finalize: '11. Finalize',
   final: '12. Final',
   final_response: '12.1. Final Response',
 }
+
+const DEBUG_LABELS: Record<string, string> = {
+  budget_fit_output: 'time_budget_fit_output',
+  budget_fit_input: 'time_budget_fit_input',
+  budget_output: 'time_budget_output',
+  requested_budget_minutes: 'requested_time_budget_minutes',
+  target_minutes: 'target_time_minutes',
+  hard_budget_minutes: 'hard_time_budget_minutes',
+  'pipeline_counts.budget_fit_input': 'pipeline_counts.time_budget_fit_input',
+  'pipeline_counts.budget_fit_output': 'pipeline_counts.time_budget_fit_output',
+  'important.budget_fit_kept_partial': 'important.time_budget_fit_kept_partial',
+}
+
+const displayLabel = (label: string): string => DEBUG_LABELS[label] ?? label
 
 const stageByName = (trace: RouteDebugTraceEntry[], stage: string): RouteDebugTraceEntry | undefined => (
   trace.find((entry) => entry.stage === stage)
@@ -262,7 +281,7 @@ const renderRows = (rows: DebugRow[]) => {
     <div className="route-debug-summary-grid">
       {visibleRows.map((row) => (
         <div key={row.label}>
-          <span>{row.label}</span>
+          <span>{displayLabel(row.label)}</span>
           <strong>{formatValue(row.value)}</strong>
         </div>
       ))}
@@ -290,8 +309,12 @@ const buildPipelineMatrix = (
   const scoringOut = numberValue(scoring, ['output_count', 'count']) ?? summaryNumber(route, 'pipeline_counts', 'scoring_output')
   const assemblyInput = numberValue(assembly, ['input_scored_count', 'input_count']) ?? summaryNumber(route, 'pipeline_counts', 'assembly_input')
   const assemblyOut = numberValue(assembly, ['output_count', 'selected_count']) ?? summaryNumber(route, 'pipeline_counts', 'assembly_output')
-  const budgetInput = numberValue(budgetFit, ['input_count']) ?? summaryNumber(route, 'pipeline_counts', 'budget_fit_input')
-  const budgetOut = numberValue(budgetFit, ['output_count', 'kept_count']) ?? summaryNumber(route, 'pipeline_counts', 'budget_fit_output')
+  const budgetInput = numberValue(budgetFit, ['input_count'])
+    ?? summaryNumber(route, 'pipeline_counts', 'time_budget_fit_input')
+    ?? summaryNumber(route, 'pipeline_counts', 'budget_fit_input')
+  const budgetOut = numberValue(budgetFit, ['output_count', 'kept_count'])
+    ?? summaryNumber(route, 'pipeline_counts', 'time_budget_fit_output')
+    ?? summaryNumber(route, 'pipeline_counts', 'budget_fit_output')
   const finalPoints = numberValue(final, ['final_points_count']) ?? route.total_places
 
   return [
@@ -305,7 +328,7 @@ const buildPipelineMatrix = (
       step: 'Hard Filters',
       status: statusLabel(Boolean(hardInput && hardInput > 0 && hardOut === 0)),
       signal: `input=${formatValue(hardInput)}, output=${formatValue(hardOut)}`,
-      action: hardOut === 0 ? 'Проверить opening_hours/timezone/avoided/budget/no_coordinates.' : 'Hard filters не выглядят точкой смерти.',
+      action: hardOut === 0 ? 'Проверить opening_hours/timezone/avoided/price_budget/no_coordinates.' : 'Hard filters не выглядят точкой смерти.',
     },
     {
       step: 'Scoring',
@@ -322,15 +345,15 @@ const buildPipelineMatrix = (
         : 'Assembly не выглядит главным убийцей маршрута.',
     },
     {
-      step: 'Budget Fit',
+      step: 'Time Budget Fit (minutes)',
       status: statusLabel(Boolean(budgetInput && budgetInput > 0 && budgetOut === 0)),
-      signal: `input=${formatValue(budgetInput)}, output=${formatValue(budgetOut)}, budget=${formatValue(rawValue(budgetFit, ['requested_budget_minutes']))}, route_minutes=${formatValue(rawValue(budgetFit, ['route_minutes', 'actual_duration_minutes']))}`,
-      action: budgetInput && budgetInput > 0 && budgetOut === 0 ? 'Запрещать silent zero: сохранять partial route с warning.' : 'Budget fit не обнулил маршрут.',
+      signal: `input=${formatValue(budgetInput)}, output=${formatValue(budgetOut)}, time_budget_minutes=${formatValue(rawValue(budgetFit, ['requested_time_budget_minutes', 'requested_budget_minutes']))}, route_minutes=${formatValue(rawValue(budgetFit, ['route_minutes', 'actual_duration_minutes']))}`,
+      action: budgetInput && budgetInput > 0 && budgetOut === 0 ? 'Запрещать silent zero: сохранять partial route с warning.' : 'Time budget fit не обнулил маршрут.',
     },
     {
       step: 'Finalize',
       status: statusLabel(Boolean(budgetOut && budgetOut > 0 && finalPoints === 0)),
-      signal: `budget_output=${formatValue(budgetOut)}, final_points=${formatValue(finalPoints)}, status=${formatValue(route.status)}`,
+      signal: `time_budget_output=${formatValue(budgetOut)}, final_points=${formatValue(finalPoints)}, status=${formatValue(route.status)}`,
       action: budgetOut && budgetOut > 0 && finalPoints === 0 ? 'Проверить status mapping/finalize: partial не должен стать no_route.' : 'Finalize не скрыл валидный partial route.',
     },
   ]
@@ -359,7 +382,12 @@ const buildKeyRows = (
   { label: 'hard_filters_output', value: numberValue(hardFilter, ['output_count', 'kept_count']) ?? summaryNumber(route, 'pipeline_counts', 'hard_filter_output') },
   { label: 'scoring_output', value: numberValue(scoring, ['output_count', 'count']) ?? summaryNumber(route, 'pipeline_counts', 'scoring_output') },
   { label: 'assembly_output', value: numberValue(assembly, ['output_count', 'selected_count']) ?? summaryNumber(route, 'pipeline_counts', 'assembly_output') },
-  { label: 'budget_fit_output', value: numberValue(budgetFit, ['output_count', 'kept_count']) ?? summaryNumber(route, 'pipeline_counts', 'budget_fit_output') },
+  {
+    label: 'time_budget_fit_output',
+    value: numberValue(budgetFit, ['output_count', 'kept_count'])
+      ?? summaryNumber(route, 'pipeline_counts', 'time_budget_fit_output')
+      ?? summaryNumber(route, 'pipeline_counts', 'budget_fit_output'),
+  },
   { label: 'final_points', value: numberValue(final, ['final_points_count']) ?? route.total_places },
 ])
 
