@@ -23,6 +23,7 @@ from services.route_data_confidence_score import data_confidence_score
 from services.route_interest_mapping import interest_match_score
 from services.route_popularity_proxy import popularity_proxy_score
 from services.route_start_time import effective_route_start
+from services.route_timezone import local_now
 from services.route_time_context_score import time_context_score
 
 
@@ -243,7 +244,7 @@ class ScoringService:
             base -= 0.05
 
         # Мягкая «открытость сейчас»: закрыто — не убиваем кандидата, но опускаем приоритет.
-        open_state = is_place_open_at(place, effective_route_start(datetime.utcnow(), ctx.time_of_day))
+        open_state = is_place_open_at(place, effective_route_start(local_now(ctx), ctx.time_of_day))
         if open_state is True:
             base += 0.12
         elif open_state is False:
