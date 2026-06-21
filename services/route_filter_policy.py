@@ -6,6 +6,14 @@ from datetime import datetime
 from schemas.merged_context import MergedContext
 from services.route_filter_reasons import OpenState, budget_reason, hard_reason, place_id
 
+DROP_BY_STATUS = "dropped_by_status"
+DROP_BY_EXCLUSION = "dropped_by_exclusion"
+DROP_BY_TIME = "dropped_by_time"
+
+_STATUS_REASONS = frozenset({"status"})
+_EXCLUSION_REASONS = frozenset({"explicit_place_exclude", "avoided_category"})
+_TIME_REASONS = frozenset({"closed_now", "unknown_hours_time_sensitive"})
+
 
 @dataclass(frozen=True)
 class FilterDecision:
@@ -25,8 +33,7 @@ class FilterReport:
 
     @property
     def reason_counts(self) -> dict[str, int]:
-        return {reason: sum(item.reason == reason for item in self.rejected)
-                for reason in {item.reason for item in self.rejected}}
+        return _reason_counts(self.rejected)
 
     @property
     def strict_reason_counts(self) -> dict[str, int]:
@@ -60,7 +67,23 @@ def _rejected(items: tuple[tuple[str, str | None], ...]) -> tuple[FilterDecision
 
 
 def _reason_counts(items: tuple[FilterDecision, ...]) -> dict[str, int]:
-    return {reason: sum(item.reason == reason for item in items) for reason in {item.reason for item in items}}
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item.reason] = counts.get(item.reason, 0) + 1
+        bucket = _diagnostic_bucket(item.reason)
+        if bucket:
+            counts[bucket] = counts.get(bucket, 0) + 1
+    return counts
+
+
+def _diagnostic_bucket(reason: str) -> str | None:
+    if reason in _STATUS_REASONS:
+        return DROP_BY_STATUS
+    if reason in _EXCLUSION_REASONS:
+        return DROP_BY_EXCLUSION
+    if reason in _TIME_REASONS:
+        return DROP_BY_TIME
+    return None
 
 
 def _strict_reason(place: object, ctx: MergedContext, now: datetime, open_state: OpenState) -> str | None:
