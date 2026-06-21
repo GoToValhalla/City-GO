@@ -9,6 +9,8 @@ from typing import List
 
 from schemas.merged_context import MergedContext
 from services.route_assembly_service import RoutePoint
+from services.route_start_time import effective_route_start
+from services.route_timezone import ensure_local_datetime, local_now
 from services.time_aware_hours import apply_wait_gap, legacy_hours_status, time_status_and_warning
 from services.time_aware_math import planned_visit_minutes, walk_minutes
 
@@ -31,8 +33,9 @@ class TimeAwareService:
         if not route:
             return route
 
-        clock = datetime.utcnow()
-        current_time = start_time if start_time >= clock else clock
+        clock = local_now(ctx)
+        route_start = self._route_start(ctx, start_time)
+        current_time = route_start if route_start >= clock else clock
 
         for i, point in enumerate(route):
             if i == 0:
@@ -75,3 +78,8 @@ class TimeAwareService:
             current_time = departure
 
         return route
+
+    def _route_start(self, ctx: MergedContext, start_time: datetime) -> datetime:
+        if getattr(ctx, "time_of_day", None):
+            return effective_route_start(local_now(ctx), getattr(ctx, "time_of_day", None))
+        return ensure_local_datetime(start_time, ctx)
