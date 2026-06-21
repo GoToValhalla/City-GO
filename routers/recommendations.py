@@ -9,6 +9,7 @@ from services.route_toggle_guard import assert_route_generation_allowed
 from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
+from models.city import City
 from schemas.recommendation_route import (
     RecommendationRouteRequest,
     RecommendationRouteResponse,
@@ -25,6 +26,7 @@ router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 CANONICAL_ROUTE_ENDPOINT = "/v1/recommendations/route"
 LEGACY_ROUTE_ENDPOINT = "/recommendations/route"
 SUNSET_HTTP_DATE = "Tue, 30 Jun 2026 00:00:00 GMT"
+DEFAULT_ROUTE_TIMEZONE = "UTC"
 
 
 def _set_legacy_deprecation_headers(request: Request, response: Response) -> None:
@@ -45,12 +47,14 @@ def post_recommendation_route(
 ) -> RecommendationRouteResponse:
     started = perf_counter()
     city_slug = _resolve_city_slug(db, payload.city_slug, payload.city_id)
+    city_timezone = _resolve_city_timezone(db, city_slug, payload.city_id)
     assert_route_generation_allowed(db, city_slug=city_slug)
     assert_ai_recommendations(db, city_slug=city_slug)
     _set_legacy_deprecation_headers(request, response)
     route_request = RequestContext(
         location=(payload.lat, payload.lng),
         city_id=payload.city_id,
+        timezone=city_timezone,
         time_budget_minutes=payload.time_budget_minutes,
         time_of_day=payload.time_of_day,
         route_time_mode=payload.route_time_mode,
@@ -106,3 +110,13 @@ def _resolve_city_slug(db: Session, city_slug: str | None, city_id: str | None) 
         return None
     city = get_city_by_id(db, int(city_id))
     return city.slug if city else None
+
+
+def _resolve_city_timezone(db: Session, city_slug: str | None, city_id: str | None) -> str:
+    city: City | None = None
+    if city_slug:
+        city = db.query(City).filter(City.slug == city_slug).first()
+    elif city_id and city_id.isdigit():
+        city = get_city_by_id(db, int(city_id))
+    value = str(getattr(city, "timezone", "") or "").strip() if city else ""
+    return value or DEFAULT_ROUTE_TIMEZONE
