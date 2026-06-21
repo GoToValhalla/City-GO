@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     coffee_category_id: int | None = None
     coffee_tag_id: int | None = None
 
-    # Optional filters for food places — опциональные id для сценария «еда".
+    # Optional filters for food places — опциональные id для сценария «еда».
     food_category_id: int | None = None
     food_tag_id: int | None = None
 
