@@ -8,9 +8,11 @@ import urllib.request
 from typing import Any
 
 from core.config import settings
+from services.local_persistent_cache import get_cached_json, set_cached_json, stable_cache_key
 
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 DEFAULT_USER_AGENT = "CityGoAddressBackfill/1.0"
+CACHE_NAMESPACE = "nominatim_reverse_v1"
 
 
 def geocoder_user_agent() -> str:
@@ -21,20 +23,30 @@ def geocoder_user_agent() -> str:
 
 
 def reverse_geocode_payload(lat: float, lng: float) -> dict[str, Any]:
-    params = urllib.parse.urlencode({
+    params_payload = {
         "format": "jsonv2",
         "lat": f"{lat:.7f}",
         "lon": f"{lng:.7f}",
         "addressdetails": "1",
         "accept-language": "ru",
         "zoom": "18",
-    })
+    }
+    cache_key = stable_cache_key(CACHE_NAMESPACE, params_payload)
+    found, cached = get_cached_json(cache_key)
+    if found and isinstance(cached, dict):
+        return cached
+
+    params = urllib.parse.urlencode(params_payload)
     request = urllib.request.Request(
         f"{NOMINATIM_REVERSE_URL}?{params}",
         headers={"User-Agent": geocoder_user_agent()},
     )
     with urllib.request.urlopen(request, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
+        payload = json.loads(response.read().decode("utf-8"))
+    if isinstance(payload, dict):
+        set_cached_json(cache_key, payload, tag="provider:nominatim")
+        return payload
+    return {}
 
 
 def reverse_geocode(lat: float, lng: float) -> str | None:
