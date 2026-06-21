@@ -44,6 +44,103 @@ const STAGE_ORDER = [
   'final_response',
 ]
 
+const IMPORTANT_TRACE_KEYS = new Set([
+  'stage',
+  'status',
+  'duration_ms',
+  'city_id',
+  'city_slug',
+  'city_db_id',
+  'city_launch_status',
+  'city_is_active',
+  'city_is_blocked_for_routes',
+  'start_point',
+  'location',
+  'radius_meters',
+  'requested_radius_meters',
+  'expanded_radius_meters',
+  'route_time_mode',
+  'time_of_day',
+  'interests',
+  'avoided_categories',
+  'interest_removed_due_to_avoidance',
+  'warnings',
+  'failure_stage',
+  'failure_reason',
+  'partial_reason',
+  'input_count',
+  'output_count',
+  'count',
+  'kept_count',
+  'removed_count',
+  'selected_count',
+  'selected_count_before_budget',
+  'input_scored_count',
+  'target_points',
+  'warning_count',
+  'places_total_in_city',
+  'places_public_catalog',
+  'places_route_visible',
+  'places_route_eligible',
+  'places_with_coords',
+  'geo_query_count',
+  'geo_route_eligible_count',
+  'candidate_retrieval_expected_count',
+  'candidate_retrieval_city_wide_expected_count',
+  'raw_candidates_count',
+  'after_radius_count',
+  'expanded_radius_candidates_count',
+  'city_wide_candidates_count',
+  'route_visible_candidates_count',
+  'final_candidates_count',
+  'retrieval_strategy_used',
+  'fallback_used',
+  'fallback_radius_used',
+  'fallback_city_wide_used',
+  'fallback_route_visible_used',
+  'route_eligible_before_user_exclusions',
+  'route_eligible_after_user_exclusions',
+  'radius_before_user_exclusions',
+  'radius_after_user_exclusions',
+  'expanded_radius_before_user_exclusions',
+  'expanded_radius_after_user_exclusions',
+  'city_wide_after_user_exclusions',
+  'route_visible_city_wide_after_user_exclusions',
+  'route_visible_radius_after_user_exclusions',
+  'retrieval_loss_summary',
+  'final_candidate_categories',
+  'sample_candidate_ids',
+  'top_candidate_distances_meters',
+  'strict_kept_count',
+  'relaxed_kept_count',
+  'reasons',
+  'removal_reasons',
+  'strict_removal_reasons',
+  'relaxed_removal_reasons',
+  'exact_count',
+  'related_count',
+  'neutral_count',
+  'expansion_level',
+  'expanded_category_count',
+  'neutral_added_count',
+  'route_minutes',
+  'actual_duration_minutes',
+  'requested_budget_minutes',
+  'target_minutes',
+  'hard_budget_minutes',
+  'before_fill_count',
+  'after_fill_count',
+  'route_completeness',
+  'route_quality_status',
+  'fallback_level',
+  'failed_gates',
+  'final_points_count',
+  'final_places_count',
+  'final_duration_minutes',
+  'final_total_minutes',
+  'final_place_ids',
+])
+
 const stageTitles: Record<string, string> = {
   context_merge: '1. Context Merge',
   context_normalization: '1.1. Context Conflicts',
@@ -75,7 +172,7 @@ const stageByName = (trace: RouteDebugTraceEntry[], stage: string): RouteDebugTr
 )
 
 const rawValue = (entry: RouteDebugTraceEntry, keys: string[]): unknown => (
-  keys.map((key) => entry[key]).find((item) => item !== undefined && item !== null)
+  keys.map((key) => entry[key]).find((item) => !isEmptyValue(item))
 )
 
 const field = (payload: Record<string, unknown> | undefined, key: string): unknown => (
@@ -99,12 +196,31 @@ const summaryNumber = (route: RecommendationRouteResponse, section: string, key:
   return null
 }
 
+const isEmptyValue = (value: unknown): boolean => {
+  if (value === undefined || value === null || value === '') return true
+  if (Array.isArray(value)) return value.length === 0
+  if (typeof value === 'object') return Object.keys(value as Record<string, unknown>).length === 0
+  return false
+}
+
+const compactJson = (value: unknown, maxLength = 220): string => {
+  const text = JSON.stringify(value)
+  if (!text) return '-'
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text
+}
+
 const formatValue = (value: unknown): string => {
-  if (value === undefined || value === null || value === '') return '-'
-  if (Array.isArray(value)) return value.length ? value.map(formatValue).join(', ') : '-'
+  if (isEmptyValue(value)) return '-'
+  if (Array.isArray(value)) {
+    const shown = value.slice(0, 4).map((item) => (
+      typeof item === 'object' && item !== null ? compactJson(item, 120) : formatValue(item)
+    ))
+    const suffix = value.length > shown.length ? ` +${value.length - shown.length}` : ''
+    return `${shown.join(' | ')}${suffix}`
+  }
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  return JSON.stringify(value)
+  return compactJson(value)
 }
 
 const statusLabel = (isBad: boolean, isWarn = false): string => {
@@ -124,22 +240,35 @@ const getOrderedTrace = (trace: RouteDebugTraceEntry[]): RouteDebugTraceEntry[] 
 
 const rowsFromPayload = (payload: Record<string, unknown>, prefix = ''): DebugRow[] => Object.entries(payload).flatMap(([key, value]) => {
   const label = prefix ? `${prefix}.${key}` : key
+  if (isEmptyValue(value)) return []
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return rowsFromPayload(value as Record<string, unknown>, label)
   }
   return [{ label, value }]
 })
 
-const renderRows = (rows: DebugRow[]) => (
-  <div className="route-debug-summary-grid">
-    {rows.map((row) => (
-      <div key={row.label}>
-        <span>{row.label}</span>
-        <strong>{formatValue(row.value)}</strong>
-      </div>
-    ))}
-  </div>
-)
+const compactStageRows = (entry: RouteDebugTraceEntry): DebugRow[] => Object.entries(entry).flatMap(([key, value]) => {
+  if (!IMPORTANT_TRACE_KEYS.has(key) || isEmptyValue(value)) return []
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return rowsFromPayload(value as Record<string, unknown>, key)
+  }
+  return [{ label: key, value }]
+})
+
+const renderRows = (rows: DebugRow[]) => {
+  const visibleRows = rows.filter((row) => !isEmptyValue(row.value))
+  if (!visibleRows.length) return <p className="route-debug-empty">Нет значимых данных.</p>
+  return (
+    <div className="route-debug-summary-grid">
+      {visibleRows.map((row) => (
+        <div key={row.label}>
+          <span>{row.label}</span>
+          <strong>{formatValue(row.value)}</strong>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 const buildPipelineMatrix = (
   route: RecommendationRouteResponse,
@@ -170,7 +299,7 @@ const buildPipelineMatrix = (
       step: 'Candidate Retrieval',
       status: statusLabel(Boolean(cityTotal && cityTotal > 0 && retrievalOut === 0)),
       signal: `city_total=${formatValue(cityTotal)}, route_eligible=${formatValue(routeEligible)}, output=${formatValue(retrievalOut)}`,
-      action: retrievalOut === 0 ? 'Проверить city slug, radius, fallback city-wide, category balance.' : 'Кандидаты дошли дальше.',
+      action: retrievalOut === 0 ? 'Проверить retrieval query, radius, city-wide fallback, route-visible fallback.' : 'Кандидаты дошли дальше.',
     },
     {
       step: 'Hard Filters',
@@ -189,7 +318,7 @@ const buildPipelineMatrix = (
       status: statusLabel(Boolean(assemblyInput && assemblyInput > 20 && (assemblyOut ?? 0) <= 1), Boolean(assemblyInput && assemblyOut !== null && assemblyOut < Math.min(3, assemblyInput))),
       signal: `input_scored=${formatValue(assemblyInput)}, output=${formatValue(assemblyOut)}, target=${formatValue(rawValue(assembly, ['target_points']))}`,
       action: assemblyInput && assemblyInput > 20 && (assemblyOut ?? 0) <= 1
-        ? 'Гипотеза Gemini подтверждается: смотреть walk cap, first point, diversity, fallback.'
+        ? 'Смотреть walk cap, first point, diversity, fallback.'
         : 'Assembly не выглядит главным убийцей маршрута.',
     },
     {
@@ -217,16 +346,18 @@ const buildKeyRows = (
   budgetFit: RouteDebugTraceEntry,
   final: RouteDebugTraceEntry,
 ): DebugRow[] => ([
-  { label: 'route_id', value: route.route_id },
   { label: 'status', value: route.status },
   { label: 'partial_reason', value: route.partial_reason },
   { label: 'death_point', value: field(route.route_debug_summary, 'death_point') ?? field(route.route_debug_summary, 'failure_stage') },
   { label: 'city_total', value: numberValue(candidateRetrieval, ['places_total_in_city']) ?? summaryNumber(route, 'city', 'places_total_in_city') },
-  { label: 'route_eligible_total', value: numberValue(candidateRetrieval, ['places_route_eligible']) ?? summaryNumber(route, 'city', 'places_route_eligible') },
+  { label: 'route_visible', value: numberValue(candidateRetrieval, ['places_route_visible']) ?? summaryNumber(route, 'city', 'places_route_visible') },
+  { label: 'route_eligible', value: numberValue(candidateRetrieval, ['places_route_eligible']) ?? summaryNumber(route, 'city', 'places_route_eligible') },
+  { label: 'geo_query_count', value: numberValue(candidateRetrieval, ['geo_query_count']) },
   { label: 'retrieval_output', value: numberValue(retrieval, ['final_candidates_count', 'count']) ?? summaryNumber(route, 'retrieval', 'final_candidates_count') },
+  { label: 'retrieval_strategy', value: rawValue(retrieval, ['retrieval_strategy_used']) },
+  { label: 'route_visible_fallback', value: rawValue(retrieval, ['fallback_route_visible_used']) },
   { label: 'hard_filters_output', value: numberValue(hardFilter, ['output_count', 'kept_count']) ?? summaryNumber(route, 'pipeline_counts', 'hard_filter_output') },
   { label: 'scoring_output', value: numberValue(scoring, ['output_count', 'count']) ?? summaryNumber(route, 'pipeline_counts', 'scoring_output') },
-  { label: 'assembly_input', value: numberValue(assembly, ['input_scored_count', 'input_count']) ?? summaryNumber(route, 'pipeline_counts', 'assembly_input') },
   { label: 'assembly_output', value: numberValue(assembly, ['output_count', 'selected_count']) ?? summaryNumber(route, 'pipeline_counts', 'assembly_output') },
   { label: 'budget_fit_output', value: numberValue(budgetFit, ['output_count', 'kept_count']) ?? summaryNumber(route, 'pipeline_counts', 'budget_fit_output') },
   { label: 'final_points', value: numberValue(final, ['final_points_count']) ?? route.total_places },
@@ -253,62 +384,29 @@ export const RouteDebugTrace = ({ route }: Props) => {
   const scoring = stageByName(trace, 'scoring') ?? stageByName(trace, 'scoring_raw') ?? emptyTraceEntry
   const assembly = stageByName(trace, 'assembly') ?? emptyTraceEntry
   const budgetFit = stageByName(trace, 'budget_fit') ?? emptyTraceEntry
-  const qualityGates = stageByName(trace, 'quality_gates') ?? emptyTraceEntry
   const final = stageByName(trace, 'final') ?? emptyTraceEntry
+  const meaningfulTrace = trace.filter((entry) => compactStageRows(entry).length > 1)
 
   return (
     <section className="route-result-tile route-debug-trace route-debug-page">
       <h3>Debug маршрута</h3>
-      <p>Полная диагностика пайплайна на странице. Без вложенных блоков, скролла и JSON-портянок.</p>
 
-      <div className="route-debug-section">
+      <div className="route-debug-section route-debug-section-primary">
         <strong>Главный вывод</strong>
         {renderRows(buildKeyRows(route, retrieval, candidateRetrieval, hardFilter, scoring, assembly, budgetFit, final))}
       </div>
 
       <div className="route-debug-section">
-        <strong>Диагностическая матрица Gemini + Route Engine</strong>
+        <strong>Диагностическая матрица</strong>
         {renderMatrix(buildPipelineMatrix(route, retrieval, candidateRetrieval, hardFilter, scoring, assembly, budgetFit, final))}
       </div>
 
-      <div className="route-debug-section">
-        <strong>Context / Interests / Avoided</strong>
-        {renderRows([
-          { label: 'interests', value: rawValue(stageByName(trace, 'context_merge') ?? emptyTraceEntry, ['interests']) },
-          { label: 'avoided_categories', value: rawValue(stageByName(trace, 'context_merge') ?? emptyTraceEntry, ['avoided_categories']) },
-          { label: 'resolved_conflicts', value: rawValue(stageByName(trace, 'context_merge') ?? emptyTraceEntry, ['interest_removed_due_to_avoidance']) },
-          { label: 'context_warnings', value: rawValue(stageByName(trace, 'context_normalization') ?? emptyTraceEntry, ['warnings']) },
-        ])}
-      </div>
-
-      <div className="route-debug-section">
-        <strong>Assembly / Budget / Quality</strong>
-        {renderRows([
-          { label: 'assembly.failure_reason', value: rawValue(assembly, ['failure_reason']) },
-          { label: 'assembly.rejection_reasons', value: rawValue(assembly, ['rejection_reasons']) },
-          { label: 'assembly.first_point_rejection_reasons', value: rawValue(assembly, ['first_point_rejection_reasons']) },
-          { label: 'assembly.fallback_used', value: rawValue(assembly, ['fallback_used']) },
-          { label: 'assembly.fallback_triggers', value: rawValue(assembly, ['fallback_triggers']) },
-          { label: 'budget_fit.failure_reason', value: rawValue(budgetFit, ['failure_reason']) },
-          { label: 'budget_fit.warnings', value: rawValue(budgetFit, ['warnings']) },
-          { label: 'quality_gates.status', value: rawValue(qualityGates, ['route_quality_status', 'status']) },
-          { label: 'quality_gates.failed_gates', value: rawValue(qualityGates, ['failed_gates']) },
-        ])}
-      </div>
-
-      {route.route_debug_summary ? (
-        <div className="route-debug-section">
-          <strong>Backend route_debug_summary</strong>
-          {renderRows(rowsFromPayload(route.route_debug_summary))}
-        </div>
-      ) : null}
-
       <div className="route-debug-stage-list">
-        <strong>Полный debug_trace по шагам</strong>
-        {trace.map((entry, index) => (
+        <strong>Debug trace по шагам</strong>
+        {meaningfulTrace.map((entry, index) => (
           <div className="route-debug-stage" key={`${entry.stage}-${index}`}>
             <h4>{stageTitles[entry.stage] ?? entry.stage}</h4>
-            {renderRows(rowsFromPayload(entry as Record<string, unknown>))}
+            {renderRows(compactStageRows(entry).filter((row) => row.label !== 'stage'))}
           </div>
         ))}
       </div>
