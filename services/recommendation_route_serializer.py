@@ -6,10 +6,12 @@ from services.route_assembly_service import RoutePoint
 from services.route_finalize_service import FinalRoute
 from services.route_address_warnings import missing_address_warning_items, route_warnings_with_missing_address
 from services.route_navigation_service import navigation_payload
+from services.route_pipeline_trace import compact_route_trace, route_debug_summary
 from services.route_user_warnings import user_warnings
 
 
 def serialize_final_route(final: FinalRoute) -> dict[str, object]:
+    pipeline_trace = list(getattr(final, "pipeline_trace", []) or [])
     return {
         "route_id": str(final.route_id),
         "status": str(getattr(final, "status", "ready") or "ready"),
@@ -44,7 +46,8 @@ def serialize_final_route(final: FinalRoute) -> dict[str, object]:
         "user_warnings": [*user_warnings(final), *missing_address_warning_items(final.points)],
         "points": [_serialize_point(point) for point in final.points],
         "candidate_options": [_serialize_point(point) for point in getattr(final, "candidate_options", []) or []],
-        "debug_trace": list(getattr(final, "pipeline_trace", []) or []),
+        "route_debug_summary": route_debug_summary(str(final.route_id), pipeline_trace),
+        "debug_trace": compact_route_trace(pipeline_trace),
     }
 
 
