@@ -44,3 +44,24 @@ def test_admin_local_cache_stats_endpoint_is_registered_new() -> None:
 
     assert '@router.get("/cache/local")' in admin_ops
     assert "cache_stats" in admin_ops
+
+
+def test_import_worker_is_throttled_by_env_new() -> None:
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "IMPORT_WORKER_BATCH_LIMIT: 1" in compose
+    assert "IMPORT_WORKER_SLEEP_SECONDS: 60" in compose
+    assert "run_admin_import_queue.py --limit" in compose
+
+
+def test_admin_import_actions_use_db_queue_new() -> None:
+    router = Path("routers/admin_import_jobs.py").read_text(encoding="utf-8")
+    tasks = Path("services/admin_city_import_tasks.py").read_text(encoding="utf-8")
+    job_service = Path("services/admin_city_import_job_service.py").read_text(encoding="utf-8")
+
+    assert "BackgroundTasks" not in router
+    assert '@router.get("/import-jobs/queue")' in router
+    assert "queue_city_import_job" in router
+    assert "queue_city_enrichment_job" in router
+    assert "import_queue_summary" in tasks
+    assert "SOURCE_ENRICHMENT_ONLY" in job_service
