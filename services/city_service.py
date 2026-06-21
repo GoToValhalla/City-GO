@@ -14,9 +14,9 @@ from services.place_public_visibility import public_place_conditions
 PUBLISHED = "published"
 
 
-# Возвращает список всех городов из базы данных.
+# Возвращает список опубликованных городов из базы данных.
 def get_cities(db: Session) -> list[City]:
-    return db.query(City).all()
+    return db.query(City).filter(City.is_active.is_(True), City.launch_status == PUBLISHED).all()
 
 
 def get_available_cities(db: Session, include_draft: bool = False, *, admin_view: bool = False) -> list[dict[str, object]]:
