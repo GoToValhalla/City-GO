@@ -75,7 +75,7 @@ def post_recommendation_route(
         city_id=payload.city_id,
         user_id=payload.user_id,
     )
-    stops = len(getattr(final_route, "stops", []) or [])
+    stops = len(getattr(final_route, "points", []) or [])
     evt = "route_generation_success" if stops > 0 else "route_generation_failed"
     record_event(db, event_type=evt, city_slug=city_slug, user_id=payload.user_id,
                  payload={"stops": stops, "source": "recommendations"})
