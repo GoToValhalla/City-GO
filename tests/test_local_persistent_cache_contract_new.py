@@ -37,3 +37,10 @@ def test_import_enrichment_uses_cache_layer_new() -> None:
     assert "get_cached_text" in images
     assert "set_cached_text" in images
     assert "image_enrichment_http_text_v1" in images
+
+
+def test_admin_local_cache_stats_endpoint_is_registered_new() -> None:
+    admin_ops = Path("routers/admin_ops.py").read_text(encoding="utf-8")
+
+    assert '@router.get("/cache/local")' in admin_ops
+    assert "cache_stats" in admin_ops
