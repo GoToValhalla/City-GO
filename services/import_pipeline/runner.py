@@ -44,6 +44,8 @@ def run_enrichment_pipeline(
     slug = city.slug
     job.status = "running"
     job.started_at = job.started_at or datetime.utcnow()
+    city.launch_status = "importing"
+    city.is_active = False
     set_step(job, STEP_RUNNING)
     db.commit()
     results: dict[str, Any] = {}
@@ -103,18 +105,22 @@ def run_enrichment_pipeline(
         set_step(job, STEP_COMPUTING_READINESS, detail={"readiness_score": readiness.get("readiness_score")})
         db.commit()
 
+        places_total = db.query(Place).filter(Place.city_id == city.id).count()
         set_step(job, STEP_READY_FOR_REVIEW, successful=places_total, processed=places_total)
         job.status = "success"
         job.finished_at = datetime.utcnow()
         city.launch_status = "review_required"
+        city.is_active = False
+        city.last_import_at = job.finished_at
         log_import_event(db, event="import_pipeline_finished", city_slug=slug, actor_id=actor_id,
-                         message=f"Pipeline #{job.id} готов к проверке", details={"job_id": job.id, **results})
+                         message=f"Pipeline #{job.id} готов к проверке и ручной публикации", details={"job_id": job.id, **results})
         return results
     except Exception as exc:  # noqa: BLE001
         job.status = "failed"
         job.last_error = str(exc)[:2000]
         job.finished_at = datetime.utcnow()
         city.launch_status = "import_failed"
+        city.is_active = False
         set_step(job, "error", detail={"error": str(exc)})
         log_import_event(db, event="import_pipeline_failed", city_slug=slug, actor_id=actor_id, level="error",
                          message=f"Pipeline #{job.id}: {exc}", details={"job_id": job.id})
