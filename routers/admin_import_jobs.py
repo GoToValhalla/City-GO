@@ -15,7 +15,7 @@ from services.admin_city_import_job_service import (
 )
 from services.admin_city_import_tasks import import_queue_summary
 from services.admin_city_publication_service import publish_city
-from services.admin_extended_service import get_admin_import_job, list_admin_import_jobs
+from services.admin_extended_service import get_admin_import_job
 
 router = APIRouter(prefix="/admin", tags=["admin-import-jobs"])
 
