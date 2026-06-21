@@ -84,6 +84,7 @@ def import_queue_summary(db) -> dict[str, Any]:
         oldest = min((job.created_at for job in queued_jobs if job.created_at), default=None)
         if oldest is not None:
             oldest_queued_seconds = int((now - oldest).total_seconds())
+    next_jobs = sorted(queued_jobs, key=lambda item: (item.created_at or datetime.min, item.id))[:10]
     return {
         "total": len(jobs),
         "by_status": dict(by_status),
@@ -92,5 +93,5 @@ def import_queue_summary(db) -> dict[str, Any]:
         "running": len(running_jobs),
         "stalled_running": sum(1 for job in running_jobs if is_stalled(job, now=now)),
         "oldest_queued_seconds": oldest_queued_seconds,
-        "next_job_ids": [job.id for job in sorted(queued_jobs, key=lambda item: (item.created_at, item.id))[:10]],
+        "next_job_ids": [job.id for job in next_jobs],
     }
