@@ -9,6 +9,8 @@ from models.place import Place
 from models.place_tag import PlaceTag
 from services.place_public_visibility import apply_public_place_visibility
 
+PUBLISHED_CITY_STATUS = "published"
+
 
 def apply_place_filters(
     db: Session,
@@ -23,8 +25,15 @@ def apply_place_filters(
 
     Возвращает:
     - Query, если фильтры применены успешно
-    - None, если city_slug передан, но город не найден
+    - None, если city_slug передан, но опубликованный город не найден
     """
+    # Публичные места доступны только внутри опубликованных городов.
+    # Иначе импортированный, но не проверенный город можно открыть прямым city_slug.
+    query = query.join(City, Place.city_id == City.id).filter(
+        City.is_active.is_(True),
+        City.launch_status == PUBLISHED_CITY_STATUS,
+    )
+
     # Сначала применяем единый фильтр публичной видимости:
     # active + is_active + без временно скрытых категорий.
     query = apply_public_place_visibility(query)
@@ -35,7 +44,11 @@ def apply_place_filters(
 
     # Фильтруем по городу через city_slug.
     if city_slug is not None:
-        city = db.query(City).filter(City.slug == city_slug).first()
+        city = db.query(City).filter(
+            City.slug == city_slug,
+            City.is_active.is_(True),
+            City.launch_status == PUBLISHED_CITY_STATUS,
+        ).first()
         if city is None:
             return None
         query = query.filter(Place.city_id == city.id)
