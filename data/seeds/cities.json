@@ -1,29 +1,35 @@
 [
   {
-    "id": "zelenogradsk",
+    "slug": "zelenogradsk",
     "name": "Зеленоградск",
-    "country": "RU",
+    "region": "Калининградская область",
+    "country": "Россия",
     "timezone": "Europe/Kaliningrad",
-    "lat": 54.9534,
-    "lng": 20.4648,
-    "active": true
+    "center_lat": 54.9534,
+    "center_lng": 20.4648,
+    "launch_status": "published",
+    "is_active": true
   },
   {
-    "id": "astrakhan",
+    "slug": "astrakhan",
     "name": "Астрахань",
-    "country": "RU",
+    "region": "Астраханская область",
+    "country": "Россия",
     "timezone": "Europe/Astrakhan",
-    "lat": 46.3497,
-    "lng": 48.0408,
-    "active": true
+    "center_lat": 46.3497,
+    "center_lng": 48.0408,
+    "launch_status": "importing",
+    "is_active": true
   },
   {
-    "id": "arkhangelsk",
+    "slug": "arkhangelsk",
     "name": "Архангельск",
-    "country": "RU",
+    "region": "Архангельская область",
+    "country": "Россия",
     "timezone": "Europe/Moscow",
-    "lat": 64.5393,
-    "lng": 40.5170,
-    "active": true
+    "center_lat": 64.5393,
+    "center_lng": 40.5170,
+    "launch_status": "importing",
+    "is_active": true
   }
 ]
