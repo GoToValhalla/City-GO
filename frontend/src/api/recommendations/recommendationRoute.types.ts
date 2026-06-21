@@ -50,7 +50,6 @@ export type RecommendationRoutePoint = {
   time_status?: string | null
   time_warning?: string | null
   scoring_breakdown?: Record<string, number | string>
-  // Navigation payload
   display_location?: string | null
   has_address?: boolean
   navigation_url_google?: string | null
@@ -90,6 +89,16 @@ export type RouteDebugTraceEntry = {
   [key: string]: unknown
 }
 
+export type RouteDebugSummary = {
+  route_id?: string | null
+  failure_stage?: string | null
+  retrieval?: Record<string, unknown>
+  city?: Record<string, unknown>
+  pipeline_counts?: Record<string, unknown>
+  important?: Record<string, unknown>
+  [key: string]: unknown
+}
+
 export type RecommendationRouteResponse = {
   route_id: string
   revision?: number
@@ -124,6 +133,7 @@ export type RecommendationRouteResponse = {
   points: RecommendationRoutePoint[]
   candidate_options?: RecommendationRoutePoint[]
   explanation: RecommendationExplanation
+  route_debug_summary?: RouteDebugSummary
   debug_trace?: RouteDebugTraceEntry[]
 }
 
