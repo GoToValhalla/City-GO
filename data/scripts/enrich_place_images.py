@@ -35,6 +35,7 @@ from models.place import Place
 from models.place_image import PLACE_IMAGE_STATUS_APPROVED, PlaceImage
 from models.place_source_presence import PlaceSourcePresence
 from models.source_observation import SourceObservation
+from services.local_persistent_cache import get_cached_text, set_cached_text, stable_cache_key
 from services.place_public_image_service import place_has_public_image
 from services.place_public_visibility import is_public_hidden_category
 
@@ -42,6 +43,7 @@ BAD_TITLE_PATTERN = re.compile(r"^(yes|no|unknown|fixme|todo|n/a)$", re.I)
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 REQUEST_TIMEOUT_SECONDS = 12
 USER_AGENT = "CityGoImageEnricher/1.0"
+HTTP_TEXT_CACHE_NAMESPACE = "image_enrichment_http_text_v1"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -521,6 +523,11 @@ def _fetch_json(url: str) -> dict[str, Any] | None:
 
 
 def _fetch_text(url: str) -> str | None:
+    cache_key = stable_cache_key(HTTP_TEXT_CACHE_NAMESPACE, {"url": url})
+    found, cached = get_cached_text(cache_key)
+    if found:
+        return cached
+
     request = urllib.request.Request(
         url,
         headers={
@@ -535,7 +542,11 @@ def _fetch_text(url: str) -> str | None:
             charset = "utf-8"
             if "charset=" in content_type:
                 charset = content_type.split("charset=", 1)[1].split(";", 1)[0].strip()
-            return response.read().decode(charset or "utf-8", errors="replace")
+            text = response.read().decode(charset or "utf-8", errors="replace")
+            if text:
+                host = urllib.parse.urlparse(url).netloc or "unknown"
+                set_cached_text(cache_key, text, tag=f"provider:{host}")
+            return text
     except Exception:
         return None
 
