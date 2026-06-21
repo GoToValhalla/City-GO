@@ -5,8 +5,9 @@ from services.route_quality_gates import evaluate_quality_gates
 
 
 def _plan(target_points: int = 6, expanded_pool_count: int = 180) -> RoutePlan:
+    scored = [SimpleNamespace() for _ in range(expanded_pool_count)]
     return RoutePlan(
-        scored=[],
+        scored=scored,
         target_points=target_points,
         exact_count=0,
         related_count=0,
@@ -14,9 +15,8 @@ def _plan(target_points: int = 6, expanded_pool_count: int = 180) -> RoutePlan:
         expansion_level="neutral",
         expanded_category_count=0,
         neutral_added_count=expanded_pool_count,
-        expanded_pool_count=expanded_pool_count,
         warnings=[],
-        user_explanation=None,
+        user_explanation="",
     )
 
 
