@@ -16,25 +16,31 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.alter_column("cities", "launch_status", server_default="draft")
-    op.alter_column("cities", "is_active", server_default=sa.false())
-    op.alter_column("places", "is_published", server_default=sa.false())
-    op.alter_column("places", "is_visible_in_catalog", server_default=sa.false())
-    op.alter_column("places", "is_route_eligible", server_default=sa.false())
-    op.alter_column("places", "is_searchable", server_default=sa.false())
-    op.alter_column("places", "publication_status", server_default="draft")
+    bind = op.get_bind()
+    if bind.dialect.name != "sqlite":
+        op.alter_column("cities", "launch_status", server_default="draft")
+        op.alter_column("cities", "is_active", server_default=sa.false())
+        op.alter_column("places", "is_published", server_default=sa.false())
+        op.alter_column("places", "is_visible_in_catalog", server_default=sa.false())
+        op.alter_column("places", "is_route_eligible", server_default=sa.false())
+        op.alter_column("places", "is_searchable", server_default=sa.false())
+        op.alter_column("places", "publication_status", server_default="draft")
 
     op.execute(
         """
         UPDATE cities
         SET is_active = false,
-            updated_at = now()
+            updated_at = CURRENT_TIMESTAMP
         WHERE launch_status IN ('draft', 'importing', 'imported', 'review_required', 'import_failed', 'unpublished')
         """
     )
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        return
+
     op.alter_column("cities", "launch_status", server_default="published")
     op.alter_column("cities", "is_active", server_default=sa.true())
     op.alter_column("places", "is_published", server_default=sa.true())
