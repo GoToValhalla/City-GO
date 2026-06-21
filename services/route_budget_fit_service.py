@@ -46,7 +46,7 @@ class RouteBudgetFitService:
         warnings: List[str] = []
         if dropped > 0:
             warnings.append(ROUTE_BUDGET_TRIMMED_WARNING)
-        if len(kept) < min(len(route), minimum_points_for_budget(budget)):
+        if len(kept) < minimum_points_for_budget(budget):
             warnings.append(self._short_route_warning(budget))
         if self._utilization(kept, budget) < _LOW_UTILIZATION_RATIO and len(route) >= minimum_points_for_budget(budget):
             if self._total_minutes(route) <= budget:
