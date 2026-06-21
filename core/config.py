@@ -18,6 +18,13 @@ class Settings(BaseSettings):
     db_pool_timeout_seconds: int = 30
     db_pool_recycle_seconds: int = 1800
 
+    # Local persistent cache for import/enrichment external calls. This is not distributed state.
+    local_cache_enabled: bool = True
+    local_cache_dir: str = "/app/.cache/city-go"
+    local_cache_default_ttl_seconds: int = 2_592_000
+    local_cache_size_limit_bytes: int = 1_073_741_824
+    local_cache_shards: int = 8
+
     # Optional Geoapify key. Если ключ не задан, typed address не геокодится,
     # а маршрут строится от координат, которые пришли от клиента.
     geoapify_api_key: str = ""
