@@ -5,6 +5,8 @@ from typing import Sequence
 from schemas.merged_context import MergedContext
 from services.itinerary_time_service import resolve_open_windows_for_datetime
 from services.route_assembly_service import RoutePoint
+from services.route_start_time import effective_route_start
+from services.route_timezone import ensure_local_datetime, local_now
 
 _CLOSING_SOON_MINUTES = 90
 _MAX_FORCE_DISTANCE_KM = 3.0
@@ -17,8 +19,15 @@ class RouteTimeOrderingService:
         ctx: MergedContext,
         start_time: datetime,
     ) -> list[RoutePoint]:
+        route_start = _route_start(ctx, start_time)
         indexed = tuple(enumerate(route))
-        return list(map(_point, sorted(indexed, key=lambda item: _priority(item, ctx, start_time))))
+        return list(map(_point, sorted(indexed, key=lambda item: _priority(item, ctx, route_start))))
+
+
+def _route_start(ctx: MergedContext, start_time: datetime) -> datetime:
+    if getattr(ctx, "time_of_day", None):
+        return effective_route_start(local_now(ctx), getattr(ctx, "time_of_day", None))
+    return ensure_local_datetime(start_time, ctx)
 
 
 def _priority(
