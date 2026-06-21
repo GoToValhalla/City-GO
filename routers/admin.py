@@ -10,6 +10,7 @@ from schemas.admin import (
     AdminCityCreateRequest,
     AdminCityImportResponse,
     AdminCityListResponse,
+    AdminCityPublicationResponse,
     AdminCityRead,
     AdminDashboardResponse,
     AdminImportJobListResponse,
@@ -35,6 +36,8 @@ from schemas.admin_extra import (
 from schemas.place import PlaceRead
 from schemas.route import RouteDetailRead, RouteRead
 from services.admin_audit_service import get_admin_audit_logs
+from services.admin_city_publication_service import publish_city as publish_city_for_admin
+from services.admin_city_publication_service import unpublish_city as unpublish_city_for_admin
 from services.admin_extra_service import ADMIN_ROLES, admin_coverage, admin_route_feedback
 from services.admin_extended_service import (
     create_admin_place_image,
@@ -105,7 +108,57 @@ def create_city_import(
         city_name=city.name,
         job_status="queued",
         message="Город создан. Задача на автоматический сбор мест и фото поставлена в очередь.",
-        next_step="Проверить import job, затем открыть очередь мест и фото на модерацию.",
+        next_step="После завершения импорта проверьте качество данных и опубликуйте город вручную.",
+    )
+
+
+@router.post("/cities/{city_id}/publish", response_model=AdminCityPublicationResponse)
+def publish_city_from_admin(
+    city_id: int,
+    payload: AdminActionRequest | None = None,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> AdminCityPublicationResponse:
+    body = payload or AdminActionRequest()
+    try:
+        result = publish_city_for_admin(db, city_id, actor=auth.actor_id, reason=body.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="Город не найден")
+    return AdminCityPublicationResponse(
+        city_id=result.city.id,
+        city_slug=result.city.slug,
+        city_name=result.city.name,
+        launch_status=result.city.launch_status,
+        is_active=result.city.is_active,
+        places_total=result.places_total,
+        places_published=result.places_published,
+        places_hidden=result.places_hidden,
+        message=f"Город опубликован. На сайт вышло мест: {result.places_published}. Скрыто: {result.places_hidden}.",
+    )
+
+
+@router.post("/cities/{city_id}/unpublish", response_model=AdminCityPublicationResponse)
+def unpublish_city_from_admin(
+    city_id: int,
+    payload: AdminUnpublishRequest,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> AdminCityPublicationResponse:
+    result = unpublish_city_for_admin(db, city_id, actor=auth.actor_id, reason=payload.reason)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Город не найден")
+    return AdminCityPublicationResponse(
+        city_id=result.city.id,
+        city_slug=result.city.slug,
+        city_name=result.city.name,
+        launch_status=result.city.launch_status,
+        is_active=result.city.is_active,
+        places_total=result.places_total,
+        places_published=result.places_published,
+        places_hidden=result.places_hidden,
+        message="Город снят с публикации. Все его места скрыты с сайта и маршрутов.",
     )
 
 
