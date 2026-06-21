@@ -14,6 +14,11 @@ const STATUS_LABELS: Record<string, string> = {
   running: 'Выполняется',
   review_required: 'На проверке',
   cancelled: 'Отменён',
+  published: 'Опубликован',
+}
+
+type AdminActionResponse = {
+  message?: string
 }
 
 export const AdminImportJobsPage = () => {
@@ -47,7 +52,8 @@ export const AdminImportJobsPage = () => {
     setError(null)
     setNotice(null)
     try {
-      await adminPost(path, {})
+      const response = await adminPost<AdminActionResponse>(path, {})
+      setNotice(response.message ?? 'Действие выполнено.')
       reload()
       loadDetail(cityId)
     } catch (e) {
@@ -78,7 +84,7 @@ export const AdminImportJobsPage = () => {
   return (
     <div>
       <h2 className="admin-page-title">Импорты ({total})</h2>
-      <p className="admin-page-subtitle">Pipeline: места → адреса → фото → качество → проверка</p>
+      <p className="admin-page-subtitle">Pipeline: места → адреса → фото → качество → проверка → публикация</p>
       <div className="admin-actions-cell" style={{ marginBottom: 16 }}>
         <button type="button" className="admin-btn" disabled={allBusy || items.length === 0} onClick={runEnrichAll}>
           {allBusy ? 'Запускаю…' : 'Обогатить все города'}
@@ -90,7 +96,7 @@ export const AdminImportJobsPage = () => {
         <AdminEmpty message="Задач импорта пока нет" />
       ) : (
         <div className="admin-table-wrap"><table className="admin-table">
-          <thead><tr><th>Город</th><th>Шаг</th><th>Прогресс</th><th>Мест</th><th></th></tr></thead>
+          <thead><tr><th>Город</th><th>Шаг</th><th>Публикация</th><th>Прогресс</th><th>Мест</th><th></th></tr></thead>
           <tbody>
             {items.map((j) => {
               const pct = progressPct(j)
@@ -104,13 +110,15 @@ export const AdminImportJobsPage = () => {
                     </span>
                     {stalled && <div className="admin-error-text">Возможно зависла</div>}
                   </td>
+                  <td>{STATUS_LABELS[j.launch_status ?? ''] ?? j.launch_status ?? '—'}</td>
                   <td>{pct !== null ? `${pct}% (${j.processed_items ?? 0}/${j.total_items ?? 0})` : '—'}</td>
-                  <td>{j.places_total}</td>
+                  <td>{j.places_total}<div className="admin-muted">на сайте: {j.places_published}</div></td>
                   <td className="admin-actions-cell">
                     <button type="button" className="admin-btn admin-btn-sm" onClick={() => loadDetail(j.city_id)}>Детали</button>
                     {j.can_run && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/run`)}>Запустить</button>}
                     {j.can_retry && <button type="button" className="admin-btn admin-btn-sm admin-btn-muted" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/retry`)}>Повторить</button>}
                     <button type="button" className="admin-btn admin-btn-sm" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/enrich`)}>Обогатить</button>
+                    {j.can_publish && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/publish`)}>Опубликовать</button>}
                   </td>
                 </tr>
               )
@@ -122,6 +130,7 @@ export const AdminImportJobsPage = () => {
         <div className="admin-detail-panel">
           <h3>{selected.city_name}</h3>
           <p>Шаг: <strong>{selected.current_step_label ?? selected.status}</strong> · Job #{selected.job_id ?? '—'}</p>
+          <p>Публикация: <strong>{STATUS_LABELS[selected.launch_status ?? ''] ?? selected.launch_status ?? '—'}</strong> · на сайте: {selected.places_published}/{selected.places_total}</p>
           <p>Обработано: {selected.processed_items ?? 0}/{selected.total_items ?? 0} · Успешно: {selected.successful_items ?? 0} · Ошибок: {selected.failed_items ?? 0}</p>
           <p>Найдено: {selected.places_found ?? 0} · Сохранено: {selected.places_saved ?? 0} · В городе: {selected.places_total}</p>
           {selected.last_error && <p className="admin-error-text">Ошибка: {selected.last_error}</p>}
@@ -134,6 +143,7 @@ export const AdminImportJobsPage = () => {
             {selected.can_run && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/run`)}>Запустить сейчас</button>}
             {selected.can_retry && <button type="button" className="admin-btn admin-btn-sm admin-btn-muted" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/retry`)}>Повторить</button>}
             {selected.can_cancel && <button type="button" className="admin-btn admin-btn-sm admin-btn-danger" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/cancel`)}>Отменить</button>}
+            {selected.can_publish && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/publish`)}>Опубликовать город</button>}
             {selected.report_url && <Link className="admin-btn admin-btn-sm" to={selected.report_url}>Отчёт качества</Link>}
             {selected.logs_url && <Link className="admin-btn admin-btn-sm" to={selected.logs_url}>Логи</Link>}
             <Link className="admin-btn admin-btn-sm" to={`/admin/places?city=${selected.city_slug}`}>Места</Link>
