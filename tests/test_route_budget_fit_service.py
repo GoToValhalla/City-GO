@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from schemas.merged_context import BudgetLevel, MergedContext, PaceMode
 from services.route_budget_fit_service import (
+    ROUTE_BUDGET_OVERFLOW_TOLERATED_WARNING,
     ROUTE_BUDGET_SINGLE_POINT_WARNING,
     ROUTE_BUDGET_TRIMMED_WARNING,
     ROUTE_LOW_DENSITY_SHORT_WARNING,
@@ -52,6 +53,14 @@ def test_fit_trims_tail_when_route_exceeds_budget() -> None:
     result = RouteBudgetFitService().fit(route, _ctx(60))
     assert [point.place_id for point in result.route] == ["1", "2"]
     assert result.warnings == [ROUTE_BUDGET_TRIMMED_WARNING]
+
+
+def test_fit_keeps_slight_budget_overflow_with_warning() -> None:
+    route = [_point("1", 20, 5), _point("2", 35, 5)]
+    result = RouteBudgetFitService().fit(route, _ctx(60))
+
+    assert [point.place_id for point in result.route] == ["1", "2"]
+    assert result.warnings == [ROUTE_BUDGET_OVERFLOW_TOLERATED_WARNING]
 
 
 def test_fit_skips_oversized_middle_point_when_later_point_fits() -> None:
