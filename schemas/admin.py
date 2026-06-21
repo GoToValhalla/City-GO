@@ -65,6 +65,8 @@ class AdminCityRead(BaseModel):
     places_total: int = 0
     places_published: int = 0
     pending_photos: int = 0
+    can_publish: bool = False
+    can_unpublish: bool = False
     model_config = ConfigDict(from_attributes=True)
 
 class AdminCityListResponse(BaseModel):
@@ -81,12 +83,25 @@ class AdminCityImportResponse(BaseModel):
     message: str
     next_step: str
 
+class AdminCityPublicationResponse(BaseModel):
+    city_id: int
+    city_slug: str
+    city_name: str
+    launch_status: str
+    is_active: bool
+    places_total: int
+    places_published: int
+    places_hidden: int
+    message: str
+
 class AdminImportJobRead(BaseModel):
     id: str
     city_id: int
     city_slug: str
     city_name: str
     status: str
+    launch_status: str | None = None
+    is_city_active: bool = False
     current_step: str = "queued"
     current_step_label: str = "В очереди"
     source: str
@@ -115,6 +130,8 @@ class AdminImportJobRead(BaseModel):
     can_run: bool = False
     can_retry: bool = False
     can_cancel: bool = False
+    can_publish: bool = False
+    can_unpublish: bool = False
     report_url: str | None = None
     logs_url: str | None = None
 
