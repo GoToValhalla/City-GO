@@ -17,6 +17,9 @@ PUBLIC_HIDDEN_CATEGORIES = {
     "bank",
     "atm",
     "car_service",
+    "health",
+    "medical",
+    "pharmacy",
 }
 
 
