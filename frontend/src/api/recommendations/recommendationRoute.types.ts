@@ -49,7 +49,7 @@ export type RecommendationRoutePoint = {
   estimated_departure_time?: string | null
   time_status?: string | null
   time_warning?: string | null
-  scoring_breakdown?: Record<string, number | string>
+  scoring_breakdown?: Record<string, number | string | boolean | null>
   display_location?: string | null
   has_address?: boolean
   navigation_url_google?: string | null
@@ -115,7 +115,7 @@ export type RecommendationRouteResponse = {
   places_with_warnings: string[]
   quality_score?: number
   quality_status?: RouteQualityStatus
-  quality_breakdown?: Record<string, number | string>
+  quality_breakdown?: Record<string, number | string | boolean | null>
   route_quality_status?: string | null
   route_completeness?: number
   matched_interest_count?: number
