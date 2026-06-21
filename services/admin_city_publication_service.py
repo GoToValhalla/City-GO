@@ -185,5 +185,4 @@ def _city_publication_snapshot(city: City) -> dict[str, object]:
 
 
 def _is_blank(value: str | None) -> bool:
-    return not bool(str(value or "").strip()
-)
+    return not bool(str(value or "").strip())
