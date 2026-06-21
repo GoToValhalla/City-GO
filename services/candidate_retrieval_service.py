@@ -40,6 +40,7 @@ FOOD_AND_REST_CATEGORIES = frozenset({"cafe", "coffee", "food", "restaurant", "b
 # route-eligible места. Маршрутная сборка должна опираться на активность города и
 # качество мест, а не блокироваться launch_status == published.
 BLOCKED_CITY_LAUNCH_STATUSES = frozenset({"disabled", "archived", "hidden"})
+LOCATION_FALLBACK_MAX_DISTANCE_METERS = 50_000
 
 
 class CandidateRetrievalService:
@@ -57,6 +58,7 @@ class CandidateRetrievalService:
         ctx: MergedContext,
     ) -> list[Place]:
 
+        self._apply_city_center_location_fallback(db, ctx)
         density = self._safe_spatial_density(db, ctx)
         retrieval_counts = self._safe_retrieval_counts(db, ctx)
         city_wide_eligible = _safe_int(density.get("city_wide_eligible"))
@@ -289,6 +291,36 @@ class CandidateRetrievalService:
         city_scope_total = _safe_int(retrieval_counts.get("city_scope_total"))
         return bool((route_after and route_after > 0) or (city_scope_total and city_scope_total > 0))
 
+    def _apply_city_center_location_fallback(self, db: Session, ctx: MergedContext) -> None:
+        if getattr(ctx, "location_fallback_applied", False):
+            return
+        city_slug = str(getattr(ctx, "city_id", "") or "")
+        if not city_slug:
+            return
+        try:
+            start_lat, start_lng = ctx.location
+        except (TypeError, ValueError):
+            return
+        if not _is_number_pair(start_lat, start_lng):
+            return
+
+        city = db.execute(select(City).where(City.slug == city_slug)).scalar_one_or_none()
+        center_lat = getattr(city, "center_lat", None)
+        center_lng = getattr(city, "center_lng", None)
+        if not _is_number_pair(center_lat, center_lng):
+            return
+
+        distance = _distance_meters(float(start_lat), float(start_lng), float(center_lat), float(center_lng))
+        ctx.distance_to_city_center_meters = distance
+        ctx.city_center_location = (float(center_lat), float(center_lng))
+        if distance <= LOCATION_FALLBACK_MAX_DISTANCE_METERS:
+            return
+
+        ctx.original_location = (float(start_lat), float(start_lng))
+        ctx.location = (float(center_lat), float(center_lng))
+        ctx.location_fallback_applied = True
+        ctx.location_fallback_reason = "outside_selected_city"
+
     def _safe_spatial_density(self, db: Session, ctx: MergedContext) -> dict[str, int | None]:
         try:
             return {
@@ -511,6 +543,11 @@ class CandidateRetrievalService:
             "fallback_route_visible_relaxed_used": fallback_route_visible_relaxed_used,
             "post_processing": post_processing_debug or {},
             "center_used": {"lat": lat, "lng": lng},
+            "location_fallback_applied": bool(getattr(ctx, "location_fallback_applied", False)),
+            "location_fallback_reason": getattr(ctx, "location_fallback_reason", None),
+            "original_location": _location_payload(getattr(ctx, "original_location", None)),
+            "city_center_location": _location_payload(getattr(ctx, "city_center_location", None)),
+            "distance_to_city_center_meters": getattr(ctx, "distance_to_city_center_meters", None),
             "spatial_density": density or {},
             "retrieval_counts": counts,
             "city_scope_total": counts.get("city_scope_total"),
@@ -629,6 +666,19 @@ def _safe_int(value: object) -> int | None:
 
 def _has_number_coords(place: object) -> bool:
     return isinstance(getattr(place, "lat", None), (int, float)) and isinstance(getattr(place, "lng", None), (int, float))
+
+
+def _is_number_pair(lat: object, lng: object) -> bool:
+    return isinstance(lat, (int, float)) and not isinstance(lat, bool) and isinstance(lng, (int, float)) and not isinstance(lng, bool)
+
+
+def _location_payload(value: object) -> dict[str, float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    lat, lng = value
+    if not _is_number_pair(lat, lng):
+        return None
+    return {"lat": float(lat), "lng": float(lng)}
 
 
 def _distance_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
