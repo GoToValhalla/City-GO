@@ -22,6 +22,12 @@ _WARNING_CODE_MESSAGES: dict[str, tuple[str, str, str, str]] = {
         "Времени хватает только на очень короткий маршрут.",
         "Увеличьте время, чтобы добавить больше мест.",
     ),
+    "budget_fit_recovered_first_point": (
+        "budget_fit_recovered_first_point",
+        "warning",
+        "Маршрут сохранён как короткий: первая точка полезна, но полный маршрут не влез во время.",
+        "Увеличьте время или выберите старт ближе к местам.",
+    ),
     "route_trimmed_by_budget": (
         "route_trimmed_by_budget",
         "info",
