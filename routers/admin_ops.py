@@ -19,6 +19,7 @@ from services.admin_coverage_metrics import build_coverage_summary
 from services.admin_metrics_service import build_metrics_summary
 from services.admin_overview_service import build_admin_overview
 from services.feature_toggle_service import list_city_toggles, list_global_toggles, list_groups, update_toggle
+from services.local_persistent_cache import cache_stats
 from services.verification_queue_summary import verification_queue_summary
 
 router = APIRouter(prefix="/admin", tags=["admin-ops"])
@@ -32,6 +33,11 @@ def read_admin_overview(auth: AdminContext = Depends(admin_required), db: Sessio
 @router.get("/metrics/summary", response_model=AdminMetricsSummary)
 def read_admin_metrics(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminMetricsSummary:
     return AdminMetricsSummary(**build_metrics_summary(db))
+
+
+@router.get("/cache/local")
+def read_local_cache_stats(auth: AdminContext = Depends(admin_required)) -> dict[str, object]:
+    return cache_stats()
 
 
 @router.get("/feature-toggles/groups", response_model=list[FeatureToggleGroupRead])
