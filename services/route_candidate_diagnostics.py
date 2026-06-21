@@ -23,6 +23,11 @@ def candidate_diagnostics(db: Session, ctx: object) -> dict[str, object]:
         "city_is_active": getattr(city, "is_active", None),
         "city_is_blocked_for_routes": _is_blocked_city(city),
         "start_point": {"lat": lat, "lng": lng},
+        "location_fallback_applied": bool(getattr(ctx, "location_fallback_applied", False)),
+        "location_fallback_reason": getattr(ctx, "location_fallback_reason", None),
+        "original_start_point": _location_payload(getattr(ctx, "original_location", None)),
+        "city_center_location": _location_payload(getattr(ctx, "city_center_location", None)),
+        "distance_to_city_center_meters": getattr(ctx, "distance_to_city_center_meters", None),
         "radius_meters": radius,
         "places_total_in_city": _count(db, city_id, _any_place),
         "places_public_catalog": _count(db, city_id, public_place_conditions()),
@@ -113,6 +118,15 @@ def _is_blocked_city(city: City | None) -> bool:
     if city is None:
         return True
     return bool(not city.is_active or city.launch_status in BLOCKED_CITY_LAUNCH_STATUSES)
+
+
+def _location_payload(value: object) -> dict[str, float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    lat, lng = value
+    if not _is_number(lat) or not _is_number(lng):
+        return None
+    return {"lat": float(lat), "lng": float(lng)}
 
 
 def _safe_int(value: object) -> int | None:
