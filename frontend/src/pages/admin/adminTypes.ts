@@ -54,6 +54,8 @@ export type AdminCity = {
   places_total?: number
   places_published?: number
   pending_photos?: number
+  can_publish?: boolean
+  can_unpublish?: boolean
 }
 
 export type AdminCitiesResponse = {
@@ -72,6 +74,18 @@ export type AdminCityImportResponse = {
   next_step: string
 }
 
+export type AdminCityPublicationResponse = {
+  city_id: number
+  city_slug: string
+  city_name: string
+  launch_status: string
+  is_active: boolean
+  places_total: number
+  places_published: number
+  places_hidden: number
+  message: string
+}
+
 export type AdminCoverageResponse = {
   city_id: number
   city_name: string
@@ -88,6 +102,8 @@ export type AdminImportJob = {
   city_slug: string
   city_name: string
   status: string
+  launch_status?: string | null
+  is_city_active?: boolean
   current_step?: string
   current_step_label?: string
   source: string
@@ -116,6 +132,8 @@ export type AdminImportJob = {
   can_run?: boolean
   can_retry?: boolean
   can_cancel?: boolean
+  can_publish?: boolean
+  can_unpublish?: boolean
   report_url?: string | null
   logs_url?: string | null
 }
