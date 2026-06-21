@@ -132,15 +132,17 @@ jobs:
           GH_ACTOR: ${{ github.actor }}
           GH_REPO: ${{ github.repository }}
           ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+          EXPECTED_FRONTEND_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           REMOTE_GH_TOKEN=$(printf '%q' "$GH_TOKEN")
           REMOTE_GH_ACTOR=$(printf '%q' "$GH_ACTOR")
           REMOTE_GH_REPO=$(printf '%q' "$GH_REPO")
           REMOTE_ADMIN_API_TOKEN=$(printf '%q' "${ADMIN_API_TOKEN:-}")
+          REMOTE_EXPECTED_FRONTEND_SHA=$(printf '%q' "$EXPECTED_FRONTEND_SHA")
 
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "GH_TOKEN=$REMOTE_GH_TOKEN GH_ACTOR=$REMOTE_GH_ACTOR GH_REPO=$REMOTE_GH_REPO ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN bash -seu -o pipefail" <<'REMOTE_EOF'
+            "GH_TOKEN=$REMOTE_GH_TOKEN GH_ACTOR=$REMOTE_GH_ACTOR GH_REPO=$REMOTE_GH_REPO ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN EXPECTED_FRONTEND_SHA=$REMOTE_EXPECTED_FRONTEND_SHA bash -seu -o pipefail" <<'REMOTE_EOF'
             mkdir -p /srv/app
 
             echo "=== download compose from ${GH_REPO}@main ==="
@@ -174,12 +176,9 @@ jobs:
             echo "--- backend /version before ---"
             curl -sf http://localhost/api/version || curl -sf http://localhost:8000/version || true
             echo
-            echo "--- frontend debug marker before ---"
-            if curl -sf http://localhost/ | grep -q "City Go Debug"; then
-              echo "frontend_debug_marker=present"
-            else
-              echo "frontend_debug_marker=missing"
-            fi
+            echo "--- frontend build metadata before ---"
+            curl -sf http://localhost/build.json || true
+            echo
 
             echo "=== rescue frontend with local image before registry operations ==="
             if ! docker compose ps frontend 2>/dev/null | grep -q "Up"; then
@@ -252,19 +251,29 @@ jobs:
               exit 1
             fi
 
-            echo "=== force recreate remaining services ==="
-            docker compose up -d --no-deps --force-recreate frontend bot import-worker
+            echo "=== hard restart frontend from freshly pulled image ==="
+            docker compose rm -sf frontend || true
+            docker compose up -d --no-deps --force-recreate --pull never frontend
 
-            echo "=== frontend health ==="
+            echo "=== frontend health and build metadata ==="
             FRONTEND_OK=0
+            FRONTEND_BUILD_OK=0
             for attempt in $(seq 1 20); do
               if curl -sf http://localhost/ >/dev/null 2>&1; then
                 FRONTEND_OK=1
                 echo "Frontend health OK attempt=$attempt"
-                break
+                BUILD_JSON=$(curl -sf http://localhost/build.json || true)
+                echo "frontend_build_json=${BUILD_JSON}"
+                if printf '%s' "${BUILD_JSON}" | grep -q "${EXPECTED_FRONTEND_SHA}"; then
+                  FRONTEND_BUILD_OK=1
+                  echo "Frontend build SHA OK: ${EXPECTED_FRONTEND_SHA}"
+                  break
+                fi
+                echo "Frontend build SHA mismatch attempt=$attempt/20 expected=${EXPECTED_FRONTEND_SHA}"
+              else
+                echo "Frontend not ready yet attempt=$attempt/20"
+                docker compose logs --tail=80 frontend || true
               fi
-              echo "Frontend not ready yet attempt=$attempt/20"
-              docker compose logs --tail=80 frontend || true
               sleep 3
             done
             if [ "$FRONTEND_OK" != "1" ]; then
@@ -273,6 +282,18 @@ jobs:
               docker compose logs --tail=240 frontend || true
               exit 1
             fi
+            if [ "$FRONTEND_BUILD_OK" != "1" ]; then
+              echo "ERROR: Frontend restarted, but /build.json does not match this deploy commit."
+              echo "Expected SHA: ${EXPECTED_FRONTEND_SHA}"
+              echo "Actual /build.json: $(curl -sf http://localhost/build.json || true)"
+              docker compose ps || true
+              docker compose images || true
+              docker compose logs --tail=240 frontend || true
+              exit 1
+            fi
+
+            echo "=== force recreate backend-side background services ==="
+            docker compose up -d --no-deps --force-recreate bot import-worker
 
             echo "=== external local api proxy health ==="
             curl -sf http://localhost/api/health >/dev/null || (echo "ERROR: frontend /api/health proxy failed"; docker compose logs --tail=160 frontend backend || true; exit 1)
@@ -296,12 +317,9 @@ jobs:
             echo "--- backend /version after ---"
             curl -sf http://localhost/api/version || curl -sf http://localhost:8000/version || true
             echo
-            echo "--- frontend debug marker after ---"
-            if curl -sf http://localhost/ | grep -q "City Go Debug"; then
-              echo "frontend_debug_marker=present"
-            else
-              echo "frontend_debug_marker=missing"
-            fi
+            echo "--- frontend build metadata after ---"
+            curl -sf http://localhost/build.json || true
+            echo
 
             echo "=== final logs backend ==="
             docker compose logs --tail=120 backend || true
