@@ -27,10 +27,11 @@ def evaluate_quality_gates(
         *(["algorithm_error_many_eligible_places_no_route"] if _many_eligible_no_route(route, diagnostics) else []),
         *(["selected_interests_have_no_exact_matches"] if plan.expansion_level in {"mixed", "short"} and plan.exact_count == 0 else []),
         *(["single_exact_match_anchor_not_included"] if _anchor_missing(route, plan) else []),
-        *(["route_degraded_despite_expanded_pool"] if completeness < 0.3 and plan.expanded_pool_count >= 10 else []),
+        *(["route_degraded_despite_expanded_pool"] if _is_degraded_nonempty_route(route, completeness, plan) else []),
         *(["city_data_deficit_single_eligible_place"] if _eligible_count(diagnostics) == 1 else []),
         *(["budget_fit_reduced_route_to_zero"] if budget_reduced_to_zero else []),
         *(["route_violates_explicit_exclusions"] if _violates_exclusions(route, excluded_place_ids, avoided_categories) else []),
+        *(["route_short_due_to_low_place_density"] if _short_sparse_route(route, plan) else []),
     ]
     status = _status(route, completeness, diagnostics, warnings)
     return QualityGateResult(
@@ -49,13 +50,13 @@ def _status(route: list[object], completeness: float, diagnostics: dict[str, obj
         return "algorithm_error"
     if not route:
         return "failed"
+    if len(route) == 1:
+        return "single_point"
     if _eligible_count(diagnostics) == 1:
         return "single_point"
     if completeness >= 0.8:
         return "complete"
-    if completeness >= 0.3:
-        return "partial"
-    return "degraded"
+    return "partial"
 
 
 def _fallback_level(plan: RoutePlan) -> str:
@@ -65,8 +66,10 @@ def _fallback_level(plan: RoutePlan) -> str:
 
 
 def _partial_reason(status: str, warnings: list[str]) -> str | None:
-    if status in {"complete", "single_point"}:
+    if status == "complete":
         return None
+    if status == "single_point":
+        return "not_enough_route_points"
     return warnings[0] if warnings else "route_incomplete"
 
 
@@ -83,6 +86,14 @@ def _anchor_missing(route: list[object], plan: RoutePlan) -> bool:
     if plan.exact_count != 1:
         return False
     return not any(float(getattr(point, "scoring_breakdown", {}).get("route_anchor", 0.0) or 0.0) >= 1.0 for point in route)
+
+
+def _is_degraded_nonempty_route(route: list[object], completeness: float, plan: RoutePlan) -> bool:
+    return bool(route) and completeness < 0.3 and plan.expanded_pool_count >= 10 and len(route) <= 1
+
+
+def _short_sparse_route(route: list[object], plan: RoutePlan) -> bool:
+    return bool(route) and len(route) < min(2, max(1, plan.target_points))
 
 
 def _violates_exclusions(route: list[object], excluded: list[str], avoided: list[str]) -> bool:
