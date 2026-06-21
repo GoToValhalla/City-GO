@@ -13,7 +13,7 @@ from services.user_route_recalc_service import UserRouteRecalcService
 
 class UserRouteCorrectService:
     def correct(self, db: Session, request: UserRouteCorrectRequest) -> UserRouteState:
-        if request.action in {"rebuild_from_here", "avoid_category"}:
+        if request.action == "avoid_category":
             return self._rebuild(db, request)
         return self._recalc_existing(db, request)
 
