@@ -12,6 +12,9 @@ ROUTE_BUDGET_TRIMMED_WARNING = "route_trimmed_by_budget"
 ROUTE_BUDGET_SINGLE_POINT_WARNING = "budget_very_tight"
 ROUTE_BUDGET_TOO_TIGHT_WARNING = "budget_too_tight"
 ROUTE_BUDGET_UNDERFILLED_WARNING = "route_underfilled_by_budget"
+ROUTE_LOW_DENSITY_SHORT_WARNING = "route_short_due_to_low_place_density"
+_TIGHT_BUDGET_MINUTES = 75
+_LOW_UTILIZATION_RATIO = 0.5
 
 
 @dataclass(frozen=True)
@@ -33,16 +36,19 @@ class RouteBudgetFitService:
         if first_total > budget:
             return BudgetFitResult(
                 route=[route[0]],
-                warnings=[ROUTE_BUDGET_SINGLE_POINT_WARNING],
+                warnings=[self._short_route_warning(budget)],
             )
 
         kept, dropped = self._fit_ordered_subset(route, budget)
+        if not kept:
+            return BudgetFitResult(route=[route[0]], warnings=["budget_fit_recovered_first_point"])
+
         warnings: List[str] = []
         if dropped > 0:
             warnings.append(ROUTE_BUDGET_TRIMMED_WARNING)
-        if kept and len(kept) < min(len(route), minimum_points_for_budget(budget)):
-            warnings.append(ROUTE_BUDGET_SINGLE_POINT_WARNING)
-        if kept and self._utilization(kept, budget) < 0.5 and len(route) >= minimum_points_for_budget(budget):
+        if len(kept) < min(len(route), minimum_points_for_budget(budget)):
+            warnings.append(self._short_route_warning(budget))
+        if self._utilization(kept, budget) < _LOW_UTILIZATION_RATIO and len(route) >= minimum_points_for_budget(budget):
             if self._total_minutes(route) <= budget:
                 kept = route
             warnings.append(ROUTE_BUDGET_UNDERFILLED_WARNING)
@@ -73,6 +79,9 @@ class RouteBudgetFitService:
         if fits:
             return [*kept, point], total + point_minutes, dropped
         return kept, total, dropped + 1
+
+    def _short_route_warning(self, budget: int) -> str:
+        return ROUTE_BUDGET_SINGLE_POINT_WARNING if budget < _TIGHT_BUDGET_MINUTES else ROUTE_LOW_DENSITY_SHORT_WARNING
 
     def _point_total_minutes(self, point: RoutePoint) -> int:
         walk = int(getattr(point, "estimated_walk_minutes", 0) or 0)
