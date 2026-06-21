@@ -1,23 +1,36 @@
 """Admin: запуск, повтор, публикация import jobs."""
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
-from schemas.admin import AdminActionRequest, AdminImportJobActionResponse, AdminImportJobRead
-from services.admin_city_import_job_service import cancel_import_job, ensure_import_job, reset_import_job_to_queued
-from services.admin_city_import_tasks import run_all_cities_enrichment_background, run_enrichment_job_background, run_import_job_background
+from models.city import City
+from schemas.admin import AdminActionRequest, AdminImportJobActionResponse
+from services.admin_city_import_job_service import (
+    cancel_import_job,
+    queue_city_enrichment_job,
+    queue_city_import_job,
+    reset_import_job_to_queued,
+)
+from services.admin_city_import_tasks import import_queue_summary
 from services.admin_city_publication_service import publish_city
 from services.admin_extended_service import get_admin_import_job, list_admin_import_jobs
 
 router = APIRouter(prefix="/admin", tags=["admin-import-jobs"])
 
 
+@router.get("/import-jobs/queue")
+def read_import_job_queue(
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    return import_queue_summary(db)
+
+
 @router.post("/import-jobs/{city_id}/run", response_model=AdminImportJobActionResponse)
 def start_import_job(
     city_id: int,
-    background_tasks: BackgroundTasks,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> AdminImportJobActionResponse:
@@ -26,20 +39,21 @@ def start_import_job(
         raise HTTPException(404, "Задача импорта не найдена")
     if not item.get("can_run"):
         raise HTTPException(409, "Запуск недоступен для текущего статуса")
-    ensure_import_job(db, city_id=city_id)
+    try:
+        queue_city_import_job(db, city_id=city_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     db.commit()
-    background_tasks.add_task(run_import_job_background, city_id, actor_id=auth.actor_id)
     return AdminImportJobActionResponse(
         city_id=city_id,
-        status="running",
-        message="Импорт запущен в фоне. Обновите страницу через 1–2 минуты.",
+        status="queued",
+        message="Импорт поставлен в очередь. Его выполнит import-worker, backend не держит тяжелую фоновую задачу.",
     )
 
 
 @router.post("/import-jobs/{city_id}/retry", response_model=AdminImportJobActionResponse)
 def retry_import_job(
     city_id: int,
-    background_tasks: BackgroundTasks,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> AdminImportJobActionResponse:
@@ -52,7 +66,6 @@ def retry_import_job(
         reset_import_job_to_queued(db, city_id=city_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    background_tasks.add_task(run_import_job_background, city_id, actor_id=auth.actor_id)
     return AdminImportJobActionResponse(
         city_id=city_id,
         status="queued",
@@ -106,35 +119,43 @@ def publish_imported_city(
 @router.post("/import-jobs/{city_id}/enrich", response_model=AdminImportJobActionResponse)
 def enrich_city_job(
     city_id: int,
-    background_tasks: BackgroundTasks,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> AdminImportJobActionResponse:
     item = get_admin_import_job(db, city_id)
     if item is None:
         raise HTTPException(404, "Город не найден")
-    ensure_import_job(db, city_id=city_id)
+    try:
+        queue_city_enrichment_job(db, city_id=city_id, actor_id=auth.actor_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     db.commit()
-    background_tasks.add_task(run_enrichment_job_background, city_id, actor_id=auth.actor_id)
     return AdminImportJobActionResponse(
         city_id=city_id,
-        status="running",
-        message="Обогащение запущено: адреса → фото → категории → качество.",
+        status="queued",
+        message="Обогащение поставлено в очередь: адреса → фото → категории → качество.",
     )
 
 
 @router.post("/import-jobs/enrich-all", response_model=AdminImportJobActionResponse)
 def enrich_all_cities_job(
-    background_tasks: BackgroundTasks,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> AdminImportJobActionResponse:
-    jobs = list_admin_import_jobs(db, limit=1000, offset=0)
-    if not jobs.get("items"):
+    city_ids = [row.id for row in db.query(City.id).order_by(City.slug.asc()).all()]
+    if not city_ids:
         raise HTTPException(404, "Города для обогащения не найдены")
-    background_tasks.add_task(run_all_cities_enrichment_background, actor_id=auth.actor_id)
+    queued = 0
+    skipped_running = 0
+    for city_id in city_ids:
+        try:
+            queue_city_enrichment_job(db, city_id=city_id, actor_id=auth.actor_id)
+            queued += 1
+        except ValueError:
+            skipped_running += 1
+    db.commit()
     return AdminImportJobActionResponse(
         city_id=0,
-        status="running",
-        message=f"Запущено обогащение всех городов: {jobs.get('total', 0)}. Обновляйте страницу импорта для прогресса.",
+        status="queued",
+        message=f"Обогащение городов поставлено в очередь: {queued}. Уже выполняются и пропущены: {skipped_running}.",
     )
