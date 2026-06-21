@@ -17,6 +17,8 @@ from services.admin_audit_service import write_admin_audit_log
 from services.place_service import get_place_by_id
 from services.route_service import get_route_by_id
 
+PUBLISHABLE_CITY_STATUSES = {"review_required", "imported", "success", "unpublished"}
+
 
 def get_admin_cities(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, object]], int]:
     query = db.query(City).order_by(City.updated_at.desc(), City.id.desc())
@@ -27,6 +29,8 @@ def get_admin_cities(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[
 
 def _city_payload(db: Session, city: City) -> dict[str, object]:
     places_query = db.query(Place).filter(Place.city_id == city.id)
+    places_total = places_query.count()
+    places_published = places_query.filter(Place.is_published.is_(True)).count()
     return {
         "id": city.id,
         "slug": city.slug,
@@ -38,14 +42,16 @@ def _city_payload(db: Session, city: City) -> dict[str, object]:
         "center_lng": city.center_lng,
         "launch_status": city.launch_status,
         "is_active": city.is_active,
-        "places_total": places_query.count(),
-        "places_published": places_query.filter(Place.is_published.is_(True)).count(),
+        "places_total": places_total,
+        "places_published": places_published,
         "pending_photos": (
             db.query(PlaceImage)
             .join(Place, Place.id == PlaceImage.place_id)
             .filter(Place.city_id == city.id, PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW)
             .count()
         ),
+        "can_publish": _can_publish_city(city, places_total),
+        "can_unpublish": _can_unpublish_city(city),
     }
 
 
@@ -79,6 +85,14 @@ def _import_job_payload(db: Session, city: City) -> dict[str, object]:
     from services.admin_city_import_job_payload import build_import_job_payload
 
     return build_import_job_payload(db, city)
+
+
+def _can_publish_city(city: City, places_total: int) -> bool:
+    return places_total > 0 and city.launch_status in PUBLISHABLE_CITY_STATUSES and not city.is_active
+
+
+def _can_unpublish_city(city: City) -> bool:
+    return city.launch_status == "published" and bool(city.is_active)
 
 
 def create_admin_route(db: Session, payload: AdminRouteCreateRequest, *, actor: str = "admin") -> Route:
