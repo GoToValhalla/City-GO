@@ -30,6 +30,7 @@ class RequestContext:
         self,
         location: Optional[tuple[float, float]] = None,
         city_id: Optional[str] = None,
+        timezone: Optional[str] = None,
         time_budget_minutes: Optional[int] = None,
         time_of_day: Optional[str] = None,
         route_time_mode: Optional[str] = None,
@@ -44,6 +45,7 @@ class RequestContext:
     ):
         self.location = location
         self.city_id = city_id
+        self.timezone = timezone or "UTC"
         self.time_budget_minutes = time_budget_minutes
         self.time_of_day = time_of_day
         self.route_time_mode = route_time_mode or "flexible"
@@ -110,6 +112,7 @@ class ContextMergeService:
         return MergedContext(
             location=location,
             city_id=request.city_id,
+            timezone=request.timezone,
 
             time_budget_minutes=time_budget,
             effective_time_budget_minutes=effective_time_budget,
