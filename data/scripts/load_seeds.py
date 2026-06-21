@@ -23,14 +23,17 @@ def load_cities(session: Session):
 
     data = json.loads(path.read_text(encoding="utf-8"))
 
+    loaded = 0
     for item in data:
-        if session.get(City, item["id"]):
+        payload = _city_payload(item)
+        if session.query(City).filter(City.slug == payload["slug"]).first():
             continue
 
-        session.add(City(**item))
+        session.add(City(**payload))
+        loaded += 1
 
     session.commit()
-    print(f"Loaded cities: {len(data)}")
+    print(f"Loaded cities: {loaded}")
 
 
 # Загружает места из всех файлов в places/.
@@ -59,6 +62,28 @@ def load_places(session: Session):
 
     session.commit()
     print(f"Loaded places: {total}")
+
+
+def _city_payload(item: dict[str, object]) -> dict[str, object]:
+    slug = str(item.get("slug") or item.get("id") or "").strip()
+    if not slug:
+        raise ValueError("City seed requires slug or id")
+
+    country = str(item.get("country") or "Россия")
+    if country == "RU":
+        country = "Россия"
+
+    return {
+        "slug": slug,
+        "name": str(item.get("name") or slug),
+        "region": item.get("region"),
+        "country": country,
+        "timezone": str(item.get("timezone") or "Europe/Moscow"),
+        "center_lat": item.get("center_lat", item.get("lat")),
+        "center_lng": item.get("center_lng", item.get("lng")),
+        "launch_status": str(item.get("launch_status") or "published"),
+        "is_active": bool(item.get("is_active", item.get("active", True))),
+    }
 
 
 # Главная функция загрузки сидов.
