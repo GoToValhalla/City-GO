@@ -16,3 +16,17 @@ def test_final_route_exposes_places_alias_for_trace_compatibility() -> None:
 
     assert final.points == points
     assert final.places == points
+
+
+def test_final_route_exposes_stops_alias_for_analytics_compatibility_new() -> None:
+    points = [SimpleNamespace(place_id="1")]
+
+    final = FinalRoute(
+        route_id="route-1",
+        points=points,
+        total_minutes=30,
+        total_places=1,
+        estimated_distance=0.5,
+    )
+
+    assert final.stops == points
