@@ -36,12 +36,22 @@ COUNTER_KEYS = (
     "target_points",
     "selected_count",
     "selected_count_before_budget",
+    "original_selected_count",
+    "input_scored_count",
+    "rejected_count",
+    "first_point_candidates_checked",
     "actual_duration_minutes",
     "route_minutes",
+    "input_minutes",
+    "kept_minutes",
     "requested_budget_minutes",
     "hard_budget_minutes",
     "target_minutes",
     "warning_count",
+    "final_places_count",
+    "final_points_count",
+    "final_total_minutes",
+    "final_duration_minutes",
 )
 
 STATUS_KEYS = (
@@ -74,19 +84,26 @@ IMPORTANT_KEYS = (
     "route_time_mode",
     "time_of_day",
     "interests",
+    "requested_interests",
     "avoided_categories",
     "excluded_place_ids",
+    "interest_removed_due_to_avoidance",
     "warnings",
     "reasons",
     "removal_reasons",
+    "drop_reason",
     "strict_removal_reasons",
     "relaxed_removal_reasons",
+    "rejection_reasons",
+    "first_point_rejection_reasons",
+    "fallback_triggers",
     "failed_gates",
     "retrieval_loss_summary",
     "spatial_density",
     "retrieval_counts",
     "final_candidate_categories",
     "sample_candidate_ids",
+    "selected_ids",
     "final_place_ids",
 )
 
@@ -94,10 +111,16 @@ SAMPLE_LIST_KEYS = {
     "sample_candidates",
     "kept_sample",
     "rejected_sample",
+    "sample_removed",
     "top_scored_candidates",
+    "top_scored",
     "final_points",
     "route_sample",
+    "original_route_sample",
     "final_route_sample",
+    "input_route",
+    "output_route",
+    "removed_by_budget_sample",
     "candidate_options",
 }
 
@@ -122,7 +145,7 @@ def timed_trace(trace: RoutePipelineTrace, stage: str, started: float, **payload
 
 
 def compact_route_trace(trace: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    """Return a phone-copyable trace without huge nested candidate payloads."""
+    """Return a phone-readable trace without huge nested candidate payloads."""
     return [_compact_entry(entry) for entry in list(trace or [])]
 
 
@@ -136,9 +159,13 @@ def route_debug_summary(route_id: str, trace: list[dict[str, Any]] | None) -> di
     assembly = by_stage.get("assembly") or {}
     budget_fit = by_stage.get("budget_fit") or {}
     final = by_stage.get("final") or {}
+    final_points = _pick_number(final, "final_points_count")
+    budget_output = _pick_number(budget_fit, "output_count", "kept_count")
+    assembly_output = _pick_number(assembly, "output_count", "selected_count")
     return {
         "route_id": route_id,
         "failure_stage": final.get("failure_stage") or _first_zero_stage(entries),
+        "death_point": _death_point(entries),
         "retrieval": {
             "final_candidates_count": _pick_number(retrieval, "final_candidates_count", "count"),
             "raw_candidates_count": _pick_number(retrieval, "raw_candidates_count"),
@@ -162,15 +189,19 @@ def route_debug_summary(route_id: str, trace: list[dict[str, Any]] | None) -> di
             "hard_filter_input": hard_filter.get("input_count"),
             "hard_filter_output": hard_filter.get("output_count") or hard_filter.get("kept_count"),
             "scoring_output": scoring.get("output_count") or scoring.get("count"),
-            "assembly_output": assembly.get("selected_count"),
-            "budget_fit_output": budget_fit.get("output_count") or budget_fit.get("kept_count"),
-            "final_points": final.get("final_points_count"),
+            "assembly_input": assembly.get("input_scored_count") or assembly.get("input_count"),
+            "assembly_output": assembly_output,
+            "budget_fit_input": budget_fit.get("input_count"),
+            "budget_fit_output": budget_output,
+            "final_points": final_points,
         },
         "important": {
             "partial_reason": final.get("partial_reason"),
             "warnings": _collect_warnings(entries),
             "sample_candidate_ids": retrieval.get("sample_candidate_ids"),
             "retrieval_loss_summary": retrieval.get("retrieval_loss_summary"),
+            "assembly_rejections": assembly.get("rejection_reasons") or assembly.get("first_point_rejection_reasons"),
+            "budget_fit_kept_partial": bool(budget_output and assembly_output and budget_output <= assembly_output),
         },
     }
 
@@ -207,21 +238,24 @@ def _compact_entry(entry: dict[str, Any]) -> dict[str, Any]:
 def _compact_value(value: Any) -> Any:
     if isinstance(value, list):
         if all(isinstance(item, (str, int, float, bool, type(None))) for item in value):
-            return value[:20]
+            return value[:30]
         return _compact_sample(value)
     if isinstance(value, dict):
-        return {str(key): _compact_value(val) for key, val in list(value.items())[:40]}
+        return {str(key): _compact_value(val) for key, val in list(value.items())[:60]}
     return _json_safe(value)
 
 
-def _compact_sample(value: Any, limit: int = 8) -> list[Any]:
+def _compact_sample(value: Any, limit: int = 12) -> list[Any]:
     rows = list(value or []) if isinstance(value, list) else []
     compact_rows: list[Any] = []
     for row in rows[:limit]:
         if isinstance(row, dict):
             compact_rows.append({
                 key: row.get(key)
-                for key in ("id", "place_id", "name", "title", "category", "reason", "score", "distance_meters")
+                for key in (
+                    "id", "place_id", "name", "title", "category", "reason", "score",
+                    "distance_meters", "walk_minutes", "visit_minutes", "total_minutes",
+                )
                 if key in row
             })
         else:
@@ -260,12 +294,46 @@ def _first_zero_stage(entries: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def _death_point(entries: list[dict[str, Any]]) -> str:
+    by_stage = {str(entry.get("stage")): entry for entry in entries if entry.get("stage")}
+    retrieval = by_stage.get("retrieval") or by_stage.get("candidate_retrieval") or {}
+    hard_filter = by_stage.get("hard_filters") or by_stage.get("hard_filter") or {}
+    scoring = by_stage.get("scoring") or by_stage.get("scoring_raw") or {}
+    assembly = by_stage.get("assembly") or {}
+    budget_fit = by_stage.get("budget_fit") or {}
+    final = by_stage.get("final") or {}
+
+    retrieval_output = _pick_number(retrieval, "final_candidates_count", "count")
+    hard_input = _pick_number(hard_filter, "input_count")
+    hard_output = _pick_number(hard_filter, "output_count", "kept_count")
+    scoring_output = _pick_number(scoring, "output_count", "count")
+    assembly_input = _pick_number(assembly, "input_scored_count", "input_count")
+    assembly_output = _pick_number(assembly, "output_count", "selected_count")
+    budget_input = _pick_number(budget_fit, "input_count")
+    budget_output = _pick_number(budget_fit, "output_count", "kept_count")
+    final_points = _pick_number(final, "final_points_count")
+
+    if retrieval_output == 0:
+        return "candidate_retrieval"
+    if hard_input and hard_output == 0:
+        return "hard_filters"
+    if hard_output and scoring_output == 0:
+        return "scoring"
+    if assembly_input and assembly_input > 20 and (assembly_output is None or assembly_output <= 1):
+        return "assembly"
+    if budget_input and budget_input > 0 and budget_output == 0:
+        return "budget_fit"
+    if budget_output and budget_output > 0 and final_points == 0:
+        return "finalize"
+    return "none"
+
+
 def _collect_warnings(entries: list[dict[str, Any]]) -> list[str]:
     warnings: list[str] = []
     for entry in entries:
         for warning in list(entry.get("warnings") or []):
             if isinstance(warning, str) and warning not in warnings:
                 warnings.append(warning)
-        if len(warnings) >= 20:
+        if len(warnings) >= 30:
             break
     return warnings
