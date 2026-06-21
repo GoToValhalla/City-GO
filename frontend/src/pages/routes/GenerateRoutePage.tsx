@@ -38,6 +38,11 @@ type RouteDebugInfo = {
   error?: string
 }
 
+type DebugInfoRow = {
+  label: string
+  value: unknown
+}
+
 const loadFeatures = async (citySlug: string): Promise<string[]> => {
   const response = await fetch(buildApiUrl('/place-coverage/' + citySlug))
   if (!response.ok) return []
@@ -86,26 +91,6 @@ const buildDebugInfo = (err: unknown, citySlug: string, requestPayload?: unknown
   }
 }
 
-const buildRouteStateDebugInfo = (
-  title: string,
-  citySlug: string,
-  route: RecommendationRouteResponse,
-  requestPayload: unknown,
-): RouteDebugInfo => ({
-  title,
-  timestamp: new Date().toISOString(),
-  citySlug,
-  requestPayload,
-  responseBody: {
-    status: route.status,
-    partial_reason: route.partial_reason,
-    total_places: route.total_places,
-    warnings: route.warnings,
-    user_warnings: route.user_warnings,
-    debug_trace: route.debug_trace,
-  },
-})
-
 const getNoRouteMessage = (reason?: string | null): string => {
   const messages: Record<string, string> = {
     no_places_in_city: 'В этом городе пока нет мест. Скоро добавим.',
@@ -128,6 +113,44 @@ const getPartialRouteMessage = (route: RecommendationRouteResponse): string => {
   }
   return 'Маршрут собран частично. Проверь предупреждения перед стартом.'
 }
+
+const formatDebugValue = (value: unknown): string => {
+  if (value === undefined || value === null || value === '') return '-'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return value.length ? value.map(formatDebugValue).join(', ') : '-'
+  return JSON.stringify(value)
+}
+
+const flattenDebugInfo = (payload: unknown, prefix = ''): DebugInfoRow[] => {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return [{ label: prefix || 'value', value: payload }]
+  }
+  return Object.entries(payload as Record<string, unknown>).flatMap(([key, value]) => {
+    const label = prefix ? `${prefix}.${key}` : key
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return flattenDebugInfo(value, label)
+    }
+    return [{ label, value }]
+  })
+}
+
+const renderDebugInfo = (debugInfo: RouteDebugInfo) => (
+  <section className="route-debug-tile route-debug-page">
+    <div className="route-debug-header">
+      <strong>Route debug</strong>
+      <span>{debugInfo.timestamp}</span>
+    </div>
+    <div className="route-debug-summary-grid">
+      {flattenDebugInfo(debugInfo).map((row) => (
+        <div key={row.label}>
+          <span>{row.label}</span>
+          <strong>{formatDebugValue(row.value)}</strong>
+        </div>
+      ))}
+    </div>
+  </section>
+)
 
 export const GenerateRoutePage = () => {
   const [city, setCity] = useState<CityOption>(getCurrentCity())
@@ -249,6 +272,7 @@ export const GenerateRoutePage = () => {
     if (!payload.ok) {
       setError(payload.error)
       setRouteWarning(null)
+      setRoute(null)
       setDebugInfo({
         title: 'Frontend validation error',
         timestamp: new Date().toISOString(),
@@ -280,8 +304,7 @@ export const GenerateRoutePage = () => {
 
       if (nextRoute.status === 'no_route' || nextRoute.status === 'failed') {
         setError(getNoRouteMessage(nextRoute.partial_reason))
-        setDebugInfo(buildRouteStateDebugInfo('Route no_route response', city.slug, nextRoute, payload.value))
-        setRoute(null)
+        setRoute(nextRoute)
         return
       }
 
@@ -393,16 +416,8 @@ export const GenerateRoutePage = () => {
           </section>
           {error ? <section className="route-error-tile">{error}</section> : null}
           {routeWarning ? <section className="route-error-tile">{routeWarning}</section> : null}
-          {debugInfo ? (
-            <section className="route-debug-tile">
-              <div className="route-debug-header">
-                <strong>Route debug</strong>
-                <span>{debugInfo.timestamp}</span>
-              </div>
-              <pre>{JSON.stringify(debugInfo, null, 2)}</pre>
-            </section>
-          ) : null}
-          {route && !error ? <RouteResultPanel route={route} loading={loading} onAddCandidate={addCandidate} onCorrect={correct} /> : null}
+          {debugInfo ? renderDebugInfo(debugInfo) : null}
+          {route ? <RouteResultPanel route={route} loading={loading} onAddCandidate={addCandidate} onCorrect={correct} /> : null}
         </main>
       </div>
     </div>
