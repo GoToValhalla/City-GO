@@ -15,10 +15,11 @@ from services.route_assembly_service import RoutePoint
 from services.time_aware_service import TimeAwareService
 
 
-def _ctx() -> MergedContext:
+def _ctx(timezone: str = "UTC") -> MergedContext:
     return MergedContext(
         location=(55.0, 20.0),
         city_id=None,
+        timezone=timezone,
         time_budget_minutes=120,
         effective_time_budget_minutes=96,
         interests=[],
@@ -69,6 +70,28 @@ class TestTimeAwareServiceScenarioAOk(unittest.TestCase):
             out[0].estimated_departure_time,
             out[0].estimated_arrival_time,
         )
+
+
+class TestTimeAwareServiceTimezone(unittest.TestCase):
+    def test_naive_utc_start_is_checked_in_city_timezone(self) -> None:
+        svc = TimeAwareService()
+        # 04:00 UTC is 09:00 in Asia/Yekaterinburg / Khanty-Mansiysk style timezone.
+        start = datetime(2030, 6, 3, 4, 0, 0)
+        p = RoutePoint(
+            place_id="1",
+            lat=55.0,
+            lng=20.0,
+            score=0.9,
+            category="cafe",
+            visit_minutes=25,
+            opening_hours=_monday_open_9_21(),
+        )
+
+        out = svc.apply([p], _ctx("Asia/Yekaterinburg"), start)
+
+        self.assertEqual(out[0].time_status, "ok")
+        self.assertEqual(out[0].estimated_arrival_time.tzinfo.key, "Asia/Yekaterinburg")
+        self.assertEqual(out[0].estimated_arrival_time.hour, 9)
 
 
 class TestTimeAwareServiceScenarioBClosed(unittest.TestCase):
