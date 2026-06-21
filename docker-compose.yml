@@ -105,13 +105,15 @@ services:
     build: .
     command: >
       bash -c 'while true; do
-        PYTHONPATH=/app python data/scripts/run_admin_import_queue.py || true;
-        sleep 300;
+        PYTHONPATH=/app python data/scripts/run_admin_import_queue.py --limit "$${IMPORT_WORKER_BATCH_LIMIT:-1}" || true;
+        sleep "$${IMPORT_WORKER_SLEEP_SECONDS:-60}";
       done'
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
       LOCAL_CACHE_DIR: /app/.cache/city-go
+      IMPORT_WORKER_BATCH_LIMIT: 1
+      IMPORT_WORKER_SLEEP_SECONDS: 60
     volumes:
       - local_cache:/app/.cache/city-go
     depends_on:
