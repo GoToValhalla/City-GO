@@ -13,8 +13,9 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/city_guide"
-    db_pool_size: int = 5
-    db_max_overflow: int = 10
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout_seconds: int = 30
     db_pool_recycle_seconds: int = 1800
 
     # Optional Geoapify key. Если ключ не задан, typed address не геокодится,
@@ -38,7 +39,7 @@ class Settings(BaseSettings):
     coffee_category_id: int | None = None
     coffee_tag_id: int | None = None
 
-    # Optional filters for food places — опциональные id для сценария «еда».
+    # Optional filters for food places — опциональные id для сценария «еда".
     food_category_id: int | None = None
     food_tag_id: int | None = None
 
