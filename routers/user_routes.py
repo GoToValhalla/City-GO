@@ -58,8 +58,8 @@ def preview_user_route(
     except Exception as exc:
         return UserRouteState(
             route_id="preview-unavailable",
-            status="preview",
-            partial_reason="preview_build_failed",
+            status="preview_failed",
+            partial_reason="route_preview_mapping_failed",
             context=payload,
             total_places=0,
             total_minutes=0,
@@ -69,10 +69,11 @@ def preview_user_route(
             warning_count=1,
             quality_score=0.0,
             quality_status="failed",
-            warnings=["preview_build_failed"],
+            warnings=["route_preview_mapping_failed"],
             debug_trace=[
                 {
-                    "step": "preview",
+                    "stage": "preview_response_mapping",
+                    "status": "failed",
                     "error": exc.__class__.__name__,
                     "message": str(exc),
                 }
