@@ -85,38 +85,37 @@
 .route-debug-tile,
 .route-debug-trace {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   padding: 16px;
-  background: #111827;
-  color: #e5e7eb;
-  border-color: #374151;
+  overflow: visible;
+  max-height: none;
+  color: var(--ink);
+  background: var(--canvas);
+  border-color: var(--line);
 }
 .route-debug-header {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
-  color: #f9fafb;
+  color: var(--ink);
 }
-.route-debug-header span { color: #9ca3af; font-size: 12px; }
+.route-debug-header span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .route-debug-tile pre,
 .route-debug-trace pre {
-  overflow: auto;
-  max-height: 720px;
+  overflow: visible;
+  max-height: none;
   margin: 0;
-  padding: 12px;
-  background: #030712;
-  border: 1px solid #1f2937;
-  border-radius: 8px;
-  color: #d1d5db;
-  font-size: 12px;
-  line-height: 1.45;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
   white-space: pre-wrap;
   word-break: break-word;
 }
 .route-debug-trace summary {
   cursor: pointer;
-  color: #f9fafb;
+  color: var(--ink);
   font-size: 16px;
   font-weight: 800;
 }
@@ -131,16 +130,23 @@
 .route-debug-raw {
   display: grid;
   gap: 6px;
+  min-width: 0;
   padding: 10px;
-  background: #030712;
-  border: 1px solid #1f2937;
+  background: #fafafa;
+  border: 1px solid var(--line);
   border-radius: 8px;
 }
 .route-debug-summary-grid span,
-.route-debug-item span { color: #9ca3af; font-size: 12px; }
+.route-debug-item span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .route-debug-summary-grid strong,
 .route-debug-item strong,
-.route-debug-warning-box strong { color: #f9fafb; }
+.route-debug-warning-box strong {
+  min-width: 0;
+  color: var(--ink);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .route-debug-list { display: grid; gap: 8px; }
 .route-debug-raw summary { font-size: 14px; }
 .route-map-preview {
@@ -196,7 +202,7 @@
   .route-insights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .route-debug-summary-grid { grid-template-columns: 1fr; }
   .route-debug-tile pre,
-  .route-debug-trace pre { max-height: 900px; font-size: 11px; }
+  .route-debug-trace pre { max-height: none; font-size: 12px; }
   .route-map-preview { min-height: 280px; padding: 12px; }
   .route-map-preview svg { min-height: 220px; }
   .route-leg-row { display: grid; }
