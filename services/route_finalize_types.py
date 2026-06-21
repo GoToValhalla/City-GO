@@ -44,9 +44,10 @@ class FinalRoute:
         self.status = status
         self.partial_reason = partial_reason
         self.points = points
-        # Compatibility alias for older route trace/debug code. The domain object uses
-        # points, but several diagnostics still read final_route.places.
+        # Compatibility aliases for older diagnostics, analytics, and UI glue.
+        # The route domain object uses points as the canonical collection.
         self.places = self.points
+        self.stops = self.points
         self.total_minutes = total_minutes
         self.total_places = total_places
         self.estimated_distance = estimated_distance
