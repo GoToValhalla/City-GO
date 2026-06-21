@@ -39,6 +39,11 @@ class MergedContext(BaseModel):
     location: Tuple[float, float]  # (lat, lng)
     city_id: Optional[str] = None
     timezone: str = "UTC"
+    location_fallback_applied: bool = False
+    location_fallback_reason: Optional[str] = None
+    original_location: Optional[Tuple[float, float]] = None
+    city_center_location: Optional[Tuple[float, float]] = None
+    distance_to_city_center_meters: Optional[int] = None
 
     # --- TIME — лимиты времени на маршрут.
     time_budget_minutes: int
