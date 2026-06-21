@@ -4,154 +4,16 @@ type Props = {
   route: RecommendationRouteResponse
 }
 
+type DebugRow = {
+  label: string
+  value: unknown
+}
+
 const emptyTraceEntry: RouteDebugTraceEntry = { stage: 'empty' }
 
-const stageTitle: Record<string, string> = {
-  assembly: 'Сборка маршрута',
-  budget_fit: 'Подгонка под бюджет',
-  candidate_retrieval: 'Поиск кандидатов',
-  context_merge: 'Контекст запроса',
-  hard_filter: 'Жёсткие фильтры',
-  hard_filtering: 'Жёсткие фильтры',
-  interest_matching: 'Совпадения интересов',
-  pool_expansion: 'Расширение пула',
-  quality_annotation: 'Качество данных',
-  quality_gates: 'Quality gates маршрута',
-  adaptive_plan: 'Адаптивный план',
-  finalize: 'Финализация',
-  final_response: 'Финальный ответ',
-  context_normalization: 'Нормализация контекста',
-  route_quality_gate: 'Quality gate маршрута',
-  retrieval: 'Retrieval',
-  scoring: 'Скоринг',
-  time_aware: 'Проверка времени',
-  time_ordering: 'Time ordering',
-}
-
-const diagnosticKeys = [
-  'city_slug',
-  'city_db_id',
-  'start_point',
-  'radius_meters',
-  'places_total_in_city',
-  'places_public_catalog',
-  'places_route_visible',
-  'places_route_eligible',
-  'places_active_legacy_safe',
-  'places_active_geocoded',
-  'places_with_coords',
-  'geo_query_count',
-  'geo_route_eligible_count',
-  'candidate_retrieval_expected_count',
-  'candidate_retrieval_city_wide_expected_count',
-  'requested_budget_minutes',
-  'effective_budget_minutes',
-  'candidate_count',
-  'filtered_count',
-  'scored_count',
-  'initial_route_count',
-  'after_budget_fit_count',
-  'final_route_count',
-  'target_points',
-  'min_points',
-  'route_minutes',
-  'budget_utilization_pct',
-  'warnings',
-]
-
-const debugBlocks = [
-  ['context', 'Контекст'],
-  ['city_stats', 'Статистика города'],
-  ['retrieval', 'Retrieval'],
-  ['candidate_retrieval', 'Candidate retrieval raw'],
-  ['quality_annotation', 'Quality annotation'],
-  ['hard_filters', 'Hard filters'],
-  ['interest_matching', 'Interest matching'],
-  ['adaptive_plan', 'Adaptive plan'],
-  ['pool_expansion', 'Pool expansion'],
-  ['scoring', 'Scoring'],
-  ['assembly', 'Assembly'],
-  ['time_ordering', 'Time ordering'],
-  ['time_aware', 'Time aware'],
-  ['budget_fit', 'Budget fit'],
-  ['quality_gates', 'Quality gates'],
-  ['finalize', 'Finalize'],
-  ['final', 'Final'],
-] as const
-
-const blockFields: Record<string, string[]> = {
-  context: ['city_id', 'start_lat', 'start_lng', 'radius_meters', 'time_budget_minutes', 'route_time_mode', 'time_of_day', 'interests', 'interest_removed_due_to_avoidance', 'avoided_categories', 'excluded_place_ids', 'budget_level', 'pace_mode'],
-  city_stats: ['places_total_in_city', 'places_public_catalog', 'places_route_eligible', 'places_active_legacy_safe', 'places_with_coords'],
-  retrieval: [
-    'input_city_id',
-    'requested_radius_meters',
-    'query_limit',
-    'healthy_min_candidates',
-    'raw_candidates_count',
-    'after_radius_count',
-    'expanded_radius_candidates_count',
-    'city_wide_candidates_count',
-    'retrieval_strategy_used',
-    'retrieval_coverage_pct',
-    'low_coverage_threshold_pct',
-    'after_city_filter_count',
-    'after_route_eligible_count',
-    'after_public_catalog_count',
-    'after_coordinates_count',
-    'after_excluded_place_ids_count',
-    'after_avoided_categories_count',
-    'final_candidates_count',
-    'fallback_city_wide_used',
-    'fallback_radius_used',
-    'center_used',
-    'places_within_500m',
-    'places_within_1km',
-    'places_within_2km',
-    'places_within_5km',
-    'places_within_10km',
-    'city_wide_eligible',
-    'route_eligible_before_user_exclusions',
-    'route_eligible_after_user_exclusions',
-    'radius_before_user_exclusions',
-    'radius_after_user_exclusions',
-    'expanded_radius_meters',
-    'expanded_radius_before_user_exclusions',
-    'expanded_radius_after_user_exclusions',
-    'city_wide_after_user_exclusions',
-    'lost_by_user_exclusions_city_wide',
-    'lost_by_user_exclusions_radius',
-    'applied_avoided_categories',
-    'applied_avoided_place_ids_count',
-    'retrieval_loss_summary',
-    'final_candidate_categories',
-    'spatial_density',
-    'retrieval_counts',
-    'top_candidate_distances_meters',
-    'sample_candidate_ids',
-    'sample_candidates',
-  ],
-  candidate_retrieval: ['count', 'city_slug', 'city_db_id', 'city_launch_status', 'city_is_active', 'city_is_blocked_for_routes', 'start_point', 'radius_meters', 'places_total_in_city', 'places_public_catalog', 'places_route_visible', 'places_route_eligible', 'places_active_legacy_safe', 'places_with_coords', 'geo_query_count', 'geo_route_eligible_count', 'candidate_retrieval_expected_count', 'candidate_retrieval_city_wide_expected_count', 'categories', 'sample_candidates'],
-  quality_annotation: ['input_count', 'output_count', 'warning_count', 'validation_issue_counts', 'sample_candidates', 'warnings'],
-  hard_filters: ['input_count', 'strict_kept', 'relaxed_kept', 'fallback_used', 'output_count', 'removed_count', 'removal_reasons', 'strict_removal_reasons', 'relaxed_removal_reasons', 'sample_removed'],
-  interest_matching: ['input_count', 'requested_interests', 'interest_removed_due_to_avoidance', 'exact_count', 'exact_matches_count', 'related_matches_count', 'neutral_candidates_count', 'expansion_level', 'expanded_category_count', 'neutral_added_count', 'target_points', 'output_count', 'sample_exact_ids', 'sample_related_ids', 'sample_neutral_ids'],
-  adaptive_plan: ['input_count', 'output_count', 'target_points', 'expansion_level', 'exact_count', 'related_count', 'neutral_count', 'expanded_category_count', 'neutral_added_count', 'user_explanation', 'warnings'],
-  pool_expansion: ['input_count', 'output_count', 'expansion_level', 'expanded_category_count', 'neutral_added_count', 'target_points', 'warnings'],
-  scoring: ['input_count', 'output_count', 'count', 'min_score', 'max_score', 'avg_score', 'top_scored_candidates'],
-  assembly: ['input_count', 'input_scored_count', 'target_points', 'selected_count', 'selected_count_before_budget', 'rejected_count', 'rejection_reasons', 'selected_ids', 'fallback_used', 'fallback_triggers', 'rejected_sample', 'first_point_candidates_checked', 'first_point_rejection_reasons', 'failure_reason'],
-  time_ordering: ['input_count', 'output_count', 'input_route', 'output_route'],
-  time_aware: ['input_count', 'output_count', 'removed_count', 'route_minutes', 'input_route', 'output_route'],
-  budget_fit: ['input_count', 'output_count', 'requested_budget_minutes', 'actual_duration_minutes', 'route_completeness', 'removed_by_budget_count', 'removed_by_budget_sample', 'failure_reason'],
-  quality_gates: ['status', 'warnings', 'failed_gates', 'user_explanation'],
-  finalize: ['input_count', 'final_places_count', 'final_total_minutes', 'final_total_km', 'partial_reason', 'warning_count', 'warnings', 'final_points'],
-  final: ['final_points_count', 'final_duration_minutes', 'final_distance_km', 'final_place_ids', 'failure_stage'],
-}
-
-const value = (entry: RouteDebugTraceEntry, keys: string[]): string => {
-  const found = keys.map((key) => entry[key]).find((item) => item !== undefined && item !== null)
-  if (found === undefined || found === null) return '—'
-  if (typeof found === 'object') return JSON.stringify(found)
-  return String(found)
-}
+const stageByName = (trace: RouteDebugTraceEntry[], stage: string): RouteDebugTraceEntry | undefined => (
+  trace.find((entry) => entry.stage === stage)
+)
 
 const rawValue = (entry: RouteDebugTraceEntry, keys: string[]): unknown => (
   keys.map((key) => entry[key]).find((item) => item !== undefined && item !== null)
@@ -164,121 +26,18 @@ const numberValue = (entry: RouteDebugTraceEntry, keys: string[]): number | null
   return null
 }
 
-const reasons = (entry: RouteDebugTraceEntry): string => {
-  const raw = entry.reasons
-  if (!raw || Object.keys(raw).length === 0) return '—'
-  return Object.entries(raw).map(([key, count]) => `${key}: ${count}`).join(', ')
+const json = (payload: unknown): string => JSON.stringify(payload, null, 2)
+
+const formatValue = (value: unknown): string => {
+  if (value === undefined || value === null || value === '') return '—'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  return JSON.stringify(value)
 }
 
-const diagnostics = (entry: RouteDebugTraceEntry): string => {
-  const direct = diagnosticKeys
-    .filter((key) => entry[key] !== undefined && entry[key] !== null)
-    .reduce<Record<string, unknown>>((acc, key) => ({ ...acc, [key]: entry[key] }), {})
-
-  const nested = typeof entry.diagnostics === 'object' && entry.diagnostics !== null ? entry.diagnostics : {}
-  const payload = { ...nested, ...direct }
-
-  return Object.keys(payload).length > 0 ? JSON.stringify(payload, null, 2) : ''
-}
-
-const stageByName = (trace: RouteDebugTraceEntry[], stage: string): RouteDebugTraceEntry | undefined => (
-  trace.find((entry) => entry.stage === stage)
+const field = (payload: Record<string, unknown> | undefined, key: string): unknown => (
+  payload && Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : null
 )
-
-const shortJson = (payload: unknown): string => JSON.stringify(payload, null, 2)
-
-const blockPayload = (entry: RouteDebugTraceEntry, fields: string[]): Record<string, unknown> => (
-  fields.reduce<Record<string, unknown>>((acc, key) => ({ ...acc, [key]: entry[key] ?? null }), {})
-)
-
-const fullDebugPayload = (route: RecommendationRouteResponse): Record<string, unknown> => ({
-  route_id: route.route_id,
-  status: route.status,
-  partial_reason: route.partial_reason,
-  total_places: route.total_places,
-  total_minutes: route.total_minutes,
-  total_estimated_minutes: route.total_estimated_minutes,
-  estimated_distance: route.estimated_distance,
-  total_walk_distance_meters: route.total_walk_distance_meters,
-  quality_score: route.quality_score,
-  quality_status: route.quality_status,
-  route_quality_status: route.route_quality_status,
-  route_completeness: route.route_completeness,
-  matched_interest_count: route.matched_interest_count,
-  total_requested_interests: route.total_requested_interests,
-  expansion_level: route.expansion_level,
-  neutral_added_count: route.neutral_added_count,
-  fallback_level: route.fallback_level,
-  user_explanation: route.user_explanation,
-  quality_breakdown: route.quality_breakdown,
-  time_breakdown: route.time_breakdown,
-  category_distribution: route.category_distribution,
-  warnings: route.warnings,
-  user_warnings: route.user_warnings,
-  context: route.context,
-  points: route.points.map((point) => ({
-    place_id: point.place_id,
-    title: point.title,
-    category: point.category,
-    lat: point.lat,
-    lng: point.lng,
-    visit_minutes: point.visit_minutes,
-    estimated_walk_minutes: point.estimated_walk_minutes,
-    estimated_distance_meters: point.estimated_distance_meters,
-    scoring_breakdown: point.scoring_breakdown,
-  })),
-  candidate_options_count: route.candidate_options?.length ?? 0,
-  candidate_options: route.candidate_options?.slice(0, 20).map((point) => ({
-    place_id: point.place_id,
-    title: point.title,
-    category: point.category,
-    lat: point.lat,
-    lng: point.lng,
-    visit_minutes: point.visit_minutes,
-    estimated_walk_minutes: point.estimated_walk_minutes,
-  })),
-  debug_trace: route.debug_trace,
-})
-
-const retrievalFunnel = (
-  retrieval: RouteDebugTraceEntry,
-  candidateRetrieval: RouteDebugTraceEntry,
-  hardFilter: RouteDebugTraceEntry,
-  scoring: RouteDebugTraceEntry,
-): Record<string, unknown> => ({
-  city_scope_total: rawValue(retrieval, ['city_scope_total', 'after_city_filter_count']) ?? rawValue(candidateRetrieval, ['places_total_in_city']),
-  public_catalog: rawValue(retrieval, ['after_public_catalog_count']) ?? rawValue(candidateRetrieval, ['places_public_catalog']),
-  route_visible: rawValue(candidateRetrieval, ['places_route_visible']),
-  route_eligible_before_user_exclusions: rawValue(retrieval, ['route_eligible_before_user_exclusions', 'after_route_eligible_count']) ?? rawValue(candidateRetrieval, ['places_route_eligible']),
-  route_eligible_after_user_exclusions: rawValue(retrieval, ['route_eligible_after_user_exclusions', 'after_avoided_categories_count']),
-  requested_radius_meters: rawValue(retrieval, ['requested_radius_meters']) ?? rawValue(candidateRetrieval, ['radius_meters']),
-  expected_in_radius: rawValue(candidateRetrieval, ['candidate_retrieval_expected_count', 'geo_route_eligible_count', 'geo_query_count']),
-  radius_before_user_exclusions: rawValue(retrieval, ['radius_before_user_exclusions']),
-  radius_after_user_exclusions: rawValue(retrieval, ['radius_after_user_exclusions', 'after_radius_count']),
-  expanded_radius_meters: rawValue(retrieval, ['expanded_radius_meters']),
-  expanded_radius_after_user_exclusions: rawValue(retrieval, ['expanded_radius_after_user_exclusions', 'expanded_radius_candidates_count']),
-  city_wide_expected: rawValue(candidateRetrieval, ['candidate_retrieval_city_wide_expected_count']),
-  city_wide_after_user_exclusions: rawValue(retrieval, ['city_wide_after_user_exclusions', 'city_wide_candidates_count']),
-  final_candidates_count: rawValue(retrieval, ['final_candidates_count', 'count']),
-  hard_filter_input_count: rawValue(hardFilter, ['input_count']),
-  hard_filter_output_count: rawValue(hardFilter, ['output_count', 'kept_count']),
-  scoring_input_count: rawValue(scoring, ['input_count']),
-  scoring_output_count: rawValue(scoring, ['output_count', 'count']),
-  fallback_radius_used: rawValue(retrieval, ['fallback_radius_used']),
-  fallback_city_wide_used: rawValue(retrieval, ['fallback_city_wide_used']),
-  retrieval_strategy_used: rawValue(retrieval, ['retrieval_strategy_used']),
-  retrieval_coverage_pct: rawValue(retrieval, ['retrieval_coverage_pct']),
-  low_coverage_threshold_pct: rawValue(retrieval, ['low_coverage_threshold_pct']),
-  lost_by_user_exclusions_city_wide: rawValue(retrieval, ['lost_by_user_exclusions_city_wide']),
-  lost_by_user_exclusions_radius: rawValue(retrieval, ['lost_by_user_exclusions_radius']),
-  applied_avoided_categories: rawValue(retrieval, ['applied_avoided_categories']),
-  center_used: rawValue(retrieval, ['center_used']) ?? rawValue(candidateRetrieval, ['start_point']),
-  spatial_density: rawValue(retrieval, ['spatial_density']),
-  retrieval_counts: rawValue(retrieval, ['retrieval_counts']),
-  retrieval_loss_summary: rawValue(retrieval, ['retrieval_loss_summary']),
-  sample_candidate_ids: rawValue(retrieval, ['sample_candidate_ids']),
-  sample_candidates: rawValue(retrieval, ['sample_candidates']) ?? rawValue(candidateRetrieval, ['sample_candidates']),
-})
 
 const retrievalDiagnosis = (
   retrieval: RouteDebugTraceEntry,
@@ -314,14 +73,97 @@ const retrievalDiagnosis = (
     radius_expected: radiusExpected,
     city_wide_expected: cityWideExpected,
     route_visible: routeVisible,
-    radius_meters: value(candidateRetrieval, ['radius_meters']),
+    radius_meters: rawValue(candidateRetrieval, ['radius_meters']),
     start_point: rawValue(candidateRetrieval, ['start_point']),
-    retrieval_stage: value(retrieval, ['retrieval_strategy_used']),
+    retrieval_stage: rawValue(retrieval, ['retrieval_strategy_used']),
     fallback_radius_used: rawValue(retrieval, ['fallback_radius_used']),
     fallback_city_wide_used: rawValue(retrieval, ['fallback_city_wide_used']),
+    fallback_route_visible_used: rawValue(retrieval, ['fallback_route_visible_used']),
     sample_candidate_ids: rawValue(retrieval, ['sample_candidate_ids']),
   }
 }
+
+const buildCopyPayload = (
+  route: RecommendationRouteResponse,
+  retrieval: RouteDebugTraceEntry,
+  candidateRetrieval: RouteDebugTraceEntry,
+  hardFilter: RouteDebugTraceEntry,
+  scoring: RouteDebugTraceEntry,
+  assembly: RouteDebugTraceEntry,
+  budgetFit: RouteDebugTraceEntry,
+): Record<string, unknown> => ({
+  route_id: route.route_id,
+  status: route.status,
+  partial_reason: route.partial_reason,
+  total_places: route.total_places,
+  warnings: route.warnings,
+  route_debug_summary: route.route_debug_summary ?? null,
+  route_debug_summary_exists: Boolean(route.route_debug_summary),
+  retrieval_diagnosis: retrievalDiagnosis(retrieval, candidateRetrieval, hardFilter, scoring),
+  route: {
+    route_quality_status: route.route_quality_status,
+    route_completeness: route.route_completeness,
+    expansion_level: route.expansion_level,
+    fallback_level: route.fallback_level,
+    matched_interest_count: route.matched_interest_count,
+    total_requested_interests: route.total_requested_interests,
+  },
+  city: {
+    places_total_in_city: rawValue(candidateRetrieval, ['places_total_in_city']) ?? field(route.route_debug_summary?.city, 'places_total_in_city'),
+    places_public_catalog: rawValue(candidateRetrieval, ['places_public_catalog']) ?? field(route.route_debug_summary?.city, 'places_public_catalog'),
+    places_route_visible: rawValue(candidateRetrieval, ['places_route_visible']) ?? field(route.route_debug_summary?.city, 'places_route_visible'),
+    places_route_eligible: rawValue(candidateRetrieval, ['places_route_eligible']) ?? field(route.route_debug_summary?.city, 'places_route_eligible'),
+    geo_query_count: rawValue(candidateRetrieval, ['geo_query_count']) ?? field(route.route_debug_summary?.city, 'geo_query_count'),
+  },
+  retrieval: {
+    final_candidates_count: rawValue(retrieval, ['final_candidates_count', 'count']) ?? field(route.route_debug_summary?.retrieval, 'final_candidates_count'),
+    raw_candidates_count: rawValue(retrieval, ['raw_candidates_count']) ?? field(route.route_debug_summary?.retrieval, 'raw_candidates_count'),
+    after_radius_count: rawValue(retrieval, ['after_radius_count']) ?? field(route.route_debug_summary?.retrieval, 'after_radius_count'),
+    expanded_radius_candidates_count: rawValue(retrieval, ['expanded_radius_candidates_count']) ?? field(route.route_debug_summary?.retrieval, 'expanded_radius_candidates_count'),
+    city_wide_candidates_count: rawValue(retrieval, ['city_wide_candidates_count']) ?? field(route.route_debug_summary?.retrieval, 'city_wide_candidates_count'),
+    route_visible_candidates_count: rawValue(retrieval, ['route_visible_candidates_count']) ?? field(route.route_debug_summary?.retrieval, 'route_visible_candidates_count'),
+    retrieval_strategy_used: rawValue(retrieval, ['retrieval_strategy_used']) ?? field(route.route_debug_summary?.retrieval, 'strategy'),
+    fallback_radius_used: rawValue(retrieval, ['fallback_radius_used']),
+    fallback_city_wide_used: rawValue(retrieval, ['fallback_city_wide_used']),
+    fallback_route_visible_used: rawValue(retrieval, ['fallback_route_visible_used']),
+    retrieval_loss_summary: rawValue(retrieval, ['retrieval_loss_summary']) ?? field(route.route_debug_summary?.important, 'retrieval_loss_summary'),
+    sample_candidate_ids: rawValue(retrieval, ['sample_candidate_ids']) ?? field(route.route_debug_summary?.important, 'sample_candidate_ids'),
+  },
+  pipeline_counts: {
+    hard_filter_input: rawValue(hardFilter, ['input_count']) ?? field(route.route_debug_summary?.pipeline_counts, 'hard_filter_input'),
+    hard_filter_output: rawValue(hardFilter, ['output_count', 'kept_count']) ?? field(route.route_debug_summary?.pipeline_counts, 'hard_filter_output'),
+    scoring_output: rawValue(scoring, ['output_count', 'count']) ?? field(route.route_debug_summary?.pipeline_counts, 'scoring_output'),
+    assembly_output: rawValue(assembly, ['selected_count']) ?? field(route.route_debug_summary?.pipeline_counts, 'assembly_output'),
+    budget_fit_output: rawValue(budgetFit, ['output_count', 'kept_count']) ?? field(route.route_debug_summary?.pipeline_counts, 'budget_fit_output'),
+  },
+})
+
+const rowsFromPayload = (payload: Record<string, unknown>, prefix = ''): DebugRow[] => Object.entries(payload).flatMap(([key, value]) => {
+  const label = prefix ? `${prefix}.${key}` : key
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return rowsFromPayload(value as Record<string, unknown>, label)
+  }
+  return [{ label, value }]
+})
+
+const renderRows = (rows: DebugRow[]) => (
+  <div className="route-debug-summary-grid">
+    {rows.map((row) => (
+      <div key={row.label}>
+        <span>{row.label}</span>
+        <strong>{formatValue(row.value)}</strong>
+      </div>
+    ))}
+  </div>
+)
+
+const renderCopyLines = (payload: Record<string, unknown>) => (
+  <div className="route-debug-copy-lines">
+    {json(payload).split('\n').map((line, index) => (
+      <div key={`${index}-${line}`}>{line || ' '}</div>
+    ))}
+  </div>
+)
 
 export const RouteDebugTrace = ({ route }: Props) => {
   const trace = route.debug_trace ?? []
@@ -331,84 +173,51 @@ export const RouteDebugTrace = ({ route }: Props) => {
   const scoring = stageByName(trace, 'scoring') ?? stageByName(trace, 'scoring_raw') ?? emptyTraceEntry
   const assembly = stageByName(trace, 'assembly') ?? emptyTraceEntry
   const budgetFit = stageByName(trace, 'budget_fit') ?? emptyTraceEntry
-  const qualityGate = stageByName(trace, 'quality_gates') ?? stageByName(trace, 'route_quality_gate') ?? emptyTraceEntry
-  const rawPayload = fullDebugPayload(route)
-  const retrievalDeathCheck = retrievalDiagnosis(retrieval, candidateRetrieval, hardFilter, scoring)
-  const retrievalFunnelPayload = retrievalFunnel(retrieval, candidateRetrieval, hardFilter, scoring)
+  const copyPayload = buildCopyPayload(route, retrieval, candidateRetrieval, hardFilter, scoring, assembly, budgetFit)
 
   return (
-    <details className="route-result-tile route-debug-trace" open>
-      <summary>Debug маршрута — полный разбор</summary>
+    <section className="route-result-tile route-debug-trace route-debug-page">
+      <h3>Debug маршрута</h3>
+      <p>Короткая диагностика без вложенных скроллов. Просто листай страницу вниз.</p>
 
       <div className="route-debug-warning-box">
-        <strong>Retrieval death check</strong>
-        <pre>{shortJson(retrievalDeathCheck)}</pre>
+        <strong>Главный диагноз</strong>
+        {renderRows(rowsFromPayload(retrievalDiagnosis(retrieval, candidateRetrieval, hardFilter, scoring)))}
       </div>
 
       <div className="route-debug-warning-box">
-        <strong>Retrieval funnel — вся цепочка кандидатов</strong>
-        <pre>{shortJson(retrievalFunnelPayload)}</pre>
+        <strong>Короткий JSON для копирования</strong>
+        {renderCopyLines(copyPayload)}
       </div>
 
-      <div className="route-debug-summary-grid">
-        <div><span>Статус</span><strong>{route.status ?? '—'}</strong></div>
-        <div><span>Точек</span><strong>{route.total_places}</strong></div>
-        <div><span>Минут</span><strong>{route.total_estimated_minutes}</strong></div>
-        <div><span>Кандидатов</span><strong>{value(retrieval, ['final_candidates_count', 'count', 'candidate_count'])}</strong></div>
-        <div><span>City-wide expected</span><strong>{value(candidateRetrieval, ['candidate_retrieval_city_wide_expected_count'])}</strong></div>
-        <div><span>Radius expected</span><strong>{value(candidateRetrieval, ['candidate_retrieval_expected_count', 'geo_route_eligible_count'])}</strong></div>
-        <div><span>После фильтров</span><strong>{value(hardFilter, ['output_count', 'kept_count'])}</strong></div>
-        <div><span>Скоринг</span><strong>{value(scoring, ['output_count', 'count', 'scored_count'])}</strong></div>
-        <div><span>Assembly</span><strong>{value(assembly, ['selected_count', 'initial_route_count'])}</strong></div>
-        <div><span>Budget fit</span><strong>{value(budgetFit, ['kept_count', 'output_count', 'after_budget_fit_count'])}</strong></div>
-        <div><span>Итог</span><strong>{value(qualityGate, ['final_route_count', 'output_count'])}</strong></div>
-        <div><span>Budget %</span><strong>{value(qualityGate, ['budget_utilization_pct'])}</strong></div>
-        <div><span>Route quality</span><strong>{route.route_quality_status ?? '—'}</strong></div>
-        <div><span>Expansion</span><strong>{route.expansion_level ?? '—'}</strong></div>
+      <div className="route-debug-warning-box">
+        <strong>Сводка ответа</strong>
+        {renderRows([
+          { label: 'route_id', value: route.route_id },
+          { label: 'status', value: route.status },
+          { label: 'partial_reason', value: route.partial_reason },
+          { label: 'total_places', value: route.total_places },
+          { label: 'route_quality_status', value: route.route_quality_status },
+          { label: 'route_completeness', value: route.route_completeness },
+          { label: 'route_debug_summary_exists', value: Boolean(route.route_debug_summary) },
+          { label: 'debug_trace_entries', value: trace.length },
+        ])}
       </div>
 
-      {route.warnings?.length ? (
+      {route.route_debug_summary ? (
         <div className="route-debug-warning-box">
-          <strong>Warnings из backend</strong>
-          <pre>{shortJson(route.warnings)}</pre>
+          <strong>Backend route_debug_summary</strong>
+          {renderRows(rowsFromPayload(route.route_debug_summary))}
         </div>
       ) : null}
 
-      <div className="route-debug-list">
-        {debugBlocks.map(([stage, title]) => {
-          const entry = stageByName(trace, stage) ?? { stage }
-          return (
-            <div className="route-debug-item" key={`canonical-${stage}`}>
-              <strong>{title}</strong>
-              <pre>{shortJson(blockPayload(entry, blockFields[stage] ?? []))}</pre>
-            </div>
-          )
-        })}
+      <div className="route-debug-warning-box">
+        <strong>Warnings</strong>
+        {renderRows([
+          { label: 'warnings', value: route.warnings },
+          { label: 'user_warnings', value: route.user_warnings?.map((item) => item.type) ?? [] },
+        ])}
       </div>
-
-      <div className="route-debug-list">
-        {trace.map((entry, index) => {
-          const details = diagnostics(entry)
-          return (
-            <div className="route-debug-item" key={`${entry.stage}-${index}`}>
-              <strong>{stageTitle[entry.stage] ?? entry.stage}</strong>
-              <span>duration_ms: {value(entry, ['duration_ms'])}</span>
-              <span>count: {value(entry, ['count', 'input_count', 'candidate_count'])}</span>
-              <span>kept: {value(entry, ['kept_count', 'selected_count', 'final_route_count'])}</span>
-              <span>removed: {value(entry, ['removed_count'])}</span>
-              <span>warnings: {value(entry, ['warning_count'])}</span>
-              <span>fallback: {value(entry, ['fallback_used'])}</span>
-              <span>reasons: {reasons(entry)}</span>
-              {details ? <pre>{details}</pre> : null}
-            </div>
-          )
-        })}
-      </div>
-
-      <details className="route-debug-raw" open>
-        <summary>Полный JSON ответа маршрута</summary>
-        <pre>{shortJson(rawPayload)}</pre>
-      </details>
-    </details>
+    </section>
   )
 }
