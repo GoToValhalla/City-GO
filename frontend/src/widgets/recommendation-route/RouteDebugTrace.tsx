@@ -255,7 +255,6 @@ export const RouteDebugTrace = ({ route }: Props) => {
   const candidateRetrieval = stageByName(trace, 'candidate_retrieval') ?? emptyTraceEntry
   const hardFilter = stageByName(trace, 'hard_filters') ?? stageByName(trace, 'hard_filter') ?? emptyTraceEntry
   const scoring = stageByName(trace, 'scoring') ?? stageByName(trace, 'scoring_raw') ?? emptyTraceEntry
-  const adaptivePlan = stageByName(trace, 'adaptive_plan') ?? emptyTraceEntry
   const assembly = stageByName(trace, 'assembly') ?? emptyTraceEntry
   const budgetFit = stageByName(trace, 'budget_fit') ?? emptyTraceEntry
   const qualityGates = stageByName(trace, 'quality_gates') ?? emptyTraceEntry
@@ -310,8 +309,8 @@ export const RouteDebugTrace = ({ route }: Props) => {
 
       <div className="route-debug-stage-list">
         <strong>Полный debug_trace по шагам</strong>
-        {trace.map((entry) => (
-          <div className="route-debug-stage" key={`${entry.stage}-${stageOutput(entry) ?? 'none'}`}>
+        {trace.map((entry, index) => (
+          <div className="route-debug-stage" key={`${entry.stage}-${index}`}>
             <h4>{stageTitles[entry.stage] ?? entry.stage}</h4>
             {renderRows(rowsFromPayload(entry as Record<string, unknown>))}
           </div>
