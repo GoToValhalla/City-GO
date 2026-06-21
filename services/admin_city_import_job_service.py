@@ -14,18 +14,22 @@ from services.import_pipeline.enrichment_only import run_enrichment_only_pipelin
 from services.import_pipeline.runner import run_enrichment_pipeline
 from services.import_pipeline.steps import STEP_CANCELLED, STEP_QUEUED
 
+SOURCE_FULL_IMPORT = "admin_city_import"
+SOURCE_ENRICHMENT_ONLY = "admin_city_enrichment"
+
 
 def queue_city_import_job(db: Session, *, city_id: int) -> CityAdminImportJob:
-    scopes = db.query(CityImportScope).filter_by(city_id=city_id, enabled=True).count()
-    job = CityAdminImportJob(city_id=city_id, status="queued", scopes_total=scopes, current_step=STEP_QUEUED)
-    db.add(job)
-    db.flush()
     city = db.query(City).filter(City.id == city_id).first()
-    if city is not None:
-        city.launch_status = "importing"
-        log_import_event(db, event="import_job_created", city_slug=city.slug, actor_id=None,
-                         message=f"Создана задача импорта #{job.id}", details={"job_id": job.id, "scopes_total": scopes})
-    return job
+    if city is None:
+        raise ValueError("Город не найден")
+    return _queue_job(db, city=city, source=SOURCE_FULL_IMPORT, actor_id=None)
+
+
+def queue_city_enrichment_job(db: Session, *, city_id: int, actor_id: str | None = None) -> CityAdminImportJob:
+    city = db.query(City).filter(City.id == city_id).first()
+    if city is None:
+        raise ValueError("Город не найден")
+    return _queue_job(db, city=city, source=SOURCE_ENRICHMENT_ONLY, actor_id=actor_id)
 
 
 def ensure_import_job(db: Session, *, city_id: int) -> CityAdminImportJob:
@@ -33,6 +37,45 @@ def ensure_import_job(db: Session, *, city_id: int) -> CityAdminImportJob:
 
     job = _latest_job(db, city_id)
     return job if job is not None else queue_city_import_job(db, city_id=city_id)
+
+
+def _queue_job(db: Session, *, city: City, source: str, actor_id: str | None) -> CityAdminImportJob:
+    from services.admin_city_import_job_payload import _latest_job
+
+    job = _latest_job(db, city.id)
+    if job is not None and job.status == "running":
+        raise ValueError("Pipeline уже выполняется")
+    scopes = db.query(CityImportScope).filter_by(city_id=city.id, enabled=True).count()
+    if job is None:
+        job = CityAdminImportJob(city_id=city.id)
+        db.add(job)
+        db.flush()
+    job.status = "queued"
+    job.source = source
+    job.scopes_total = scopes
+    job.current_step = STEP_QUEUED
+    job.started_at = None
+    job.finished_at = None
+    job.last_error = None
+    job.cancelled_at = None
+    job.updated_at = datetime.utcnow()
+    if source == SOURCE_FULL_IMPORT:
+        city.launch_status = "importing"
+        city.is_active = False
+        message = f"Создана задача импорта #{job.id}"
+        event = "import_job_created"
+    else:
+        message = f"Создана задача обогащения #{job.id}"
+        event = "enrichment_job_created"
+    log_import_event(
+        db,
+        event=event,
+        city_slug=city.slug,
+        actor_id=actor_id,
+        message=message,
+        details={"job_id": job.id, "scopes_total": scopes, "source": source},
+    )
+    return job
 
 
 def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
@@ -46,13 +89,14 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
         raise ValueError("Задача отменена. Создайте новую через повтор.")
     scopes = db.query(CityImportScope).filter_by(city_id=city_id, enabled=True).count()
     job.status = "running"
+    job.source = SOURCE_FULL_IMPORT
     job.started_at = datetime.utcnow()
     job.finished_at = None
     job.last_error = None
     job.scopes_total = scopes
     city.launch_status = "importing"
     log_import_event(db, event="import_job_started", city_slug=city.slug, actor_id=actor_id,
-                     message=f"Старт pipeline #{job.id}", details={"job_id": job.id})
+                     message=f"Старт pipeline #{job.id}", details={"job_id": job.id, "source": job.source})
     db.commit()
     try:
         run_enrichment_pipeline(db, job=job, city=city, actor_id=actor_id, force=True)
@@ -93,6 +137,7 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str) -> City
     if job.status == "running":
         raise ValueError("Pipeline уже выполняется")
     job.status = "running"
+    job.source = SOURCE_ENRICHMENT_ONLY
     job.started_at = datetime.utcnow()
     job.finished_at = None
     job.last_error = None
@@ -119,7 +164,7 @@ def cancel_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminI
     if city is not None:
         city.launch_status = "import_failed"
         log_import_event(db, event="import_job_cancelled", city_slug=city.slug, actor_id=actor_id,
-                         message=f"Импорт #{job.id} отменён", details={"job_id": job.id})
+                         message=f"Импорт #{job.id} отменён", details={"job_id": job.id, "source": job.source})
     db.commit()
     db.refresh(job)
     return job
