@@ -93,6 +93,35 @@ def test_route_debug_summary_detects_retrieval_death_new() -> None:
     assert summary["city"]["places_total_in_city"] == 387
 
 
+def test_route_debug_summary_detects_hard_filter_death_new() -> None:
+    trace = [
+        {"stage": "candidate_retrieval", "count": 80},
+        {"stage": "hard_filter", "input_count": 80, "kept_count": 0, "reasons": {"closed_now": 80}},
+        {"stage": "scoring", "count": 0},
+    ]
+
+    summary = route_debug_summary("route-hard", trace)
+
+    assert summary["death_point"] == "hard_filters"
+    assert summary["pipeline_counts"]["hard_filter_input"] == 80
+    assert summary["pipeline_counts"]["hard_filter_output"] == 0
+
+
+def test_route_debug_summary_detects_scoring_death_new() -> None:
+    trace = [
+        {"stage": "candidate_retrieval", "count": 80},
+        {"stage": "hard_filter", "input_count": 80, "kept_count": 42},
+        {"stage": "scoring", "count": 0},
+        {"stage": "assembly", "input_scored_count": 0, "selected_count": 0},
+    ]
+
+    summary = route_debug_summary("route-scoring", trace)
+
+    assert summary["death_point"] == "scoring"
+    assert summary["pipeline_counts"]["hard_filter_output"] == 42
+    assert summary["pipeline_counts"]["scoring_output"] == 0
+
+
 def test_route_debug_summary_detects_assembly_death_new() -> None:
     trace = [
         {"stage": "candidate_retrieval", "count": 180},
