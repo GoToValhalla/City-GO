@@ -46,7 +46,7 @@ class City(Base):
     center_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
     center_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
     bbox: Mapped[dict[str, object] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
-    launch_status: Mapped[str] = mapped_column(String(64), nullable=False, default="published", index=True)
+    launch_status: Mapped[str] = mapped_column(String(64), nullable=False, default="draft", index=True)
     slug_aliases: Mapped[list[str] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
 
     # Data Foundation city-level quality metadata.
@@ -57,8 +57,8 @@ class City(Base):
     population_tier: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     expected_places_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Признак активности города.
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Признак активности города в публичной витрине.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Дата и время создания записи.
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
