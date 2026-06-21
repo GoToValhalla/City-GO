@@ -38,6 +38,7 @@ class MergedContext(BaseModel):
     # --- LOCATION — стартовые координаты (широта, долгота).
     location: Tuple[float, float]  # (lat, lng)
     city_id: Optional[str] = None
+    timezone: str = "UTC"
 
     # --- TIME — лимиты времени на маршрут.
     time_budget_minutes: int
