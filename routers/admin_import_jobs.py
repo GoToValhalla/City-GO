@@ -1,13 +1,14 @@
-"""Admin: запуск и повтор import jobs."""
+"""Admin: запуск, повтор, публикация import jobs."""
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
-from schemas.admin import AdminImportJobActionResponse, AdminImportJobRead
+from schemas.admin import AdminActionRequest, AdminImportJobActionResponse, AdminImportJobRead
 from services.admin_city_import_job_service import cancel_import_job, ensure_import_job, reset_import_job_to_queued
 from services.admin_city_import_tasks import run_all_cities_enrichment_background, run_enrichment_job_background, run_import_job_background
+from services.admin_city_publication_service import publish_city
 from services.admin_extended_service import get_admin_import_job, list_admin_import_jobs
 
 router = APIRouter(prefix="/admin", tags=["admin-import-jobs"])
@@ -78,6 +79,27 @@ def cancel_import_job_endpoint(
         city_id=city_id,
         status="cancelled",
         message="Импорт отменён.",
+    )
+
+
+@router.post("/import-jobs/{city_id}/publish", response_model=AdminImportJobActionResponse)
+def publish_imported_city(
+    city_id: int,
+    payload: AdminActionRequest | None = None,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> AdminImportJobActionResponse:
+    body = payload or AdminActionRequest()
+    try:
+        result = publish_city(db, city_id, actor=auth.actor_id, reason=body.reason)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if result is None:
+        raise HTTPException(404, "Город не найден")
+    return AdminImportJobActionResponse(
+        city_id=city_id,
+        status="published",
+        message=f"Город опубликован. На сайт вышло мест: {result.places_published}. Скрыто: {result.places_hidden}.",
     )
 
 
