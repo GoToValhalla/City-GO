@@ -56,6 +56,12 @@ const IMPORTANT_TRACE_KEYS = new Set([
   'city_is_blocked_for_routes',
   'start_point',
   'location',
+  'location_fallback_applied',
+  'location_fallback_reason',
+  'original_start_point',
+  'original_location',
+  'city_center_location',
+  'distance_to_city_center_meters',
   'radius_meters',
   'requested_radius_meters',
   'expanded_radius_meters',
@@ -198,6 +204,13 @@ const field = (payload: Record<string, unknown> | undefined, key: string): unkno
   payload && Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : null
 )
 
+const summaryField = (route: RecommendationRouteResponse, section: string, key: string): unknown => {
+  const sectionPayload = route.route_debug_summary?.[section]
+  return sectionPayload && typeof sectionPayload === 'object'
+    ? (sectionPayload as Record<string, unknown>)[key]
+    : null
+}
+
 const numberValue = (entry: RouteDebugTraceEntry, keys: string[]): number | null => {
   const raw = rawValue(entry, keys)
   if (typeof raw === 'number') return raw
@@ -206,10 +219,7 @@ const numberValue = (entry: RouteDebugTraceEntry, keys: string[]): number | null
 }
 
 const summaryNumber = (route: RecommendationRouteResponse, section: string, key: string): number | null => {
-  const sectionPayload = route.route_debug_summary?.[section]
-  const value = sectionPayload && typeof sectionPayload === 'object'
-    ? (sectionPayload as Record<string, unknown>)[key]
-    : null
+  const value = summaryField(route, section, key)
   if (typeof value === 'number') return value
   if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) return Number(value)
   return null
@@ -372,6 +382,9 @@ const buildKeyRows = (
   { label: 'status', value: route.status },
   { label: 'partial_reason', value: route.partial_reason },
   { label: 'death_point', value: field(route.route_debug_summary, 'death_point') ?? field(route.route_debug_summary, 'failure_stage') },
+  { label: 'location_fallback_applied', value: rawValue(retrieval, ['location_fallback_applied']) ?? rawValue(candidateRetrieval, ['location_fallback_applied']) ?? summaryField(route, 'retrieval', 'location_fallback_applied') },
+  { label: 'location_fallback_reason', value: rawValue(retrieval, ['location_fallback_reason']) ?? rawValue(candidateRetrieval, ['location_fallback_reason']) ?? summaryField(route, 'retrieval', 'location_fallback_reason') },
+  { label: 'distance_to_city_center_meters', value: numberValue(retrieval, ['distance_to_city_center_meters']) ?? numberValue(candidateRetrieval, ['distance_to_city_center_meters']) ?? summaryNumber(route, 'retrieval', 'distance_to_city_center_meters') },
   { label: 'city_total', value: numberValue(candidateRetrieval, ['places_total_in_city']) ?? summaryNumber(route, 'city', 'places_total_in_city') },
   { label: 'route_visible', value: numberValue(candidateRetrieval, ['places_route_visible']) ?? summaryNumber(route, 'city', 'places_route_visible') },
   { label: 'route_eligible', value: numberValue(candidateRetrieval, ['places_route_eligible']) ?? summaryNumber(route, 'city', 'places_route_eligible') },
