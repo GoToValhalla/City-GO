@@ -131,11 +131,13 @@ class CandidateRetrievalService:
 
         with_images = self._safe_attach_public_images(db, candidates)
         ranked = self._pre_rank_candidates(with_images, ctx)
-        balanced = balance_candidates_by_category(ranked, self.TARGET_CANDIDATES)
-
-        # Защита от пустого маршрута после post-processing: SQL уже нашёл кандидатов,
-        # поэтому ranking/balancing/image enrichment не имеют права обнулить пул.
-        final = balanced or ranked or with_images or candidates
+        balanced = _coerce_candidate_list(balance_candidates_by_category(ranked, self.TARGET_CANDIDATES))
+        final, post_processing_debug = _select_final_candidate_pool(
+            balanced=balanced,
+            ranked=ranked,
+            with_images=with_images,
+            candidates=candidates,
+        )
         self.last_debug = self._debug_payload(
             ctx,
             raw_candidates_count,
@@ -151,6 +153,7 @@ class CandidateRetrievalService:
             route_visible_candidates_count=route_visible_candidates_count,
             route_visible_relaxed_candidates_count=route_visible_relaxed_candidates_count,
             retrieval_strategy_used=retrieval_strategy_used,
+            post_processing_debug=post_processing_debug,
         )
         return final
 
@@ -483,6 +486,7 @@ class CandidateRetrievalService:
         route_visible_candidates_count: int | None = None,
         route_visible_relaxed_candidates_count: int | None = None,
         retrieval_strategy_used: str = "radius",
+        post_processing_debug: dict[str, object] | None = None,
     ) -> dict[str, object]:
         lat, lng = ctx.location
         city_wide_eligible = _safe_int((density or {}).get("city_wide_eligible"))
@@ -505,6 +509,7 @@ class CandidateRetrievalService:
             "fallback_city_wide_used": fallback_city_wide_used,
             "fallback_route_visible_used": fallback_route_visible_used,
             "fallback_route_visible_relaxed_used": fallback_route_visible_relaxed_used,
+            "post_processing": post_processing_debug or {},
             "center_used": {"lat": lat, "lng": lng},
             "spatial_density": density or {},
             "retrieval_counts": counts,
@@ -652,6 +657,77 @@ def _candidate_debug_row(place: Place, start_lat: float, start_lng: float) -> di
         "lng": lng,
         "distance_meters": _distance_meters(start_lat, start_lng, float(lat), float(lng)) if _has_number_coords(place) else None,
     }
+
+
+def _coerce_candidate_list(value: object) -> list[Place]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    for attr in ("candidates", "items", "places", "results"):
+        inner = getattr(value, attr, None)
+        if isinstance(inner, list):
+            return inner
+        if isinstance(inner, tuple):
+            return list(inner)
+    if isinstance(value, dict):
+        for key in ("candidates", "items", "places", "results"):
+            inner = value.get(key)
+            if isinstance(inner, list):
+                return inner
+            if isinstance(inner, tuple):
+                return list(inner)
+    return []
+
+
+def _select_final_candidate_pool(
+    *,
+    balanced: list[Place],
+    ranked: list[Place],
+    with_images: list[Place],
+    candidates: list[Place],
+) -> tuple[list[Place], dict[str, object]]:
+    pools = (
+        ("balanced", balanced),
+        ("ranked", ranked),
+        ("with_images", with_images),
+        ("raw_candidates", candidates),
+    )
+    counts = {name: len(pool) for name, pool in pools}
+    selected_name = "empty"
+    selected_pool: list[Place] = []
+
+    for name, pool in pools:
+        if pool:
+            selected_name = name
+            selected_pool = pool
+            break
+
+    return selected_pool, {
+        "selected_pool": selected_name,
+        "balanced_count": counts["balanced"],
+        "ranked_count": counts["ranked"],
+        "with_images_count": counts["with_images"],
+        "raw_candidates_count": counts["raw_candidates"],
+        "fallback_used": selected_name != "balanced",
+        "fallback_reason": _post_processing_fallback_reason(counts, selected_name),
+    }
+
+
+def _post_processing_fallback_reason(counts: dict[str, int], selected_name: str) -> str | None:
+    if selected_name == "balanced":
+        return None
+    if counts["raw_candidates"] <= 0 and counts["ranked"] <= 0 and counts["with_images"] <= 0:
+        return "NO_RETRIEVED_CANDIDATES"
+    if counts["balanced"] <= 0 and counts["ranked"] > 0:
+        return "BALANCER_RETURNED_EMPTY_POOL"
+    if counts["ranked"] <= 0 and counts["with_images"] > 0:
+        return "RANKING_RETURNED_EMPTY_POOL"
+    if counts["with_images"] <= 0 and counts["raw_candidates"] > 0:
+        return "IMAGE_ENRICHMENT_RETURNED_EMPTY_POOL"
+    return "POST_PROCESSING_FALLBACK_USED"
 
 
 def _retrieval_loss_summary(
