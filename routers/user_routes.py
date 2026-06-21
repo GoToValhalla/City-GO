@@ -113,6 +113,7 @@ def update_user_route(
     payload: UserRouteUpdateRequest,
     db: Session = Depends(get_db),
 ) -> UserRouteState:
+    _ensure_current_route_matches(route_id, payload.current_route)
     route = UserRouteEditService().update_order(db, payload)
     return route.model_copy(update={"route_id": route_id})
 
@@ -123,6 +124,7 @@ def replace_user_route_place(
     payload: UserRouteReplacePlaceRequest,
     db: Session = Depends(get_db),
 ) -> UserRouteState:
+    _ensure_current_route_matches(route_id, payload.current_route)
     route = UserRouteEditService().replace_place(db, payload)
     return route.model_copy(update={"route_id": route_id})
 
@@ -146,6 +148,7 @@ def read_user_route_alternatives_from_state(
     payload: UserRouteState,
     db: Session = Depends(get_db),
 ) -> UserRouteAlternativesResponse:
+    _ensure_current_route_matches(route_id, payload)
     return UserRouteEditService().alternatives(db, payload.model_copy(update={"route_id": route_id}), place_id)
 
 
@@ -155,8 +158,25 @@ def add_user_route_place(
     payload: UserRouteAddPlaceRequest,
     db: Session = Depends(get_db),
 ) -> UserRouteState:
+    _ensure_current_route_matches(route_id, payload.current_route)
     route = UserRouteEditService().add_place(db, payload)
     return route.model_copy(update={"route_id": route_id})
+
+
+def _ensure_current_route_matches(route_id: str, current_route: UserRouteState) -> None:
+    payload_route_id = str(current_route.route_id)
+    if payload_route_id == str(route_id):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "route_state_conflict",
+            "message": "Route mutation payload does not match the route id in the URL.",
+            "route_id": str(route_id),
+            "payload_route_id": payload_route_id,
+            "payload_revision": int(current_route.revision),
+        },
+    )
 
 
 def _latency_ms(started: float) -> int:
