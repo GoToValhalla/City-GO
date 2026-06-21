@@ -90,11 +90,9 @@ class CandidateRetrievalService:
 
         # Last safety net: production data may be visible and route-enabled for the UI, while
         # strict route eligibility SQL can still return zero because enrichment fields are
-        # incomplete or stale. In that case we fallback to public route-visible places with
-        # coordinates, preserving explicit user exclusions. This prevents "215 places -> 0
-        # candidates" and lets downstream scoring/quality gates degrade honestly instead of
-        # returning an empty route at retrieval.
-        if not candidates and self._route_visible_data_exists(retrieval_counts):
+        # incomplete or stale. Always try this fallback when strict retrieval is empty; diagnostic
+        # counters are useful for explanation but must not decide whether the fallback is allowed.
+        if not candidates:
             route_visible = self._fallback_route_visible_city_wide(db, ctx)
             route_visible_candidates_count = len(route_visible)
             if route_visible:
