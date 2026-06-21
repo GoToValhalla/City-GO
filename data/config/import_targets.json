@@ -181,6 +181,58 @@
           "bbox": {"south": 47.2050, "west": 39.6500, "north": 47.2700, "east": 39.7700}
         }
       ]
+    },
+    {
+      "city": "astrakhan",
+      "scopes": [
+        {
+          "code": "tourist_core",
+          "profile": "tourist_core",
+          "enabled": true,
+          "refresh_interval_hours": 168,
+          "bbox": {"south": 46.2500, "west": 47.8800, "north": 46.4300, "east": 48.1800}
+        },
+        {
+          "code": "food_area",
+          "profile": "food_and_coffee",
+          "enabled": true,
+          "refresh_interval_hours": 168,
+          "bbox": {"south": 46.3300, "west": 48.0150, "north": 46.3700, "east": 48.0700}
+        },
+        {
+          "code": "useful_services",
+          "profile": "useful_services",
+          "enabled": true,
+          "refresh_interval_hours": 336,
+          "bbox": {"south": 46.2500, "west": 47.8800, "north": 46.4300, "east": 48.1800}
+        }
+      ]
+    },
+    {
+      "city": "arkhangelsk",
+      "scopes": [
+        {
+          "code": "tourist_core",
+          "profile": "tourist_core",
+          "enabled": true,
+          "refresh_interval_hours": 168,
+          "bbox": {"south": 64.4700, "west": 40.3900, "north": 64.6200, "east": 40.7200}
+        },
+        {
+          "code": "food_area",
+          "profile": "food_and_coffee",
+          "enabled": true,
+          "refresh_interval_hours": 168,
+          "bbox": {"south": 64.5250, "west": 40.4950, "north": 64.5650, "east": 40.5700}
+        },
+        {
+          "code": "useful_services",
+          "profile": "useful_services",
+          "enabled": true,
+          "refresh_interval_hours": 336,
+          "bbox": {"south": 64.4700, "west": 40.3900, "north": 64.6200, "east": 40.7200}
+        }
+      ]
     }
   ]
 }
