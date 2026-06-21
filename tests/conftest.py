@@ -136,6 +136,7 @@ def city_factory(db_session: Session):
         center_lat: float = 54.9611,
         center_lng: float = 20.4703,
         is_active: bool = True,
+        launch_status: str = "published",
     ) -> City:
         city = City(
             slug=slug,
@@ -146,6 +147,7 @@ def city_factory(db_session: Session):
             center_lat=center_lat,
             center_lng=center_lng,
             is_active=is_active,
+            launch_status=launch_status,
         )
         db_session.add(city)
         db_session.commit()
