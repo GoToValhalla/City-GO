@@ -36,11 +36,11 @@ class PlaceBase(BaseModel):
     verified_by: str | None = None
     needs_recheck_at: datetime | None = None
     verification_comment: str | None = None
-    is_published: bool = True
-    is_visible_in_catalog: bool = True
-    is_route_eligible: bool = True
-    is_searchable: bool = True
-    publication_status: str = "published"
+    is_published: bool = False
+    is_visible_in_catalog: bool = False
+    is_route_eligible: bool = False
+    is_searchable: bool = False
+    publication_status: str = "draft"
     publication_comment: str | None = None
     published_at: datetime | None = None
     unpublished_at: datetime | None = None
