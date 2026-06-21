@@ -9,7 +9,66 @@ type DebugRow = {
   value: unknown
 }
 
+type MatrixRow = {
+  step: string
+  status: string
+  signal: string
+  action: string
+}
+
 const emptyTraceEntry: RouteDebugTraceEntry = { stage: 'empty' }
+
+const STAGE_ORDER = [
+  'context_merge',
+  'context_normalization',
+  'retrieval',
+  'candidate_retrieval',
+  'quality_annotation',
+  'hard_filters',
+  'hard_filter',
+  'hard_filtering',
+  'scoring_raw',
+  'scoring',
+  'interest_matching',
+  'adaptive_plan',
+  'assembly_input_debug',
+  'assembly',
+  'time_ordering',
+  'time_aware',
+  'budget_fit_first',
+  'budget_gap_fill',
+  'budget_fit',
+  'quality_gates',
+  'finalize',
+  'final',
+  'final_response',
+]
+
+const stageTitles: Record<string, string> = {
+  context_merge: '1. Context Merge',
+  context_normalization: '1.1. Context Conflicts',
+  retrieval: '2. Retrieval Summary',
+  candidate_retrieval: '2.1. Candidate Retrieval',
+  quality_annotation: '2.2. Candidate Quality',
+  hard_filters: '3. Hard Filters',
+  hard_filter: '3.1. Hard Filter Report',
+  hard_filtering: '3.2. Hard Filter Reasons',
+  scoring_raw: '4. Raw Scoring',
+  scoring: '4.1. Scoring Summary',
+  interest_matching: '5. Interest Matching',
+  adaptive_plan: '6. Adaptive Plan',
+  assembly_input_debug: '7. Assembly Input',
+  assembly: '7.1. Assembly',
+  time_ordering: '8. Time Ordering',
+  time_aware: '8.1. Time Aware',
+  budget_fit_first: '9. Budget Fit First Pass',
+  budget_gap_fill: '9.1. Budget Gap Fill',
+  budget_fit: '9.2. Budget Fit Result',
+  quality_gates: '10. Quality Gates',
+  finalize: '11. Finalize',
+  final: '12. Final',
+  final_response: '12.1. Final Response',
+}
 
 const stageByName = (trace: RouteDebugTraceEntry[], stage: string): RouteDebugTraceEntry | undefined => (
   trace.find((entry) => entry.stage === stage)
@@ -19,6 +78,10 @@ const rawValue = (entry: RouteDebugTraceEntry, keys: string[]): unknown => (
   keys.map((key) => entry[key]).find((item) => item !== undefined && item !== null)
 )
 
+const field = (payload: Record<string, unknown> | undefined, key: string): unknown => (
+  payload && Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : null
+)
+
 const numberValue = (entry: RouteDebugTraceEntry, keys: string[]): number | null => {
   const raw = rawValue(entry, keys)
   if (typeof raw === 'number') return raw
@@ -26,117 +89,42 @@ const numberValue = (entry: RouteDebugTraceEntry, keys: string[]): number | null
   return null
 }
 
-const json = (payload: unknown): string => JSON.stringify(payload, null, 2)
+const summaryNumber = (route: RecommendationRouteResponse, section: string, key: string): number | null => {
+  const sectionPayload = route.route_debug_summary?.[section]
+  const value = sectionPayload && typeof sectionPayload === 'object'
+    ? (sectionPayload as Record<string, unknown>)[key]
+    : null
+  if (typeof value === 'number') return value
+  if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) return Number(value)
+  return null
+}
 
 const formatValue = (value: unknown): string => {
-  if (value === undefined || value === null || value === '') return '—'
+  if (value === undefined || value === null || value === '') return '-'
+  if (Array.isArray(value)) return value.length ? value.map(formatValue).join(', ') : '-'
   if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   return JSON.stringify(value)
 }
 
-const field = (payload: Record<string, unknown> | undefined, key: string): unknown => (
-  payload && Object.prototype.hasOwnProperty.call(payload, key) ? payload[key] : null
-)
-
-const retrievalDiagnosis = (
-  retrieval: RouteDebugTraceEntry,
-  candidateRetrieval: RouteDebugTraceEntry,
-  hardFilter: RouteDebugTraceEntry,
-  scoring: RouteDebugTraceEntry,
-): Record<string, unknown> => {
-  const finalCandidates = numberValue(retrieval, ['final_candidates_count', 'count']) ?? numberValue(candidateRetrieval, ['count'])
-  const cityWideExpected = numberValue(candidateRetrieval, ['candidate_retrieval_city_wide_expected_count', 'places_route_eligible'])
-  const radiusExpected = numberValue(candidateRetrieval, ['candidate_retrieval_expected_count', 'geo_route_eligible_count', 'geo_query_count'])
-  const routeVisible = numberValue(candidateRetrieval, ['places_route_visible'])
-  const hardFilterInput = numberValue(hardFilter, ['input_count'])
-  const hardFilterOutput = numberValue(hardFilter, ['output_count', 'kept_count'])
-  const scoringOutput = numberValue(scoring, ['output_count', 'count'])
-  const status = finalCandidates === 0 && (cityWideExpected ?? 0) > 0
-    ? 'CRITICAL: city-wide candidates exist, but retrieval returned 0'
-    : finalCandidates === 0 && (routeVisible ?? 0) > 0
-      ? 'CRITICAL: route-visible places exist, but retrieval returned 0'
-      : (hardFilterInput ?? 0) > 0 && hardFilterOutput === 0
-        ? 'CRITICAL: retrieval returned candidates, but hard filters removed all of them'
-        : (hardFilterOutput ?? 0) > 0 && scoringOutput === 0
-          ? 'CRITICAL: hard filters kept candidates, but scoring returned 0'
-          : finalCandidates !== null && finalCandidates < 40
-            ? 'LOW: retrieval returned less than healthy threshold'
-            : 'OK'
-
-  return {
-    status,
-    final_candidates: finalCandidates,
-    hard_filter_input: hardFilterInput,
-    hard_filter_output: hardFilterOutput,
-    scoring_output: scoringOutput,
-    radius_expected: radiusExpected,
-    city_wide_expected: cityWideExpected,
-    route_visible: routeVisible,
-    radius_meters: rawValue(candidateRetrieval, ['radius_meters']),
-    start_point: rawValue(candidateRetrieval, ['start_point']),
-    retrieval_stage: rawValue(retrieval, ['retrieval_strategy_used']),
-    fallback_radius_used: rawValue(retrieval, ['fallback_radius_used']),
-    fallback_city_wide_used: rawValue(retrieval, ['fallback_city_wide_used']),
-    fallback_route_visible_used: rawValue(retrieval, ['fallback_route_visible_used']),
-    sample_candidate_ids: rawValue(retrieval, ['sample_candidate_ids']),
-  }
+const statusLabel = (isBad: boolean, isWarn = false): string => {
+  if (isBad) return 'CRITICAL'
+  if (isWarn) return 'WARNING'
+  return 'OK'
 }
 
-const buildCopyPayload = (
-  route: RecommendationRouteResponse,
-  retrieval: RouteDebugTraceEntry,
-  candidateRetrieval: RouteDebugTraceEntry,
-  hardFilter: RouteDebugTraceEntry,
-  scoring: RouteDebugTraceEntry,
-  assembly: RouteDebugTraceEntry,
-  budgetFit: RouteDebugTraceEntry,
-): Record<string, unknown> => ({
-  route_id: route.route_id,
-  status: route.status,
-  partial_reason: route.partial_reason,
-  total_places: route.total_places,
-  warnings: route.warnings,
-  route_debug_summary: route.route_debug_summary ?? null,
-  route_debug_summary_exists: Boolean(route.route_debug_summary),
-  retrieval_diagnosis: retrievalDiagnosis(retrieval, candidateRetrieval, hardFilter, scoring),
-  route: {
-    route_quality_status: route.route_quality_status,
-    route_completeness: route.route_completeness,
-    expansion_level: route.expansion_level,
-    fallback_level: route.fallback_level,
-    matched_interest_count: route.matched_interest_count,
-    total_requested_interests: route.total_requested_interests,
-  },
-  city: {
-    places_total_in_city: rawValue(candidateRetrieval, ['places_total_in_city']) ?? field(route.route_debug_summary?.city, 'places_total_in_city'),
-    places_public_catalog: rawValue(candidateRetrieval, ['places_public_catalog']) ?? field(route.route_debug_summary?.city, 'places_public_catalog'),
-    places_route_visible: rawValue(candidateRetrieval, ['places_route_visible']) ?? field(route.route_debug_summary?.city, 'places_route_visible'),
-    places_route_eligible: rawValue(candidateRetrieval, ['places_route_eligible']) ?? field(route.route_debug_summary?.city, 'places_route_eligible'),
-    geo_query_count: rawValue(candidateRetrieval, ['geo_query_count']) ?? field(route.route_debug_summary?.city, 'geo_query_count'),
-  },
-  retrieval: {
-    final_candidates_count: rawValue(retrieval, ['final_candidates_count', 'count']) ?? field(route.route_debug_summary?.retrieval, 'final_candidates_count'),
-    raw_candidates_count: rawValue(retrieval, ['raw_candidates_count']) ?? field(route.route_debug_summary?.retrieval, 'raw_candidates_count'),
-    after_radius_count: rawValue(retrieval, ['after_radius_count']) ?? field(route.route_debug_summary?.retrieval, 'after_radius_count'),
-    expanded_radius_candidates_count: rawValue(retrieval, ['expanded_radius_candidates_count']) ?? field(route.route_debug_summary?.retrieval, 'expanded_radius_candidates_count'),
-    city_wide_candidates_count: rawValue(retrieval, ['city_wide_candidates_count']) ?? field(route.route_debug_summary?.retrieval, 'city_wide_candidates_count'),
-    route_visible_candidates_count: rawValue(retrieval, ['route_visible_candidates_count']) ?? field(route.route_debug_summary?.retrieval, 'route_visible_candidates_count'),
-    retrieval_strategy_used: rawValue(retrieval, ['retrieval_strategy_used']) ?? field(route.route_debug_summary?.retrieval, 'strategy'),
-    fallback_radius_used: rawValue(retrieval, ['fallback_radius_used']),
-    fallback_city_wide_used: rawValue(retrieval, ['fallback_city_wide_used']),
-    fallback_route_visible_used: rawValue(retrieval, ['fallback_route_visible_used']),
-    retrieval_loss_summary: rawValue(retrieval, ['retrieval_loss_summary']) ?? field(route.route_debug_summary?.important, 'retrieval_loss_summary'),
-    sample_candidate_ids: rawValue(retrieval, ['sample_candidate_ids']) ?? field(route.route_debug_summary?.important, 'sample_candidate_ids'),
-  },
-  pipeline_counts: {
-    hard_filter_input: rawValue(hardFilter, ['input_count']) ?? field(route.route_debug_summary?.pipeline_counts, 'hard_filter_input'),
-    hard_filter_output: rawValue(hardFilter, ['output_count', 'kept_count']) ?? field(route.route_debug_summary?.pipeline_counts, 'hard_filter_output'),
-    scoring_output: rawValue(scoring, ['output_count', 'count']) ?? field(route.route_debug_summary?.pipeline_counts, 'scoring_output'),
-    assembly_output: rawValue(assembly, ['selected_count']) ?? field(route.route_debug_summary?.pipeline_counts, 'assembly_output'),
-    budget_fit_output: rawValue(budgetFit, ['output_count', 'kept_count']) ?? field(route.route_debug_summary?.pipeline_counts, 'budget_fit_output'),
-  },
-})
+const stageOutput = (entry: RouteDebugTraceEntry): number | null => (
+  numberValue(entry, ['output_count', 'kept_count', 'selected_count', 'count'])
+)
+
+const getOrderedTrace = (trace: RouteDebugTraceEntry[]): RouteDebugTraceEntry[] => {
+  const known = STAGE_ORDER
+    .map((stage) => stageByName(trace, stage))
+    .filter((entry): entry is RouteDebugTraceEntry => Boolean(entry))
+  const knownNames = new Set(known.map((entry) => entry.stage))
+  const rest = trace.filter((entry) => !knownNames.has(entry.stage))
+  return [...known, ...rest]
+}
 
 const rowsFromPayload = (payload: Record<string, unknown>, prefix = ''): DebugRow[] => Object.entries(payload).flatMap(([key, value]) => {
   const label = prefix ? `${prefix}.${key}` : key
@@ -157,66 +145,177 @@ const renderRows = (rows: DebugRow[]) => (
   </div>
 )
 
-const renderCopyLines = (payload: Record<string, unknown>) => (
-  <div className="route-debug-copy-lines">
-    {json(payload).split('\n').map((line, index) => (
-      <div key={`${index}-${line}`}>{line || ' '}</div>
+const buildPipelineMatrix = (
+  route: RecommendationRouteResponse,
+  retrieval: RouteDebugTraceEntry,
+  candidateRetrieval: RouteDebugTraceEntry,
+  hardFilter: RouteDebugTraceEntry,
+  scoring: RouteDebugTraceEntry,
+  assembly: RouteDebugTraceEntry,
+  budgetFit: RouteDebugTraceEntry,
+  final: RouteDebugTraceEntry,
+): MatrixRow[] => {
+  const cityTotal = numberValue(candidateRetrieval, ['places_total_in_city']) ?? summaryNumber(route, 'city', 'places_total_in_city')
+  const routeEligible = numberValue(candidateRetrieval, ['places_route_eligible']) ?? summaryNumber(route, 'city', 'places_route_eligible')
+  const retrievalOut = numberValue(retrieval, ['final_candidates_count', 'count'])
+    ?? numberValue(candidateRetrieval, ['count'])
+    ?? summaryNumber(route, 'retrieval', 'final_candidates_count')
+  const hardInput = numberValue(hardFilter, ['input_count']) ?? summaryNumber(route, 'pipeline_counts', 'hard_filter_input')
+  const hardOut = numberValue(hardFilter, ['output_count', 'kept_count']) ?? summaryNumber(route, 'pipeline_counts', 'hard_filter_output')
+  const scoringOut = numberValue(scoring, ['output_count', 'count']) ?? summaryNumber(route, 'pipeline_counts', 'scoring_output')
+  const assemblyInput = numberValue(assembly, ['input_scored_count', 'input_count']) ?? summaryNumber(route, 'pipeline_counts', 'assembly_input')
+  const assemblyOut = numberValue(assembly, ['output_count', 'selected_count']) ?? summaryNumber(route, 'pipeline_counts', 'assembly_output')
+  const budgetInput = numberValue(budgetFit, ['input_count']) ?? summaryNumber(route, 'pipeline_counts', 'budget_fit_input')
+  const budgetOut = numberValue(budgetFit, ['output_count', 'kept_count']) ?? summaryNumber(route, 'pipeline_counts', 'budget_fit_output')
+  const finalPoints = numberValue(final, ['final_points_count']) ?? route.total_places
+
+  return [
+    {
+      step: 'Candidate Retrieval',
+      status: statusLabel(Boolean(cityTotal && cityTotal > 0 && retrievalOut === 0)),
+      signal: `city_total=${formatValue(cityTotal)}, route_eligible=${formatValue(routeEligible)}, output=${formatValue(retrievalOut)}`,
+      action: retrievalOut === 0 ? 'Проверить city slug, radius, fallback city-wide, category balance.' : 'Кандидаты дошли дальше.',
+    },
+    {
+      step: 'Hard Filters',
+      status: statusLabel(Boolean(hardInput && hardInput > 0 && hardOut === 0)),
+      signal: `input=${formatValue(hardInput)}, output=${formatValue(hardOut)}`,
+      action: hardOut === 0 ? 'Проверить opening_hours/timezone/avoided/budget/no_coordinates.' : 'Hard filters не выглядят точкой смерти.',
+    },
+    {
+      step: 'Scoring',
+      status: statusLabel(Boolean(hardOut && hardOut > 0 && scoringOut === 0)),
+      signal: `hard_output=${formatValue(hardOut)}, scoring_output=${formatValue(scoringOut)}`,
+      action: scoringOut === 0 ? 'Проверить interest matching и scoring exceptions.' : 'Scoring пропустил кандидатов.',
+    },
+    {
+      step: 'Assembly',
+      status: statusLabel(Boolean(assemblyInput && assemblyInput > 20 && (assemblyOut ?? 0) <= 1), Boolean(assemblyInput && assemblyOut !== null && assemblyOut < Math.min(3, assemblyInput))),
+      signal: `input_scored=${formatValue(assemblyInput)}, output=${formatValue(assemblyOut)}, target=${formatValue(rawValue(assembly, ['target_points']))}`,
+      action: assemblyInput && assemblyInput > 20 && (assemblyOut ?? 0) <= 1
+        ? 'Гипотеза Gemini подтверждается: смотреть walk cap, first point, diversity, fallback.'
+        : 'Assembly не выглядит главным убийцей маршрута.',
+    },
+    {
+      step: 'Budget Fit',
+      status: statusLabel(Boolean(budgetInput && budgetInput > 0 && budgetOut === 0)),
+      signal: `input=${formatValue(budgetInput)}, output=${formatValue(budgetOut)}, budget=${formatValue(rawValue(budgetFit, ['requested_budget_minutes']))}, route_minutes=${formatValue(rawValue(budgetFit, ['route_minutes', 'actual_duration_minutes']))}`,
+      action: budgetInput && budgetInput > 0 && budgetOut === 0 ? 'Запрещать silent zero: сохранять partial route с warning.' : 'Budget fit не обнулил маршрут.',
+    },
+    {
+      step: 'Finalize',
+      status: statusLabel(Boolean(budgetOut && budgetOut > 0 && finalPoints === 0)),
+      signal: `budget_output=${formatValue(budgetOut)}, final_points=${formatValue(finalPoints)}, status=${formatValue(route.status)}`,
+      action: budgetOut && budgetOut > 0 && finalPoints === 0 ? 'Проверить status mapping/finalize: partial не должен стать no_route.' : 'Finalize не скрыл валидный partial route.',
+    },
+  ]
+}
+
+const buildKeyRows = (
+  route: RecommendationRouteResponse,
+  retrieval: RouteDebugTraceEntry,
+  candidateRetrieval: RouteDebugTraceEntry,
+  hardFilter: RouteDebugTraceEntry,
+  scoring: RouteDebugTraceEntry,
+  assembly: RouteDebugTraceEntry,
+  budgetFit: RouteDebugTraceEntry,
+  final: RouteDebugTraceEntry,
+): DebugRow[] => ([
+  { label: 'route_id', value: route.route_id },
+  { label: 'status', value: route.status },
+  { label: 'partial_reason', value: route.partial_reason },
+  { label: 'death_point', value: field(route.route_debug_summary, 'death_point') ?? field(route.route_debug_summary, 'failure_stage') },
+  { label: 'city_total', value: numberValue(candidateRetrieval, ['places_total_in_city']) ?? summaryNumber(route, 'city', 'places_total_in_city') },
+  { label: 'route_eligible_total', value: numberValue(candidateRetrieval, ['places_route_eligible']) ?? summaryNumber(route, 'city', 'places_route_eligible') },
+  { label: 'retrieval_output', value: numberValue(retrieval, ['final_candidates_count', 'count']) ?? summaryNumber(route, 'retrieval', 'final_candidates_count') },
+  { label: 'hard_filters_output', value: numberValue(hardFilter, ['output_count', 'kept_count']) ?? summaryNumber(route, 'pipeline_counts', 'hard_filter_output') },
+  { label: 'scoring_output', value: numberValue(scoring, ['output_count', 'count']) ?? summaryNumber(route, 'pipeline_counts', 'scoring_output') },
+  { label: 'assembly_input', value: numberValue(assembly, ['input_scored_count', 'input_count']) ?? summaryNumber(route, 'pipeline_counts', 'assembly_input') },
+  { label: 'assembly_output', value: numberValue(assembly, ['output_count', 'selected_count']) ?? summaryNumber(route, 'pipeline_counts', 'assembly_output') },
+  { label: 'budget_fit_output', value: numberValue(budgetFit, ['output_count', 'kept_count']) ?? summaryNumber(route, 'pipeline_counts', 'budget_fit_output') },
+  { label: 'final_points', value: numberValue(final, ['final_points_count']) ?? route.total_places },
+])
+
+const renderMatrix = (rows: MatrixRow[]) => (
+  <div className="route-debug-matrix">
+    {rows.map((row) => (
+      <div className="route-debug-matrix-row" key={row.step} data-status={row.status.toLowerCase()}>
+        <span>{row.status}</span>
+        <strong>{row.step}</strong>
+        <p>{row.signal}</p>
+        <p>{row.action}</p>
+      </div>
     ))}
   </div>
 )
 
 export const RouteDebugTrace = ({ route }: Props) => {
-  const trace = route.debug_trace ?? []
+  const trace = getOrderedTrace(route.debug_trace ?? [])
   const retrieval = stageByName(trace, 'retrieval') ?? stageByName(trace, 'candidate_retrieval') ?? emptyTraceEntry
   const candidateRetrieval = stageByName(trace, 'candidate_retrieval') ?? emptyTraceEntry
   const hardFilter = stageByName(trace, 'hard_filters') ?? stageByName(trace, 'hard_filter') ?? emptyTraceEntry
   const scoring = stageByName(trace, 'scoring') ?? stageByName(trace, 'scoring_raw') ?? emptyTraceEntry
+  const adaptivePlan = stageByName(trace, 'adaptive_plan') ?? emptyTraceEntry
   const assembly = stageByName(trace, 'assembly') ?? emptyTraceEntry
   const budgetFit = stageByName(trace, 'budget_fit') ?? emptyTraceEntry
-  const copyPayload = buildCopyPayload(route, retrieval, candidateRetrieval, hardFilter, scoring, assembly, budgetFit)
+  const qualityGates = stageByName(trace, 'quality_gates') ?? emptyTraceEntry
+  const final = stageByName(trace, 'final') ?? emptyTraceEntry
 
   return (
     <section className="route-result-tile route-debug-trace route-debug-page">
       <h3>Debug маршрута</h3>
-      <p>Короткая диагностика без вложенных скроллов. Просто листай страницу вниз.</p>
+      <p>Полная диагностика пайплайна на странице. Без вложенных блоков, скролла и JSON-портянок.</p>
 
-      <div className="route-debug-warning-box">
-        <strong>Главный диагноз</strong>
-        {renderRows(rowsFromPayload(retrievalDiagnosis(retrieval, candidateRetrieval, hardFilter, scoring)))}
+      <div className="route-debug-section">
+        <strong>Главный вывод</strong>
+        {renderRows(buildKeyRows(route, retrieval, candidateRetrieval, hardFilter, scoring, assembly, budgetFit, final))}
       </div>
 
-      <div className="route-debug-warning-box">
-        <strong>Короткий JSON для копирования</strong>
-        {renderCopyLines(copyPayload)}
+      <div className="route-debug-section">
+        <strong>Диагностическая матрица Gemini + Route Engine</strong>
+        {renderMatrix(buildPipelineMatrix(route, retrieval, candidateRetrieval, hardFilter, scoring, assembly, budgetFit, final))}
       </div>
 
-      <div className="route-debug-warning-box">
-        <strong>Сводка ответа</strong>
+      <div className="route-debug-section">
+        <strong>Context / Interests / Avoided</strong>
         {renderRows([
-          { label: 'route_id', value: route.route_id },
-          { label: 'status', value: route.status },
-          { label: 'partial_reason', value: route.partial_reason },
-          { label: 'total_places', value: route.total_places },
-          { label: 'route_quality_status', value: route.route_quality_status },
-          { label: 'route_completeness', value: route.route_completeness },
-          { label: 'route_debug_summary_exists', value: Boolean(route.route_debug_summary) },
-          { label: 'debug_trace_entries', value: trace.length },
+          { label: 'interests', value: rawValue(stageByName(trace, 'context_merge') ?? emptyTraceEntry, ['interests']) },
+          { label: 'avoided_categories', value: rawValue(stageByName(trace, 'context_merge') ?? emptyTraceEntry, ['avoided_categories']) },
+          { label: 'resolved_conflicts', value: rawValue(stageByName(trace, 'context_merge') ?? emptyTraceEntry, ['interest_removed_due_to_avoidance']) },
+          { label: 'context_warnings', value: rawValue(stageByName(trace, 'context_normalization') ?? emptyTraceEntry, ['warnings']) },
+        ])}
+      </div>
+
+      <div className="route-debug-section">
+        <strong>Assembly / Budget / Quality</strong>
+        {renderRows([
+          { label: 'assembly.failure_reason', value: rawValue(assembly, ['failure_reason']) },
+          { label: 'assembly.rejection_reasons', value: rawValue(assembly, ['rejection_reasons']) },
+          { label: 'assembly.first_point_rejection_reasons', value: rawValue(assembly, ['first_point_rejection_reasons']) },
+          { label: 'assembly.fallback_used', value: rawValue(assembly, ['fallback_used']) },
+          { label: 'assembly.fallback_triggers', value: rawValue(assembly, ['fallback_triggers']) },
+          { label: 'budget_fit.failure_reason', value: rawValue(budgetFit, ['failure_reason']) },
+          { label: 'budget_fit.warnings', value: rawValue(budgetFit, ['warnings']) },
+          { label: 'quality_gates.status', value: rawValue(qualityGates, ['route_quality_status', 'status']) },
+          { label: 'quality_gates.failed_gates', value: rawValue(qualityGates, ['failed_gates']) },
         ])}
       </div>
 
       {route.route_debug_summary ? (
-        <div className="route-debug-warning-box">
+        <div className="route-debug-section">
           <strong>Backend route_debug_summary</strong>
           {renderRows(rowsFromPayload(route.route_debug_summary))}
         </div>
       ) : null}
 
-      <div className="route-debug-warning-box">
-        <strong>Warnings</strong>
-        {renderRows([
-          { label: 'warnings', value: route.warnings },
-          { label: 'user_warnings', value: route.user_warnings?.map((item) => item.type) ?? [] },
-        ])}
+      <div className="route-debug-stage-list">
+        <strong>Полный debug_trace по шагам</strong>
+        {trace.map((entry) => (
+          <div className="route-debug-stage" key={`${entry.stage}-${stageOutput(entry) ?? 'none'}`}>
+            <h4>{stageTitles[entry.stage] ?? entry.stage}</h4>
+            {renderRows(rowsFromPayload(entry as Record<string, unknown>))}
+          </div>
+        ))}
       </div>
     </section>
   )
