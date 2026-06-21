@@ -48,6 +48,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      LOCAL_CACHE_DIR: /app/.cache/city-go
+    volumes:
+      - local_cache:/app/.cache/city-go
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -62,8 +65,10 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      LOCAL_CACHE_DIR: /app/.cache/city-go
     volumes:
       - enrichment_exports:/app/data/exports/place_enrichment
+      - local_cache:/app/.cache/city-go
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -78,10 +83,12 @@ services:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
       APP_HOST: 0.0.0.0
       BACKEND_BASE_URL: http://backend:8000
+      LOCAL_CACHE_DIR: /app/.cache/city-go
     ports:
       - "8000:8000"
     volumes:
       - enrichment_exports:/app/data/exports/place_enrichment
+      - local_cache:/app/.cache/city-go
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -104,6 +111,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      LOCAL_CACHE_DIR: /app/.cache/city-go
+    volumes:
+      - local_cache:/app/.cache/city-go
     depends_on:
       backend:
         condition: service_healthy
@@ -150,3 +160,4 @@ services:
 volumes:
   postgres_data:
   enrichment_exports:
+  local_cache:
