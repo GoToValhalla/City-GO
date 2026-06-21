@@ -101,6 +101,7 @@ IMPORTANT_KEYS = (
     "fallback_triggers",
     "failed_gates",
     "retrieval_loss_summary",
+    "post_processing",
     "spatial_density",
     "retrieval_counts",
     "final_candidate_categories",
@@ -181,6 +182,7 @@ def route_debug_summary(route_id: str, trace: list[dict[str, Any]] | None) -> di
             "fallback_city_wide_used": retrieval.get("fallback_city_wide_used"),
             "fallback_route_visible_used": retrieval.get("fallback_route_visible_used"),
             "fallback_route_visible_relaxed_used": retrieval.get("fallback_route_visible_relaxed_used"),
+            "post_processing": retrieval.get("post_processing"),
         },
         "city": {
             "places_total_in_city": candidate_retrieval.get("places_total_in_city") or retrieval.get("places_total_in_city"),
@@ -204,6 +206,7 @@ def route_debug_summary(route_id: str, trace: list[dict[str, Any]] | None) -> di
             "warnings": _collect_warnings(entries),
             "sample_candidate_ids": retrieval.get("sample_candidate_ids"),
             "retrieval_loss_summary": retrieval.get("retrieval_loss_summary"),
+            "post_processing": retrieval.get("post_processing"),
             "assembly_rejections": assembly.get("rejection_reasons") or assembly.get("first_point_rejection_reasons"),
             "budget_fit_kept_partial": bool(budget_output and assembly_output and budget_output <= assembly_output),
         },
