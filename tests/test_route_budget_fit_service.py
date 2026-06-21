@@ -4,6 +4,7 @@ from schemas.merged_context import BudgetLevel, MergedContext, PaceMode
 from services.route_budget_fit_service import (
     ROUTE_BUDGET_SINGLE_POINT_WARNING,
     ROUTE_BUDGET_TRIMMED_WARNING,
+    ROUTE_LOW_DENSITY_SHORT_WARNING,
     RouteBudgetFitService,
 )
 
@@ -73,3 +74,12 @@ def test_budget_fit_keeps_first_point_when_even_first_visit_exceeds_budget() -> 
     assert [point.place_id for point in result.route] == ["oversized"]
     assert result.warnings == [ROUTE_BUDGET_SINGLE_POINT_WARNING]
     assert [point.place_id for point in route] == ["oversized"]
+
+
+def test_budget_fit_marks_sparse_short_route_as_low_density_not_tight_budget() -> None:
+    route = [_point("1", 35, 20), _point("2", 30, 20)]
+    result = RouteBudgetFitService().fit(route, _ctx(240))
+
+    assert [point.place_id for point in result.route] == ["1", "2"]
+    assert ROUTE_LOW_DENSITY_SHORT_WARNING in result.warnings
+    assert ROUTE_BUDGET_SINGLE_POINT_WARNING not in result.warnings
