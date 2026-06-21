@@ -113,10 +113,6 @@ const statusLabel = (isBad: boolean, isWarn = false): string => {
   return 'OK'
 }
 
-const stageOutput = (entry: RouteDebugTraceEntry): number | null => (
-  numberValue(entry, ['output_count', 'kept_count', 'selected_count', 'count'])
-)
-
 const getOrderedTrace = (trace: RouteDebugTraceEntry[]): RouteDebugTraceEntry[] => {
   const known = STAGE_ORDER
     .map((stage) => stageByName(trace, stage))
