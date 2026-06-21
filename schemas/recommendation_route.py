@@ -6,8 +6,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-RouteMetricValue = float | int | str | bool | None
-
 
 class RecommendationRouteRequest(BaseModel):
     """Минимальный ввод для построения маршрута и стартовый контекст пользователя."""
@@ -53,7 +51,7 @@ class RecommendationRoutePointResponse(BaseModel):
     estimated_departure_time: str | None = Field(default=None, description="ISO 8601 или null")
     time_status: str | None = None
     time_warning: str | None = None
-    scoring_breakdown: dict[str, RouteMetricValue] = Field(default_factory=dict)
+    scoring_breakdown: dict[str, Any] = Field(default_factory=dict)
     # Navigation payload — вычисляется при сериализации
     display_location: str | None = None
     has_address: bool = False
@@ -89,7 +87,7 @@ class RecommendationRouteResponse(BaseModel):
     places_with_warnings: list[str]
     quality_score: float = Field(default=0.0, ge=0.0, le=1.0)
     quality_status: str | None = None
-    quality_breakdown: dict[str, RouteMetricValue] = Field(default_factory=dict)
+    quality_breakdown: dict[str, Any] = Field(default_factory=dict)
     route_quality_status: str | None = None
     route_completeness: float = 0.0
     matched_interest_count: int = 0
