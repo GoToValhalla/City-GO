@@ -38,6 +38,9 @@ class MergedContext(BaseModel):
     # --- LOCATION — стартовые координаты (широта, долгота).
     location: Tuple[float, float]  # (lat, lng)
     city_id: Optional[str] = None
+    start_source: str = "city_center"
+    start_warnings: List[str] = Field(default_factory=list)
+    is_admin: bool = False
     timezone: str = "UTC"
     location_fallback_applied: bool = False
     location_fallback_reason: Optional[str] = None
