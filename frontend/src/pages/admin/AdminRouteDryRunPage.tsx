@@ -7,7 +7,7 @@ import { AdminError } from './shared/AdminStates'
 const qualityLabel = (status?: string) => {
   switch (status) {
     case 'good': return 'Хороший'
-    case 'acceptable': return 'Допустимый'
+    case 'acceptable': return 'Можно проверить'
     case 'weak': return 'Слабый'
     case 'failed': return 'Не собран'
     default: return status || '—'
@@ -23,15 +23,75 @@ const qualityClass = (status?: string) => {
 const warningText = (code: string) => {
   const map: Record<string, string> = {
     route_failed_no_places: 'Не удалось собрать маршрут: нет подходящих точек.',
+    route_incomplete: 'Маршрут не собран до конца.',
     route_short_due_to_time_budget: 'Маршрут короткий из-за малого бюджета времени.',
     route_short_due_to_low_place_density: 'Маршрут короткий: мало подходящих мест.',
+    route_built_without_selected_interests: 'Маршрут собран без выбранных интересов.',
     some_places_have_no_address: 'У части точек нет адреса.',
     some_places_have_no_photo: 'У части точек нет фото.',
     some_places_have_weak_description: 'У части точек слабое описание.',
     route_has_long_walk_segments: 'Есть длинные пешие переходы.',
     category_diversity_limited: 'Ограничено разнообразие категорий.',
   }
-  return map[code] ?? code
+  return map[code] ?? humanizeCode(code)
+}
+
+const reasonText = (code: string) => {
+  if (code.startsWith('forbidden_category:')) {
+    return `Категория не подходит для маршрутов: ${code.split(':')[1] || 'неизвестно'}.`
+  }
+  if (code.startsWith('quality_tier_not_route_allowed:')) {
+    return `Низкий уровень качества места: ${code.split(':')[1] || 'неизвестно'}.`
+  }
+  const map: Record<string, string> = {
+    selected: 'Выбрано в маршрут.',
+    score: 'Высокая оценка для маршрута.',
+    close_to_start: 'Рядом со стартом маршрута.',
+    category_match: 'Подходит под выбранные интересы.',
+    city_not_published: 'Город не опубликован. Сначала переведите город в опубликованное состояние.',
+    city_inactive: 'Город выключен. Включите город перед сборкой маршрутов.',
+    missing_city_id: 'У места не указан город.',
+    place_not_published: 'Место не опубликовано. Опубликуйте место или уберите его из кандидатов.',
+    unpublished_place: 'Место не опубликовано. Опубликуйте место или уберите его из кандидатов.',
+    place_not_visible_in_catalog: 'Место скрыто в каталоге. Сделайте его видимым.',
+    hidden_place: 'Место скрыто в каталоге. Сделайте его видимым.',
+    route_eligible_false: 'Место вручную исключено из маршрутов.',
+    place_inactive: 'Место выключено.',
+    inactive_place: 'Место выключено.',
+    place_status_not_active: 'Статус места не active.',
+    lifecycle_not_active: 'Место не в активном жизненном цикле.',
+    missing_coordinates: 'Нет координат. Добавьте широту и долготу.',
+    no_coordinates: 'Нет координат. Добавьте широту и долготу.',
+    invalid_coordinates: 'Координаты выглядят неверными.',
+    missing_canonical_category: 'Не определена категория места.',
+    spam_poi: 'Место похоже на служебную или мусорную точку.',
+    duplicate_suspected: 'Место похоже на дубль.',
+    critical_field_expired: 'Ключевые данные устарели, нужна проверка.',
+    place_archived: 'Место в архиве.',
+    no_photo: 'Нет фото.',
+    no_address: 'Нет адреса.',
+    no_description: 'Нет описания.',
+    low_quality: 'Низкое качество карточки места.',
+  }
+  return map[code] ?? `Техническая причина: ${humanizeCode(code)}.`
+}
+
+const routeStatusText = (status?: string) => {
+  const map: Record<string, string> = {
+    complete: 'полный маршрут',
+    partial: 'неполный маршрут',
+    failed: 'не собран',
+    active: 'активен',
+    published: 'опубликован',
+  }
+  return status ? map[status] ?? humanizeCode(status) : '—'
+}
+
+const humanizeCode = (code: string) => code.replace(/[_-]+/g, ' ')
+
+const formatScore = (score: number | null) => {
+  if (score === null || score === undefined) return '—'
+  return score <= 1 ? `${Math.round(score * 100)}%` : String(score)
 }
 
 type MapCandidate = DryRunCandidate & { x: number; y: number }
@@ -54,13 +114,22 @@ const mapPoints = (points: DryRunCandidate[]): MapCandidate[] => {
 
 const pathFrom = (points: MapCandidate[]) => points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ')
 
+const ReasonList = ({ reasons, empty }: { reasons: string[]; empty: string }) => {
+  if (!reasons.length) return <span className="admin-muted">{empty}</span>
+  return (
+    <ul className="admin-muted" style={{ margin: 0, paddingLeft: 18 }}>
+      {reasons.map((reason) => <li key={reason}>{reasonText(reason)}</li>)}
+    </ul>
+  )
+}
+
 const DryRunMiniMap = ({ points }: { points: DryRunCandidate[] }) => {
   const mapped = useMemo(() => mapPoints(points), [points])
-  if (!mapped.length) return <div className="admin-muted">Для мини-карты нет координат selected-точек.</div>
+  if (!mapped.length) return <div className="admin-muted">Для мини-карты нет координат выбранных точек.</div>
   return (
     <section className="admin-metric-card" style={{ marginBottom: 16 }}>
-      <h3>Мини-карта selected</h3>
-      <svg viewBox="0 0 100 100" style={{ width: '100%', minHeight: 260, background: '#202124', borderRadius: 8 }} role="img" aria-label="Dry run route map">
+      <h3>Мини-карта маршрута</h3>
+      <svg viewBox="0 0 100 100" style={{ width: '100%', minHeight: 260, background: '#202124', borderRadius: 8 }} role="img" aria-label="Предварительная карта маршрута">
         <path d="M0 20 H100 M0 40 H100 M0 60 H100 M0 80 H100 M20 0 V100 M40 0 V100 M60 0 V100 M80 0 V100" stroke="rgba(255,255,255,.12)" strokeWidth="0.5" />
         {mapped.length > 1 ? <path d={pathFrom(mapped)} fill="none" stroke="#7cc7ff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /> : null}
         {mapped.map((point, index) => (
@@ -70,7 +139,7 @@ const DryRunMiniMap = ({ points }: { points: DryRunCandidate[] }) => {
           </g>
         ))}
       </svg>
-      <p className="admin-muted">Порядок маркеров соответствует порядку selected-точек в dry-run.</p>
+      <p className="admin-muted">Номера показывают порядок точек в будущем маршруте.</p>
     </section>
   )
 }
@@ -110,7 +179,7 @@ export const AdminRouteDryRunPage = () => {
 
   const run = async () => {
     if (!citySlug) {
-      setError('Выберите город для dry-run.')
+      setError('Выберите город для проверки.')
       return
     }
     setBusy(true)
@@ -137,7 +206,7 @@ export const AdminRouteDryRunPage = () => {
   }
 
   const publishDraft = async () => {
-    if (!draft) return
+    if (!draft || published) return
     setBusy(true)
     setError(null)
     try {
@@ -158,34 +227,41 @@ export const AdminRouteDryRunPage = () => {
     URL.revokeObjectURL(url)
   }
 
+  const canSaveDraft = Boolean(result && result.counts.selected_places > 0)
+
   return (
     <div>
-      <h2 className="admin-page-title">Маршруты → Dry Run</h2>
+      <h2 className="admin-page-title">Маршруты → проверка сборки</h2>
       <div className="admin-filters">
         <select value={citySlug} onChange={(e) => setCitySlug(e.target.value)} aria-label="Город dry-run">
           <option value="">Город</option>
           {cities.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
         </select>
         <input type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} placeholder="минуты" />
-        <input value={budget} onChange={(e) => setBudget(e.target.value === '' ? '' : Number(e.target.value))} placeholder="бюджет" />
-        <input value={startLat} onChange={(e) => setStartLat(e.target.value)} placeholder="lat" />
-        <input value={startLng} onChange={(e) => setStartLng(e.target.value)} placeholder="lng" />
-        <input value={interests} onChange={(e) => setInterests(e.target.value)} placeholder="интересы (через запятую)" />
-        <button type="button" className="admin-btn" disabled={busy || !citySlug} onClick={run}>{busy ? '…' : 'Запустить'}</button>
-        {result && <button type="button" className="admin-btn admin-btn-sm" onClick={downloadJson}>JSON</button>}
+        <input value={budget} onChange={(e) => setBudget(e.target.value === '' ? '' : Number(e.target.value))} placeholder="бюджет 1-4" />
+        <input value={startLat} onChange={(e) => setStartLat(e.target.value)} placeholder="широта старта" />
+        <input value={startLng} onChange={(e) => setStartLng(e.target.value)} placeholder="долгота старта" />
+        <input value={interests} onChange={(e) => setInterests(e.target.value)} placeholder="интересы через запятую" />
+        <button type="button" className="admin-btn" disabled={busy || !citySlug} onClick={run}>{busy ? '…' : 'Проверить сборку'}</button>
+        {result && <button type="button" className="admin-btn admin-btn-sm" onClick={downloadJson}>Скачать тех. отчет</button>}
       </div>
       {error && <AdminError message={error} />}
       {result && (
         <div>
-          <p>
-            Run #{result.generation_run_id}: total {result.counts.total_candidates}, eligible {result.counts.eligible_candidates},
-            selected {result.counts.selected_places}. {result.counts.selected_places > 0 ? 'Можно собрать маршрут.' : 'Маршрут собрать нельзя.'}
-          </p>
+          <section className="admin-metric-card" style={{ marginBottom: 16 }}>
+            <h3>Проверка #{result.generation_run_id}</h3>
+            <div className="admin-metrics-grid admin-metrics-small">
+              <div className="admin-metric-card"><div className="admin-metric-value">{result.counts.total_candidates}</div><div className="admin-metric-label">найдено мест</div></div>
+              <div className="admin-metric-card"><div className="admin-metric-value">{result.counts.eligible_candidates}</div><div className="admin-metric-label">подходит</div></div>
+              <div className="admin-metric-card"><div className="admin-metric-value">{result.counts.selected_places}</div><div className="admin-metric-label">выбрано</div></div>
+            </div>
+            <p>{canSaveDraft ? 'Можно сохранить черновик маршрута и затем опубликовать его.' : 'Сохранять пока нечего: система не выбрала ни одной точки.'}</p>
+          </section>
           <div className="admin-filters">
-            <button type="button" className="admin-btn admin-btn-sm" disabled={busy || result.counts.selected_places === 0} onClick={createDraft}>Сохранить draft</button>
-            <button type="button" className="admin-btn admin-btn-sm" disabled={busy || !draft} onClick={publishDraft}>Опубликовать draft</button>
-            {draft ? <span className="admin-muted">Draft #{draft.draft_id}: {draft.points.length} точек, {draft.route_status}</span> : null}
-            {published ? <span className="admin-muted">Опубликован route #{published.route.id}: {published.route.slug}</span> : null}
+            <button type="button" className="admin-btn admin-btn-sm" disabled={busy || !canSaveDraft} onClick={createDraft}>Сохранить черновик</button>
+            <button type="button" className="admin-btn admin-btn-sm" disabled={busy || !draft || Boolean(published)} onClick={publishDraft}>Опубликовать маршрут</button>
+            {draft ? <span className="admin-muted">Черновик #{draft.draft_id}: {draft.points.length} точек, {routeStatusText(draft.route_status)}</span> : null}
+            {published ? <span className="admin-muted">Маршрут опубликован: #{published.route.id}, {published.route.slug}</span> : null}
           </div>
           <DryRunMiniMap points={result.selected_places} />
           {result.quality ? (
@@ -193,26 +269,30 @@ export const AdminRouteDryRunPage = () => {
               <div className="admin-metric-value">{result.quality.score_percent}%</div>
               <div className="admin-metric-label">Качество маршрута</div>
               <p><span className={qualityClass(result.quality.status)}>{qualityLabel(result.quality.status)}</span></p>
-              {result.quality.partial_reason ? <p className="admin-muted">Причина: {result.quality.partial_reason}</p> : null}
+              {result.quality.partial_reason ? <p className="admin-muted">Причина: {warningText(result.quality.partial_reason)}</p> : null}
               {result.quality.warnings.length > 0 ? (
                 <ul className="admin-muted">
                   {result.quality.warnings.map((warning) => <li key={warning}>{warningText(warning)}</li>)}
                 </ul>
               ) : <p className="admin-muted">Критичных предупреждений нет.</p>}
               {Object.keys(result.quality.breakdown).length > 0 ? (
-                <pre className="admin-muted" style={{ fontSize: 11 }}>{JSON.stringify(result.quality.breakdown, null, 2)}</pre>
+                <details className="admin-muted">
+                  <summary>Технические показатели</summary>
+                  <pre style={{ fontSize: 11 }}>{JSON.stringify(result.quality.breakdown, null, 2)}</pre>
+                </details>
               ) : null}
             </section>
           ) : null}
-          <h3>Selected</h3>
-          <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Score</th><th>Reasons</th></tr></thead><tbody>
-            {result.selected_places.map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td>{p.score ?? '—'}</td><td>{p.selection_reasons.join(', ')}</td></tr>)}
+          <h3>Выбрано в маршрут</h3>
+          <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Оценка</th><th>Почему выбрано</th></tr></thead><tbody>
+            {result.selected_places.map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td>{formatScore(p.score)}</td><td><ReasonList reasons={p.selection_reasons} empty="Подходит" /></td></tr>)}
           </tbody></table>
-          <h3>Rejected</h3>
-          <p className="admin-muted">Blockers: причины ниже показывают, почему место не вошло в маршрут.</p>
-          <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Reasons</th></tr></thead><tbody>
-            {result.rejected_candidates.slice(0, 50).map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td>{p.rejection_reasons.join(', ')}</td></tr>)}
+          <h3>Не вошли в маршрут</h3>
+          <p className="admin-muted">Здесь показано, что нужно исправить, чтобы место могло попасть в маршрут.</p>
+          <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Что мешает</th></tr></thead><tbody>
+            {result.rejected_candidates.slice(0, 50).map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td><ReasonList reasons={p.rejection_reasons} empty="Нет явной причины" /></td></tr>)}
           </tbody></table>
+          {result.rejected_candidates.length > 50 ? <p className="admin-muted">Показаны первые 50 отклоненных мест из {result.rejected_candidates.length}.</p> : null}
         </div>
       )}
     </div>
