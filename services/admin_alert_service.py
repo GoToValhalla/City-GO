@@ -13,7 +13,29 @@ from typing import Any
 
 from core.config import settings
 
-_MAX_DETAILS_CHARS = 1400
+_MAX_DETAILS_CHARS = 700
+
+_STATUS_LABELS = {
+    "needs_review": "нужна проверка",
+    "not_ready": "не готово",
+    "ready": "готово",
+    "published": "опубликовано",
+    "success": "успешно",
+    "failed": "ошибка",
+    "stalled": "зависло",
+}
+
+_SOURCE_LABELS = {
+    "admin_city_enrichment": "обогащение данных",
+    "admin_city_import": "импорт города",
+}
+
+_TITLE_LABELS = {
+    "Enrichment pipeline finished": "Обогащение завершено",
+    "Enrichment pipeline failed": "Ошибка обогащения",
+    "Import job stalled": "Задача импорта зависла",
+    "Import worker job failed": "Ошибка import-worker",
+}
 
 
 def send_admin_alert(
@@ -84,15 +106,170 @@ def _format_alert_text(
         "warning": "⚠️",
         "info": "ℹ️",
     }.get(level, "⚠️")
-    lines = [f"{prefix} City GO: {title}", message]
+    lines = [f"{prefix} City GO: {_title_label(title)}"]
+    human_message = _human_message(title, message)
+    if human_message:
+        lines.append(human_message)
     if city_slug:
-        lines.append(f"city: {city_slug}")
+        lines.append(f"Город: {city_slug}")
     if job_id is not None:
-        lines.append(f"job: {job_id}")
-    lines.append(f"time: {datetime.utcnow().isoformat(timespec='seconds')}Z")
-    if details:
-        compact = json.dumps(details, ensure_ascii=False, default=str)
-        if len(compact) > _MAX_DETAILS_CHARS:
-            compact = compact[:_MAX_DETAILS_CHARS] + "…"
-        lines.append(f"details: {compact}")
+        lines.append(f"Job: {job_id}")
+    lines.append(f"Время: {datetime.utcnow().isoformat(timespec='seconds')}Z")
+    summary = _format_details_summary(title, details or {})
+    if summary:
+        lines.append("")
+        lines.extend(summary)
     return "\n".join(lines)
+
+
+def _title_label(title: str) -> str:
+    return _TITLE_LABELS.get(title, title)
+
+
+def _human_message(title: str, message: str) -> str:
+    if title == "Enrichment pipeline finished":
+        return "Город прошел обогащение и ждет ручной проверки."
+    if title == "Import job stalled":
+        return "Worker не обновлял прогресс дольше порога. Задача остановлена watchdog."
+    return message.strip()
+
+
+def _format_details_summary(title: str, details: dict[str, Any]) -> list[str]:
+    if title == "Enrichment pipeline finished":
+        return _format_enrichment_finished(details)
+    if title == "Import job stalled":
+        return _format_stalled_job(details)
+    if title == "Enrichment pipeline failed":
+        return _format_failed_job(details)
+    return _format_compact_details(details)
+
+
+def _format_enrichment_finished(details: dict[str, Any]) -> list[str]:
+    readiness = details.get("readiness") if isinstance(details.get("readiness"), dict) else {}
+    components = readiness.get("components") if isinstance(readiness.get("components"), dict) else {}
+    score = readiness.get("readiness_score")
+    status = _status_label(readiness.get("status"))
+    places_total = _first_number(components.get("places_total"), details.get("places_total"))
+    places_active = components.get("places_active")
+    eligible_places = components.get("eligible_places")
+
+    lines = [f"Итог: readiness {score}/100, статус: {status}" if score is not None else f"Итог: статус: {status}"]
+    place_bits = []
+    if places_total is not None:
+        place_bits.append(f"всего {places_total}")
+    if places_active is not None:
+        place_bits.append(f"активных {places_active}")
+    if eligible_places is not None:
+        place_bits.append(f"для маршрутов {eligible_places}")
+    if place_bits:
+        lines.append("Места: " + ", ".join(place_bits))
+
+    coverage = [
+        ("адреса", components.get("address_coverage_pct")),
+        ("фото", components.get("photo_coverage_pct")),
+        ("описания", components.get("description_coverage_pct")),
+        ("часы", components.get("hours_any_pct")),
+        ("маршруты", components.get("route_eligibility_pct")),
+        ("верификация", components.get("verification_coverage_pct")),
+    ]
+    coverage_text = [f"{label} {_pct(value)}" for label, value in coverage if value is not None]
+    if coverage_text:
+        lines.append("Покрытие: " + ", ".join(coverage_text))
+
+    next_steps = _enrichment_next_steps(components)
+    if next_steps:
+        lines.append("Что дальше: " + next_steps)
+    return lines
+
+
+def _enrichment_next_steps(components: dict[str, Any]) -> str:
+    weak: list[str] = []
+    if _as_float(components.get("photo_coverage_pct")) < 60:
+        weak.append("добавить фото")
+    if _as_float(components.get("verification_coverage_pct")) < 80:
+        weak.append("проверить места")
+    if _as_float(components.get("hours_any_pct")) < 50:
+        weak.append("добить часы работы")
+    if weak:
+        return ", ".join(weak) + "."
+    return "посмотреть data quality и публиковать, если все ок."
+
+
+def _format_stalled_job(details: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    source = _source_label(details.get("source"))
+    if source:
+        lines.append(f"Тип задачи: {source}")
+    last_error = details.get("last_error")
+    if last_error:
+        lines.append(f"Причина: {last_error}")
+    lines.append("Что дальше: после деплоя фикса нажать «Повторить» для этого города.")
+    return lines
+
+
+def _format_failed_job(details: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    source = _source_label(details.get("source"))
+    if source:
+        lines.append(f"Тип задачи: {source}")
+    status = _status_label(details.get("status"))
+    if status:
+        lines.append(f"Статус: {status}")
+    step_details = details.get("step_details")
+    if isinstance(step_details, dict) and step_details.get("error"):
+        lines.append(f"Ошибка: {step_details['error']}")
+    return lines
+
+
+def _format_compact_details(details: dict[str, Any]) -> list[str]:
+    if not details:
+        return []
+    lines: list[str] = []
+    for key in ("status", "source", "places_total", "last_error"):
+        value = details.get(key)
+        if value is None:
+            continue
+        if key == "source":
+            value = _source_label(value) or value
+        elif key == "status":
+            value = _status_label(value)
+        lines.append(f"{key}: {value}")
+    if lines:
+        return lines
+    compact = json.dumps(details, ensure_ascii=False, default=str)
+    if len(compact) > _MAX_DETAILS_CHARS:
+        compact = compact[:_MAX_DETAILS_CHARS] + "…"
+    return [f"Тех. детали: {compact}"]
+
+
+def _status_label(value: object) -> str:
+    text = str(value or "unknown")
+    return _STATUS_LABELS.get(text, text)
+
+
+def _source_label(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return _SOURCE_LABELS.get(text, text)
+
+
+def _pct(value: object) -> str:
+    number = _as_float(value)
+    if number.is_integer():
+        return f"{int(number)}%"
+    return f"{number:.1f}%"
+
+
+def _as_float(value: object) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _first_number(*values: object) -> object | None:
+    for value in values:
+        if value is not None:
+            return value
+    return None
