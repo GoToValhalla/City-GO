@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
 import type { AdminCitiesResponse } from './adminTypes'
 import type { DryRunCandidate, DryRunResponse, RouteDraft, RouteDraftGenerationResponse, RoutePublishResponse } from './adminRouteTypes'
@@ -144,6 +145,27 @@ const DryRunMiniMap = ({ points }: { points: DryRunCandidate[] }) => {
   )
 }
 
+const ZeroCandidatesHelp = ({ citySlug }: { citySlug: string }) => (
+  <section className="admin-metric-card" style={{ marginBottom: 16 }}>
+    <h3>Маршрут не из чего собирать</h3>
+    <p>В этом городе сейчас нет мест, из которых можно собрать маршрут.</p>
+    <p className="admin-muted">
+      Обычно это значит, что город или места скрыты, не опубликованы, выключены, без координат,
+      либо импорт и обогащение еще не довели места до каталога.
+    </p>
+    <div className="admin-filters">
+      <Link className="admin-btn admin-btn-sm" to={`/admin/routes/eligibility?city_slug=${encodeURIComponent(citySlug)}`}>Проверить готовность мест</Link>
+      <Link className="admin-btn admin-btn-sm" to="/admin/cities">Открыть города</Link>
+    </div>
+    <ol className="admin-muted" style={{ paddingLeft: 20 }}>
+      <li>Проверьте, что город опубликован и активен.</li>
+      <li>Проверьте, что у мест есть координаты и они видимы в каталоге.</li>
+      <li>Опубликуйте или активируйте места, если город только что импортирован.</li>
+      <li>Повторите проверку сборки маршрута.</li>
+    </ol>
+  </section>
+)
+
 export const AdminRouteDryRunPage = () => {
   const [cities, setCities] = useState<AdminCitiesResponse['items']>([])
   const [citySlug, setCitySlug] = useState('')
@@ -228,6 +250,12 @@ export const AdminRouteDryRunPage = () => {
   }
 
   const canSaveDraft = Boolean(result && result.counts.selected_places > 0)
+  const hasNoCandidates = Boolean(result && result.counts.total_candidates === 0)
+  const saveHint = hasNoCandidates
+    ? 'Сохранять пока нечего: в городе нет мест, из которых можно собрать маршрут.'
+    : canSaveDraft
+      ? 'Можно сохранить черновик маршрута и затем опубликовать его.'
+      : 'Сохранять пока нечего: найденные места не прошли отбор.'
 
   return (
     <div>
@@ -255,7 +283,7 @@ export const AdminRouteDryRunPage = () => {
               <div className="admin-metric-card"><div className="admin-metric-value">{result.counts.eligible_candidates}</div><div className="admin-metric-label">подходит</div></div>
               <div className="admin-metric-card"><div className="admin-metric-value">{result.counts.selected_places}</div><div className="admin-metric-label">выбрано</div></div>
             </div>
-            <p>{canSaveDraft ? 'Можно сохранить черновик маршрута и затем опубликовать его.' : 'Сохранять пока нечего: система не выбрала ни одной точки.'}</p>
+            <p>{saveHint}</p>
           </section>
           <div className="admin-filters">
             <button type="button" className="admin-btn admin-btn-sm" disabled={busy || !canSaveDraft} onClick={createDraft}>Сохранить черновик</button>
@@ -263,7 +291,8 @@ export const AdminRouteDryRunPage = () => {
             {draft ? <span className="admin-muted">Черновик #{draft.draft_id}: {draft.points.length} точек, {routeStatusText(draft.route_status)}</span> : null}
             {published ? <span className="admin-muted">Маршрут опубликован: #{published.route.id}, {published.route.slug}</span> : null}
           </div>
-          <DryRunMiniMap points={result.selected_places} />
+          {hasNoCandidates ? <ZeroCandidatesHelp citySlug={citySlug} /> : null}
+          {result.selected_places.length > 0 ? <DryRunMiniMap points={result.selected_places} /> : null}
           {result.quality ? (
             <section className="admin-metric-card" style={{ marginBottom: 16 }}>
               <div className="admin-metric-value">{result.quality.score_percent}%</div>
@@ -283,16 +312,24 @@ export const AdminRouteDryRunPage = () => {
               ) : null}
             </section>
           ) : null}
-          <h3>Выбрано в маршрут</h3>
-          <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Оценка</th><th>Почему выбрано</th></tr></thead><tbody>
-            {result.selected_places.map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td>{formatScore(p.score)}</td><td><ReasonList reasons={p.selection_reasons} empty="Подходит" /></td></tr>)}
-          </tbody></table>
-          <h3>Не вошли в маршрут</h3>
-          <p className="admin-muted">Здесь показано, что нужно исправить, чтобы место могло попасть в маршрут.</p>
-          <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Что мешает</th></tr></thead><tbody>
-            {result.rejected_candidates.slice(0, 50).map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td><ReasonList reasons={p.rejection_reasons} empty="Нет явной причины" /></td></tr>)}
-          </tbody></table>
-          {result.rejected_candidates.length > 50 ? <p className="admin-muted">Показаны первые 50 отклоненных мест из {result.rejected_candidates.length}.</p> : null}
+          {result.selected_places.length > 0 ? (
+            <>
+              <h3>Выбрано в маршрут</h3>
+              <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Оценка</th><th>Почему выбрано</th></tr></thead><tbody>
+                {result.selected_places.map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td>{formatScore(p.score)}</td><td><ReasonList reasons={p.selection_reasons} empty="Подходит" /></td></tr>)}
+              </tbody></table>
+            </>
+          ) : null}
+          {result.rejected_candidates.length > 0 ? (
+            <>
+              <h3>Не вошли в маршрут</h3>
+              <p className="admin-muted">Здесь показано, что нужно исправить, чтобы место могло попасть в маршрут.</p>
+              <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Что мешает</th></tr></thead><tbody>
+                {result.rejected_candidates.slice(0, 50).map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td><ReasonList reasons={p.rejection_reasons} empty="Нет явной причины" /></td></tr>)}
+              </tbody></table>
+              {result.rejected_candidates.length > 50 ? <p className="admin-muted">Показаны первые 50 отклоненных мест из {result.rejected_candidates.length}.</p> : null}
+            </>
+          ) : null}
         </div>
       )}
     </div>
