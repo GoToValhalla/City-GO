@@ -14,6 +14,7 @@ from schemas.admin import (
     AdminRouteUpdateRequest,
 )
 from services.admin_audit_service import write_admin_audit_log
+from services.admin_city_import_tasks import mark_stalled_import_jobs
 from services.admin_extra_service import admin_coverage
 from services.place_service import get_place_by_id
 from services.route_service import get_route_by_id
@@ -30,6 +31,7 @@ PUBLISHABLE_CITY_STATUSES = {
 
 
 def get_admin_cities(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, object]], int]:
+    _mark_stalled_imports_before_read(db)
     query = db.query(City).order_by(City.updated_at.desc(), City.id.desc())
     total = query.count()
     cities = query.offset(offset).limit(limit).all()
@@ -65,6 +67,7 @@ def _city_payload(db: Session, city: City) -> dict[str, object]:
 
 
 def get_admin_import_jobs(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, object]], int]:
+    _mark_stalled_imports_before_read(db)
     query = db.query(City).filter(
         City.launch_status.in_(("importing", "imported", "review_required", "import_failed"))
     ).order_by(City.updated_at.desc())
@@ -84,6 +87,7 @@ def list_admin_import_jobs(db: Session, *, limit: int = 50, offset: int = 0) -> 
 
 
 def get_admin_import_job(db: Session, city_id: int) -> dict[str, object] | None:
+    _mark_stalled_imports_before_read(db)
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
         return None
@@ -91,6 +95,7 @@ def get_admin_import_job(db: Session, city_id: int) -> dict[str, object] | None:
 
 
 def get_admin_city_workspace(db: Session, city_slug: str) -> dict[str, object] | None:
+    _mark_stalled_imports_before_read(db)
     city = db.query(City).filter(City.slug == city_slug).first()
     if city is None:
         return None
@@ -125,6 +130,10 @@ def _import_job_payload(db: Session, city: City) -> dict[str, object]:
     from services.admin_city_import_job_payload import build_import_job_payload
 
     return build_import_job_payload(db, city)
+
+
+def _mark_stalled_imports_before_read(db: Session) -> None:
+    mark_stalled_import_jobs(db, actor_id="admin-panel-read")
 
 
 def _can_publish_city(city: City, places_total: int) -> bool:
