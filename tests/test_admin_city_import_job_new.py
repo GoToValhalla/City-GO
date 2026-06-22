@@ -6,8 +6,9 @@ from models.city_admin_import_job import CityAdminImportJob
 from models.city_import_scope import CityImportScope
 from services.admin_city_import_job_payload import build_import_job_payload
 from services.admin_city_import_job_service import queue_city_import_job, run_city_import_job
-from services.admin_city_import_tasks import mark_stalled_import_jobs
 from services.admin_city_import_runner import summarize_import_results
+from services.admin_city_import_tasks import mark_stalled_import_jobs
+from services.admin_extended_service import get_admin_cities
 
 
 def test_summarize_import_results_new() -> None:
@@ -58,6 +59,7 @@ def test_queue_and_run_import_job_new(db_session, monkeypatch) -> None:
     fake_result = {
         "results": [{"status": "success", "scope": "tourist_core", "import_result": {"raw_count": 3, "created": 2, "updated": 0}}]
     }
+
     def _fake_pipeline(db, *, job, city, actor_id, force=True):
         job.status = "success"
         job.places_found = 3
@@ -113,6 +115,36 @@ def test_stalled_running_job_is_marked_failed_and_retryable_new(db_session) -> N
     assert payload["last_error"]
 
 
+def test_admin_city_read_marks_stalled_imports_new(db_session, monkeypatch) -> None:
+    city = City(name="Read Stalled City", slug="read-stalled-city", country="Россия", launch_status="importing", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(
+        city_id=city.id,
+        status="running",
+        current_step="collecting_places",
+        started_at=datetime.utcnow() - timedelta(hours=2),
+        updated_at=datetime.utcnow() - timedelta(hours=2),
+    )
+    db_session.add(job)
+    db_session.commit()
+    alerts: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "services.admin_city_import_tasks.send_admin_alert",
+        lambda **kwargs: alerts.append(kwargs) or {"sent": True},
+    )
+
+    items, _total = get_admin_cities(db_session)
+    payload = next(item for item in items if item["slug"] == "read-stalled-city")
+    db_session.refresh(job)
+    db_session.refresh(city)
+
+    assert job.status == "stalled"
+    assert city.launch_status == "import_failed"
+    assert payload["launch_status"] == "import_failed"
+    assert alerts[0]["title"] == "Import job stalled"
+
+
 def test_non_blocking_photo_failure_keeps_city_review_required_new(db_session, monkeypatch) -> None:
     from models.place import Place
     from services.import_pipeline.runner import run_enrichment_pipeline
@@ -138,3 +170,89 @@ def test_non_blocking_photo_failure_keeps_city_review_required_new(db_session, m
     assert job.status == "success_with_warnings"
     assert city.launch_status == "review_required"
     assert job.step_details["warnings"][0]["step"] == "finding_images"
+
+
+def test_successful_import_pipeline_persists_final_status_and_sends_alert_new(db_session, monkeypatch) -> None:
+    from models.place import Place
+    from services.import_pipeline.runner import run_enrichment_pipeline
+
+    city = City(name="Commit City", slug="commit-city", country="Россия", launch_status="importing", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(city_id=city.id, status="queued", source="admin_city_import")
+    place = Place(city_id=city.id, slug="commit-park", title="Commit Park", lat=55.0, lng=37.0, category="park")
+    db_session.add_all([job, place])
+    db_session.commit()
+    alerts: list[dict[str, object]] = []
+
+    monkeypatch.setattr("services.import_pipeline.runner.run_osm_import_only", lambda *_args, **_kwargs: {
+        "results": [{"status": "success", "scope": "tourist_core", "import_result": {"raw_count": 1, "created": 0, "updated": 0}}],
+    })
+    monkeypatch.setattr("services.import_pipeline.runner.run_address_backfill", lambda *_args, **_kwargs: {"checked": 1, "updated": 0, "errors": 0})
+    monkeypatch.setattr("services.import_pipeline.runner.run_image_enrich", lambda *_args, **_kwargs: {"scanned_places": 1, "created": 0, "failed": 0})
+    monkeypatch.setattr("services.import_pipeline.runner.normalize_city_categories", lambda *_args, **_kwargs: {"scanned": 1, "updated": 0, "skipped": 0})
+    monkeypatch.setattr("services.import_pipeline.runner.run_quality_cleanup", lambda *_args, **_kwargs: {"updated": 1})
+    monkeypatch.setattr("services.import_pipeline.runner.compute_city_readiness", lambda *_args, **_kwargs: {"readiness_score": 44})
+    monkeypatch.setattr("services.import_pipeline.runner.send_admin_alert", lambda **kwargs: alerts.append(kwargs) or {"sent": True})
+
+    run_enrichment_pipeline(db_session, job=job, city=city, actor_id="test-admin")
+    job_id = job.id
+    city_id = city.id
+    db_session.rollback()
+    persisted_job = db_session.get(CityAdminImportJob, job_id)
+    persisted_city = db_session.get(City, city_id)
+
+    assert persisted_job.status == "success"
+    assert persisted_job.current_step == "ready_for_review"
+    assert persisted_city.launch_status == "review_required"
+    assert alerts[0]["title"] == "Import pipeline finished"
+    assert alerts[0]["level"] == "info"
+
+
+def test_enrichment_only_pipeline_persists_final_status_and_sends_alert_new(db_session, monkeypatch) -> None:
+    from models.place import Place
+    from services.import_pipeline.enrichment_only import run_enrichment_only_pipeline
+
+    city = City(name="Enrich Commit City", slug="enrich-commit-city", country="Россия", launch_status="published", is_active=True)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(city_id=city.id, status="queued", source="admin_city_enrichment")
+    place = Place(city_id=city.id, slug="enrich-park", title="Enrich Park", lat=55.0, lng=37.0, category="park")
+    db_session.add_all([job, place])
+    db_session.commit()
+    alerts: list[dict[str, object]] = []
+
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.run_address_backfill", lambda *_args, **_kwargs: {"checked": 1, "updated": 0, "errors": 0})
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.run_image_enrich", lambda *_args, **_kwargs: {"scanned_places": 1, "created": 0})
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.normalize_city_categories", lambda *_args, **_kwargs: {"scanned": 1, "updated": 0, "skipped": 0})
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.run_quality_cleanup", lambda *_args, **_kwargs: {"updated": 1})
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.compute_city_readiness", lambda *_args, **_kwargs: {"readiness_score": 51})
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.send_admin_alert", lambda **kwargs: alerts.append(kwargs) or {"sent": True})
+
+    run_enrichment_only_pipeline(db_session, job=job, city=city, actor_id="test-admin")
+    job_id = job.id
+    city_id = city.id
+    db_session.rollback()
+    persisted_job = db_session.get(CityAdminImportJob, job_id)
+    persisted_city = db_session.get(City, city_id)
+
+    assert persisted_job.status == "success"
+    assert persisted_job.current_step == "ready_for_review"
+    assert persisted_city.launch_status == "review_required"
+    assert alerts[0]["title"] == "Enrichment pipeline finished"
+    assert alerts[0]["level"] == "info"
+
+
+def test_admin_alert_not_configured_is_logged_new(monkeypatch, capsys) -> None:
+    from services import admin_alert_service
+
+    monkeypatch.setattr(admin_alert_service.settings, "telegram_bot_token", "")
+    monkeypatch.setattr(admin_alert_service.settings, "bot_token", "")
+    monkeypatch.setattr(admin_alert_service.settings, "telegram_chat_id", "")
+
+    result = admin_alert_service.send_admin_alert(title="Import pipeline failed", message="boom", level="error")
+    captured = capsys.readouterr()
+
+    assert result == {"sent": False, "reason": "not_configured"}
+    assert "admin_alert_not_configured" in captured.out
+    assert "TELEGRAM_CHAT_ID" in captured.out
