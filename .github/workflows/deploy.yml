@@ -318,13 +318,7 @@ jobs:
             curl -sf http://localhost/api/health >/dev/null || (echo "ERROR: frontend /api/health proxy failed"; docker compose logs --tail=160 frontend backend || true; exit 1)
 
             echo "=== verify backend import inside running container ==="
-            docker compose exec -T backend python - <<'PY'
-          import main
-          from core.router_setup import include_app_routers
-          print('running_backend_import_smoke_ok')
-          print(main.app.title)
-          print(include_app_routers.__name__)
-          PY
+            docker compose exec -T backend python -c "import main; from core.router_setup import include_app_routers; print('running_backend_import_smoke_ok'); print(main.app.title); print(include_app_routers.__name__)" </dev/null
 
             echo "=== alembic current/head ==="
             docker compose exec -T backend alembic current </dev/null || true
