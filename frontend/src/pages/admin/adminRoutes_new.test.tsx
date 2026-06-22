@@ -174,7 +174,7 @@ describe('AdminRouteEligibilityPage', () => {
     await waitFor(() => expect(screen.getByText('Маршруты → готовность мест')).toBeTruthy())
     expect(screen.getByText('Готовность мест для маршрутов · Test')).toBeTruthy()
     expect(screen.getAllByText('Место не подтверждено для маршрутов.').length).toBeGreaterThan(0)
-    expect(screen.getByText('музей')).toBeTruthy()
+    expect(screen.getAllByText('музей').length).toBeGreaterThan(0)
     expect(screen.getByText('нужно исправить')).toBeTruthy()
     expect(screen.queryByText('route_eligible_false')).toBeNull()
     expect(screen.queryByText('Eligibility')).toBeNull()
