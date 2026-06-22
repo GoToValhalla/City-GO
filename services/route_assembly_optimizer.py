@@ -305,9 +305,13 @@ def _first_point_seed_fallback(scored: list[ScoredPlace], ctx: MergedContext, po
     feasible.sort(key=lambda row: (row[0], row[1], row[2]))
     if not feasible:
         return []
+    walk = int(feasible[0][1])
+    visit = int(feasible[0][2])
     item = feasible[0][3]
     point = route_point_from_scored(item, ctx, point_cls)
     point.estimated_walk_minutes = walk_minutes_between(lat, lng, point.lat, point.lng)
+    if walk + visit > budget:
+        _mark_emergency_seed(point, walk)
     return [point]
 
 
