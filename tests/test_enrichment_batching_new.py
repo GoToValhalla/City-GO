@@ -44,7 +44,7 @@ def test_image_batches_advance_cursor_until_city_is_scanned_new(monkeypatch):
         calls.append(cursor)
         if cursor == 0:
             return {
-                "scanned_places": 2000,
+                "scanned_places": enrichment_only.IMAGE_BATCH_LIMIT,
                 "candidates_found": 10,
                 "created": 4,
                 "auto_approved": 4,
@@ -52,7 +52,7 @@ def test_image_batches_advance_cursor_until_city_is_scanned_new(monkeypatch):
                 "skipped_duplicates": 1,
                 "skipped_has_approved": 0,
                 "skipped_ineligible": 2,
-                "skipped_no_source": 1993,
+                "skipped_no_source": 43,
                 "errors": [],
                 "last_scanned_place_id": 2500,
             }
@@ -76,6 +76,49 @@ def test_image_batches_advance_cursor_until_city_is_scanned_new(monkeypatch):
 
     assert calls == [0, 2500]
     assert result["batches"] == 2
-    assert result["scanned_places"] == 2005
+    assert result["scanned_places"] == enrichment_only.IMAGE_BATCH_LIMIT + 5
     assert result["created"] == 5
     assert result["last_scanned_place_id"] == 2600
+
+
+def test_image_batches_send_heartbeat_after_each_batch_new(monkeypatch):
+    heartbeat_calls: list[tuple[int, int, int]] = []
+
+    def fake_run_image_enrich(argv: list[str]) -> dict[str, object]:
+        cursor = int(argv[argv.index("--start-after-id") + 1])
+        if cursor == 0:
+            return {
+                "scanned_places": enrichment_only.IMAGE_BATCH_LIMIT,
+                "candidates_found": 1,
+                "created": 1,
+                "auto_approved": 1,
+                "place_image_url_synced": 1,
+                "skipped_duplicates": 0,
+                "skipped_has_approved": 0,
+                "skipped_ineligible": 0,
+                "skipped_no_source": enrichment_only.IMAGE_BATCH_LIMIT - 1,
+                "errors": [],
+                "last_scanned_place_id": 100,
+            }
+        return {
+            "scanned_places": 1,
+            "candidates_found": 0,
+            "created": 0,
+            "auto_approved": 0,
+            "place_image_url_synced": 0,
+            "skipped_duplicates": 0,
+            "skipped_has_approved": 0,
+            "skipped_ineligible": 0,
+            "skipped_no_source": 1,
+            "errors": [],
+            "last_scanned_place_id": 101,
+        }
+
+    def heartbeat(totals: dict[str, object], batches: int) -> None:
+        heartbeat_calls.append((batches, int(totals["scanned_places"]), int(totals["last_scanned_place_id"])))
+
+    monkeypatch.setattr(enrichment_only, "run_image_enrich", fake_run_image_enrich)
+
+    enrichment_only._run_image_batches("large-city", heartbeat=heartbeat)
+
+    assert heartbeat_calls == [(1, enrichment_only.IMAGE_BATCH_LIMIT, 100), (2, enrichment_only.IMAGE_BATCH_LIMIT + 1, 101)]
