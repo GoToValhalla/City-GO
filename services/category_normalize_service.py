@@ -21,7 +21,7 @@ def normalize_city_categories(db: Session, *, city_slug: str, apply: bool = True
     if city is None:
         raise ValueError(f"Город не найден: {city_slug}")
     places = db.query(Place).filter(Place.city_id == city.id).all()
-    scanned = updated = skipped = unknown = 0
+    scanned = updated = synced = skipped = unknown = 0
     for place in places:
         scanned += 1
         canon = normalize_category_code(place.category or place.canonical_category)
@@ -46,12 +46,16 @@ def normalize_city_categories(db: Session, *, city_slug: str, apply: bool = True
             if category_id:
                 place.category_id = category_id
             db.add(place)
-        updated += 1
-    if apply and updated:
+        if category_changed:
+            updated += 1
+        else:
+            synced += 1
+    if apply and (updated or synced):
         db.commit()
     return {
         "scanned": scanned,
         "updated": updated,
+        "synced": synced,
         "skipped": skipped,
         "unknown": unknown,
         "legacy_map": LEGACY_TO_CANONICAL,
