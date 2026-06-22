@@ -23,6 +23,7 @@ PUBLISHABLE_CITY_STATUSES = {
 
 FAILED_IMPORT_STATUSES = {"failed", "stalled", "import_failed"}
 REVIEWABLE_IMPORT_STATUSES = {"success", "success_with_warnings", "partial_success", "imported"}
+REVIEWABLE_CITY_STATUSES = {"review_required", "imported"}
 
 
 def _latest_job(db: Session, city_id: int) -> CityAdminImportJob | None:
@@ -89,9 +90,9 @@ def normalize_reviewable_import_state(
         return False
     status = str(job.status or "")
     is_reviewable = (
-        city.launch_status == "review_required"
+        city.launch_status in REVIEWABLE_CITY_STATUSES
         or job.current_step == STEP_READY_FOR_REVIEW
-        or status in REVIEWABLE_IMPORT_STATUSES
+        or (status in REVIEWABLE_IMPORT_STATUSES and city.launch_status not in {"draft", "importing", "import_failed"})
     )
     if not is_reviewable:
         return False
