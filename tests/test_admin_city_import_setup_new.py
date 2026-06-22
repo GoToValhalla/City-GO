@@ -25,7 +25,9 @@ def test_finish_city_import_setup_creates_scopes_new(db_session, monkeypatch) ->
     finish_city_import_setup(db_session, city, payload, now=datetime(2026, 6, 8, 12, 0, 0))
     db_session.commit()
     scopes = db_session.query(CityImportScope).filter_by(city_id=city.id).all()
-    assert len(scopes) == 3
+    assert len(scopes) == 2
+    assert {scope.code for scope in scopes} == {"tourist_core", "food_area"}
+    assert "useful_services" not in {scope.code for scope in scopes}
     assert city.center_lat == 43.24
     assert city.bbox == bbox_from_center_radius(43.24, 76.95, 12)
     assert all(scope.enabled for scope in scopes)

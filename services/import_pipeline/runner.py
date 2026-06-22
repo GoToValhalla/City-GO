@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -16,7 +17,7 @@ from models.place import Place
 from services.admin_city_import_log import log_import_event
 from services.admin_city_import_runner import run_osm_import_only, summarize_import_results
 from services.city_readiness.score import compute_city_readiness
-from services.import_pipeline.progress import set_step
+from services.import_pipeline.progress import append_step_warning, set_step
 from services.import_pipeline.steps import (
     STEP_CATEGORIES_TAGS,
     STEP_COLLECTING_PLACES,
@@ -49,11 +50,11 @@ def run_enrichment_pipeline(
     set_step(job, STEP_RUNNING)
     db.commit()
     results: dict[str, Any] = {}
+    warnings: list[dict[str, object]] = []
 
     try:
         set_step(job, STEP_COLLECTING_PLACES)
-        log_import_event(db, event="import_step", city_slug=slug, actor_id=actor_id,
-                         message="Сбор мест из OSM", details={"step": STEP_COLLECTING_PLACES, "job_id": job.id})
+        _log_worker_step(db, job=job, city_slug=slug, actor_id=actor_id, step=STEP_COLLECTING_PLACES, status="started")
         db.commit()
         payload = run_osm_import_only(slug, force=force)
         summary = summarize_import_results(payload)
@@ -65,24 +66,50 @@ def run_enrichment_pipeline(
         set_step(job, STEP_COLLECTING_PLACES, total=places_total, processed=places_total,
                  successful=int(summary.get("places_saved") or 0))
         db.commit()
-        if summary.get("status") != "success":
+        if summary.get("status") != "success" and places_total <= 0:
             raise RuntimeError(str(summary.get("last_error") or "Ошибка импорта OSM"))
+        if summary.get("status") != "success":
+            warnings.append({"step": STEP_COLLECTING_PLACES, "error": str(summary.get("last_error") or "partial import")})
+            append_step_warning(job, STEP_COLLECTING_PLACES, summary.get("last_error") or "partial import")
+        _log_worker_step(db, job=job, city_slug=slug, actor_id=actor_id, step=STEP_COLLECTING_PLACES,
+                         status=str(summary.get("status") or "unknown"), raw_count=job.places_found,
+                         created=job.places_saved, accepted_count=places_total)
 
-        set_step(job, STEP_FINDING_ADDRESSES)
-        db.commit()
-        addr = run_address_backfill(["--city", slug, "--limit", str(ADDRESS_LIMIT), "--apply"])
+        addr = _optional_pipeline_step(
+            db,
+            job=job,
+            city_slug=slug,
+            actor_id=actor_id,
+            step=STEP_FINDING_ADDRESSES,
+            warnings=warnings,
+            action=lambda: run_address_backfill(["--city", slug, "--limit", str(ADDRESS_LIMIT), "--apply"]),
+        )
         results["addresses"] = addr
-        set_step(job, STEP_FINDING_ADDRESSES, processed=int(addr.get("checked") or 0),
-                 successful=int(addr.get("updated") or 0), failed=int(addr.get("errors") or 0))
-        db.commit()
+        if isinstance(addr, dict):
+            set_step(job, STEP_FINDING_ADDRESSES, processed=int(addr.get("checked") or 0),
+                     successful=int(addr.get("updated") or 0), failed=int(addr.get("errors") or 0))
+            db.commit()
 
-        set_step(job, STEP_FINDING_IMAGES)
-        db.commit()
-        images = run_image_enrich(["--city", slug, "--limit", str(IMAGE_LIMIT), "--apply"])
+        images = _optional_pipeline_step(
+            db,
+            job=job,
+            city_slug=slug,
+            actor_id=actor_id,
+            step=STEP_FINDING_IMAGES,
+            warnings=warnings,
+            action=lambda: run_image_enrich(["--city", slug, "--limit", str(IMAGE_LIMIT), "--apply"]),
+        )
         results["images"] = images
-        set_step(job, STEP_FINDING_IMAGES, processed=int(images.get("scanned_places") or 0),
-                 successful=int(images.get("created") or 0))
-        db.commit()
+        if isinstance(images, dict):
+            set_step(job, STEP_FINDING_IMAGES, processed=int(images.get("scanned_places") or 0),
+                     successful=int(images.get("created") or 0),
+                     failed=int(images.get("failed_image_lookup") or images.get("failed") or 0),
+                     detail={"image_enrichment": {
+                         "scanned_places": int(images.get("scanned_places") or 0),
+                         "created_images": int(images.get("created_images") or images.get("created") or 0),
+                         "failed_image_lookup": int(images.get("failed_image_lookup") or images.get("failed") or 0),
+                     }})
+            db.commit()
 
         set_step(job, STEP_PREPARING_DESCRIPTIONS, detail={"mode": "manual_required",
             "reason": "Автогенерация описаний не подключена. Используйте экспорт enrichment."})
@@ -106,12 +133,16 @@ def run_enrichment_pipeline(
         db.commit()
 
         places_total = db.query(Place).filter(Place.city_id == city.id).count()
+        if places_total <= 0:
+            raise RuntimeError("OSM import finished without places")
         set_step(job, STEP_READY_FOR_REVIEW, successful=places_total, processed=places_total)
-        job.status = "success"
+        job.status = "success_with_warnings" if warnings else "success"
         job.finished_at = datetime.utcnow()
         city.launch_status = "review_required"
         city.is_active = False
         city.last_import_at = job.finished_at
+        if warnings:
+            job.step_details = {**dict(job.step_details or {}), "warnings": warnings}
         log_import_event(db, event="import_pipeline_finished", city_slug=slug, actor_id=actor_id,
                          message=f"Pipeline #{job.id} готов к проверке и ручной публикации", details={"job_id": job.id, **results})
         return results
@@ -125,3 +156,57 @@ def run_enrichment_pipeline(
         log_import_event(db, event="import_pipeline_failed", city_slug=slug, actor_id=actor_id, level="error",
                          message=f"Pipeline #{job.id}: {exc}", details={"job_id": job.id})
         raise
+
+
+def _optional_pipeline_step(
+    db: Session,
+    *,
+    job: CityAdminImportJob,
+    city_slug: str,
+    actor_id: str,
+    step: str,
+    warnings: list[dict[str, object]],
+    action,
+) -> dict[str, Any]:
+    set_step(job, step)
+    _log_worker_step(db, job=job, city_slug=city_slug, actor_id=actor_id, step=step, status="started")
+    db.commit()
+    try:
+        result = action()
+        _log_worker_step(db, job=job, city_slug=city_slug, actor_id=actor_id, step=step, status="success", **_step_counts(result))
+        return result if isinstance(result, dict) else {"result": result}
+    except Exception as exc:  # noqa: BLE001
+        warning = {"step": step, "error": str(exc)[:1000]}
+        warnings.append(warning)
+        append_step_warning(job, step, exc)
+        _log_worker_step(db, job=job, city_slug=city_slug, actor_id=actor_id, step=step, status="warning", error=str(exc))
+        db.commit()
+        return {"status": "warning", "error": str(exc)[:1000]}
+
+
+def _step_counts(result: object) -> dict[str, object]:
+    if not isinstance(result, dict):
+        return {}
+    return {
+        "raw_count": result.get("raw_count"),
+        "accepted_count": result.get("normalized_count") or result.get("accepted_count"),
+        "created": result.get("created") or result.get("created_images"),
+        "updated": result.get("updated"),
+        "rejected": result.get("rejected") or result.get("failed_image_lookup"),
+    }
+
+
+def _log_worker_step(
+    db: Session,
+    *,
+    job: CityAdminImportJob,
+    city_slug: str,
+    actor_id: str,
+    step: str,
+    status: str,
+    **details: object,
+) -> None:
+    payload = {"city_slug": city_slug, "job_id": job.id, "step": step, "status": status, **details}
+    print(json.dumps(payload, ensure_ascii=False, default=str))
+    log_import_event(db, event="import_step", city_slug=city_slug, actor_id=actor_id,
+                     message=f"{step}: {status}", details=payload)

@@ -27,6 +27,8 @@ from data.scripts.import_cron_db import lock_target, schedule_next, unlock_targe
 DEFAULT_ADDRESS_BACKFILL_LIMIT = 100
 DEFAULT_ADDRESS_BACKFILL_SLEEP_SECONDS = 1.1
 DEFAULT_IMAGE_ENRICHMENT_LIMIT = 100
+MIN_SAVED_BEFORE_BBOX_FALLBACK = 3
+BBOX_FALLBACK_EXPANSION_FACTOR = 1.8
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -94,6 +96,15 @@ def _run_target(target: dict[str, Any], args: argparse.Namespace, now: datetime)
 
     try:
         import_result = run_osm_import(_import_args(target, args.apply))
+        if args.apply and _saved_count(import_result) < MIN_SAVED_BEFORE_BBOX_FALLBACK:
+            fallback = _run_expanded_bbox_fallback(target, args)
+            import_result = {
+                **import_result,
+                "fallback_applied": True,
+                "fallback_level": 1,
+                "fallback_reason": "low_saved_places",
+                "fallback_result": fallback,
+            }
 
         address_backfill_result: dict[str, Any] | None = None
         if not args.skip_address_backfill:
@@ -179,6 +190,46 @@ def _image_enrichment_args(city_slug: str, apply: bool, limit: int) -> list[str]
 
 def _quality_cleanup_args(city_slug: str, apply: bool) -> list[str]:
     return ["--city", city_slug, "--apply" if apply else "--dry-run"]
+
+
+def _saved_count(result: dict[str, Any]) -> int:
+    return int(result.get("created") or 0) + int(result.get("updated") or 0) + int(result.get("unchanged") or 0)
+
+
+def _run_expanded_bbox_fallback(target: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    with SessionLocal() as db:
+        from models.city import City
+        from models.city_import_scope import CityImportScope
+
+        city = db.query(City).filter(City.slug == target["city"]).first()
+        scope = (
+            db.query(CityImportScope)
+            .filter(CityImportScope.city_id == getattr(city, "id", None), CityImportScope.code == target["scope"])
+            .first()
+        )
+        if scope is None or not isinstance(scope.bbox, dict):
+            return {"status": "skipped", "reason": "scope_bbox_missing"}
+        scope.bbox = _expanded_bbox(scope.bbox, BBOX_FALLBACK_EXPANSION_FACTOR)
+        db.commit()
+    result = run_osm_import(_import_args(target, args.apply))
+    return {"status": "success", "expansion_factor": BBOX_FALLBACK_EXPANSION_FACTOR, "import_result": result}
+
+
+def _expanded_bbox(bbox: dict[str, Any], factor: float) -> dict[str, float]:
+    south = float(bbox["south"])
+    west = float(bbox["west"])
+    north = float(bbox["north"])
+    east = float(bbox["east"])
+    center_lat = (south + north) / 2
+    center_lng = (west + east) / 2
+    half_lat = max(0.001, (north - south) * factor / 2)
+    half_lng = max(0.001, (east - west) * factor / 2)
+    return {
+        "south": center_lat - half_lat,
+        "west": center_lng - half_lng,
+        "north": center_lat + half_lat,
+        "east": center_lng + half_lng,
+    }
 
 
 if __name__ == "__main__":

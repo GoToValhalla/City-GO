@@ -15,7 +15,6 @@ from services.admin_city_forward_geocode import geocode_city_name
 DEFAULT_SCOPES: tuple[tuple[str, str, str], ...] = (
     ("tourist_core", "tourist_core", "Tourist core"),
     ("food_area", "food_and_coffee", "Food area"),
-    ("useful_services", "useful_services", "Useful services"),
 )
 
 

@@ -11,7 +11,7 @@ from models.place_image import PLACE_IMAGE_STATUS_NEEDS_REVIEW, PlaceImage
 from services.import_pipeline.progress import is_stalled, step_label
 from services.import_pipeline.steps import STEP_QUEUED, STEP_READY_FOR_REVIEW, TERMINAL_STEPS
 
-PUBLISHABLE_CITY_STATUSES = {"review_required", "imported", "success", "unpublished"}
+PUBLISHABLE_CITY_STATUSES = {"review_required", "imported", "success", "success_with_warnings", "partial_success", "unpublished"}
 
 
 def _latest_job(db: Session, city_id: int) -> CityAdminImportJob | None:
@@ -87,7 +87,7 @@ def _can_run(job: CityAdminImportJob | None, city: City) -> bool:
 def _can_retry(job: CityAdminImportJob | None, status: str) -> bool:
     if job is None:
         return False
-    return status in {"failed", "import_failed", "success", "cancelled"}
+    return status in {"failed", "stalled", "import_failed", "success", "success_with_warnings", "partial_success", "cancelled"}
 
 
 def _can_cancel(job: CityAdminImportJob | None, status: str) -> bool:
@@ -109,9 +109,9 @@ def _can_unpublish(city: City) -> bool:
 def _import_next_step(current_step: str, status: str, launch_status: str) -> str:
     if launch_status == "published":
         return "Город опубликован и доступен на сайте."
-    if current_step == STEP_READY_FOR_REVIEW or status in {"success", "imported"} or launch_status == "review_required":
+    if current_step == STEP_READY_FOR_REVIEW or status in {"success", "success_with_warnings", "partial_success", "imported"} or launch_status == "review_required":
         return "Проверьте качество данных и нажмите «Опубликовать город»."
-    if status in {"failed", "import_failed"}:
+    if status in {"failed", "stalled", "import_failed"}:
         return "Проверьте ошибку и нажмите «Повторить»."
     if current_step in {STEP_QUEUED, "queued"}:
         return "Нажмите «Запустить сейчас», чтобы начать pipeline."

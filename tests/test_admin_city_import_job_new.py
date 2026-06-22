@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from models.city import City
@@ -6,6 +6,7 @@ from models.city_admin_import_job import CityAdminImportJob
 from models.city_import_scope import CityImportScope
 from services.admin_city_import_job_payload import build_import_job_payload
 from services.admin_city_import_job_service import queue_city_import_job, run_city_import_job
+from services.admin_city_import_tasks import mark_stalled_import_jobs
 from services.admin_city_import_runner import summarize_import_results
 
 
@@ -21,7 +22,26 @@ def test_summarize_import_results_new() -> None:
     assert summary["scopes_succeeded"] == 1
     assert summary["places_found"] == 10
     assert summary["places_saved"] == 5
-    assert summary["status"] == "failed"
+    assert summary["status"] == "partial_success"
+
+
+def test_summarize_import_results_uses_bbox_fallback_result_new() -> None:
+    payload = {
+        "results": [{
+            "status": "success",
+            "scope": "tourist_core",
+            "import_result": {
+                "raw_count": 1,
+                "created": 0,
+                "updated": 0,
+                "fallback_result": {"import_result": {"raw_count": 8, "created": 3, "updated": 1}},
+            },
+        }]
+    }
+    summary = summarize_import_results(payload)
+    assert summary["places_found"] == 8
+    assert summary["places_saved"] == 4
+    assert summary["status"] == "success"
 
 
 def test_queue_and_run_import_job_new(db_session, monkeypatch) -> None:
@@ -67,3 +87,54 @@ def test_import_job_run_endpoint_new(client, db_session) -> None:
     response = client.post(f"/admin/import-jobs/{city.id}/run")
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
+
+
+def test_stalled_running_job_is_marked_failed_and_retryable_new(db_session) -> None:
+    city = City(name="Stalled City", slug="stalled-city", country="Россия", launch_status="importing", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(
+        city_id=city.id,
+        status="running",
+        current_step="finding_images",
+        started_at=datetime.utcnow() - timedelta(hours=2),
+        updated_at=datetime.utcnow() - timedelta(hours=2),
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    count = mark_stalled_import_jobs(db_session, now=datetime.utcnow())
+    payload = build_import_job_payload(db_session, city)
+
+    assert count == 1
+    assert job.status == "stalled"
+    assert city.launch_status == "import_failed"
+    assert payload["can_retry"] is True
+    assert payload["last_error"]
+
+
+def test_non_blocking_photo_failure_keeps_city_review_required_new(db_session, monkeypatch) -> None:
+    from models.place import Place
+    from services.import_pipeline.runner import run_enrichment_pipeline
+
+    city = City(name="Partial City", slug="partial-city", country="Россия", launch_status="importing", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(city_id=city.id, status="queued", source="admin_city_import")
+    place = Place(city_id=city.id, slug="partial-park", title="Partial Park", lat=55.0, lng=37.0, category="park")
+    db_session.add_all([job, place])
+    db_session.commit()
+
+    monkeypatch.setattr("services.import_pipeline.runner.run_osm_import_only", lambda *_args, **_kwargs: {
+        "results": [{"status": "success", "scope": "tourist_core", "import_result": {"raw_count": 1, "created": 0, "updated": 0}}],
+    })
+    monkeypatch.setattr("services.import_pipeline.runner.run_address_backfill", lambda *_args, **_kwargs: {"checked": 1, "updated": 0, "errors": 0})
+    monkeypatch.setattr("services.import_pipeline.runner.run_image_enrich", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("photo api down")))
+    monkeypatch.setattr("services.import_pipeline.runner.run_quality_cleanup", lambda *_args, **_kwargs: {"updated": 1})
+    monkeypatch.setattr("services.import_pipeline.runner.compute_city_readiness", lambda *_args, **_kwargs: {"readiness_score": 10})
+
+    run_enrichment_pipeline(db_session, job=job, city=city, actor_id="test-admin")
+
+    assert job.status == "success_with_warnings"
+    assert city.launch_status == "review_required"
+    assert job.step_details["warnings"][0]["step"] == "finding_images"

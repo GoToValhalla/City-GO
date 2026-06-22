@@ -10,6 +10,7 @@ from models.city_import_scope import CityImportScope
 from models.place import Place
 from models.place_scope_link import PlaceScopeLink
 from models.place_source_presence import PlaceSourcePresence
+from models.source_observation import SourceObservation
 from services.import_profiles import import_profile_tags, production_profile
 
 
@@ -84,6 +85,44 @@ def test_apply_import_marks_scope_sources_missing(db_session):
 
     assert result["missing_from_source"] == 1
     assert missing.presence_status == "missing_once"
+
+
+def test_osm_import_creates_private_park_with_safe_name_without_photo_or_address_new(db_session):
+    city = City(slug="park-city", name="Park City", country="Россия")
+    db_session.add(city)
+    db_session.commit()
+    scope = CityImportScope(city_id=city.id, code="tourist_core", name="Core", enabled=True, status="enabled")
+    db_session.add(scope)
+    db_session.commit()
+    raw = [{"type": "way", "id": 11, "center": {"lat": 54.96, "lon": 20.49}, "tags": {"leisure": "park"}}]
+
+    result = _apply_import(db_session, city, scope, "tourist_core", raw, [_normalize_osm_object(raw[0], city.slug)])
+    place = db_session.query(Place).filter_by(city_id=city.id).one()
+
+    assert result["created"] == 1
+    assert place.title.startswith("Парк OSM")
+    assert place.address is None
+    assert place.image_url is None
+    assert place.is_published is False
+    assert place.publication_status == "needs_review"
+
+
+def test_osm_import_rejects_unnamed_cafe_but_keeps_source_observation_new(db_session):
+    city = City(slug="cafe-city", name="Cafe City", country="Россия")
+    db_session.add(city)
+    db_session.commit()
+    scope = CityImportScope(city_id=city.id, code="food_area", name="Food", enabled=True, status="enabled")
+    db_session.add(scope)
+    db_session.commit()
+    raw = [{"type": "node", "id": 12, "lat": 54.96, "lon": 20.49, "tags": {"amenity": "cafe"}}]
+
+    result = _apply_import(db_session, city, scope, "food_and_coffee", raw, [_normalize_osm_object(raw[0], city.slug)])
+    observation = db_session.query(SourceObservation).filter_by(city_id=city.id).one()
+
+    assert result["created"] == 0
+    assert result["rejection_reasons"]["missing_name"] == 1
+    assert db_session.query(Place).filter_by(city_id=city.id).count() == 0
+    assert observation.rejection_reason == "missing_name"
 
 
 def test_cron_lock_keeps_paused_scope_paused(db_session, monkeypatch):

@@ -19,6 +19,11 @@
 `next_run_at`, ставит scope lock и запускает `import_city_osm.py`. `--force`
 нужен только для ручного запуска вне расписания.
 
+Admin-created city imports are described in
+[`city_import_pipeline.md`](city_import_pipeline.md): queued jobs, blocking vs
+non-blocking steps, stalled detection, low-yield bbox fallback and publication
+flow.
+
 ## Source Observations
 
 `source_observations` хранит все raw objects, включая rejected/profile_excluded/outside_scope. `rejection_reason` обязателен для объяснимой отбраковки.

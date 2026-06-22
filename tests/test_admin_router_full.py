@@ -44,7 +44,8 @@ def test_admin_city_import_creates_city_and_import_job(client, db_session, monke
     assert jobs_response.json()["total"] >= 1
 
     scopes = db_session.query(CityImportScope).filter_by(city_id=payload["city_id"]).all()
-    assert len(scopes) == 3
+    assert len(scopes) == 2
+    assert {scope.code for scope in scopes} == {"tourist_core", "food_area"}
     assert all(scope.enabled for scope in scopes)
     jobs = db_session.query(CityAdminImportJob).filter_by(city_id=payload["city_id"]).all()
     assert len(jobs) == 1

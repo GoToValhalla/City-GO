@@ -54,6 +54,14 @@ def _queue_job(db: Session, *, city: City, source: str, actor_id: str | None) ->
     job.source = source
     job.scopes_total = scopes
     job.current_step = STEP_QUEUED
+    job.places_found = 0
+    job.places_saved = 0
+    job.scopes_succeeded = 0
+    job.total_items = 0
+    job.processed_items = 0
+    job.successful_items = 0
+    job.failed_items = 0
+    job.step_details = {}
     job.started_at = None
     job.finished_at = None
     job.last_error = None
@@ -120,6 +128,11 @@ def reset_import_job_to_queued(db: Session, *, city_id: int) -> CityAdminImportJ
     job.status = "queued"
     job.current_step = STEP_QUEUED
     job.last_error = None
+    job.step_details = {}
+    job.total_items = 0
+    job.processed_items = 0
+    job.successful_items = 0
+    job.failed_items = 0
     job.started_at = None
     job.finished_at = None
     job.cancelled_at = None

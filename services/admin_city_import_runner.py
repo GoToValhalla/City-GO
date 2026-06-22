@@ -14,7 +14,7 @@ def run_city_import_targets(city_slug: str, *, force: bool = True) -> dict[str, 
 
 def run_osm_import_only(city_slug: str, *, force: bool = True) -> dict[str, Any]:
     """Только OSM-импорт без адресов и quality cleanup (для пошагового pipeline)."""
-    base = ["--apply", "--city", city_slug, "--skip-address-backfill", "--skip-quality-cleanup"]
+    base = ["--apply", "--city", city_slug, "--skip-address-backfill", "--skip-image-enrichment", "--skip-quality-cleanup"]
     return run_due_import_jobs(base + ["--force"] if force else base)
 
 
@@ -31,11 +31,16 @@ def summarize_import_results(payload: dict[str, Any]) -> dict[str, int | str | N
             errors.append(f"{row.get('scope')}: {reason}")
             continue
         import_result = row.get("import_result") if isinstance(row.get("import_result"), dict) else {}
-        places_found += int(import_result.get("raw_count") or 0)
-        places_saved += int(import_result.get("created") or 0) + int(import_result.get("updated") or 0)
+        fallback_result = import_result.get("fallback_result") if isinstance(import_result.get("fallback_result"), dict) else {}
+        fallback_import = fallback_result.get("import_result") if isinstance(fallback_result.get("import_result"), dict) else {}
+        effective_result = fallback_import or import_result
+        places_found += int(effective_result.get("raw_count") or import_result.get("raw_count") or 0)
+        places_saved += int(effective_result.get("created") or 0) + int(effective_result.get("updated") or 0)
     last_error = "; ".join(errors) if errors else None
-    if scopes_total == 0 or scopes_succeeded == 0 or errors:
+    if scopes_total == 0 or scopes_succeeded == 0:
         status = "failed"
+    elif errors:
+        status = "partial_success" if places_saved > 0 else "failed"
     else:
         status = "success"
     return {

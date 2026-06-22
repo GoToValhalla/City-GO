@@ -27,6 +27,7 @@ from services.import_job_service import create_batch, finish_batch
 from services.import_profiles import production_profile
 from services.import_publication_gate import assess_import_quality
 from services.import_state_service import update_import_state
+from services.place_public_visibility import is_public_hidden_category
 from services.place_import_lifecycle_service import (
     apply_accepted_import_to_place,
     existing_place_must_be_hidden,
@@ -236,13 +237,12 @@ def _normalize_osm_object(item: dict[str, Any], city_slug: str) -> dict[str, Any
     source_external_id = f'osm:{item.get("type")}:{item.get("id")}'
     source_url = _osm_url(item)
 
-    raw_name = _raw_osm_name(tags)
-    name = _display_name(tags)
-
     lat = item.get("lat") or (item.get("center") or {}).get("lat")
     lng = item.get("lon") or (item.get("center") or {}).get("lon")
     category = _category(tags)
     lifecycle_status = _source_lifecycle_status(tags)
+    raw_name = _raw_osm_name(tags)
+    name = _display_name(tags)
 
     if lifecycle_status in {"closed", "temporarily_closed", "removed_from_source"}:
         return _rejected(
@@ -252,15 +252,21 @@ def _normalize_osm_object(item: dict[str, Any], city_slug: str) -> dict[str, Any
             reason=f"source_{lifecycle_status}",
         )
 
-    if not name:
-        reason = "bad_name" if raw_name else "missing_name"
-        return _rejected(item, source_external_id, source_url, reason)
-
     if lat is None or lng is None:
         return _rejected(item, source_external_id, source_url, "missing_coordinates")
 
     if category is None:
         return _rejected(item, source_external_id, source_url, "unsupported_category")
+
+    if is_public_hidden_category(category):
+        return _rejected(item, source_external_id, source_url, "hidden_category")
+
+    if not name:
+        if raw_name:
+            return _rejected(item, source_external_id, source_url, "bad_name")
+        name = _fallback_title(category, source_external_id)
+    if not name:
+        return _rejected(item, source_external_id, source_url, "missing_name")
 
     slug = _place_slug(city_slug, category, name, source_external_id)
 
@@ -465,6 +471,7 @@ def _apply_import(
     rejected = 0
     hidden = 0
     duplicate = 0
+    rejection_reasons: Counter[str] = Counter()
 
     try:
         for item in normalized:
@@ -472,6 +479,7 @@ def _apply_import(
 
             if not item["accepted"]:
                 rejected += 1
+                rejection_reasons[str(item.get("rejection_reason") or "unknown")] += 1
                 decision = _hide_existing_rejected_place(db, city.id, item)
                 if decision is not None:
                     hidden += 1
@@ -506,12 +514,12 @@ def _apply_import(
                     confidence=0.7,
                     status="active",
                     is_active=True,
-                    # Статус публикации определяется Import Quality Gate.
-                    is_published=_gate.is_published,
-                    is_visible_in_catalog=_gate.is_visible_in_catalog,
-                    is_route_eligible=_gate.is_route_eligible,
-                    is_searchable=_gate.is_searchable,
-                    publication_status=_gate.publication_status,
+                    # Imported places stay private until an admin publishes the city.
+                    is_published=False,
+                    is_visible_in_catalog=False,
+                    is_route_eligible=False,
+                    is_searchable=False,
+                    publication_status="needs_review" if _gate.decision != "hidden" else _gate.publication_status,
                     price_level=_price_level(item["category"]),
                     average_visit_duration_minutes=_visit_duration(item["category"]),
                     created_at=datetime.utcnow(),
@@ -566,6 +574,7 @@ def _apply_import(
             "rejected": rejected,
             "hidden": hidden,
             "duplicate": duplicate,
+            "rejection_reasons": dict(rejection_reasons),
             "deactivated_bad_places": deactivated_bad_places,
             "missing_from_source": missing_stats["missing_from_source"],
             "hidden_missing_places": missing_stats["hidden_missing_places"],
@@ -590,6 +599,7 @@ def _apply_import(
             "unchanged": unchanged,
             "needs_review": needs_review,
             "rejected": rejected,
+            "rejection_reasons": dict(rejection_reasons),
             "hidden": hidden,
             "deactivated_bad_places": deactivated_bad_places,
             "missing_from_source": missing_stats["missing_from_source"],
@@ -908,6 +918,22 @@ def _opening_hours(tags: dict[str, Any]) -> dict[str, object] | None:
 def _description(name: str, category: str) -> str:
     label = CATEGORY_NAMES.get(category, category)
     return f"{label}: {name}"
+
+
+def _fallback_title(category: str, source_external_id: str) -> str | None:
+    labels = {
+        "park": "Парк",
+        "viewpoint": "Смотровая точка",
+        "culture": "Культурное место",
+        "museum": "Музей",
+        "walk": "Место для прогулки",
+        "beach": "Пляж",
+    }
+    label = labels.get(category)
+    if not label:
+        return None
+    suffix = source_external_id.rsplit(":", 1)[-1]
+    return f"{label} OSM {suffix}"
 
 
 def _price_level(category: str) -> int:

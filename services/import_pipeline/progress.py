@@ -35,6 +35,19 @@ def set_step(
         job.step_details = base
 
 
+def append_step_warning(job: CityAdminImportJob, step: str, error: object, *, extra: dict[str, Any] | None = None) -> None:
+    details = dict(job.step_details or {})
+    warnings = list(details.get("warnings") or [])
+    warning = {"step": step, "error": str(error)[:1000]}
+    if extra:
+        warning.update(extra)
+    warnings.append(warning)
+    details["warnings"] = warnings
+    job.step_details = details
+    job.last_error = job.last_error or f"{step}: {str(error)[:500]}"
+    job.updated_at = datetime.utcnow()
+
+
 def step_label(step: str | None) -> str:
     if not step:
         return "—"
