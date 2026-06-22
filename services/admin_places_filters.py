@@ -65,7 +65,8 @@ def apply_place_filters(
     if category:
         query = query.filter(Place.category == category)
     if q:
-        query = query.filter(Place.title.ilike(f"%{q.strip()}%"))
+        term = f"%{q.strip()}%"
+        query = query.filter(or_(Place.title.ilike(term), Place.slug.ilike(term), Place.address.ilike(term)))
     if has_photo is True:
         query = query.filter(Place.image_url.isnot(None))
     elif has_photo is False:
