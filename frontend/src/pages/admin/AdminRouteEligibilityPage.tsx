@@ -42,9 +42,13 @@ export const AdminRouteEligibilityPage = () => {
     void Promise.resolve().then(load)
   }, [load])
 
-  const bulk = async (action: string) => {
+  useEffect(() => {
+    setSelected(new Set())
+  }, [citySlug, eligible, issue])
+
+  const bulk = async (action: string, label: string) => {
     const ids = [...selected]
-    if (!ids.length || !window.confirm(`Применить ${action} к ${ids.length} местам?`)) return
+    if (!ids.length || !window.confirm(`${label}: ${ids.length} мест?`)) return
     const params = action === 'disable_route' ? { reason: 'eligibility_dashboard' } : {}
     await adminPost('/admin/places/bulk/apply', { place_ids: ids, action, params, confirm: true })
     setSelected(new Set())
@@ -63,32 +67,47 @@ export const AdminRouteEligibilityPage = () => {
     })
   }
 
+  const toggleAllVisible = () => {
+    const visibleIds = (data?.items ?? []).map((item) => item.place_id)
+    setSelected((current) => {
+      const next = new Set(current)
+      const allSelected = visibleIds.length > 0 && visibleIds.every((placeId) => next.has(placeId))
+      if (allSelected) {
+        visibleIds.forEach((placeId) => next.delete(placeId))
+      } else {
+        visibleIds.forEach((placeId) => next.add(placeId))
+      }
+      return next
+    })
+  }
+
   if (loading && !data) return <AdminLoading />
   if (error) return <AdminError message={error} />
 
   return (
     <div>
-      <h2 className="admin-page-title">Маршруты → Eligibility</h2>
+      <h2 className="admin-page-title">Маршруты → готовность мест</h2>
       <div className="admin-filters">
         <select value={citySlug} onChange={(e) => setCitySlug(e.target.value)}>
           <option value="">Все города</option>
           {cities.map((city) => <option key={city.slug} value={city.slug}>{city.name}</option>)}
         </select>
-        <input placeholder="city_slug" value={citySlug} onChange={(e) => setCitySlug(e.target.value)} />
+        <input placeholder="город" value={citySlug} onChange={(e) => setCitySlug(e.target.value)} />
         <select value={eligible} onChange={(e) => setEligible(e.target.value)}>
-          <option value="">Eligible: все</option>
-          <option value="true">Eligible</option>
-          <option value="false">Not eligible</option>
+          <option value="">Готовность: все</option>
+          <option value="true">готово</option>
+          <option value="false">нужно исправить</option>
         </select>
-        <input placeholder="issue code" value={issue} onChange={(e) => setIssue(e.target.value)} />
+        <input placeholder="причина" value={issue} onChange={(e) => setIssue(e.target.value)} />
         <button type="button" className="admin-btn admin-btn-sm" onClick={load}>Обновить</button>
-        <button type="button" className="admin-btn admin-btn-sm" onClick={() => void bulk('disable_route')}>Исключить</button>
-        <button type="button" className="admin-btn admin-btn-sm" onClick={() => void bulk('enable_route')}>Включить</button>
+        <span className="admin-muted">Выбрано: {selected.size}</span>
+        <button type="button" className="admin-btn admin-btn-sm" disabled={!selected.size} onClick={() => void bulk('enable_route', 'Подтвердить для маршрутов')}>Подтвердить для маршрутов</button>
+        <button type="button" className="admin-btn admin-btn-sm" disabled={!selected.size} onClick={() => void bulk('disable_route', 'Исключить из маршрутов')}>Исключить из маршрутов</button>
       </div>
       {diagnostics
         ? <AdminRouteEligibilityDiagnostics report={diagnostics} />
-        : <AdminEmpty message="Выберите город, чтобы увидеть Route Readiness Diagnostics" />}
-      <AdminRouteEligibilityTable items={data?.items ?? []} selected={selected} onToggle={toggleSelected} />
+        : <AdminEmpty message="Выберите город, чтобы увидеть готовность мест для маршрутов" />}
+      <AdminRouteEligibilityTable items={data?.items ?? []} selected={selected} onToggle={toggleSelected} onToggleAll={toggleAllVisible} />
     </div>
   )
 }
