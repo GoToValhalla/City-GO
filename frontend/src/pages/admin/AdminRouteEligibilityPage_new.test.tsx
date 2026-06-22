@@ -30,10 +30,10 @@ describe('AdminRouteEligibilityPage diagnostics', () => {
   it('admin page renders eligibility summary_new', async () => {
     render(<MemoryRouter initialEntries={['/admin/routes/eligibility?city_slug=test-city']}><AdminRouteEligibilityPage /></MemoryRouter>)
 
-    await waitFor(() => expect(screen.getByText(/Route Readiness Diagnostics/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Готовность мест для маршрутов · Test City')).toBeTruthy())
     expect(screen.getByText('Test City')).toBeTruthy()
-    expect(screen.getAllByText('Eligible').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('no_photo').length).toBeGreaterThan(0)
+    expect(screen.getByText('Готово для маршрутов')).toBeTruthy()
+    expect(screen.getAllByText('Нет фото').length).toBeGreaterThan(0)
     expect(screen.getByText('Near-ready Cafe')).toBeTruthy()
   })
 })
