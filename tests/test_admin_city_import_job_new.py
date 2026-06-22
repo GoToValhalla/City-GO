@@ -145,6 +145,39 @@ def test_admin_city_read_marks_stalled_imports_new(db_session, monkeypatch) -> N
     assert alerts[0]["title"] == "Import job stalled"
 
 
+def test_failed_import_with_saved_places_moves_to_manual_review_new(db_session) -> None:
+    from models.place import Place
+
+    city = City(name="Saved Failed City", slug="saved-failed-city", country="Россия", launch_status="import_failed", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(
+        city_id=city.id,
+        status="failed",
+        current_step="error",
+        last_error="photo provider timeout",
+        places_found=0,
+        places_saved=0,
+    )
+    place = Place(city_id=city.id, slug="saved-place", title="Saved Place", lat=55.0, lng=37.0, category="park")
+    db_session.add_all([job, place])
+    db_session.commit()
+
+    payload = build_import_job_payload(db_session, city)
+    db_session.refresh(job)
+    db_session.refresh(city)
+
+    assert city.launch_status == "review_required"
+    assert job.status == "partial_success"
+    assert job.current_step == "ready_for_review"
+    assert job.last_error == "photo provider timeout"
+    assert job.step_details["failed_import_recovery"]["places_total"] == 1
+    assert payload["status"] == "partial_success"
+    assert payload["launch_status"] == "review_required"
+    assert payload["can_publish"] is True
+    assert payload["can_retry"] is True
+
+
 def test_non_blocking_photo_failure_keeps_city_review_required_new(db_session, monkeypatch) -> None:
     from models.place import Place
     from services.import_pipeline.runner import run_enrichment_pipeline
