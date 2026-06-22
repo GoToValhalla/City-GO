@@ -10,6 +10,7 @@ export type PlacesListFilters = {
   pubStatus: string
   verifyStatus: string
   category: string
+  routeEligible: string
   q: string
 }
 
@@ -20,6 +21,7 @@ const buildQuery = (filters: PlacesListFilters, offset: number) => {
   if (filters.pubStatus) sp.set('publication_status', filters.pubStatus)
   if (filters.verifyStatus) sp.set('verification_status', filters.verifyStatus)
   if (filters.category) sp.set('category', filters.category)
+  if (filters.routeEligible) sp.set('route_eligible', filters.routeEligible)
   if (filters.q) sp.set('q', filters.q)
   return sp.toString()
 }
