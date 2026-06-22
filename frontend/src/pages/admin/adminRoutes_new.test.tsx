@@ -3,6 +3,7 @@ import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/re
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminRouteDryRunPage } from './AdminRouteDryRunPage'
+import { AdminRouteEligibilityPage } from './AdminRouteEligibilityPage'
 import { adminGet, adminPost } from './adminApi'
 import { clearAdminSession } from './adminSession'
 
@@ -42,6 +43,27 @@ const publishResult = {
   message: 'Маршрут опубликован',
 }
 
+const eligibilityResult = {
+  items: [
+    { place_id: 1, title: 'Museum', slug: 'museum', category: 'museum', eligible: false, quality_score: 80, quality_bucket: 'silver', reasons: ['route_eligible_false'], primary_reason: 'route_eligible_false', city_slug: 'test-city' },
+    { place_id: 2, title: 'Cafe', slug: 'cafe', category: 'food', eligible: true, quality_score: 90, quality_bucket: 'gold', reasons: [], primary_reason: 'selected', city_slug: 'test-city' },
+  ],
+  total: 2,
+  limit: 50,
+  offset: 0,
+}
+
+const eligibilityDiagnostics = {
+  city_slug: 'test-city',
+  city_name: 'Test',
+  places_total: 2,
+  eligible_places: 1,
+  published_places: 2,
+  blockers_count_by_reason: { route_eligible_false: 1 },
+  near_ready_places: [{ place_id: 1, title: 'Museum', slug: 'museum', category: 'museum', blockers: ['route_eligible_false'], quality_score: 80 }],
+  sample_blocked_places: [{ place_id: 1, title: 'Museum', slug: 'museum', category: 'museum', blockers: ['route_eligible_false'], quality_score: 80 }],
+}
+
 const mockedAdminGet = vi.mocked(adminGet)
 const mockedAdminPost = vi.mocked(adminPost)
 
@@ -51,6 +73,15 @@ const renderPage = () =>
       <Routes>
         <Route path="/admin/routes/dry-run" element={<AdminRouteDryRunPage />} />
         <Route path="/admin/login" element={<div>LOGIN</div>} />
+      </Routes>
+    </MemoryRouter>,
+  )
+
+const renderEligibilityPage = () =>
+  render(
+    <MemoryRouter initialEntries={['/admin/routes/eligibility?city_slug=test-city']}>
+      <Routes>
+        <Route path="/admin/routes/eligibility" element={<AdminRouteEligibilityPage />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -118,5 +149,46 @@ describe('AdminRouteDryRunPage', () => {
     renderPage()
     await waitFor(() => expect(selectedCityValue()).toBe('test-city'))
     expect(runButtonDisabled()).toBe(false)
+  })
+})
+
+describe('AdminRouteEligibilityPage', () => {
+  beforeEach(() => {
+    mockedAdminGet.mockImplementation((path: string) => {
+      if (path.startsWith('/admin/cities')) return Promise.resolve(cities)
+      if (path.startsWith('/admin/routes/eligibility/test-city')) return Promise.resolve(eligibilityDiagnostics)
+      if (path.startsWith('/admin/routes/eligibility?')) return Promise.resolve(eligibilityResult)
+      return Promise.resolve({})
+    })
+    mockedAdminPost.mockResolvedValue({ ok: true })
+  })
+
+  afterEach(() => {
+    cleanup()
+    clearAdminSession()
+    vi.clearAllMocks()
+  })
+
+  it('shows Russian route eligibility copy_new', async () => {
+    renderEligibilityPage()
+    await waitFor(() => expect(screen.getByText('Маршруты → готовность мест')).toBeTruthy())
+    expect(screen.getByText('Готовность мест для маршрутов · Test')).toBeTruthy()
+    expect(screen.getAllByText('Место не подтверждено для маршрутов.').length).toBeGreaterThan(0)
+    expect(screen.getByText('музей')).toBeTruthy()
+    expect(screen.getByText('нужно исправить')).toBeTruthy()
+    expect(screen.queryByText('route_eligible_false')).toBeNull()
+    expect(screen.queryByText('Eligibility')).toBeNull()
+  })
+
+  it('selects visible places and confirms route eligibility in bulk_new', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    renderEligibilityPage()
+    await waitFor(() => expect(screen.getByLabelText('Выбрать все видимые места')).toBeTruthy())
+    fireEvent.click(screen.getByLabelText('Выбрать все видимые места'))
+    await waitFor(() => expect(screen.getByText('Выбрано: 2')).toBeTruthy())
+    fireEvent.click(screen.getByText('Подтвердить для маршрутов'))
+    await waitFor(() => expect(mockedAdminPost).toHaveBeenCalledWith('/admin/places/bulk/apply', { place_ids: [1, 2], action: 'enable_route', params: {}, confirm: true }))
+    expect(confirmSpy).toHaveBeenCalledWith('Подтвердить для маршрутов: 2 мест?')
+    confirmSpy.mockRestore()
   })
 })
