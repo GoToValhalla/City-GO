@@ -25,6 +25,12 @@ const fallbackCategories: AdminTaxonomyCategory[] = [
   source: 'fallback',
 }))
 
+const categoryOptionLabel = (item: AdminTaxonomyCategory) => {
+  const label = item.label || categoryText(item.code)
+  const count = item.is_observed ? ` · ${item.observed_count}` : ''
+  return `${label} (${item.code})${count}`
+}
+
 export const AdminCategorySelect = ({ value, onChange, includeAll = false, ariaLabel = 'Категория' }: Props) => {
   const [items, setItems] = useState<AdminTaxonomyCategory[]>(fallbackCategories)
   const [failed, setFailed] = useState(false)
@@ -44,9 +50,7 @@ export const AdminCategorySelect = ({ value, onChange, includeAll = false, ariaL
       <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={ariaLabel}>
         {includeAll && <option value="">Все категории</option>}
         {items.map((item) => (
-          <option key={item.code} value={item.code}>
-            {item.label || categoryText(item.code)}{item.is_observed ? ` · ${item.observed_count}` : ''}
-          </option>
+          <option key={item.code} value={item.code}>{categoryOptionLabel(item)}</option>
         ))}
       </select>
       {failed && <span className="admin-muted">Справочник категорий недоступен, показан базовый список.</span>}
