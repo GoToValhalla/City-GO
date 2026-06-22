@@ -6,6 +6,8 @@ import type { AdminCitiesResponse } from './adminTypes'
 import type { DryRunCandidate, DryRunResponse, RouteDraft, RouteDraftGenerationResponse, RoutePublishResponse } from './adminRouteTypes'
 import { AdminError } from './shared/AdminStates'
 
+const REJECTED_PAGE_SIZE = 50
+
 const qualityLabel = (status?: string) => {
   switch (status) {
     case 'good': return 'Хороший'
@@ -41,6 +43,11 @@ const formatScore = (score: number | null) => {
   return score <= 1 ? `${Math.round(score * 100)}%` : String(score)
 }
 
+const summaryString = (result: DryRunResponse | null, key: string) => {
+  const value = result?.request_summary?.[key]
+  return typeof value === 'string' ? value : ''
+}
+
 type MapCandidate = DryRunCandidate & { x: number; y: number }
 
 const mapPoints = (points: DryRunCandidate[]): MapCandidate[] => {
@@ -60,6 +67,14 @@ const mapPoints = (points: DryRunCandidate[]): MapCandidate[] => {
 }
 
 const pathFrom = (points: MapCandidate[]) => points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' ')
+
+const fallbackRejectionReasons = (candidate: DryRunCandidate) => {
+  if (candidate.rejection_reasons.length > 0) return candidate.rejection_reasons
+  if (candidate.selected) return []
+  if (candidate.is_eligible) return ['not_selected_lower_score']
+  if (!Number.isFinite(candidate.lat) || !Number.isFinite(candidate.lng)) return ['missing_coordinates']
+  return ['rejected_without_backend_reason']
+}
 
 const ReasonList = ({ reasons, empty }: { reasons: string[]; empty: string }) => {
   if (!reasons.length) return <span className="admin-muted">{empty}</span>
@@ -123,6 +138,7 @@ export const AdminRouteDryRunPage = () => {
   const [result, setResult] = useState<DryRunResponse | null>(null)
   const [draft, setDraft] = useState<RouteDraft | null>(null)
   const [published, setPublished] = useState<RoutePublishResponse | null>(null)
+  const [rejectedVisible, setRejectedVisible] = useState(REJECTED_PAGE_SIZE)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -134,6 +150,14 @@ export const AdminRouteDryRunPage = () => {
       })
       .catch((e: Error) => setError(e.message))
   }, [])
+
+  const clearRouteResult = () => {
+    setResult(null)
+    setDraft(null)
+    setPublished(null)
+    setRejectedVisible(REJECTED_PAGE_SIZE)
+    setError(null)
+  }
 
   const dryRunBody = (): Record<string, unknown> => {
     const body: Record<string, unknown> = {
@@ -155,6 +179,7 @@ export const AdminRouteDryRunPage = () => {
     try {
       setDraft(null)
       setPublished(null)
+      setRejectedVisible(REJECTED_PAGE_SIZE)
       setResult(await adminPost<DryRunResponse>('/admin/routes/dry-run', dryRunBody()))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка')
@@ -168,6 +193,7 @@ export const AdminRouteDryRunPage = () => {
       const response = await adminPost<RouteDraftGenerationResponse>('/admin/routes/drafts/generate', dryRunBody())
       setDraft(response.draft)
       setResult(response.dry_run)
+      setRejectedVisible(REJECTED_PAGE_SIZE)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка')
     } finally { setBusy(false) }
@@ -197,6 +223,9 @@ export const AdminRouteDryRunPage = () => {
 
   const canSaveDraft = Boolean(result && result.counts.selected_places > 0)
   const hasNoCandidates = Boolean(result && result.counts.total_candidates === 0)
+  const resultCitySlug = summaryString(result, 'city_slug')
+  const resultCityName = cities.find((city) => city.slug === resultCitySlug)?.name || resultCitySlug
+  const visibleRejected = result?.rejected_candidates.slice(0, rejectedVisible) ?? []
   const saveHint = hasNoCandidates
     ? 'Сохранять пока нечего: в городе нет мест, из которых можно собрать маршрут.'
     : canSaveDraft
@@ -207,15 +236,15 @@ export const AdminRouteDryRunPage = () => {
     <div>
       <h2 className="admin-page-title">Маршруты → проверка сборки</h2>
       <div className="admin-filters">
-        <select value={citySlug} onChange={(e) => setCitySlug(e.target.value)} aria-label="Город dry-run">
+        <select value={citySlug} onChange={(e) => { setCitySlug(e.target.value); clearRouteResult() }} aria-label="Город dry-run">
           <option value="">Город</option>
           {cities.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}
         </select>
-        <input type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} placeholder="минуты" />
-        <input value={budget} onChange={(e) => setBudget(e.target.value === '' ? '' : Number(e.target.value))} placeholder="бюджет 1-4" />
-        <input value={startLat} onChange={(e) => setStartLat(e.target.value)} placeholder="широта старта" />
-        <input value={startLng} onChange={(e) => setStartLng(e.target.value)} placeholder="долгота старта" />
-        <input value={interests} onChange={(e) => setInterests(e.target.value)} placeholder="интересы через запятую" />
+        <input type="number" value={duration} onChange={(e) => { setDuration(Number(e.target.value)); clearRouteResult() }} placeholder="минуты" />
+        <input value={budget} onChange={(e) => { setBudget(e.target.value === '' ? '' : Number(e.target.value)); clearRouteResult() }} placeholder="бюджет 1-4" />
+        <input value={startLat} onChange={(e) => { setStartLat(e.target.value); clearRouteResult() }} placeholder="широта старта" />
+        <input value={startLng} onChange={(e) => { setStartLng(e.target.value); clearRouteResult() }} placeholder="долгота старта" />
+        <input value={interests} onChange={(e) => { setInterests(e.target.value); clearRouteResult() }} placeholder="интересы через запятую" />
         <button type="button" className="admin-btn" disabled={busy || !citySlug} onClick={run}>{busy ? '…' : 'Проверить сборку'}</button>
         {result && <button type="button" className="admin-btn admin-btn-sm" onClick={downloadJson}>Скачать тех. отчет</button>}
       </div>
@@ -224,6 +253,7 @@ export const AdminRouteDryRunPage = () => {
         <div>
           <section className="admin-metric-card" style={{ marginBottom: 16 }}>
             <h3>Проверка #{result.generation_run_id}</h3>
+            {resultCityName ? <p className="admin-muted">Результат для города: {resultCityName}</p> : null}
             <div className="admin-metrics-grid admin-metrics-small">
               <div className="admin-metric-card"><div className="admin-metric-value">{result.counts.total_candidates}</div><div className="admin-metric-label">найдено мест</div></div>
               <div className="admin-metric-card"><div className="admin-metric-value">{result.counts.eligible_candidates}</div><div className="admin-metric-label">подходит</div></div>
@@ -261,19 +291,24 @@ export const AdminRouteDryRunPage = () => {
           {result.selected_places.length > 0 ? (
             <>
               <h3>Выбрано в маршрут</h3>
-              <table className="admin-table"><thead><tr><th>Место</th><th>Категория</th><th>Оценка</th><th>Почему выбрано</th></tr></thead><tbody>
+              <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Категория</th><th>Оценка</th><th>Почему выбрано</th></tr></thead><tbody>
                 {result.selected_places.map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{categoryText(p.category)}</td><td>{formatScore(p.score)}</td><td><ReasonList reasons={p.selection_reasons} empty="Подходит" /></td></tr>)}
-              </tbody></table>
+              </tbody></table></div>
             </>
           ) : null}
           {result.rejected_candidates.length > 0 ? (
             <>
               <h3>Не вошли в маршрут</h3>
               <p className="admin-muted">Здесь показано, что нужно исправить, чтобы место могло попасть в маршрут.</p>
-              <table className="admin-table"><thead><tr><th>Место</th><th>Категория</th><th>Что мешает</th></tr></thead><tbody>
-                {result.rejected_candidates.slice(0, 50).map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{categoryText(p.category)}</td><td><ReasonList reasons={p.rejection_reasons} empty="Нет явной причины" /></td></tr>)}
-              </tbody></table>
-              {result.rejected_candidates.length > 50 ? <p className="admin-muted">Показаны первые 50 отклоненных мест из {result.rejected_candidates.length}.</p> : null}
+              <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Категория</th><th>Что мешает</th></tr></thead><tbody>
+                {visibleRejected.map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{categoryText(p.category)}</td><td><ReasonList reasons={fallbackRejectionReasons(p)} empty="Не выбрано" /></td></tr>)}
+              </tbody></table></div>
+              {result.rejected_candidates.length > visibleRejected.length ? (
+                <div className="admin-bulk-row" style={{ marginTop: 12 }}>
+                  <span className="admin-muted">Показано {visibleRejected.length} из {result.rejected_candidates.length}</span>
+                  <button type="button" className="admin-btn admin-btn-sm" onClick={() => setRejectedVisible((value) => value + REJECTED_PAGE_SIZE)}>Показать еще</button>
+                </div>
+              ) : <p className="admin-muted">Показаны все отклоненные места: {result.rejected_candidates.length}.</p>}
             </>
           ) : null}
         </div>
