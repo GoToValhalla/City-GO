@@ -2,6 +2,7 @@ from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.place import Place
 from services.admin_city_import_job_payload import build_import_job_payload
+from services.admin_extended_service import get_admin_cities
 
 
 def test_reviewable_import_with_saved_places_syncs_progress_counts_new(db_session) -> None:
@@ -62,3 +63,26 @@ def test_reviewable_import_without_places_returns_to_failed_new(db_session) -> N
     assert city.launch_status == "import_failed"
     assert job.current_step == "error"
     assert job.step_details["empty_review_recovery"]["reason"] == "reviewable_import_without_saved_places"
+
+
+def test_admin_city_list_normalizes_empty_review_import_new(db_session) -> None:
+    city = City(name="Empty City List", slug="empty-city-list", country="Россия", launch_status="review_required", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(
+        city_id=city.id,
+        status="partial_success",
+        current_step="ready_for_review",
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    items, _total = get_admin_cities(db_session)
+    payload = next(item for item in items if item["slug"] == "empty-city-list")
+    db_session.refresh(city)
+    db_session.refresh(job)
+
+    assert payload["launch_status"] == "import_failed"
+    assert payload["can_publish"] is False
+    assert city.launch_status == "import_failed"
+    assert job.status == "failed"
