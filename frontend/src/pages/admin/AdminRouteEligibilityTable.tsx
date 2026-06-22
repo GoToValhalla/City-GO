@@ -28,10 +28,16 @@ export const AdminRouteEligibilityTable = ({ items, selected, onToggle, onToggle
       <tbody>
         {items.map((row) => <tr key={row.place_id}>
           <td><input aria-label={`Выбрать ${row.title}`} type="checkbox" checked={selected.has(row.place_id)} onChange={() => onToggle(row.place_id)} /></td>
-          <td><Link to={`/admin/places/${row.place_id}`}>{row.title}</Link></td>
+          <td>
+            <Link to={`/admin/places/${row.place_id}`}>{row.title}</Link>
+            {row.placeholder_name ? <div className="admin-muted">автоназвание, нужна проверка</div> : null}
+          </td>
           <td>{categoryText(row.category)}</td>
           <td>{row.eligible ? 'готово' : 'нужно исправить'}</td>
-          <td>{row.quality_score} · {qualityText(row.quality_bucket)}</td>
+          <td>
+            {row.quality_score} · {qualityText(row.quality_bucket)}
+            {row.high_quality_route_candidate ? <div className="admin-muted">можно массово подтвердить</div> : null}
+          </td>
           <td>{routeReasonText(row.primary_reason)}</td>
         </tr>)}
       </tbody>
