@@ -25,6 +25,26 @@ class EligibilityListResponse(BaseModel):
     offset: int
 
 
+class RouteReadinessPlace(BaseModel):
+    place_id: int
+    title: str
+    slug: str
+    category: str | None = None
+    blockers: list[str] = Field(default_factory=list)
+    quality_score: int
+
+
+class RouteReadinessDiagnosticsResponse(BaseModel):
+    city_slug: str
+    city_name: str
+    places_total: int
+    eligible_places: int
+    published_places: int
+    blockers_count_by_reason: dict[str, int]
+    near_ready_places: list[RouteReadinessPlace]
+    sample_blocked_places: list[RouteReadinessPlace]
+
+
 class DataQualityIssue(BaseModel):
     code: str
     count: int

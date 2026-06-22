@@ -18,6 +18,26 @@ export type EligibilityResponse = {
   offset: number
 }
 
+export type RouteReadinessPlace = {
+  place_id: number
+  title: string
+  slug: string
+  category: string | null
+  blockers: string[]
+  quality_score: number
+}
+
+export type RouteReadinessDiagnostics = {
+  city_slug: string
+  city_name: string
+  places_total: number
+  eligible_places: number
+  published_places: number
+  blockers_count_by_reason: Record<string, number>
+  near_ready_places: RouteReadinessPlace[]
+  sample_blocked_places: RouteReadinessPlace[]
+}
+
 export type DryRunCandidate = {
   place_id: number
   title: string | null

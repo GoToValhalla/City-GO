@@ -13,6 +13,7 @@ from schemas.admin_route_operations import (
     DataQualityReport,
     EligibilityListResponse,
     EligibilityPlaceRow,
+    RouteReadinessDiagnosticsResponse,
 )
 from services.admin_audit_service import write_admin_audit_log
 from services.city_readiness import (
@@ -22,7 +23,7 @@ from services.city_readiness import (
 )
 from services.route_data_quality import build_route_data_quality_report
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
-from services.route_eligibility_dashboard import list_eligibility_places
+from services.route_eligibility_dashboard import build_route_readiness_diagnostics, list_eligibility_places
 
 router = APIRouter(prefix="/admin/routes", tags=["admin-routes"])
 
@@ -52,6 +53,18 @@ def get_route_eligibility(
         items=[EligibilityPlaceRow.model_validate(row) for row in items],
         total=total, limit=limit, offset=offset,
     )
+
+
+@router.get("/eligibility/{city_slug}", response_model=RouteReadinessDiagnosticsResponse)
+def get_route_readiness_diagnostics(
+    city_slug: str,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> RouteReadinessDiagnosticsResponse:
+    payload = build_route_readiness_diagnostics(db, city_slug)
+    if payload is None:
+        raise HTTPException(404, "Город не найден")
+    return RouteReadinessDiagnosticsResponse.model_validate(payload)
 
 
 @router.get("/data-quality/{city_slug}", response_model=DataQualityReport)

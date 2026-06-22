@@ -1,3 +1,4 @@
+from services.route_eligibility_dashboard.diagnostics import build_route_readiness_diagnostics
 from services.route_eligibility_dashboard.list_service import list_eligibility_places
 
-__all__ = ["list_eligibility_places"]
+__all__ = ["build_route_readiness_diagnostics", "list_eligibility_places"]
