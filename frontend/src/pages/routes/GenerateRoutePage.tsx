@@ -67,6 +67,15 @@ const saveStoredGeolocation = (lat: string, lng: string) => {
   window.sessionStorage.setItem(GEO_SESSION_KEY, JSON.stringify({ lat, lng }))
 }
 
+const routeRenderKey = (route: RecommendationRouteResponse): string => [
+  route.route_id,
+  route.revision,
+  route.total_places,
+  route.total_estimated_minutes,
+  route.total_walk_distance_meters,
+  route.points.map((point) => point.place_id).join('-'),
+].join(':')
+
 const buildDebugInfo = (err: unknown, citySlug: string, requestPayload?: unknown): RouteDebugInfo => {
   if (err instanceof ApiRequestError) {
     return {
@@ -419,7 +428,7 @@ export const GenerateRoutePage = () => {
           {error ? <section className="route-error-tile">{error}</section> : null}
           {routeWarning ? <section className="route-error-tile">{routeWarning}</section> : null}
           {debugInfo ? renderDebugInfo(debugInfo) : null}
-          {route ? <RouteResultPanel route={route} loading={loading} onAddCandidate={addCandidate} onCorrect={correct} /> : null}
+          {route ? <RouteResultPanel key={routeRenderKey(route)} route={route} loading={loading} onAddCandidate={addCandidate} onCorrect={correct} /> : null}
         </main>
       </div>
     </div>
