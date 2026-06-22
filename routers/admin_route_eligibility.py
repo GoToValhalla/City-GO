@@ -39,6 +39,10 @@ def get_route_eligibility(
     unpublished: bool | None = Query(default=None),
     inactive: bool | None = Query(default=None),
     issue: str | None = Query(default=None),
+    readiness: str | None = Query(default=None),
+    quality: str | None = Query(default=None),
+    min_quality_score: int | None = Query(default=None, ge=0, le=100),
+    placeholder_name: bool | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     auth: AdminContext = Depends(admin_required),
@@ -47,7 +51,9 @@ def get_route_eligibility(
     items, total = list_eligibility_places(
         db, city_slug=city_slug, category=category, eligible=eligible,
         no_photo=no_photo, no_address=no_address, no_description=no_description,
-        unpublished=unpublished, inactive=inactive, issue=issue, limit=limit, offset=offset,
+        unpublished=unpublished, inactive=inactive, issue=issue, readiness=readiness,
+        quality=quality, min_quality_score=min_quality_score, placeholder_name=placeholder_name,
+        limit=limit, offset=offset,
     )
     return EligibilityListResponse(
         items=[EligibilityPlaceRow.model_validate(row) for row in items],
