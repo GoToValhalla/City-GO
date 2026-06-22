@@ -13,6 +13,7 @@ class AdminRouteDryRunRequest(BaseModel):
     duration_min: int = Field(default=180, ge=30, le=720)
     route_mode: str = Field(default="walk")
     interests: list[str] = Field(default_factory=list)
+    avoided_categories: list[str] = Field(default_factory=list)
     budget_level: int | None = Field(default=None, ge=1, le=4)
     start_lat: float | None = None
     start_lng: float | None = None
