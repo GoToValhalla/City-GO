@@ -133,9 +133,46 @@ class AdminRouteDryRunService:
             is_eligible=candidate.is_eligible,
             selected=candidate.selected,
             score=candidate.score,
-            rejection_reasons=list(candidate.rejection_reasons or []),
+            rejection_reasons=self._candidate_rejection_reasons(candidate, place),
             selection_reasons=list(candidate.selection_reasons or []),
         )
+
+    def _candidate_rejection_reasons(self, candidate: RouteGenerationCandidate, place: Place | None) -> list[str]:
+        reasons = list(candidate.rejection_reasons or [])
+        if candidate.selected:
+            return reasons
+        if reasons:
+            return reasons
+        if candidate.is_eligible:
+            return ["not_selected_lower_score"]
+        inferred = self._infer_place_rejection_reasons(place)
+        return inferred or ["rejected_without_backend_reason"]
+
+    def _infer_place_rejection_reasons(self, place: Place | None) -> list[str]:
+        if place is None:
+            return ["rejected_without_backend_reason"]
+        reasons: list[str] = []
+        if not bool(getattr(place, "is_published", False)):
+            reasons.append("place_not_published")
+        if not bool(getattr(place, "is_visible_in_catalog", False)):
+            reasons.append("place_not_visible_in_catalog")
+        if not bool(getattr(place, "is_route_eligible", False)):
+            reasons.append("route_eligible_false")
+        if not bool(getattr(place, "is_active", False)):
+            reasons.append("place_inactive")
+        if str(getattr(place, "status", "active") or "active") != "active":
+            reasons.append("place_status_not_active")
+        if str(getattr(place, "lifecycle_status", "active") or "active") != "active":
+            reasons.append("lifecycle_not_active")
+        lat = getattr(place, "lat", None)
+        lng = getattr(place, "lng", None)
+        if lat is None or lng is None:
+            reasons.append("missing_coordinates")
+        elif not self._valid_coordinates(lat, lng):
+            reasons.append("invalid_coordinates")
+        if not str(getattr(place, "category", "") or getattr(place, "canonical_category", "") or "").strip():
+            reasons.append("missing_canonical_category")
+        return list(dict.fromkeys(reasons))
 
     def _quality_payload(self, final: object) -> dict[str, object]:
         score = float(getattr(final, "quality_score", 0.0) or 0.0)
