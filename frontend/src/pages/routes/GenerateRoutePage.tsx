@@ -17,6 +17,7 @@ import { RouteHeroPreview } from '../../widgets/recommendation-route/RouteHeroPr
 import { RouteRequestForm } from '../../widgets/recommendation-route/RouteRequestForm'
 import { RouteResultPanel } from '../../widgets/recommendation-route/RouteResultPanel'
 import { filterInterestsForFeatures } from '../../widgets/recommendation-route/chipOptions'
+import { RandomRouteDraftEditor } from '../../widgets/route-draft/RandomRouteDraftEditor'
 import { initialRouteForm } from './routeInitialForm'
 import './GenerateRoutePage.css'
 import './GenerateRouteControls.css'
@@ -414,6 +415,7 @@ export const GenerateRoutePage = () => {
               onSubmit={submit}
             />
           </section>
+          <RandomRouteDraftEditor citySlug={city.slug} />
           {error ? <section className="route-error-tile">{error}</section> : null}
           {routeWarning ? <section className="route-error-tile">{routeWarning}</section> : null}
           {debugInfo ? renderDebugInfo(debugInfo) : null}

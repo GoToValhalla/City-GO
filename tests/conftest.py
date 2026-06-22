@@ -30,6 +30,7 @@ import models.route_generation_run  # noqa: F401
 import models.route_generation_candidate  # noqa: F401
 import models.category  # noqa: F401
 import models.city  # noqa: F401
+import models.city_start_point  # noqa: F401
 import models.city_import_scope  # noqa: F401
 import models.import_batch  # noqa: F401
 import models.place_scope_link  # noqa: F401
@@ -39,6 +40,7 @@ import models.place_source_presence  # noqa: F401
 import models.place_tag  # noqa: F401
 import models.route  # noqa: F401
 import models.route_place  # noqa: F401
+import models.route_draft  # noqa: F401
 import models.source_observation  # noqa: F401
 import models.tag  # noqa: F401
 

@@ -194,6 +194,44 @@
   background: #fafafc;
 }
 .route-leg-row span { color: var(--muted); }
+.route-draft-editor { display: grid; gap: 16px; }
+.route-draft-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+.route-draft-head h2 { margin: 0; }
+.route-primary-btn,
+.route-draft-points button,
+.route-draft-search button,
+.route-search-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: #fff;
+  cursor: pointer;
+}
+.route-primary-btn { color: #fff; background: #202124; border-color: #202124; }
+.route-draft-controls { display: grid; gap: 12px; }
+.route-draft-controls input,
+.route-draft-search input {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.route-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.route-chip { border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; background: #fff; }
+.route-chip.active { color: #fff; background: #0066cc; border-color: #0066cc; }
+.route-draft-result { display: grid; gap: 12px; }
+.route-draft-points { display: grid; gap: 10px; margin: 0; padding-left: 22px; }
+.route-draft-points li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.route-draft-points span,
+.route-warning-inline { color: var(--muted); }
+.route-draft-search { display: flex; gap: 8px; }
+.route-search-row { text-align: left; }
+.route-error-inline { color: var(--red); }
 @media (max-width: 860px) {
   .route-hero-tile { grid-template-columns: 1fr; padding: 18px; }
   .route-config-tile,
@@ -206,4 +244,7 @@
   .route-map-preview { min-height: 280px; padding: 12px; }
   .route-map-preview svg { min-height: 220px; }
   .route-leg-row { display: grid; }
+  .route-draft-head,
+  .route-draft-points li,
+  .route-draft-search { display: grid; }
 }

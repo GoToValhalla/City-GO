@@ -12,6 +12,7 @@ from routers.city_expansion import router as city_expansion_router
 from routers.cities import router as cities_router
 from routers.collection_places import router as collection_places_router
 from routers.collections import router as collections_router
+from routers.geo import router as geo_router
 from routers.itinerary import router as itinerary_router
 from routers.nearby import router as nearby_router
 from routers.open_now import router as open_now_router
@@ -33,6 +34,7 @@ from routers.places import router as places_router
 from routers.recommendations import router as recommendations_router
 from routers.route_analytics import router as route_analytics_router
 from routers.route_feedback import router as route_feedback_router
+from routers.route_drafts import router as route_drafts_router
 from routers.route_places import router as route_places_router
 from routers.routes import router as routes_router
 from routers.tags import router as tags_router
@@ -62,6 +64,7 @@ _ROOT_ROUTERS = (
     city_expansion_router,
     cities_router,
     collections_router,
+    geo_router,
     collection_places_router,
     itinerary_router,
     nearby_router,
@@ -80,9 +83,10 @@ _ROOT_ROUTERS = (
     place_verification_router,
     place_verification_admin_router,
     places_router,
-    routes_router,
     route_analytics_router,
     route_feedback_router,
+    route_drafts_router,
+    routes_router,
     route_places_router,
     tags_router,
     place_tags_router,

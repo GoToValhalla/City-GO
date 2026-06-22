@@ -34,6 +34,7 @@
 | [`architecture/route_assembly_quality.md`](architecture/route_assembly_quality.md) | Качество сборки маршрутов. |
 | [`architecture/route_correction_engine.md`](architecture/route_correction_engine.md) | Correction engine: remove/shorten/rebuild/extend. |
 | [`architecture/place_route_ui_data_contract.md`](architecture/place_route_ui_data_contract.md) | Контракт DB-backed карточек мест и route points: фото, `time_of_day`, visibility и runtime notes. |
+| [`random-route-editor.md`](random-route-editor.md) | MVP Random Route + Route Draft Editor: API, fallback rules, category modes, frontend flow. |
 | [`itinerary/`](itinerary/) | Legacy itinerary-документы. Использовать как историческую матрицу и тестовую базу, не как главный route source of truth. |
 
 ## 4. Reference

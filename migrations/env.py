@@ -8,6 +8,7 @@ from core.config import settings
 from db.base import Base
 import models.category  # noqa: F401
 import models.city  # noqa: F401
+import models.city_start_point  # noqa: F401
 import models.city_candidate  # noqa: F401
 import models.city_admin_import_job  # noqa: F401
 import models.city_import_job  # noqa: F401
@@ -30,6 +31,7 @@ import models.place_verification_task  # noqa: F401
 import models.region  # noqa: F401
 import models.route  # noqa: F401
 import models.route_build_event  # noqa: F401
+import models.route_draft  # noqa: F401
 import models.route_place  # noqa: F401
 import models.source_observation  # noqa: F401
 import models.tag  # noqa: F401

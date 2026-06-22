@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
 from schemas.city import CityAvailableRead, CityRead
+from schemas.start_point import CityStartPointRead
 from services.city_service import city_is_published, get_available_cities, get_cities, get_city_by_id, get_city_by_slug
+from services.start_point_service import list_city_start_points
 
 router = APIRouter(prefix="/cities", tags=["cities"])
 
@@ -33,6 +35,14 @@ def read_city_by_slug(slug: str, db: Session = Depends(get_db)) -> CityRead:
     if city is None or not city_is_published(city):
         raise HTTPException(status_code=404, detail="City not found")
     return city
+
+
+@router.get("/{slug}/start-points", response_model=list[CityStartPointRead])
+def read_city_start_points(slug: str, db: Session = Depends(get_db)) -> list[CityStartPointRead]:
+    city = get_city_by_slug(db, slug)
+    if city is None:
+        raise HTTPException(status_code=404, detail="City not found")
+    return [CityStartPointRead(**item) for item in list_city_start_points(db, city)]
 
 
 # Возвращает один опубликованный город по его идентификатору.

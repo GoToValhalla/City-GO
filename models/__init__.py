@@ -5,6 +5,7 @@ import models.product_event  # noqa: F401
 import models.system_log  # noqa: F401
 import models.category  # noqa: F401
 import models.city  # noqa: F401
+import models.city_start_point  # noqa: F401
 import models.city_candidate  # noqa: F401
 import models.city_admin_import_job  # noqa: F401
 import models.city_import_job  # noqa: F401
@@ -28,6 +29,7 @@ import models.place_verification_task  # noqa: F401
 import models.region  # noqa: F401
 import models.route  # noqa: F401
 import models.route_build_event  # noqa: F401
+import models.route_draft  # noqa: F401
 import models.route_generation_run  # noqa: F401
 import models.route_generation_candidate  # noqa: F401
 import models.route_place  # noqa: F401
