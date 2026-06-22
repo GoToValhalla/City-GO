@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
@@ -29,8 +29,9 @@ from services.import_pipeline.steps import (
     STEP_RUNNING,
 )
 
-ADDRESS_BATCH_LIMIT = 5000
-IMAGE_BATCH_LIMIT = 2000
+ADDRESS_BATCH_LIMIT = 100
+IMAGE_BATCH_LIMIT = 50
+ProgressHeartbeat = Callable[[dict[str, Any], int], None]
 
 
 def run_enrichment_only_pipeline(
@@ -51,7 +52,19 @@ def run_enrichment_only_pipeline(
     try:
         set_step(job, STEP_FINDING_ADDRESSES, total=places_total)
         db.commit()
-        addr = _run_address_batches(slug)
+        addr = _run_address_batches(
+            slug,
+            heartbeat=lambda totals, batches: _heartbeat_enrichment_progress(
+                db,
+                job,
+                STEP_FINDING_ADDRESSES,
+                places_total,
+                processed=int(totals.get("checked") or 0),
+                successful=int(totals.get("updated") or 0),
+                failed=int(totals.get("errors") or 0),
+                detail={"batches": batches, "last_scanned_place_id": totals.get("last_scanned_place_id")},
+            ),
+        )
         results["addresses"] = addr
         set_step(
             job,
@@ -65,7 +78,19 @@ def run_enrichment_only_pipeline(
 
         set_step(job, STEP_FINDING_IMAGES, total=places_total)
         db.commit()
-        images = _run_image_batches(slug)
+        images = _run_image_batches(
+            slug,
+            heartbeat=lambda totals, batches: _heartbeat_enrichment_progress(
+                db,
+                job,
+                STEP_FINDING_IMAGES,
+                places_total,
+                processed=int(totals.get("scanned_places") or 0),
+                successful=int(totals.get("created") or 0),
+                failed=len(totals.get("errors") or []),
+                detail={"batches": batches, "last_scanned_place_id": totals.get("last_scanned_place_id")},
+            ),
+        )
         results["images"] = images
         set_step(
             job,
@@ -157,7 +182,22 @@ def run_enrichment_only_pipeline(
         raise
 
 
-def _run_address_batches(slug: str) -> dict[str, Any]:
+def _heartbeat_enrichment_progress(
+    db: Session,
+    job: CityAdminImportJob,
+    step: str,
+    total: int,
+    *,
+    processed: int,
+    successful: int,
+    failed: int,
+    detail: dict[str, object],
+) -> None:
+    set_step(job, step, total=total, processed=processed, successful=successful, failed=failed, detail=detail)
+    db.commit()
+
+
+def _run_address_batches(slug: str, heartbeat: ProgressHeartbeat | None = None) -> dict[str, Any]:
     cursor = 0
     batches = 0
     totals: dict[str, Any] = {
@@ -199,6 +239,8 @@ def _run_address_batches(slug: str) -> dict[str, Any]:
         ])
         last_id = int(batch.get("last_scanned_place_id") or 0)
         totals["last_scanned_place_id"] = max(int(totals["last_scanned_place_id"] or 0), last_id)
+        if heartbeat is not None:
+            heartbeat(totals, batches)
         if last_id <= cursor:
             break
         cursor = last_id
@@ -209,7 +251,7 @@ def _run_address_batches(slug: str) -> dict[str, Any]:
     return totals
 
 
-def _run_image_batches(slug: str) -> dict[str, Any]:
+def _run_image_batches(slug: str, heartbeat: ProgressHeartbeat | None = None) -> dict[str, Any]:
     cursor = 0
     batches = 0
     totals: dict[str, Any] = {
@@ -255,6 +297,8 @@ def _run_image_batches(slug: str) -> dict[str, Any]:
             totals["errors"].extend(errors)
         last_id = int(batch.get("last_scanned_place_id") or 0)
         totals["last_scanned_place_id"] = max(int(totals["last_scanned_place_id"] or 0), last_id)
+        if heartbeat is not None:
+            heartbeat(totals, batches)
         scanned = int(batch.get("scanned_places") or 0)
         if last_id <= cursor or scanned <= 0:
             break
