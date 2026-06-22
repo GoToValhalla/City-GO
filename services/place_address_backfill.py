@@ -36,9 +36,9 @@ def run_backfill(
         verify_existing=verify_existing,
         start_after_id=start_after_id,
     ):
-        stats["last_scanned_place_id"] = int(place.id)
         if stats["checked"] >= limit:
             break
+        stats["last_scanned_place_id"] = int(place.id)
         _process_place(db, place, stats, sleep_seconds, apply, verify_existing)
     return stats
 
