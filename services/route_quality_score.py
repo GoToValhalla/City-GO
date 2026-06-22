@@ -5,6 +5,8 @@ from typing import Any, Literal
 from services.route_quality_caps import minimum_data_cap
 
 QualityStatus = Literal["good", "acceptable", "weak", "failed"]
+_LONG_INITIAL_WALK_MINUTES = 20
+_BUDGET_SWALLOWED_RATIO = 0.40
 
 
 @dataclass(frozen=True)
@@ -114,6 +116,10 @@ def public_quality_warnings(
     if len(route) < minimum_points_for_budget(budget_minutes):
         result.append("route_short_due_to_time_budget" if budget_minutes < 45 else "route_short_due_to_low_place_density")
 
+    if _has_long_initial_transfer(route):
+        result.append("long_initial_transfer")
+    if _budget_swallowed_by_transfer(route, budget_minutes):
+        result.append("budget_swallowed_by_transfer")
     if any(not _has_address(point) for point in route):
         result.append("some_places_have_no_address")
     if any(not _has_image(point) for point in route):
@@ -174,6 +180,19 @@ def _point_completeness(point: Any) -> float:
     )
     passed = reduce(lambda acc, value: acc + (1 if value else 0), checks, 0)
     return passed / len(checks)
+
+
+def _has_long_initial_transfer(route: list[Any]) -> bool:
+    if not route:
+        return False
+    return int(getattr(route[0], "estimated_walk_minutes", 0) or 0) > _LONG_INITIAL_WALK_MINUTES
+
+
+def _budget_swallowed_by_transfer(route: list[Any], budget_minutes: int) -> bool:
+    if not route or budget_minutes <= 0:
+        return False
+    first_walk = int(getattr(route[0], "estimated_walk_minutes", 0) or 0)
+    return (first_walk / max(1, budget_minutes)) > _BUDGET_SWALLOWED_RATIO
 
 
 def _has_coordinates(point: Any) -> bool:
