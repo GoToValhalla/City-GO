@@ -33,7 +33,13 @@ def send_admin_alert(
     token = settings.telegram_bot_token or settings.bot_token
     chat_id = settings.telegram_chat_id
     if not token or not chat_id:
-        return {"sent": False, "reason": "not_configured"}
+        reason = "not_configured"
+        print(
+            "admin_alert_not_configured: "
+            "set TELEGRAM_CHAT_ID and TELEGRAM_BOT_TOKEN or BOT_TOKEN "
+            f"to receive '{title}' alerts"
+        )
+        return {"sent": False, "reason": reason}
 
     text = _format_alert_text(
         title=title,
