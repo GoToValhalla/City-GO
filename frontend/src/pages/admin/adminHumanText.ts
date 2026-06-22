@@ -42,6 +42,7 @@ const BULK_ACTION_LABELS: Record<string, string> = {
   enable_route: 'Подтвердить для маршрутов',
   disable_route: 'Исключить из маршрутов',
   refresh_addresses: 'Обновить адреса',
+  set_category: 'Сменить категорию',
 }
 
 const BULK_ACTION_HINTS: Record<string, string> = {
@@ -49,6 +50,7 @@ const BULK_ACTION_HINTS: Record<string, string> = {
   enable_route: 'Разрешит выбранным местам попадать в автоматические маршруты, если остальные данные в порядке.',
   disable_route: 'Запретит выбранным местам попадать в маршруты. В каталоге место может остаться опубликованным.',
   refresh_addresses: 'Поставит задачу обновления адресов для выбранных мест. Координаты и публикацию не меняет.',
+  set_category: 'Перезапишет категорию выбранных мест и синхронизирует canonical_category для следующих quality gates.',
 }
 
 export const humanizeCode = (code: string | null | undefined) => {
