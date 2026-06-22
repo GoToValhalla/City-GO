@@ -1,5 +1,6 @@
 import type { AdminCity } from './adminTypes'
-import { CATEGORY_OPTIONS, PLACE_PRESETS, PUB_STATUS_OPTIONS, VERIFY_STATUS_OPTIONS } from './adminPlacesPresets'
+import { PLACE_PRESETS, PUB_STATUS_OPTIONS, VERIFY_STATUS_OPTIONS } from './adminPlacesPresets'
+import { AdminCategorySelect } from './AdminCategorySelect'
 
 type Props = {
   cities: AdminCity[]
@@ -33,10 +34,7 @@ export const AdminPlacesFilters = (p: Props) => (
     <select value={p.verifyStatus} onChange={(e) => p.onVerifyStatusChange(e.target.value)}>
       {VERIFY_STATUS_OPTIONS.map((x) => <option key={x.value || 'any'} value={x.value}>{x.label}</option>)}
     </select>
-    <select value={p.category} onChange={(e) => p.onCategoryChange(e.target.value)}>
-      <option value="">Все категории</option>
-      {CATEGORY_OPTIONS.filter(Boolean).map((c) => <option key={c} value={c}>{c}</option>)}
-    </select>
+    <AdminCategorySelect value={p.category} onChange={p.onCategoryChange} includeAll />
     <input placeholder="Поиск по названию" value={p.q} onChange={(e) => p.onQChange(e.target.value)} />
     <button type="button" className="admin-btn admin-btn-primary" onClick={p.onSearch}>Найти</button>
   </div>

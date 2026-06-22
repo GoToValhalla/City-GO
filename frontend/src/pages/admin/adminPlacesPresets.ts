@@ -30,20 +30,3 @@ export const VERIFY_STATUS_OPTIONS = [
   { value: 'unverified', label: 'Не проверено' },
   { value: 'needs_recheck', label: 'Нужна перепроверка' },
 ]
-
-export const CATEGORY_OPTIONS = [
-  '', 'coffee', 'food', 'walk', 'museum', 'attraction', 'beach', 'park', 'bar', 'hotel', 'service',
-]
-
-export const CATEGORY_OPTIONS_RU = [
-  { value: 'attraction', label: 'Достопримечательность' },
-  { value: 'museum', label: 'Музей' },
-  { value: 'park', label: 'Парк' },
-  { value: 'walk', label: 'Прогулка' },
-  { value: 'coffee', label: 'Кофейня' },
-  { value: 'food', label: 'Еда' },
-  { value: 'bar', label: 'Бар' },
-  { value: 'beach', label: 'Пляж' },
-  { value: 'hotel', label: 'Проживание' },
-  { value: 'service', label: 'Сервис' },
-]

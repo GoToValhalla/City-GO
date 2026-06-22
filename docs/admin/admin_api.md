@@ -28,8 +28,15 @@
 | Method | Path | Описание |
 |--------|------|----------|
 | GET | `/admin/cities` | Список |
+| GET | `/admin/cities/by-slug/{city_slug}/workspace` | Единый workspace города: карточка, readiness, import job, coverage |
 | GET | `/admin/cities/{slug}/settings` | Inline feature toggles |
 | PUT | `/admin/cities/{slug}/settings/{key}` | Изменить toggle |
+
+## Таксономия
+
+| Method | Path | Описание |
+|--------|------|----------|
+| GET | `/admin/taxonomy/categories` | Backend-driven список категорий для admin UI: справочник + реально встреченные категории |
 
 ## Маршруты (operations)
 

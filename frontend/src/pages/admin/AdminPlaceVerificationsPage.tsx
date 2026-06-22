@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
-import { CATEGORY_OPTIONS_RU, VERIFY_STATUS_OPTIONS } from './adminPlacesPresets'
+import { VERIFY_STATUS_OPTIONS } from './adminPlacesPresets'
+import { AdminCategorySelect } from './AdminCategorySelect'
 import type { AdminCitiesResponse, AdminVerificationQueue, AdminVerificationSummary, AdminVerificationTask } from './adminTypes'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 
@@ -78,10 +79,7 @@ export const AdminPlaceVerificationsPage = () => {
         <select value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0) }}>
           {VERIFY_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
-        <select value={category} onChange={(e) => { setCategory(e.target.value); setOffset(0) }}>
-          <option value="">Все категории</option>
-          {CATEGORY_OPTIONS_RU.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-        </select>
+        <AdminCategorySelect value={category} onChange={(value) => { setCategory(value); setOffset(0) }} includeAll />
         <select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setOffset(0) }}>
           {PAGE_SIZES.map((n) => <option key={n} value={n}>{n} на страницу</option>)}
         </select>

@@ -20,6 +20,7 @@ import { AdminRouteGuard } from './pages/admin/AdminRouteGuard'
 import { AdminLayout } from './pages/admin/AdminLayout'
 import { AdminOverviewPage } from './pages/admin/AdminOverviewPage'
 import { AdminCitiesPage } from './pages/admin/AdminCitiesPage'
+import { AdminCityWorkspacePage } from './pages/admin/AdminCityWorkspacePage'
 import { AdminPlacesPage } from './pages/admin/AdminPlacesPage'
 import { AdminPlaceImagesPage } from './pages/admin/AdminPlaceImagesPage'
 import { AdminPlaceVerificationsPage } from './pages/admin/AdminPlaceVerificationsPage'
@@ -63,6 +64,7 @@ function App() {
         <Route path="/admin/overview" element={<AdminPage><AdminOverviewPage /></AdminPage>} />
         <Route path="/admin/dashboard" element={<Navigate to="/admin/overview" replace />} />
         <Route path="/admin/cities" element={<AdminPage><AdminCitiesPage /></AdminPage>} />
+        <Route path="/admin/cities/:slug" element={<AdminPage><AdminCityWorkspacePage /></AdminPage>} />
         <Route path="/admin/places" element={<AdminPage><AdminPlacesPage /></AdminPage>} />
         <Route path="/admin/places/new" element={<AdminPage><AdminPlaceCreatePage /></AdminPage>} />
         <Route path="/admin/places/:id" element={<AdminPage><AdminPlaceDetailPage /></AdminPage>} />

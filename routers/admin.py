@@ -12,6 +12,7 @@ from schemas.admin import (
     AdminCityListResponse,
     AdminCityPublicationResponse,
     AdminCityRead,
+    AdminCityWorkspaceResponse,
     AdminDashboardResponse,
     AdminImportJobListResponse,
     AdminImportJobRead,
@@ -19,6 +20,7 @@ from schemas.admin import (
     AdminPlaceImageCreateRequest,
     AdminPlaceImageRead,
     AdminPlaceListResponse,
+    AdminTaxonomyResponse,
     AdminPlaceUpdate,
     AdminRouteCreateRequest,
     AdminRouteListResponse,
@@ -43,12 +45,14 @@ from services.admin_extended_service import (
     create_admin_place_image,
     create_admin_route,
     get_admin_cities,
+    get_admin_city_workspace,
     get_admin_import_job,
     get_admin_import_jobs,
     replace_admin_route_points,
     update_admin_route,
 )
 from services.admin_city_import_tasks import run_import_job_background
+from services.admin_taxonomy_service import admin_category_taxonomy
 from services.admin_service import (
     create_admin_place,
     create_city_and_queue_import,
@@ -90,6 +94,26 @@ def read_admin_cities(
 ) -> AdminCityListResponse:
     items, total = get_admin_cities(db, limit=limit, offset=offset)
     return AdminCityListResponse(items=[AdminCityRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)
+
+
+@router.get("/taxonomy/categories", response_model=AdminTaxonomyResponse)
+def read_admin_taxonomy_categories(
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> AdminTaxonomyResponse:
+    return AdminTaxonomyResponse(categories=admin_category_taxonomy(db))
+
+
+@router.get("/cities/by-slug/{city_slug}/workspace", response_model=AdminCityWorkspaceResponse)
+def read_admin_city_workspace(
+    city_slug: str,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> AdminCityWorkspaceResponse:
+    payload = get_admin_city_workspace(db, city_slug)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Город не найден")
+    return AdminCityWorkspaceResponse.model_validate(payload)
 
 
 @router.post("/cities/import", response_model=AdminCityImportResponse)

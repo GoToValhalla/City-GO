@@ -75,6 +75,26 @@ class AdminCityListResponse(BaseModel):
     limit: int
     offset: int
 
+class AdminCityWorkspaceResponse(BaseModel):
+    city: dict[str, Any]
+    readiness: dict[str, Any]
+    import_job: dict[str, Any]
+    coverage: dict[str, Any] | None = None
+
+class AdminTaxonomyCategoryRead(BaseModel):
+    code: str
+    label: str
+    is_active: bool = True
+    is_route_eligible: bool = False
+    is_catalog_visible: bool = False
+    is_default_enabled: bool = False
+    is_observed: bool = False
+    observed_count: int = 0
+    source: str = "catalog"
+
+class AdminTaxonomyResponse(BaseModel):
+    categories: list[AdminTaxonomyCategoryRead]
+
 class AdminCityImportResponse(BaseModel):
     city_id: int
     city_slug: str

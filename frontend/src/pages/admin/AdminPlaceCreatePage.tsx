@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
-import { CATEGORY_OPTIONS_RU } from './adminPlacesPresets'
+import { AdminCategorySelect } from './AdminCategorySelect'
 import type { AdminCitiesResponse } from './adminTypes'
 import { AdminError } from './shared/AdminStates'
 
@@ -110,9 +110,7 @@ export const AdminPlaceCreatePage = () => {
       )}
       <div className="admin-filters admin-filters-stack">
         <input placeholder="Название *" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
-          {CATEGORY_OPTIONS_RU.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-        </select>
+        <AdminCategorySelect value={category} onChange={setCategory} />
         <select value={source} onChange={(e) => setSource(e.target.value)}>
           {SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>

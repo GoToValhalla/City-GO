@@ -17,6 +17,8 @@
 | Документ | Назначение |
 |---|---|
 | [`admin_guide.md`](admin_guide.md) | Работа с отдельной админкой, публикация/снятие мест, фото, маршруты, аудит и логика добавления города для DevOps. |
+| [`admin-city-operations.md`](admin-city-operations.md) | City Workspace, backend-driven taxonomy and safe admin operations. |
+| [`testing-and-allure.md`](testing-and-allure.md) | Pytest/Vitest, Allure artifacts, CI summaries and Telegram notifications. |
 | [`release_checklist.md`](release_checklist.md) | Release gates: tests, migrations, smoke, coverage, UI/Telegram checks. |
 | [`backup_restore.md`](backup_restore.md) | Backup/restore процесс для PostgreSQL. |
 | [`production_data_refresh.md`](production_data_refresh.md) | Безопасный refresh/import production data. |

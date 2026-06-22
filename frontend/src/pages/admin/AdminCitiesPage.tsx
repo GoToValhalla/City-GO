@@ -102,7 +102,7 @@ export const AdminCitiesPage = () => {
             <tbody>
               {data.items.map((c) => (
                 <tr key={c.id}>
-                  <td><strong>{c.name}</strong><div className="admin-muted">{c.slug}</div></td>
+                  <td><Link to={`/admin/cities/${c.slug}`}><strong>{c.name}</strong></Link><div className="admin-muted">{c.slug}</div></td>
                   <td>{CITY_STATUS_LABELS[c.launch_status ?? ''] ?? c.launch_status ?? '—'}{c.is_active ? <div className="admin-muted">активен</div> : <div className="admin-muted">скрыт</div>}</td>
                   <td>
                     {readiness[c.slug] ? (

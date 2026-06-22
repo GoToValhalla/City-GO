@@ -65,6 +65,29 @@ export type AdminCitiesResponse = {
   offset: number
 }
 
+export type AdminTaxonomyCategory = {
+  code: string
+  label: string
+  is_active: boolean
+  is_route_eligible: boolean
+  is_catalog_visible: boolean
+  is_default_enabled: boolean
+  is_observed: boolean
+  observed_count: number
+  source: string
+}
+
+export type AdminTaxonomyResponse = {
+  categories: AdminTaxonomyCategory[]
+}
+
+export type AdminCityWorkspaceResponse = {
+  city: AdminCity
+  readiness: { readiness_score: number; quality_status: string; status: string }
+  import_job: AdminImportJob
+  coverage: AdminCoverageResponse | null
+}
+
 export type AdminCityImportResponse = {
   city_id: number
   city_slug: string
@@ -88,11 +111,18 @@ export type AdminCityPublicationResponse = {
 
 export type AdminCoverageResponse = {
   city_id: number
+  city_slug?: string
   city_name: string
-  total_places: number
-  published_places: number
-  places_without_address: number
+  places_total?: number
+  places_published?: number
+  places_unpublished?: number
+  total_places?: number
+  published_places?: number
+  places_without_address?: number
   places_without_photo: number
+  places_needs_recheck?: number
+  pending_photos?: number
+  route_eligible_places?: number
   categories: Record<string, number>
 }
 

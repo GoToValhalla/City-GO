@@ -14,10 +14,11 @@ from schemas.admin import (
     AdminRouteUpdateRequest,
 )
 from services.admin_audit_service import write_admin_audit_log
+from services.admin_extra_service import admin_coverage
 from services.place_service import get_place_by_id
 from services.route_service import get_route_by_id
 
-PUBLISHABLE_CITY_STATUSES = {"review_required", "imported", "success", "unpublished"}
+PUBLISHABLE_CITY_STATUSES = {"review_required", "imported", "success", "success_with_warnings", "partial_success", "unpublished"}
 
 
 def get_admin_cities(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, object]], int]:
@@ -79,6 +80,37 @@ def get_admin_import_job(db: Session, city_id: int) -> dict[str, object] | None:
     if city is None:
         return None
     return _import_job_payload(db, city)
+
+
+def get_admin_city_workspace(db: Session, city_slug: str) -> dict[str, object] | None:
+    city = db.query(City).filter(City.slug == city_slug).first()
+    if city is None:
+        return None
+    city_payload = _city_payload(db, city)
+    coverage = _workspace_coverage(db, city.id)
+    return {
+        "city": city_payload,
+        "readiness": {
+            "readiness_score": int(city.readiness_score or 0),
+            "quality_status": city.quality_status,
+            "status": city.quality_status,
+        },
+        "import_job": _import_job_payload(db, city),
+        "coverage": coverage,
+    }
+
+
+def _workspace_coverage(db: Session, city_id: int) -> dict[str, object] | None:
+    coverage = admin_coverage(db, city_id)
+    if coverage is None:
+        return None
+    places = db.query(Place).filter(Place.city_id == city_id)
+    return {
+        **coverage,
+        "total_places": coverage.get("places_total", 0),
+        "published_places": coverage.get("places_published", 0),
+        "places_without_address": places.filter(Place.address.is_(None)).count(),
+    }
 
 
 def _import_job_payload(db: Session, city: City) -> dict[str, object]:
