@@ -89,7 +89,7 @@ def _seed_city_centers() -> None:
     op.execute(
         """
         INSERT INTO city_start_points (city_id, label_ru, label_en, lat, lng, type, sort_order, is_active)
-        SELECT id, 'Центр города', 'City center', center_lat, center_lng, 'city_center', 0, 1
+        SELECT id, 'Центр города', 'City center', center_lat, center_lng, 'city_center', 0, TRUE
         FROM cities
         WHERE center_lat IS NOT NULL AND center_lng IS NOT NULL
         """
