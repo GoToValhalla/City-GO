@@ -8,12 +8,14 @@ from sqlalchemy.orm import Session
 
 from models.city import City
 from models.place import Place
+from services.place_quality_signals import is_placeholder_title
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 
 BLOCKER_CODES = (
     "no_photo",
     "no_address",
     "hidden_category",
+    "placeholder_title",
     "draft_or_unpublished",
     "inactive",
     "low_quality",
@@ -50,6 +52,7 @@ def _blockers(place: Place) -> list[str]:
         ("no_photo", not bool(place.image_url)),
         ("no_address", not bool((place.address or "").strip())),
         ("hidden_category", _hidden_category(place.category)),
+        ("placeholder_title", is_placeholder_title(getattr(place, "title", None))),
         ("draft_or_unpublished", not _published(place)),
         ("inactive", not _active(place)),
         ("low_quality", int(place.quality_score or 0) < 50),
