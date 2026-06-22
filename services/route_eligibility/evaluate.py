@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from models.city import City
 from models.place import Place
 from services.data_foundation_policy import ROUTE_ALLOWED_QUALITY_TIERS
+from services.place_quality_signals import is_placeholder_title
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 
 
@@ -53,6 +54,8 @@ def evaluate_place_route_eligibility(
         reasons.append("place_not_visible_in_catalog")
     if not getattr(place, "is_route_eligible", True):
         reasons.append("route_eligible_false")
+    if is_placeholder_title(getattr(place, "title", None)):
+        reasons.append("placeholder_title")
     if place.lat is None or place.lng is None:
         reasons.append("missing_coordinates")
     elif place.lat == 0.0 and place.lng == 0.0:
