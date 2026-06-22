@@ -21,6 +21,8 @@ PUBLISHABLE_CITY_STATUSES = {
     "unpublished",
 }
 
+FAILED_IMPORT_STATUSES = {"failed", "stalled", "import_failed"}
+
 
 def _latest_job(db: Session, city_id: int) -> CityAdminImportJob | None:
     return (
@@ -31,9 +33,55 @@ def _latest_job(db: Session, city_id: int) -> CityAdminImportJob | None:
     )
 
 
-def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
+def recover_failed_import_with_places(
+    db: Session,
+    city: City,
+    *,
+    places_total: int | None = None,
+    actor_id: str = "admin-panel-read",
+) -> bool:
+    """Move failed imports with saved places into manual review instead of dead error state."""
+    total = places_total if places_total is not None else db.query(Place).filter(Place.city_id == city.id).count()
+    if total <= 0:
+        return False
     job = _latest_job(db, city.id)
+    if job is None:
+        return False
+    if city.launch_status != "import_failed" and str(job.status or "") not in FAILED_IMPORT_STATUSES:
+        return False
+    if city.launch_status == "review_required" and str(job.status or "") == "partial_success":
+        return False
+
+    details = dict(job.step_details or {})
+    recovery_details = dict(details.get("failed_import_recovery") or {})
+    recovery_details.update({
+        "actor_id": actor_id,
+        "reason": "failed_import_has_saved_places",
+        "places_total": int(total),
+        "previous_status": job.status,
+        "previous_launch_status": city.launch_status,
+        "last_error": job.last_error,
+    })
+    details["failed_import_recovery"] = recovery_details
+    job.step_details = details
+    job.status = "partial_success"
+    job.current_step = STEP_READY_FOR_REVIEW
+    job.processed_items = max(int(job.processed_items or 0), int(total))
+    job.successful_items = max(int(job.successful_items or 0), int(total))
+    job.places_found = max(int(job.places_found or 0), int(total))
+    job.places_saved = max(int(job.places_saved or 0), int(total))
+    city.launch_status = "review_required"
+    city.is_active = False
+    db.commit()
+    db.refresh(city)
+    db.refresh(job)
+    return True
+
+
+def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
     places_total = db.query(Place).filter(Place.city_id == city.id).count()
+    recover_failed_import_with_places(db, city, places_total=places_total)
+    job = _latest_job(db, city.id)
     places_published = db.query(Place).filter(Place.city_id == city.id, Place.is_published.is_(True)).count()
     pending_photos = (
         db.query(PlaceImage)
