@@ -22,6 +22,15 @@ const dryRunResult = {
   quality: { status: 'acceptable', score: 0.58, score_percent: 58, warnings: ['route_built_without_selected_interests'], breakdown: { completeness: 0.8 }, partial_reason: 'route_incomplete' },
 }
 
+const zeroCandidatesResult = {
+  request_summary: { city_slug: 'test-city' },
+  generation_run_id: 197,
+  selected_places: [],
+  rejected_candidates: [],
+  counts: { total_candidates: 0, eligible_candidates: 0, rejected_candidates: 0, selected_places: 0 },
+  quality: { status: 'failed', score: 0, score_percent: 0, warnings: ['route_failed_no_places'], breakdown: { completeness: 0 }, partial_reason: 'route_incomplete' },
+}
+
 const draftResult = {
   draft: { draft_id: 7, route_status: 'partial', total_minutes: 40, budget_minutes: 180, points: [{ id: 1, place_id: 1, position: 1, title: 'Museum', category: 'museum' }] },
   dry_run: dryRunResult,
@@ -78,6 +87,20 @@ describe('AdminRouteDryRunPage', () => {
     expect(screen.getByText('Не вошли в маршрут')).toBeTruthy()
     expect(screen.getByText(/Категория не подходит для маршрутов/)).toBeTruthy()
     expect(screen.getByText(/Маршрут собран без выбранных интересов/)).toBeTruthy()
+  })
+
+  it('explains empty route dry run_new', async () => {
+    mockedAdminPost.mockResolvedValueOnce(zeroCandidatesResult)
+    renderPage()
+    await waitFor(() => expect(selectedCityValue()).toBe('test-city'))
+    fireEvent.click(screen.getByText('Проверить сборку'))
+    await waitFor(() => expect(screen.getByText('Маршрут не из чего собирать')).toBeTruthy())
+    expect(screen.getByText(/нет мест, из которых можно собрать маршрут/)).toBeTruthy()
+    expect(screen.getByText('Проверить готовность мест')).toBeTruthy()
+    expect(screen.getByText('Открыть города')).toBeTruthy()
+    expect(screen.queryByText('Выбрано в маршрут')).toBeNull()
+    expect(screen.queryByText('Не вошли в маршрут')).toBeNull()
+    expect(screen.queryByText(/Для мини-карты нет координат/)).toBeNull()
   })
 
   it('saves and publishes draft route_new', async () => {
