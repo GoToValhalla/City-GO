@@ -23,13 +23,14 @@ class MockIntersectionObserver {
 }
 
 const response = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
+let fetchMock: ReturnType<typeof vi.fn>
 
 describe('AdminPlacesPage', () => {
   beforeEach(() => {
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
     vi.stubGlobal('confirm', vi.fn(() => true))
-    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/admin/cities')) {
         return response({ items: [{ id: 1, slug: 'khanty', name: 'Ханты', country: 'RU', region: null }], total: 1, limit: 100, offset: 0 })
@@ -50,7 +51,8 @@ describe('AdminPlacesPage', () => {
         return response({ items, total: 51, limit: 50, offset })
       }
       return response({}, 404)
-    }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
   })
 
   afterEach(() => {
@@ -73,7 +75,7 @@ describe('AdminPlacesPage', () => {
     fireEvent.change(screen.getByLabelText('Город'), { target: { value: 'khanty' } })
 
     await waitFor(() => {
-      const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => String(url))
+      const calls = fetchMock.mock.calls.map(([url]) => String(url))
       expect(calls.some((url) => url.includes('/admin/taxonomy/categories?city_slug=khanty'))).toBe(true)
     })
   })
@@ -85,7 +87,7 @@ describe('AdminPlacesPage', () => {
     fireEvent.change(screen.getByLabelText('Фильтр маршрутов'), { target: { value: 'true' } })
 
     await waitFor(() => {
-      const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) => String(url))
+      const calls = fetchMock.mock.calls.map(([url]) => String(url))
       expect(calls.some((url) => url.includes('/admin/places?') && url.includes('route_eligible=true'))).toBe(true)
     })
   })
@@ -93,14 +95,14 @@ describe('AdminPlacesPage', () => {
   it('bulk changes selected places category_new', async () => {
     render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
     await waitFor(() => expect(screen.getByText('Места (51)')).toBeTruthy())
+    await waitFor(() => expect(screen.getAllByText('Парк (park) · 1').length).toBeGreaterThan(0))
 
     fireEvent.click(screen.getByLabelText('Выбрать Place 0'))
     fireEvent.change(screen.getByLabelText('Новая категория'), { target: { value: 'park' } })
     fireEvent.click(screen.getByRole('button', { name: 'Сменить категорию' }))
 
     await waitFor(() => {
-      const calls = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls
-      const apply = calls.find(([url]) => String(url).includes('/admin/places/bulk/apply'))
+      const apply = fetchMock.mock.calls.find(([url]) => String(url).includes('/admin/places/bulk/apply'))
       expect(apply).toBeTruthy()
       const body = JSON.parse(String((apply?.[1] as RequestInit).body))
       expect(body).toMatchObject({ place_ids: [1], action: 'set_category', params: { category: 'park' }, confirm: true })
