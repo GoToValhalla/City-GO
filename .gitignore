@@ -53,9 +53,11 @@ playwright-report/
 test-results/
 
 # Generated data artifacts
+artifacts/
 data/audit/
 data/exports/
 data/raw.bak
 
 # Local backups
+.trash/
 app_backup_before_cleanup/

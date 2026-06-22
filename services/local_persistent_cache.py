@@ -10,6 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import time
+from pathlib import Path
 from typing import Any
 
 from core.config import settings
@@ -103,9 +105,13 @@ def _cache() -> Any | None:
         _CACHE.stats(enable=True)
         return _CACHE
     except Exception as exc:  # noqa: BLE001
-        _CACHE_INIT_FAILED = True
-        _LOGGER.warning("local persistent cache disabled: %s", exc)
-        return None
+        try:
+            _CACHE = _JsonFileCache(Path(str(getattr(settings, "local_cache_dir", "/app/.cache/city-go"))))
+            return _CACHE
+        except Exception as fallback_exc:  # noqa: BLE001
+            _CACHE_INIT_FAILED = True
+            _LOGGER.warning("local persistent cache disabled: %s; fallback failed: %s", exc, fallback_exc)
+            return None
 
 
 class _Miss:
@@ -113,3 +119,44 @@ class _Miss:
 
 
 _MISS = _Miss()
+
+
+class _JsonFileCache:
+    """Tiny disk fallback used when optional diskcache is unavailable in tests/dev."""
+
+    def __init__(self, directory: Path) -> None:
+        self.directory = str(directory)
+        self._directory = directory
+        self._directory.mkdir(parents=True, exist_ok=True)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        path = self._path(key)
+        if not path.exists():
+            return default
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return default
+        expire_at = payload.get("expire_at")
+        if isinstance(expire_at, (int, float)) and expire_at <= time.time():
+            path.unlink(missing_ok=True)
+            return default
+        return payload.get("value", default)
+
+    def set(self, key: str, value: Any, *, expire: int | None = None, tag: str | None = None) -> None:
+        expire_at = time.time() + expire if expire else None
+        payload = {"value": value, "expire_at": expire_at, "tag": tag}
+        self._path(key).write_text(json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8")
+
+    def stats(self, enable: bool = True) -> tuple[int, int]:
+        return 0, 0
+
+    def volume(self) -> int:
+        return sum(path.stat().st_size for path in self._directory.glob("*.json"))
+
+    def close(self) -> None:
+        return None
+
+    def _path(self, key: str) -> Path:
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        return self._directory / f"{digest}.json"

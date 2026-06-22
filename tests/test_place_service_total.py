@@ -28,6 +28,8 @@ def test_get_places_total_returns_total_with_filters_and_search() -> None:
         id=1,
         name="Zelenogradsk",
         slug="zelenogradsk",
+        launch_status="published",
+        is_active=True,
     )
     db.add_all([category, city])
     db.commit()
@@ -41,6 +43,9 @@ def test_get_places_total_returns_total_with_filters_and_search() -> None:
         address="Addr 1",
         lat=54.95,
         lng=20.48,
+        is_published=True,
+        is_visible_in_catalog=True,
+        is_route_eligible=True,
     )
     place_2 = Place(
         title="Coffee House",
@@ -51,6 +56,9 @@ def test_get_places_total_returns_total_with_filters_and_search() -> None:
         address="Addr 2",
         lat=54.96,
         lng=20.49,
+        is_published=True,
+        is_visible_in_catalog=True,
+        is_route_eligible=True,
     )
     place_3 = Place(
         title="Walk Route",
@@ -61,6 +69,9 @@ def test_get_places_total_returns_total_with_filters_and_search() -> None:
         address="Addr 3",
         lat=54.97,
         lng=20.50,
+        is_published=True,
+        is_visible_in_catalog=True,
+        is_route_eligible=True,
     )
     db.add_all([place_1, place_2, place_3])
     db.commit()
@@ -87,6 +98,8 @@ def test_get_places_total_returns_zero_for_unknown_city_slug() -> None:
         id=1,
         name="Zelenogradsk",
         slug="zelenogradsk",
+        launch_status="published",
+        is_active=True,
     )
     db.add_all([category, city])
     db.commit()
@@ -100,6 +113,9 @@ def test_get_places_total_returns_zero_for_unknown_city_slug() -> None:
         address="Addr 1",
         lat=54.95,
         lng=20.48,
+        is_published=True,
+        is_visible_in_catalog=True,
+        is_route_eligible=True,
     )
     db.add(place)
     db.commit()

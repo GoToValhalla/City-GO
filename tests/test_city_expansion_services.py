@@ -15,15 +15,15 @@ def test_registry_and_available_cities(db_session):
     country = create_country(db_session, CountryCreate(code="GE", name="Грузия"))
     region = create_region(db_session, RegionCreate(country_id=country.id, code="imereti", name="Имерети"))
     db_session.add(City(slug="kutaisi", name="Кутаиси", country_id=country.id, region_id=region.id,
-                        country="Грузия", launch_status="draft"))
-    db_session.add(City(slug="zelenogradsk", name="Зеленоградск", country="Россия", launch_status="published"))
+                        country="Грузия", launch_status="draft", is_active=True))
+    db_session.add(City(slug="zelenogradsk", name="Зеленоградск", country="Россия", launch_status="published", is_active=True))
     db_session.commit()
     assert [city["slug"] for city in get_available_cities(db_session)] == ["zelenogradsk"]
     assert {city["slug"] for city in get_available_cities(db_session, include_draft=True)} == {"kutaisi", "zelenogradsk"}
 
 
 def test_due_scope_lock_batch_and_state(db_session):
-    city = City(slug="zelenogradsk", name="Зеленоградск", country="Россия", launch_status="published")
+    city = City(slug="zelenogradsk", name="Зеленоградск", country="Россия", launch_status="published", is_active=True)
     db_session.add(city)
     db_session.commit()
     scope = create_import_scope(db_session, ImportScopeCreate(

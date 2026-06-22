@@ -39,14 +39,14 @@ def assess_import_quality(
         return hidden_decision("no_title")
     if not _has_valid_coords(lat, lng):
         return hidden_decision("no_coordinates")
-    if category and category in PUBLIC_HIDDEN_CATEGORIES:
-        return hidden_decision("hidden_category")
     if confidence is not None and confidence < HIDDEN_CONFIDENCE_THRESHOLD:
         return hidden_decision("low_confidence")
 
     # Нетуристические → needs_review (хранятся, но не в tourist catalog)
     if category and category in NON_TOURIST_CATEGORIES:
         return needs_review_decision("non_tourist_category")
+    if category and category in PUBLIC_HIDDEN_CATEGORIES:
+        return hidden_decision("hidden_category")
 
     # Soft review signals
     if confidence is not None and confidence < AUTO_PUBLISH_CONFIDENCE_THRESHOLD:

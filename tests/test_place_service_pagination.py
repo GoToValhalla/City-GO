@@ -28,6 +28,8 @@ def test_get_places_applies_limit_and_offset() -> None:
         id=1,
         name="Zelenogradsk",
         slug="zelenogradsk",
+        launch_status="published",
+        is_active=True,
     )
     db.add_all([category, city])
     db.commit()
@@ -42,6 +44,9 @@ def test_get_places_applies_limit_and_offset() -> None:
             address=f"Addr {index}",
             lat=54.95 + index / 1000,
             lng=20.48 + index / 1000,
+            is_published=True,
+            is_visible_in_catalog=True,
+            is_route_eligible=True,
         )
         for index in range(1, 6)
     ]

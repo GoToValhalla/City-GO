@@ -208,6 +208,11 @@ def place_factory(db_session: Session, city_factory, category_factory):
         indoor: bool = True,
         outdoor: bool = False,
         is_active: bool = True,
+        is_published: bool = True,
+        is_visible_in_catalog: bool = True,
+        is_route_eligible: bool = True,
+        is_searchable: bool = True,
+        publication_status: str = "published",
     ) -> Place:
         nonlocal counter
         counter += 1
@@ -237,6 +242,11 @@ def place_factory(db_session: Session, city_factory, category_factory):
             indoor=indoor,
             outdoor=outdoor,
             is_active=is_active,
+            is_published=is_published,
+            is_visible_in_catalog=is_visible_in_catalog,
+            is_route_eligible=is_route_eligible,
+            is_searchable=is_searchable,
+            publication_status=publication_status,
         )
         db_session.add(place)
         db_session.commit()

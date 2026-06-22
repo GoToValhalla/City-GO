@@ -58,7 +58,12 @@ def test_import_job_run_endpoint_new(client, db_session) -> None:
     city = City(name="Run City", slug="run-city", country="Россия", launch_status="importing", is_active=False)
     db_session.add(city)
     db_session.commit()
-    with patch("routers.admin_import_jobs.run_import_job_background"):
-        response = client.post(f"/admin/import-jobs/{city.id}/run")
+    db_session.add(CityImportScope(
+        city_id=city.id, code="tourist_core-run", name="Tourist", bbox={"south": 1, "west": 2, "north": 3, "east": 4},
+        enabled=True, status="enabled", import_profile="tourist_core",
+    ))
+    db_session.commit()
+
+    response = client.post(f"/admin/import-jobs/{city.id}/run")
     assert response.status_code == 200
-    assert response.json()["status"] == "running"
+    assert response.json()["status"] == "queued"

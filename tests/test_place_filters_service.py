@@ -29,11 +29,15 @@ def test_apply_place_filters_by_city_slug_returns_filtered_query() -> None:
         id=1,
         name="Zelenogradsk",
         slug="zelenogradsk",
+        launch_status="published",
+        is_active=True,
     )
     city_2 = City(
         id=2,
         name="Kaliningrad",
         slug="kaliningrad",
+        launch_status="published",
+        is_active=True,
     )
     db.add_all([category, tag, city_1, city_2])
     db.commit()
@@ -47,6 +51,9 @@ def test_apply_place_filters_by_city_slug_returns_filtered_query() -> None:
         address="Addr 1",
         lat=54.95,
         lng=20.48,
+        is_published=True,
+        is_visible_in_catalog=True,
+        is_route_eligible=True,
     )
     place_2 = Place(
         title="Walk Route",
@@ -57,6 +64,9 @@ def test_apply_place_filters_by_city_slug_returns_filtered_query() -> None:
         address="Addr 2",
         lat=54.71,
         lng=20.51,
+        is_published=True,
+        is_visible_in_catalog=True,
+        is_route_eligible=True,
     )
     db.add_all([place_1, place_2])
     db.commit()
@@ -92,6 +102,8 @@ def test_apply_place_filters_returns_none_for_unknown_city_slug() -> None:
         id=1,
         name="Zelenogradsk",
         slug="zelenogradsk",
+        launch_status="published",
+        is_active=True,
     )
     db.add_all([category, tag, city])
     db.commit()

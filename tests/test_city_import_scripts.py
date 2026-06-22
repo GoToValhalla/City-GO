@@ -50,7 +50,17 @@ def test_import_target_config_contains_only_planned_cities():
     targets = load_targets()
     cities = {target["city"] for target in targets}
     selected = select_targets(targets, ("khanty-mansiysk",), ())
-    assert cities == {"zelenogradsk", "kutaisi", "yerevan", "khanty-mansiysk", "kaliningrad", "almaty", "rostov-on-don"}
+    assert cities == {
+        "zelenogradsk",
+        "kutaisi",
+        "yerevan",
+        "khanty-mansiysk",
+        "kaliningrad",
+        "almaty",
+        "rostov-on-don",
+        "astrakhan",
+        "arkhangelsk",
+    }
     assert {target["city"] for target in selected} == {"khanty-mansiysk"}
 
 

@@ -1,12 +1,12 @@
 # City Go — Алembic миграции: архитектура и инварианты
 
-## Текущее состояние (07.06.2026)
+## Текущее состояние (22.06.2026)
 
 | Параметр | Значение |
 |---|---|
-| Текущий head | `c1f4e7a9d2b3` (merge_remaining_heads) |
+| Текущий head | `e2f4a6b8c0d1` (merge_city_publication_and_import_pipeline_heads) |
 | Base | `e48f13974bc8` (init_place_model) |
-| Всего ревизий | 29 |
+| Всего ревизий | 39 |
 | Число активных heads | **1** (инвариант) |
 | Число bases | **1** (инвариант) |
 
@@ -79,12 +79,17 @@ e48f13974bc8  init_place_model                    [base]
 
 **Правило:** в любой момент `alembic heads` должен возвращать ровно одну ревизию.
 
-**Текущий head:** `a1b2c3d4e5f7` (system_logs, product_events, admin_operations, place address fields).
+**Текущий head:** `e2f4a6b8c0d1` (merge city publication defaults and import pipeline heads).
 
-Цепочка admin-миграций:
+Текущие поздние миграции:
 - `e8f1a2b3c4d5` — feature_toggles
 - `f9a2b3c4d5e6` — seed global toggles
 - `a1b2c3d4e5f7` — system_logs, product_events, admin_operations
+- `f0a1b2c3d4e6` — City quality/import metadata used by seed migrations
+- `fa21b0c7d9e2` — Astrakhan/Arkhangelsk seed data
+- `b73c0d1e2f40` — city publication defaults
+- `d4e5f6a7b8c0` — import job pipeline fields
+- `e2f4a6b8c0d1` — merge revision that restores one active head
 
 Это обеспечивает детерминированность `alembic upgrade head` в docker-compose:
 
@@ -107,9 +112,9 @@ python3.11 -m pytest tests/test_alembic_single_head_new.py -v
 Тест проверяет без подключения к БД:
 - ровно один head
 - ровно один base
-- известный head = `c1f4e7a9d2b3`
+- известный head = `e2f4a6b8c0d1`
 - известный base = `e48f13974bc8`
-- общее число ревизий = 29
+- общее число ревизий = 39
 - ключевые таблицы присутствуют в `Base.metadata`
 
 ---

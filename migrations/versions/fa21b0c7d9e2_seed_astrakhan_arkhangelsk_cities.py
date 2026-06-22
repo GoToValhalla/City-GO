@@ -1,7 +1,7 @@
 """seed Astrakhan and Arkhangelsk cities
 
 Revision ID: fa21b0c7d9e2
-Revises: f9a2b3c4d5e6
+Revises: f0a1b2c3d4e6
 """
 
 from typing import Sequence, Union
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "fa21b0c7d9e2"
-down_revision: Union[str, None] = "f9a2b3c4d5e6"
+down_revision: Union[str, None] = "f0a1b2c3d4e6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -77,8 +77,8 @@ def upgrade() -> None:
                     :population_tier,
                     :expected_places_count,
                     :is_active,
-                    now(),
-                    now()
+                    CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP
                 )
                 ON CONFLICT (slug) DO UPDATE SET
                     name = EXCLUDED.name,
@@ -90,7 +90,7 @@ def upgrade() -> None:
                     population_tier = EXCLUDED.population_tier,
                     expected_places_count = EXCLUDED.expected_places_count,
                     is_active = EXCLUDED.is_active,
-                    updated_at = now()
+                    updated_at = CURRENT_TIMESTAMP
                 """
             ),
             city,

@@ -294,6 +294,8 @@ class CandidateRetrievalService:
     def _apply_city_center_location_fallback(self, db: Session, ctx: MergedContext) -> None:
         if getattr(ctx, "location_fallback_applied", False):
             return
+        if not hasattr(db, "execute"):
+            return
         city_slug = str(getattr(ctx, "city_id", "") or "")
         if not city_slug:
             return
@@ -304,7 +306,10 @@ class CandidateRetrievalService:
         if not _is_number_pair(start_lat, start_lng):
             return
 
-        city = db.execute(select(City).where(City.slug == city_slug)).scalar_one_or_none()
+        try:
+            city = db.execute(select(City).where(City.slug == city_slug)).scalar_one_or_none()
+        except Exception:
+            return
         center_lat = getattr(city, "center_lat", None)
         center_lng = getattr(city, "center_lng", None)
         if not _is_number_pair(center_lat, center_lng):

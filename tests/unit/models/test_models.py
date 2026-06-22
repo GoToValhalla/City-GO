@@ -179,7 +179,7 @@ class TestCityModelValidation:
         assert city.id is not None
         assert city.slug == "moscow"
         assert city.name == "Moscow"
-        assert city.is_active is True
+        assert city.is_active is False
 
     def test_city_slug_unique(self, db_session: Session):
         """Slug города должен быть уникальным."""

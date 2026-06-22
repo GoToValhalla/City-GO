@@ -7,6 +7,7 @@ from services.route_adaptive_plan import adaptive_target_points
 from services.route_diversity_policy import add_category, can_use_category, normalize_category
 from services.route_geometry import walk_minutes_between
 from services.route_point_factory import route_point_from_scored, visit_minutes_for_scored
+from services.route_quality_score import minimum_points_for_budget
 from services.route_walk_annotations import annotate_walks
 from services.scoring_service import ScoredPlace
 
@@ -75,7 +76,7 @@ def assemble_route(scored: list[ScoredPlace], ctx: MergedContext, point_cls: typ
 
     # Emergency seed: if strict walk/budget heuristics still leave fewer than MVP points,
     # preserve the best scored places as a partial route instead of returning no_route.
-    if _needs_emergency_seed(route, candidate_pool, target_points):
+    if _needs_emergency_seed(route, candidate_pool, target_points, budget):
         route = _emergency_seed_backfill(route, candidate_pool, ctx, point_cls, budget, target_points)
 
     return annotate_walks(_cleanup_loops(route), ctx.location)
@@ -338,14 +339,14 @@ def _minimum_point_backfill(route: list[object], scored: list[ScoredPlace], ctx:
     return current
 
 
-def _needs_emergency_seed(route: list[object], scored: list[ScoredPlace], target_points: int) -> bool:
-    return bool(scored) and len(route) < _emergency_seed_points(scored, target_points)
+def _needs_emergency_seed(route: list[object], scored: list[ScoredPlace], target_points: int, budget: int) -> bool:
+    return bool(scored) and len(route) < _emergency_seed_points(scored, target_points, budget)
 
 
 def _emergency_seed_backfill(route: list[object], scored: list[ScoredPlace], ctx: MergedContext, point_cls: type, budget: int, target_points: int) -> list[object]:
     current = list(route)
     used_ids = {str(getattr(point, "place_id", "")) for point in current}
-    min_points = _emergency_seed_points(scored, target_points)
+    min_points = _emergency_seed_points(scored, target_points, budget)
 
     for item in _fallback_order(scored, ctx):
         if len(current) >= min_points:
@@ -389,8 +390,9 @@ def _minimum_fallback_points(scored: list[ScoredPlace], target_points: int) -> i
     return min(3, max(1, target_points), len(scored))
 
 
-def _emergency_seed_points(scored: list[ScoredPlace], target_points: int) -> int:
-    return min(EMERGENCY_SEED_TARGET_POINTS, max(1, target_points), len(scored))
+def _emergency_seed_points(scored: list[ScoredPlace], target_points: int, budget: int) -> int:
+    budget_floor = minimum_points_for_budget(budget)
+    return min(EMERGENCY_SEED_TARGET_POINTS, budget_floor, max(1, target_points), len(scored))
 
 
 def _fill_stage(route: list[object], budget: int) -> int:
