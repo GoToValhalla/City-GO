@@ -168,6 +168,7 @@ jobs:
           path: downloaded-artifacts
 
       - name: Build notification summary
+        id: build-summary
         shell: bash
         env:
           BACKEND_RESULT: ${{ needs.backend-tests.result }}
@@ -175,15 +176,41 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/messages
+          if [ "${BACKEND_RESULT}" = "cancelled" ] && [ "${FRONTEND_RESULT}" = "cancelled" ]; then
+            {
+              echo "City GO CI: отменен"
+              echo "Причина: запущен более свежий CI для этой ветки, старый прогон остановлен автоматически."
+              echo "Действие не требуется: смотреть следующий прогон."
+              echo ""
+              echo "Commit: ${GITHUB_SHA}"
+              echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            } > artifacts/messages/telegram-ci.txt
+            echo "skip_telegram=true" >> "$GITHUB_OUTPUT"
+            cat artifacts/messages/telegram-ci.txt >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           BACKEND_SUMMARY=$(find downloaded-artifacts -name backend.txt -print -quit 2>/dev/null || true)
           FRONTEND_SUMMARY=$(find downloaded-artifacts -name frontend.txt -print -quit 2>/dev/null || true)
           {
             echo "City GO CI"
-            echo "Backend job: ${BACKEND_RESULT}"
-            if [ -n "${BACKEND_SUMMARY}" ]; then cat "${BACKEND_SUMMARY}"; else echo "Backend summary artifact missing"; fi
+            echo "Backend: ${BACKEND_RESULT}"
+            if [ -n "${BACKEND_SUMMARY}" ]; then
+              cat "${BACKEND_SUMMARY}"
+            elif [ "${BACKEND_RESULT}" = "cancelled" ]; then
+              echo "Backend tests were cancelled before summary was created."
+            else
+              echo "Backend summary is unavailable; open the run logs."
+            fi
             echo ""
-            echo "Frontend job: ${FRONTEND_RESULT}"
-            if [ -n "${FRONTEND_SUMMARY}" ]; then cat "${FRONTEND_SUMMARY}"; else echo "Frontend summary artifact missing"; fi
+            echo "Frontend: ${FRONTEND_RESULT}"
+            if [ -n "${FRONTEND_SUMMARY}" ]; then
+              cat "${FRONTEND_SUMMARY}"
+            elif [ "${FRONTEND_RESULT}" = "cancelled" ]; then
+              echo "Frontend checks were cancelled before summary was created."
+            else
+              echo "Frontend summary is unavailable; open the run logs."
+            fi
             echo ""
             echo "Commit: ${GITHUB_SHA}"
             echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -191,6 +218,7 @@ jobs:
           cat artifacts/messages/telegram-ci.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Telegram CI notification
+        if: steps.build-summary.outputs.skip_telegram != 'true'
         continue-on-error: true
         shell: bash
         env:
