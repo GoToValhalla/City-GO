@@ -95,7 +95,7 @@ describe('AdminRouteDryRunPage', () => {
     await waitFor(() => expect(selectedCityValue()).toBe('test-city'))
     fireEvent.click(screen.getByText('Проверить сборку'))
     await waitFor(() => expect(screen.getByText('Маршрут не из чего собирать')).toBeTruthy())
-    expect(screen.getByText(/нет мест, из которых можно собрать маршрут/)).toBeTruthy()
+    expect(screen.getByText('В этом городе сейчас нет мест, из которых можно собрать маршрут.')).toBeTruthy()
     expect(screen.getByText('Проверить готовность мест')).toBeTruthy()
     expect(screen.getByText('Открыть города')).toBeTruthy()
     expect(screen.queryByText('Выбрано в маршрут')).toBeNull()
