@@ -32,6 +32,11 @@ export const AdminRouteEligibilityPage = () => {
   const shownFrom = total === 0 ? 0 : offset + 1
   const shownTo = Math.min(offset + (data?.items.length ?? 0), total)
 
+  const resetListPosition = () => {
+    setSelected(new Set())
+    setPage(1)
+  }
+
   const load = useCallback(() => {
     setLoading(true)
     setError(null)
@@ -61,11 +66,6 @@ export const AdminRouteEligibilityPage = () => {
   useEffect(() => {
     void Promise.resolve().then(load)
   }, [load])
-
-  useEffect(() => {
-    setSelected(new Set())
-    setPage(1)
-  }, [citySlug, eligible, readiness, quality, minQualityScore, issue, pageSize])
 
   const bulk = async (action: string, label: string) => {
     const ids = [...selected]
@@ -108,6 +108,7 @@ export const AdminRouteEligibilityPage = () => {
     setQuality('high')
     setMinQualityScore('75')
     setIssue('')
+    resetListPosition()
   }
 
   const resetFilters = () => {
@@ -116,6 +117,7 @@ export const AdminRouteEligibilityPage = () => {
     setQuality('')
     setMinQualityScore('')
     setIssue('')
+    resetListPosition()
   }
 
   if (loading && !data) return <AdminLoading />
@@ -126,12 +128,12 @@ export const AdminRouteEligibilityPage = () => {
       <h2 className="admin-page-title">Маршруты → готовность мест</h2>
       <p className="admin-page-subtitle">Отбор мест для каталога и маршрутов по качеству, причинам блокировки и готовности.</p>
       <div className="admin-filters">
-        <select value={citySlug} onChange={(e) => setCitySlug(e.target.value)}>
+        <select value={citySlug} onChange={(e) => { setCitySlug(e.target.value); resetListPosition() }}>
           <option value="">Все города</option>
           {cities.map((city) => <option key={city.slug} value={city.slug}>{city.name}</option>)}
         </select>
-        <input placeholder="город" value={citySlug} onChange={(e) => setCitySlug(e.target.value)} />
-        <select value={readiness} onChange={(e) => setReadiness(e.target.value)} aria-label="Готовность">
+        <input placeholder="город" value={citySlug} onChange={(e) => { setCitySlug(e.target.value); resetListPosition() }} />
+        <select value={readiness} onChange={(e) => { setReadiness(e.target.value); resetListPosition() }} aria-label="Готовность">
           <option value="">Готовность: все</option>
           <option value="route_ready">готово для маршрутов</option>
           <option value="catalog_ready">готово для каталога</option>
@@ -140,12 +142,12 @@ export const AdminRouteEligibilityPage = () => {
           <option value="low_quality">низкое качество</option>
           <option value="placeholder">автоназвания OSM</option>
         </select>
-        <select value={eligible} onChange={(e) => setEligible(e.target.value)} aria-label="Флаг маршрутов">
+        <select value={eligible} onChange={(e) => { setEligible(e.target.value); resetListPosition() }} aria-label="Флаг маршрутов">
           <option value="">Маршруты: все</option>
           <option value="true">подтверждены</option>
           <option value="false">не подтверждены</option>
         </select>
-        <select value={quality} onChange={(e) => setQuality(e.target.value)} aria-label="Качество">
+        <select value={quality} onChange={(e) => { setQuality(e.target.value); resetListPosition() }} aria-label="Качество">
           <option value="">Качество: все</option>
           <option value="high">высокое</option>
           <option value="medium">среднее</option>
@@ -155,9 +157,9 @@ export const AdminRouteEligibilityPage = () => {
           inputMode="numeric"
           placeholder="мин. качество"
           value={minQualityScore}
-          onChange={(e) => setMinQualityScore(e.target.value.replace(/\D/g, '').slice(0, 3))}
+          onChange={(e) => { setMinQualityScore(e.target.value.replace(/\D/g, '').slice(0, 3)); resetListPosition() }}
         />
-        <select value={issue} onChange={(e) => setIssue(e.target.value)} aria-label="Причина">
+        <select value={issue} onChange={(e) => { setIssue(e.target.value); resetListPosition() }} aria-label="Причина">
           <option value="">Причина: все</option>
           <option value="placeholder_title">автоназвание OSM</option>
           <option value="forbidden_category">запрещенная категория</option>
@@ -169,7 +171,7 @@ export const AdminRouteEligibilityPage = () => {
           <option value="unpublished_place">не опубликовано</option>
           <option value="hidden_place">скрыто в каталоге</option>
         </select>
-        <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} aria-label="Размер страницы">
+        <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); resetListPosition() }} aria-label="Размер страницы">
           {PAGE_SIZE_OPTIONS.map((value) => <option key={value} value={value}>{value} на странице</option>)}
         </select>
         <button type="button" className="admin-btn admin-btn-sm" onClick={load}>Обновить</button>
