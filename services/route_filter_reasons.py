@@ -78,7 +78,13 @@ def _is_strict_hours_category(ctx: MergedContext) -> bool:
 
 
 def _has_bad_coordinates(place: object) -> bool:
-    return not _is_number(getattr(place, "lat", None)) or not _is_number(getattr(place, "lng", None))
+    lat = getattr(place, "lat", None)
+    lng = getattr(place, "lng", None)
+    if not _is_number(lat) or not _is_number(lng):
+        return True
+    if float(lat) == 0.0 and float(lng) == 0.0:
+        return True
+    return not (-90.0 <= float(lat) <= 90.0 and -180.0 <= float(lng) <= 180.0)
 
 
 def _is_number(value: object) -> bool:
