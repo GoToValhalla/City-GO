@@ -18,8 +18,36 @@ CATEGORY_LABELS_RU: dict[str, str] = {
 }
 
 LEGACY_TO_CANONICAL: dict[str, str] = {
-    "cafe": "coffee", "culture": "museum", "viewpoint": "attraction",
-    "useful": "service", "health": "service",
+    "cafe": "coffee",
+    "coffee_shop": "coffee",
+    "coffee": "coffee",
+    "restaurant": "food",
+    "fast_food": "food",
+    "food_court": "food",
+    "bakery": "food",
+    "confectionery": "food",
+    "ice_cream": "food",
+    "pub": "bar",
+    "culture": "museum",
+    "gallery": "museum",
+    "viewpoint": "attraction",
+    "artwork": "attraction",
+    "historic": "attraction",
+    "nature": "walk",
+    "natural": "walk",
+    "useful": "service",
+    "health": "service",
+    "transport": "service",
+    "information": "service",
+    "toilets": "service",
+    "atm": "service",
+    "parking": "service",
+    "shelter": "service",
+    "bank": "service",
+    "police": "service",
+    "pharmacy": "service",
+    "clinic": "service",
+    "hospital": "service",
 }
 
 ROUTE_EXCLUDED_CATEGORIES = frozenset({"service", "hotel"})
