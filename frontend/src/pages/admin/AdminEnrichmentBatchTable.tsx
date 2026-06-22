@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { adminPost } from './adminApi'
-import { STATUS_LABEL, batchFileUrl } from './adminEnrichmentHelpers'
+import { adminDownload } from './adminDownload'
+import { STATUS_LABEL, batchFilePath } from './adminEnrichmentHelpers'
 import type { EnrichmentBatchMeta, ImportApplyResult, ImportPreviewResult } from './adminEnrichmentTypes'
 
 type Props = {
@@ -12,6 +13,7 @@ export const AdminEnrichmentBatchTable = ({ batches, onRefresh }: Props) => {
   const [preview, setPreview] = useState<ImportPreviewResult | null>(null)
   const [applyResult, setApplyResult] = useState<ImportApplyResult | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const runPreview = async (batchId: string) => {
@@ -30,6 +32,15 @@ export const AdminEnrichmentBatchTable = ({ batches, onRefresh }: Props) => {
       setApplyResult(r); onRefresh()
     } catch (e) { setError(e instanceof Error ? e.message : 'Apply error') }
     finally { setBusy(null) }
+  }
+
+  const downloadFile = async (batchId: string, file: string) => {
+    const key = `${batchId}:${file}`
+    setDownloading(key); setError(null)
+    try {
+      await adminDownload(batchFilePath(batchId, file), file)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Download error') }
+    finally { setDownloading(null) }
   }
 
   if (!batches.length) return <div className="admin-state">Batch-экспортов пока нет</div>
@@ -57,10 +68,44 @@ export const AdminEnrichmentBatchTable = ({ batches, onRefresh }: Props) => {
                 <td><strong>{b.total_exported}</strong></td>
                 <td style={{ fontSize: 11 }}>{b.missing_fields.join(', ')}</td>
                 <td style={{ fontSize: 11 }}>
-                  <a href={batchFileUrl(b.batch_id, 'export.csv')} download className="admin-btn admin-btn-sm">export</a>
-                  {hasEnriched && <a href={batchFileUrl(b.batch_id, 'enriched.csv')} download className="admin-btn admin-btn-sm">enriched</a>}
-                  {b.status === 'previewed' && <a href={batchFileUrl(b.batch_id, 'import.preview.json')} download className="admin-btn admin-btn-sm">preview</a>}
-                  {b.status === 'imported' && <a href={batchFileUrl(b.batch_id, 'import.result.json')} download className="admin-btn admin-btn-sm">result</a>}
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn-sm"
+                    disabled={downloading === `${b.batch_id}:export.csv`}
+                    onClick={() => void downloadFile(b.batch_id, 'export.csv')}
+                  >
+                    export
+                  </button>
+                  {hasEnriched && (
+                    <button
+                      type="button"
+                      className="admin-btn admin-btn-sm"
+                      disabled={downloading === `${b.batch_id}:enriched.csv`}
+                      onClick={() => void downloadFile(b.batch_id, 'enriched.csv')}
+                    >
+                      enriched
+                    </button>
+                  )}
+                  {b.status === 'previewed' && (
+                    <button
+                      type="button"
+                      className="admin-btn admin-btn-sm"
+                      disabled={downloading === `${b.batch_id}:import.preview.json`}
+                      onClick={() => void downloadFile(b.batch_id, 'import.preview.json')}
+                    >
+                      preview
+                    </button>
+                  )}
+                  {b.status === 'imported' && (
+                    <button
+                      type="button"
+                      className="admin-btn admin-btn-sm"
+                      disabled={downloading === `${b.batch_id}:import.result.json`}
+                      onClick={() => void downloadFile(b.batch_id, 'import.result.json')}
+                    >
+                      result
+                    </button>
+                  )}
                 </td>
                 <td>
                   {!hasEnriched && <span style={{ fontSize: 11, color: '#888' }}>Ожидается enriched.csv</span>}
