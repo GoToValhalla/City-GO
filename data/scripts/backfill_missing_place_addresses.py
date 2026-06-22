@@ -19,6 +19,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Backfill and verify place addresses via Nominatim.")
     parser.add_argument("--city", required=True, help="City slug (required).")
     parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--start-after-id", type=int, default=0, help="Only scan places with id greater than this value.")
     parser.add_argument("--sleep", type=float, default=1.0)
     parser.add_argument("--dry-run", action="store_true", help="Preview only (default when --apply omitted).")
     parser.add_argument("--apply", action="store_true", help="Persist updates to DB.")
@@ -64,6 +65,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             sleep_seconds=args.sleep,
             apply=bool(args.apply),
             verify_existing=bool(args.verify_existing),
+            start_after_id=int(args.start_after_id or 0),
         )
 
 
