@@ -54,6 +54,8 @@ def publish_admin_route_draft(
     actor_id: str,
 ) -> dict[str, object]:
     draft = get_draft_or_error(db, draft_id)
+    if draft.status == "published":
+        raise HTTPException(status_code=409, detail={"code": "DRAFT_ALREADY_PUBLISHED"})
     points = sorted(draft.points, key=lambda item: item.position)
     if not points:
         raise HTTPException(status_code=422, detail={"code": "DRAFT_HAS_NO_POINTS"})
