@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminGet } from './adminApi'
+import { entityText, humanizeCode } from './adminHumanText'
 import type { AdminAuditLogEntry, AdminAuditLogResponse } from './adminTypes'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 
@@ -33,13 +34,14 @@ export const AdminAuditLogPage = () => {
 
   return (
     <div>
-      <h2 className="admin-page-title">Журнал аудита ({total})</h2>
+      <h2 className="admin-page-title">Журнал действий ({total})</h2>
+      <p className="admin-page-subtitle">Кто и что менял в админке.</p>
       <div className="admin-filters admin-filters-stack">
         <select value={entityType} onChange={(e) => setEntityType(e.target.value)}>
           <option value="">Все сущности</option>
-          {ENTITY_OPTIONS.filter(Boolean).map((e) => <option key={e} value={e}>{e}</option>)}
+          {ENTITY_OPTIONS.filter(Boolean).map((e) => <option key={e} value={e}>{entityText(e)}</option>)}
         </select>
-        <input placeholder="Действие (action)" value={action} onChange={(e) => setAction(e.target.value)} />
+        <input placeholder="Действие" value={action} onChange={(e) => setAction(e.target.value)} />
         <input placeholder="Пользователь" value={actor} onChange={(e) => setActor(e.target.value)} />
         <button type="button" className="admin-btn admin-btn-primary" onClick={load}>Применить</button>
       </div>
@@ -55,8 +57,8 @@ export const AdminAuditLogPage = () => {
                 <tr key={e.id}>
                   <td className="admin-td-nowrap">{fmtDate(e.created_at)}</td>
                   <td>{e.actor}</td>
-                  <td><code>{e.action}</code></td>
-                  <td>{e.entity_type}</td>
+                  <td>{humanizeCode(e.action)}</td>
+                  <td>{entityText(e.entity_type)}</td>
                   <td>{e.entity_id ?? '—'}</td>
                   <td>{e.reason ?? '—'}</td>
                 </tr>
