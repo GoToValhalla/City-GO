@@ -46,9 +46,8 @@ describe('RandomRouteDraftEditor', () => {
     expect(JSON.parse(String((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[1][1]?.body)).category_mode).toBe('balanced')
     fireEvent.click(screen.getAllByText('Удалить')[0])
     await waitFor(() => expect(screen.queryByText('Кофейня')).toBeFalsy())
-    const searchButton = screen.getByText('Найти место') as HTMLButtonElement
-    await waitFor(() => expect(searchButton.disabled).toBe(false))
-    fireEvent.click(searchButton)
+    await waitFor(() => expect((screen.getByText('Найти место') as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(screen.getByText('Найти место'))
     await waitFor(() => expect(screen.getByText(/Новая кофейня/)).toBeTruthy())
   })
 })
