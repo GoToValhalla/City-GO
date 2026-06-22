@@ -41,10 +41,10 @@ class RouteBudgetFitService:
             recovered, clamped = self._single_point_with_budgeted_visit(route[0], budget)
             return BudgetFitResult(
                 route=[recovered],
-                warnings=list(dict.fromkeys([
+                warnings=_unique([
                     self._short_route_warning(budget),
                     ROUTE_BUDGET_VISIT_CLAMPED_WARNING if clamped else "",
-                ])),
+                ]),
             )
 
         kept, dropped = self._fit_ordered_subset(route, tolerated_budget)
@@ -52,10 +52,10 @@ class RouteBudgetFitService:
             recovered, clamped = self._single_point_with_budgeted_visit(route[0], budget)
             return BudgetFitResult(
                 route=[recovered],
-                warnings=list(dict.fromkeys([
+                warnings=_unique([
                     "budget_fit_recovered_first_point",
                     ROUTE_BUDGET_VISIT_CLAMPED_WARNING if clamped else "",
-                ])),
+                ]),
             )
 
         warnings: List[str] = []
@@ -71,7 +71,7 @@ class RouteBudgetFitService:
                 if self._total_minutes(kept) > budget:
                     warnings.append(ROUTE_BUDGET_OVERFLOW_TOLERATED_WARNING)
             warnings.append(ROUTE_BUDGET_UNDERFILLED_WARNING)
-        return BudgetFitResult(route=kept, warnings=list(dict.fromkeys(warnings)))
+        return BudgetFitResult(route=kept, warnings=_unique(warnings))
 
     def _fit_ordered_subset(
         self,
@@ -100,6 +100,8 @@ class RouteBudgetFitService:
         return kept, total, dropped + 1
 
     def _single_point_with_budgeted_visit(self, point: RoutePoint, budget: int) -> tuple[RoutePoint, bool]:
+        if not _is_emergency_budget_seed(point):
+            return point, False
         walk = int(getattr(point, "estimated_walk_minutes", 0) or 0)
         visit = int(getattr(point, "visit_minutes", 0) or 0)
         max_visit = max(1, budget - walk)
@@ -124,3 +126,12 @@ class RouteBudgetFitService:
 
     def _tolerated_budget(self, budget: int) -> int:
         return int(round(budget * _BUDGET_OVERFLOW_TOLERANCE))
+
+
+def _is_emergency_budget_seed(point: object) -> bool:
+    breakdown = getattr(point, "scoring_breakdown", None)
+    return isinstance(breakdown, dict) and breakdown.get("route_assembly_fallback") == "emergency_seed"
+
+
+def _unique(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(value for value in values if value))
