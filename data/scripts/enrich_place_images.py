@@ -32,7 +32,7 @@ from sqlalchemy.orm import Session
 from db.session import SessionLocal
 from models.city import City
 from models.place import Place
-from models.place_image import PLACE_IMAGE_STATUS_APPROVED, PlaceImage
+from models.place_image import PLACE_IMAGE_STATUS_APPROVED, PUBLIC_PLACE_IMAGE_STATUSES, PlaceImage
 from models.place_source_presence import PlaceSourcePresence
 from models.source_observation import SourceObservation
 from services.local_persistent_cache import get_cached_text, set_cached_text, stable_cache_key
@@ -50,6 +50,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Auto-approve place image candidates from trusted source evidence.")
     parser.add_argument("--city", required=True, help="City slug, e.g. zelenogradsk")
     parser.add_argument("--limit", type=int, default=100, help="Max places to scan")
+    parser.add_argument("--start-after-id", type=int, default=0, help="Only scan places with id greater than this value.")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")
     return parser.parse_args(argv)
@@ -66,15 +67,15 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             raise SystemExit(f"City not found: {args.city}")
 
         places = (
-            db.query(Place)
-            .filter(Place.city_id == city.id, Place.is_active.is_(True), Place.status == "active")
-            .order_by(Place.id.asc())
+            _candidate_places_query(db, city, start_after_id=int(args.start_after_id or 0))
             .limit(args.limit)
             .all()
         )
 
         summary: dict[str, Any] = {
             "city_slug": args.city,
+            "start_after_id": int(args.start_after_id or 0),
+            "last_scanned_place_id": int(args.start_after_id or 0),
             "scanned_places": 0,
             "candidates_found": 0,
             "created": 0,
@@ -91,6 +92,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
 
         for place in places:
             summary["scanned_places"] += 1
+            summary["last_scanned_place_id"] = int(place.id)
 
             if not _is_eligible_place(place):
                 summary["skipped_ineligible"] += 1
@@ -155,6 +157,28 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             db.commit()
 
         return summary
+
+
+def _candidate_places_query(db: Session, city: City, *, start_after_id: int = 0):
+    public_image_exists = (
+        db.query(PlaceImage.id)
+        .filter(
+            PlaceImage.place_id == Place.id,
+            PlaceImage.status.in_(tuple(PUBLIC_PLACE_IMAGE_STATUSES)),
+        )
+        .exists()
+    )
+    return (
+        db.query(Place)
+        .filter(
+            Place.city_id == city.id,
+            Place.id > int(start_after_id or 0),
+            Place.is_active.is_(True),
+            Place.status == "active",
+            ~public_image_exists,
+        )
+        .order_by(Place.id.asc())
+    )
 
 
 def _is_eligible_place(place: Place) -> bool:
