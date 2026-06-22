@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm \
+          docker run --rm -i \
             -e DATABASE_URL='sqlite:///./ci_import_smoke.db' \
             -e ADMIN_API_TOKEN='ci-admin-token' \
             -e APP_ENV='test' \
@@ -205,16 +205,16 @@ jobs:
             echo "=== migrations ==="
             docker compose rm -sf migrate || true
             set +e
-            docker compose run --rm migrate
+            docker compose run -T --rm migrate </dev/null
             MIGRATE_EXIT=$?
             set -e
             docker compose logs --tail=160 migrate || true
             if [ "$MIGRATE_EXIT" != "0" ]; then
               echo "ERROR: Migrations failed (exit code $MIGRATE_EXIT). Deploy aborted before runtime restart."
               echo "--- alembic heads in backend image ---"
-              docker compose run --rm --no-deps backend alembic heads || true
+              docker compose run -T --rm --no-deps backend alembic heads </dev/null || true
               echo "--- alembic current in database ---"
-              docker compose run --rm --no-deps backend alembic current || true
+              docker compose run -T --rm --no-deps backend alembic current </dev/null || true
               docker compose ps || true
               exit 1
             fi
@@ -223,7 +223,7 @@ jobs:
             echo "=== production schema guard ==="
             SCHEMA_GUARD_OK=0
             for attempt in 1 2 3; do
-              if docker compose run --rm --no-deps backend python scripts/prod_schema_guard.py; then
+              if docker compose run -T --rm --no-deps backend python scripts/prod_schema_guard.py </dev/null; then
                 SCHEMA_GUARD_OK=1
                 break
               fi
