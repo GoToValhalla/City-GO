@@ -8,6 +8,7 @@ type Props = {
   onChange: (value: string) => void
   includeAll?: boolean
   ariaLabel?: string
+  citySlug?: string
 }
 
 const fallbackCategories: AdminTaxonomyCategory[] = [
@@ -31,19 +32,27 @@ const categoryOptionLabel = (item: AdminTaxonomyCategory) => {
   return `${label} (${item.code})${count}`
 }
 
-export const AdminCategorySelect = ({ value, onChange, includeAll = false, ariaLabel = 'Категория' }: Props) => {
+const taxonomyPath = (citySlug?: string) => {
+  const sp = new URLSearchParams()
+  if (citySlug) sp.set('city_slug', citySlug)
+  const qs = sp.toString()
+  return `/admin/taxonomy/categories${qs ? `?${qs}` : ''}`
+}
+
+export const AdminCategorySelect = ({ value, onChange, includeAll = false, ariaLabel = 'Категория', citySlug }: Props) => {
   const [items, setItems] = useState<AdminTaxonomyCategory[]>(fallbackCategories)
   const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     let alive = true
-    adminGet<AdminTaxonomyResponse>('/admin/taxonomy/categories')
+    setFailed(false)
+    adminGet<AdminTaxonomyResponse>(taxonomyPath(citySlug))
       .then((payload) => {
         if (alive && payload.categories.length) setItems(payload.categories)
       })
       .catch(() => { if (alive) setFailed(true) })
     return () => { alive = false }
-  }, [])
+  }, [citySlug])
 
   return (
     <label className="admin-field-inline">
