@@ -42,6 +42,9 @@ class RequestContext:
         is_visiting: Optional[bool] = None,
         visit_city_id: Optional[str] = None,
         visit_days: Optional[int] = None,
+        start_source: Optional[str] = None,
+        start_warnings: Optional[List[str]] = None,
+        is_admin: Optional[bool] = None,
     ):
         self.location = location
         self.city_id = city_id
@@ -57,6 +60,9 @@ class RequestContext:
         self.is_visiting = is_visiting
         self.visit_city_id = visit_city_id
         self.visit_days = visit_days
+        self.start_source = start_source or "city_center"
+        self.start_warnings = list(start_warnings or [])
+        self.is_admin = bool(is_admin)
 
 
 # -----------------------------
@@ -112,6 +118,9 @@ class ContextMergeService:
         return MergedContext(
             location=location,
             city_id=request.city_id,
+            start_source=request.start_source,
+            start_warnings=list(request.start_warnings or []),
+            is_admin=bool(request.is_admin),
             timezone=request.timezone,
 
             time_budget_minutes=time_budget,
