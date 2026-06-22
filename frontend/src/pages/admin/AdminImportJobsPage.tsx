@@ -21,6 +21,8 @@ type AdminActionResponse = {
   message?: string
 }
 
+const detailLine = (label: string, value: unknown) => value === null || value === undefined || value === '' ? null : <p>{label}: <strong>{String(value)}</strong></p>
+
 export const AdminImportJobsPage = () => {
   const [items, setItems] = useState<AdminImportJob[]>([])
   const [selected, setSelected] = useState<AdminImportJob | null>(null)
@@ -47,7 +49,8 @@ export const AdminImportJobsPage = () => {
       .catch((e: Error) => setError(e.message))
   }
 
-  const runAction = async (cityId: number, path: string) => {
+  const runAction = async (cityId: number, path: string, label = 'Выполнить действие') => {
+    if (!window.confirm(`${label}? Действие запустит фоновую операцию по выбранному городу.`)) return
     setBusy(cityId)
     setError(null)
     setNotice(null)
@@ -62,6 +65,7 @@ export const AdminImportJobsPage = () => {
   }
 
   const runEnrichAll = async () => {
+    if (!window.confirm('Обогатить все города? Система поставит фоновые задачи для городов из списка. Это не публикует города автоматически.')) return
     setAllBusy(true)
     setError(null)
     setNotice(null)
@@ -84,19 +88,21 @@ export const AdminImportJobsPage = () => {
   return (
     <div>
       <h2 className="admin-page-title">Импорты ({total})</h2>
-      <p className="admin-page-subtitle">Pipeline: места → адреса → фото → качество → проверка → публикация</p>
-      <div className="admin-actions-cell" style={{ marginBottom: 16 }}>
+      <p className="admin-page-subtitle">Процесс: места → адреса → фото → качество → проверка → публикация</p>
+      <section className="admin-help-panel">
+        <div className="admin-help-title">Что делает “Обогатить все города”</div>
+        <p className="admin-bulk-hint">Кнопка ставит в очередь дозаполнение данных по городам: адреса, описания, фото и проверки качества. Она не публикует города и не удаляет места.</p>
         <button type="button" className="admin-btn" disabled={allBusy || items.length === 0} onClick={runEnrichAll}>
           {allBusy ? 'Запускаю…' : 'Обогатить все города'}
         </button>
-      </div>
+      </section>
       {notice && <p className="admin-success-text">{notice}</p>}
       {error && <AdminError message={error} />}
       {loading ? <AdminLoading /> : items.length === 0 ? (
         <AdminEmpty message="Задач импорта пока нет" />
       ) : (
         <div className="admin-table-wrap"><table className="admin-table">
-          <thead><tr><th>Город</th><th>Шаг</th><th>Публикация</th><th>Прогресс</th><th>Мест</th><th></th></tr></thead>
+          <thead><tr><th>Город</th><th>Шаг</th><th>Публикация</th><th>Прогресс</th><th>Мест</th><th>Действия</th></tr></thead>
           <tbody>
             {items.map((j) => {
               const pct = progressPct(j)
@@ -115,10 +121,10 @@ export const AdminImportJobsPage = () => {
                   <td>{j.places_total}<div className="admin-muted">на сайте: {j.places_published}</div></td>
                   <td className="admin-actions-cell">
                     <button type="button" className="admin-btn admin-btn-sm" onClick={() => loadDetail(j.city_id)}>Детали</button>
-                    {j.can_run && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/run`)}>Запустить</button>}
-                    {j.can_retry && <button type="button" className="admin-btn admin-btn-sm admin-btn-muted" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/retry`)}>Повторить</button>}
-                    <button type="button" className="admin-btn admin-btn-sm" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/enrich`)}>Обогатить</button>
-                    {j.can_publish && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/publish`)}>Опубликовать</button>}
+                    {j.can_run && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/run`, 'Запустить импорт')}>Запустить</button>}
+                    {j.can_retry && <button type="button" className="admin-btn admin-btn-sm admin-btn-muted" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/retry`, 'Повторить импорт')}>Повторить</button>}
+                    <button type="button" className="admin-btn admin-btn-sm" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/enrich`, 'Обогатить город')}>Обогатить</button>
+                    {j.can_publish && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === j.city_id} onClick={() => runAction(j.city_id, `/admin/import-jobs/${j.city_id}/publish`, 'Опубликовать город')}>Опубликовать</button>}
                   </td>
                 </tr>
               )
@@ -129,7 +135,7 @@ export const AdminImportJobsPage = () => {
       {selected && (
         <div className="admin-detail-panel">
           <h3>{selected.city_name}</h3>
-          <p>Шаг: <strong>{selected.current_step_label ?? selected.status}</strong> · Job #{selected.job_id ?? '—'}</p>
+          <p>Шаг: <strong>{selected.current_step_label ?? STATUS_LABELS[selected.status] ?? selected.status}</strong> · задача #{selected.job_id ?? '—'}</p>
           <p>Публикация: <strong>{STATUS_LABELS[selected.launch_status ?? ''] ?? selected.launch_status ?? '—'}</strong> · на сайте: {selected.places_published}/{selected.places_total}</p>
           <p>Обработано: {selected.processed_items ?? 0}/{selected.total_items ?? 0} · Успешно: {selected.successful_items ?? 0} · Ошибок: {selected.failed_items ?? 0}</p>
           <p>Найдено: {selected.places_found ?? 0} · Сохранено: {selected.places_saved ?? 0} · В городе: {selected.places_total}</p>
@@ -137,13 +143,18 @@ export const AdminImportJobsPage = () => {
           {selected.is_stalled && <p className="admin-error-text">Задача не обновлялась дольше порога — возможно зависла.</p>}
           <p>{selected.next_step}</p>
           {selected.step_details && (
-            <p className="admin-muted">Детали шага: {JSON.stringify(selected.step_details)}</p>
+            <div className="admin-muted">
+              {detailLine('Найдено мест', selected.step_details.places_found)}
+              {detailLine('Сохранено мест', selected.step_details.places_saved)}
+              {detailLine('Всего к обработке', selected.step_details.total_items)}
+              {detailLine('Обработано', selected.step_details.processed_items)}
+            </div>
           )}
           <div className="admin-actions-cell">
-            {selected.can_run && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/run`)}>Запустить сейчас</button>}
-            {selected.can_retry && <button type="button" className="admin-btn admin-btn-sm admin-btn-muted" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/retry`)}>Повторить</button>}
-            {selected.can_cancel && <button type="button" className="admin-btn admin-btn-sm admin-btn-danger" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/cancel`)}>Отменить</button>}
-            {selected.can_publish && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/publish`)}>Опубликовать город</button>}
+            {selected.can_run && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/run`, 'Запустить импорт')}>Запустить сейчас</button>}
+            {selected.can_retry && <button type="button" className="admin-btn admin-btn-sm admin-btn-muted" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/retry`, 'Повторить импорт')}>Повторить</button>}
+            {selected.can_cancel && <button type="button" className="admin-btn admin-btn-sm admin-btn-danger" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/cancel`, 'Отменить задачу')}>Отменить</button>}
+            {selected.can_publish && <button type="button" className="admin-btn admin-btn-sm" disabled={busy === selected.city_id} onClick={() => runAction(selected.city_id, `/admin/import-jobs/${selected.city_id}/publish`, 'Опубликовать город')}>Опубликовать город</button>}
             {selected.report_url && <Link className="admin-btn admin-btn-sm" to={selected.report_url}>Отчёт качества</Link>}
             {selected.logs_url && <Link className="admin-btn admin-btn-sm" to={selected.logs_url}>Логи</Link>}
             <Link className="admin-btn admin-btn-sm" to={`/admin/places?city=${selected.city_slug}`}>Места</Link>
