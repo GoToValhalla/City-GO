@@ -57,11 +57,11 @@ export const AdminMetricsPage = () => {
   const runCi = async () => {
     try {
       setDeployLoading(true)
-      setDeployMessage('Запускаю GitHub Actions...')
+      setDeployMessage('Запускаю проверку в GitHub...')
       const response = await adminPost<DeploymentRunResponse>('/admin/deployment/run-ci', { confirm: true })
-      setDeployMessage(`Запущено: ${response.workflow} · ${response.branch} · ${response.status}`)
+      setDeployMessage(`Запущено: ${response.workflow} · ветка ${response.branch} · ${response.status}`)
     } catch (e) {
-      setDeployMessage(e instanceof Error ? e.message : 'Не удалось запустить GitHub Actions')
+      setDeployMessage(e instanceof Error ? e.message : 'Не удалось запустить проверку')
     } finally {
       setDeployLoading(false)
     }
@@ -77,14 +77,14 @@ export const AdminMetricsPage = () => {
     { label: 'Без описания', value: data.places_no_description ?? 0, link: '/admin/places?preset=no_description', action: 'Открыть' },
   ]
   const routes: MetricCard[] = [
-    { label: 'Маршрутов за 7 дней', value: data.routes_week ?? 0, link: '/admin/routes/dry-run', action: 'Dry Run' },
-    { label: 'Ошибок маршрутов (7д)', value: data.routes_failed_week ?? 0, link: '/admin/routes/eligibility', action: 'Диагностика' },
-    { label: 'Успешность %', value: data.route_success_rate ?? '—' },
+    { label: 'Маршрутов за 7 дней', value: data.routes_week ?? 0, link: '/admin/routes/dry-run', action: 'Проверить сборку' },
+    { label: 'Ошибок маршрутов за 7 дней', value: data.routes_failed_week ?? 0, link: '/admin/routes/eligibility', action: 'Диагностика' },
+    { label: 'Успешность', value: data.route_success_rate ?? '—' },
   ]
   const imports: MetricCard[] = [
-    { label: 'Импортов OK (7д)', value: data.imports_ok_week ?? 0, link: '/admin/imports', action: 'Импорты' },
-    { label: 'Импортов с ошибкой (7д)', value: data.imports_fail_week ?? 0, link: '/admin/imports', action: 'Проверить' },
-    { label: 'Обогащений (7д)', value: data.enrichment_ok_week ?? 0, link: '/admin/place-enrichment', action: 'Экспорт' },
+    { label: 'Успешных импортов за 7 дней', value: data.imports_ok_week ?? 0, link: '/admin/imports', action: 'Импорты' },
+    { label: 'Импортов с ошибкой за 7 дней', value: data.imports_fail_week ?? 0, link: '/admin/imports', action: 'Проверить' },
+    { label: 'Обогащений за 7 дней', value: data.enrichment_ok_week ?? 0, link: '/admin/place-enrichment', action: 'Экспорт' },
   ]
 
   const renderSection = (title: string, cards: MetricCard[]) => (
@@ -110,34 +110,34 @@ export const AdminMetricsPage = () => {
       {renderSection('Маршруты', routes)}
       {renderSection('Импорты и обогащение', imports)}
       <section>
-        <h3 className="admin-page-subtitle">CI / деплой</h3>
+        <h3 className="admin-page-subtitle">Проверка и деплой</h3>
         <div className="admin-metrics-grid">
           <div className="admin-metric-card">
             <div className="admin-metric-value">{deployment?.enabled ? 'Готово' : 'Не настроено'}</div>
-            <div className="admin-metric-label">GitHub Actions</div>
+            <div className="admin-metric-label">Проверка в GitHub</div>
             <p className="admin-muted">
               {deployment
                 ? `${deployment.repo} · ${deployment.workflow} · ${deployment.branch}`
-                : 'Backend не вернул статус workflow.'}
+                : 'Сервер не вернул статус проверки.'}
             </p>
-            <p className="admin-muted">{deployment?.deploy_note ?? 'Для запуска нужен backend endpoint и GitHub token.'}</p>
+            <p className="admin-muted">{deployment?.deploy_note ?? 'Для запуска нужен endpoint на сервере и GitHub token.'}</p>
             <button
               type="button"
               className="admin-btn admin-btn-primary"
               disabled={!deployment?.enabled || deployLoading}
               onClick={() => void runCi()}
             >
-              {deployLoading ? 'Запускаю...' : 'Запустить проверку из GitHub'}
+              {deployLoading ? 'Запускаю...' : 'Запустить проверку'}
             </button>
             {deployMessage ? <p className="admin-muted">{deployMessage}</p> : null}
           </div>
         </div>
       </section>
       <section>
-        <h3 className="admin-page-subtitle">Продукт (не влияет напрямую)</h3>
+        <h3 className="admin-page-subtitle">Продуктовые метрики</h3>
         <div className="admin-metrics-grid">
-          <div className="admin-metric-card"><div className="admin-metric-value">{data.dau}</div><div className="admin-metric-label">DAU</div></div>
-          <div className="admin-metric-card"><div className="admin-metric-value">{data.mau}</div><div className="admin-metric-label">MAU</div></div>
+          <div className="admin-metric-card"><div className="admin-metric-value">{data.dau}</div><div className="admin-metric-label">Активных за день</div></div>
+          <div className="admin-metric-card"><div className="admin-metric-value">{data.mau}</div><div className="admin-metric-label">Активных за месяц</div></div>
         </div>
       </section>
     </div>
