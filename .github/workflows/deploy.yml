@@ -132,6 +132,8 @@ jobs:
           GH_ACTOR: ${{ github.actor }}
           GH_REPO: ${{ github.repository }}
           ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           EXPECTED_FRONTEND_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
@@ -139,10 +141,12 @@ jobs:
           REMOTE_GH_ACTOR=$(printf '%q' "$GH_ACTOR")
           REMOTE_GH_REPO=$(printf '%q' "$GH_REPO")
           REMOTE_ADMIN_API_TOKEN=$(printf '%q' "${ADMIN_API_TOKEN:-}")
+          REMOTE_TELEGRAM_BOT_TOKEN=$(printf '%q' "${TELEGRAM_BOT_TOKEN:-}")
+          REMOTE_TELEGRAM_CHAT_ID=$(printf '%q' "${TELEGRAM_CHAT_ID:-}")
           REMOTE_EXPECTED_FRONTEND_SHA=$(printf '%q' "$EXPECTED_FRONTEND_SHA")
 
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
-            "GH_TOKEN=$REMOTE_GH_TOKEN GH_ACTOR=$REMOTE_GH_ACTOR GH_REPO=$REMOTE_GH_REPO ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN EXPECTED_FRONTEND_SHA=$REMOTE_EXPECTED_FRONTEND_SHA bash -seu -o pipefail" <<'REMOTE_EOF'
+            "GH_TOKEN=$REMOTE_GH_TOKEN GH_ACTOR=$REMOTE_GH_ACTOR GH_REPO=$REMOTE_GH_REPO ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN TELEGRAM_BOT_TOKEN=$REMOTE_TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID=$REMOTE_TELEGRAM_CHAT_ID EXPECTED_FRONTEND_SHA=$REMOTE_EXPECTED_FRONTEND_SHA bash -seu -o pipefail" <<'REMOTE_EOF'
             mkdir -p /srv/app
 
             echo "=== download compose from ${GH_REPO}@main ==="
@@ -159,6 +163,20 @@ jobs:
                 printf '%s\n' "ADMIN_API_TOKEN=${ADMIN_API_TOKEN}" >> .env
               else
                 echo "WARN: ADMIN_API_TOKEN missing in .env and GitHub secret; admin frontend/backend auth may fail."
+              fi
+            fi
+            if ! grep -q '^TELEGRAM_BOT_TOKEN=.' .env 2>/dev/null; then
+              if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+                printf '%s\n' "TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}" >> .env
+              else
+                echo "WARN: TELEGRAM_BOT_TOKEN missing in .env and GitHub secret; runtime alerts disabled."
+              fi
+            fi
+            if ! grep -q '^TELEGRAM_CHAT_ID=.' .env 2>/dev/null; then
+              if [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+                printf '%s\n' "TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}" >> .env
+              else
+                echo "WARN: TELEGRAM_CHAT_ID missing in .env and GitHub secret; runtime alerts disabled."
               fi
             fi
             if ! grep -q '^APP_ENV=' .env 2>/dev/null; then
