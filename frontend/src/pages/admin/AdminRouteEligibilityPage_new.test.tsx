@@ -33,7 +33,7 @@ describe('AdminRouteEligibilityPage diagnostics', () => {
     await waitFor(() => expect(screen.getByText('Готовность мест для маршрутов · Test City')).toBeTruthy())
     expect(screen.getByText('Test City')).toBeTruthy()
     expect(screen.getByText('Готово для маршрутов')).toBeTruthy()
-    expect(screen.getAllByText('Нет фото').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Нет фото.').length).toBeGreaterThan(0)
     expect(screen.getByText('Near-ready Cafe')).toBeTruthy()
   })
 })
