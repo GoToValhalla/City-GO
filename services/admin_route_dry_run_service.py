@@ -19,23 +19,36 @@ from services.context_merge_service import RequestContext
 from services.route_builder_service import RouteBuilderService
 from services.route_generation_logging import log_admin_dry_run, log_route_generation_started
 
+START_COORDINATES_REPLACED_WARNING = "start_coordinates_replaced_with_city_center"
+
 
 class AdminRouteDryRunService:
     def run(self, db: Session, *, request: AdminRouteDryRunRequest, actor_id: str) -> AdminRouteDryRunResponse:
         city = db.query(City).filter(City.slug == request.city_slug).first()
         if city is None:
             raise HTTPException(status_code=404, detail="Город не найден")
-        lat, lng = self._resolve_start(city, request)
+        lat, lng, start_source, start_warnings = self._resolve_start(city, request)
         route_request = RequestContext(
             location=(lat, lng),
             city_id=city.slug,
+            timezone=city.timezone,
             time_budget_minutes=request.duration_min,
             interests=request.interests,
             budget_level=request.budget_level,
+            start_source=start_source,
+            start_warnings=start_warnings,
+            is_admin=True,
         )
-        payload = {"source": "admin_dry_run", "actor_id": actor_id, **request.model_dump()}
+        payload = {
+            "source": "admin_dry_run",
+            "actor_id": actor_id,
+            "start_source": start_source,
+            "start_warnings": start_warnings,
+            **request.model_dump(),
+        }
         log_route_generation_started(db, source="admin_dry_run", city_slug=city.slug, payload=payload)
         final = RouteBuilderService().build_route(db=db, request=route_request, profile=None)
+        self._attach_context_warnings(final, start_warnings)
         run_id = getattr(final, "generation_run_id", None)
         if run_id is None:
             raise HTTPException(status_code=500, detail="Не удалось сохранить диагностику")
@@ -62,12 +75,31 @@ class AdminRouteDryRunService:
             quality=self._quality_payload(final),
         )
 
-    def _resolve_start(self, city: City, request: AdminRouteDryRunRequest) -> tuple[float, float]:
+    def _resolve_start(self, city: City, request: AdminRouteDryRunRequest) -> tuple[float, float, str, list[str]]:
         if request.start_lat is not None and request.start_lng is not None:
-            return request.start_lat, request.start_lng
+            if self._valid_coordinates(request.start_lat, request.start_lng):
+                return request.start_lat, request.start_lng, "admin_input", []
+            if city.center_lat is not None and city.center_lng is not None:
+                return city.center_lat, city.center_lng, "city_center", [START_COORDINATES_REPLACED_WARNING]
+            raise HTTPException(status_code=422, detail="Стартовые координаты некорректны, а центр города не задан")
         if city.center_lat is not None and city.center_lng is not None:
-            return city.center_lat, city.center_lng
+            return city.center_lat, city.center_lng, "city_center", []
         raise HTTPException(status_code=422, detail="Укажите start_lat/start_lng или задайте центр города")
+
+    def _valid_coordinates(self, lat: object, lng: object) -> bool:
+        if not isinstance(lat, (int, float)) or not isinstance(lng, (int, float)):
+            return False
+        if isinstance(lat, bool) or isinstance(lng, bool):
+            return False
+        if float(lat) == 0.0 and float(lng) == 0.0:
+            return False
+        return -90.0 <= float(lat) <= 90.0 and -180.0 <= float(lng) <= 180.0
+
+    def _attach_context_warnings(self, final: object, warnings: list[str]) -> None:
+        if not warnings:
+            return
+        current = list(getattr(final, "warnings", []) or [])
+        setattr(final, "warnings", list(dict.fromkeys([*current, *warnings])))
 
     def _split_candidates(
         self,
