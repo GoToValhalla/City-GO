@@ -32,7 +32,11 @@ from sqlalchemy.orm import Session
 from db.session import SessionLocal
 from models.city import City
 from models.place import Place
-from models.place_image import PLACE_IMAGE_STATUS_APPROVED, PUBLIC_PLACE_IMAGE_STATUSES, PlaceImage
+from models.place_image import (
+    PLACE_IMAGE_STATUS_APPROVED,
+    PUBLIC_PLACE_IMAGE_STATUSES,
+    PlaceImage,
+)
 from models.place_source_presence import PlaceSourcePresence
 from models.source_observation import SourceObservation
 from services.local_persistent_cache import get_cached_text, set_cached_text, stable_cache_key
