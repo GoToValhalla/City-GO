@@ -28,6 +28,14 @@ const CITY_COORDINATES: Record<string, CityCoordinates> = {
     lat: '54.96',
     lng: '20.48',
   },
+  astrakhan: {
+    lat: '46.3497',
+    lng: '48.0408',
+  },
+  arkhangelsk: {
+    lat: '64.5393',
+    lng: '40.5170',
+  },
   kutaisi: {
     lat: '42.2676',
     lng: '42.7180',
