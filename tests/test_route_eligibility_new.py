@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any, TypeVar
+
 from models.city import City
 from models.place import Place
 from services.route_eligibility import (
@@ -10,7 +13,29 @@ from services.route_eligibility import (
     is_route_forbidden_category,
 )
 
+F = TypeVar("F", bound=Callable[..., Any])
 
+try:  # pragma: no cover - allure may be absent in local CI dependencies.
+    import allure  # type: ignore
+except ImportError:  # pragma: no cover
+    class _AllureNoop:
+        def epic(self, _title: str) -> Callable[[F], F]:
+            return lambda func: func
+
+        def feature(self, _title: str) -> Callable[[F], F]:
+            return lambda func: func
+
+        def story(self, _title: str) -> Callable[[F], F]:
+            return lambda func: func
+
+        def severity(self, _level: str) -> Callable[[F], F]:
+            return lambda func: func
+
+    allure = _AllureNoop()
+
+
+@allure.epic("City Go Admin")
+@allure.feature("Route Eligibility Quality Gates")
 def _place(**kwargs) -> Place:
     defaults = {
         "id": 1,
@@ -60,6 +85,14 @@ def test_route_eligible_false_not_eligible_new() -> None:
     assert "route_eligible_false" in result.reasons
 
 
+@allure.story("Placeholder names are blocked from routes")
+@allure.severity("critical")
+def test_placeholder_osm_title_not_eligible_new() -> None:
+    result = evaluate_place_route_eligibility(_place(title="Культурное место OSM 15446625"))
+    assert not result.eligible
+    assert "placeholder_title" in result.reasons
+
+
 def test_valid_tourist_place_eligible_new() -> None:
     city = City(
         slug="zelenogradsk",
@@ -87,3 +120,17 @@ def test_apply_route_eligible_filters_excludes_pharmacy_new(db_session, city_fac
     categories = {row.category for row in query.all()}
     assert "pharmacy" not in categories
     assert "cafe" in categories
+
+
+@allure.story("Placeholder names are filtered from route candidate SQL")
+@allure.severity("critical")
+def test_apply_route_eligible_filters_excludes_placeholder_titles_new(db_session, city_factory, place_factory) -> None:
+    city = city_factory(slug="elig-placeholder-city")
+    place_factory(slug="real-museum", title="Краеведческий музей", category="museum", city_id=city.id)
+    place_factory(slug="osm-culture", title="Культурное место OSM 15446625", category="culture", city_id=city.id)
+
+    query = apply_route_eligible_filters(db_session.query(Place).filter(Place.city_id == city.id))
+    titles = {row.title for row in query.all()}
+
+    assert "Краеведческий музей" in titles
+    assert "Культурное место OSM 15446625" not in titles
