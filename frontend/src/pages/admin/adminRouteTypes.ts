@@ -9,6 +9,8 @@ export type EligibilityRow = {
   reasons: string[]
   primary_reason: string
   city_slug: string | null
+  placeholder_name?: boolean
+  high_quality_route_candidate?: boolean
 }
 
 export type EligibilityResponse = {
