@@ -14,6 +14,7 @@ from schemas.admin import (
     AdminRouteUpdateRequest,
 )
 from services.admin_audit_service import write_admin_audit_log
+from services.admin_city_import_job_payload import recover_failed_import_with_places
 from services.admin_city_import_tasks import mark_stalled_import_jobs
 from services.admin_extra_service import admin_coverage
 from services.place_service import get_place_by_id
@@ -41,6 +42,7 @@ def get_admin_cities(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[
 def _city_payload(db: Session, city: City) -> dict[str, object]:
     places_query = db.query(Place).filter(Place.city_id == city.id)
     places_total = places_query.count()
+    recover_failed_import_with_places(db, city, places_total=places_total)
     places_published = places_query.filter(Place.is_published.is_(True)).count()
     return {
         "id": city.id,
