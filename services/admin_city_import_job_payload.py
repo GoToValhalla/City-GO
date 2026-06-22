@@ -22,6 +22,7 @@ PUBLISHABLE_CITY_STATUSES = {
 }
 
 FAILED_IMPORT_STATUSES = {"failed", "stalled", "import_failed"}
+REVIEWABLE_IMPORT_STATUSES = {"success", "success_with_warnings", "partial_success", "imported"}
 
 
 def _latest_job(db: Session, city_id: int) -> CityAdminImportJob | None:
@@ -66,10 +67,7 @@ def recover_failed_import_with_places(
     job.step_details = details
     job.status = "partial_success"
     job.current_step = STEP_READY_FOR_REVIEW
-    job.processed_items = max(int(job.processed_items or 0), int(total))
-    job.successful_items = max(int(job.successful_items or 0), int(total))
-    job.places_found = max(int(job.places_found or 0), int(total))
-    job.places_saved = max(int(job.places_saved or 0), int(total))
+    _sync_reviewable_job_counts(job, int(total))
     city.launch_status = "review_required"
     city.is_active = False
     db.commit()
@@ -78,10 +76,82 @@ def recover_failed_import_with_places(
     return True
 
 
+def normalize_reviewable_import_state(
+    db: Session,
+    city: City,
+    job: CityAdminImportJob | None,
+    places_total: int,
+    *,
+    actor_id: str = "admin-panel-read",
+) -> bool:
+    """Keep reviewable import payloads consistent with the actual saved places count."""
+    if job is None:
+        return False
+    status = str(job.status or "")
+    is_reviewable = (
+        city.launch_status == "review_required"
+        or job.current_step == STEP_READY_FOR_REVIEW
+        or status in REVIEWABLE_IMPORT_STATUSES
+    )
+    if not is_reviewable:
+        return False
+
+    if places_total > 0:
+        before = (job.total_items, job.processed_items, job.successful_items, job.places_found, job.places_saved)
+        _sync_reviewable_job_counts(job, int(places_total))
+        after = (job.total_items, job.processed_items, job.successful_items, job.places_found, job.places_saved)
+        if before == after:
+            return False
+        details = dict(job.step_details or {})
+        details["reviewable_count_sync"] = {
+            "actor_id": actor_id,
+            "reason": "reviewable_import_has_saved_places",
+            "places_total": int(places_total),
+        }
+        job.step_details = details
+        db.commit()
+        db.refresh(job)
+        return True
+
+    details = dict(job.step_details or {})
+    details["empty_review_recovery"] = {
+        "actor_id": actor_id,
+        "reason": "reviewable_import_without_saved_places",
+        "previous_status": job.status,
+        "previous_launch_status": city.launch_status,
+        "previous_step": job.current_step,
+    }
+    job.step_details = details
+    job.status = "failed"
+    job.current_step = "error"
+    job.last_error = job.last_error or "Город был готов к проверке, но сохраненных мест нет. Повторите импорт."
+    job.total_items = 0
+    job.processed_items = 0
+    job.successful_items = 0
+    job.places_found = 0
+    job.places_saved = 0
+    city.launch_status = "import_failed"
+    city.is_active = False
+    db.commit()
+    db.refresh(city)
+    db.refresh(job)
+    return True
+
+
+def _sync_reviewable_job_counts(job: CityAdminImportJob, places_total: int) -> None:
+    job.total_items = max(int(job.total_items or 0), places_total)
+    job.processed_items = max(int(job.processed_items or 0), places_total)
+    job.successful_items = max(int(job.successful_items or 0), places_total)
+    job.places_found = max(int(job.places_found or 0), places_total)
+    job.places_saved = max(int(job.places_saved or 0), places_total)
+
+
 def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
     places_total = db.query(Place).filter(Place.city_id == city.id).count()
     recover_failed_import_with_places(db, city, places_total=places_total)
     job = _latest_job(db, city.id)
+    if normalize_reviewable_import_state(db, city, job, places_total):
+        job = _latest_job(db, city.id)
     places_published = db.query(Place).filter(Place.city_id == city.id, Place.is_published.is_(True)).count()
     pending_photos = (
         db.query(PlaceImage)
