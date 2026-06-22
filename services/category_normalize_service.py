@@ -24,7 +24,7 @@ def normalize_city_categories(db: Session, *, city_slug: str, apply: bool = True
     scanned = updated = skipped = unknown = 0
     for place in places:
         scanned += 1
-        canon = normalize_category_code(place.category)
+        canon = normalize_category_code(place.category or place.canonical_category)
         if canon is None or canon not in PLACE_CATEGORIES:
             skipped += 1
             unknown += 1
@@ -33,14 +33,16 @@ def normalize_city_categories(db: Session, *, city_slug: str, apply: bool = True
         category = _canonical_category(db, canon, apply=apply)
         category_id = getattr(category, "id", None)
         category_changed = canon != place.category
+        canonical_changed = canon != place.canonical_category
         fk_changed = bool(category_id) and place.category_id != category_id
 
-        if not category_changed and not fk_changed:
+        if not category_changed and not canonical_changed and not fk_changed:
             skipped += 1
             continue
 
         if apply:
             place.category = canon
+            place.canonical_category = canon
             if category_id:
                 place.category_id = category_id
             db.add(place)
