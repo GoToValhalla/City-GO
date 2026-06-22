@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # Telegram Bot — токен API бота (Long Poll / webhook).
     bot_token: str = ""
 
+    # Telegram runtime alerts — чат, куда уходят ошибки import-worker/enrichment.
+    # TELEGRAM_BOT_TOKEN переиспользует того же бота, что и CI/deploy notifications.
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
     # Backend URL for Telegram bot — базовый URL этого FastAPI для запросов из бота.
     backend_base_url: str = "http://127.0.0.1:8000"
 
