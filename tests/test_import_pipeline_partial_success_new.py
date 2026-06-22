@@ -27,7 +27,7 @@ def test_hard_pipeline_failure_after_saved_places_becomes_partial_success_new(db
     result = run_enrichment_pipeline(db_session, job=job, city=city, actor_id="test-admin")
     job_id = job.id
     city_id = city.id
-    db_session.rollback()
+    db_session.expire_all()
     persisted_job = db_session.get(CityAdminImportJob, job_id)
     persisted_city = db_session.get(City, city_id)
 
