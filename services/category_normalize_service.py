@@ -4,32 +4,73 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from core.place_category_hierarchy import LEGACY_TO_CANONICAL, normalize_category_code
+from core.place_category_hierarchy import (
+    CATEGORY_LABELS_RU,
+    LEGACY_TO_CANONICAL,
+    ROUTE_EXCLUDED_CATEGORIES,
+    normalize_category_code,
+)
 from core.place_taxonomy import PLACE_CATEGORIES
+from models.category import Category
 from models.city import City
 from models.place import Place
 
 
-def normalize_city_categories(db: Session, *, city_slug: str, apply: bool = True) -> dict[str, int]:
+def normalize_city_categories(db: Session, *, city_slug: str, apply: bool = True) -> dict[str, object]:
     city = db.query(City).filter(City.slug == city_slug).first()
     if city is None:
         raise ValueError(f"Город не найден: {city_slug}")
     places = db.query(Place).filter(Place.city_id == city.id).all()
-    scanned = updated = skipped = 0
+    scanned = updated = skipped = unknown = 0
     for place in places:
         scanned += 1
         canon = normalize_category_code(place.category)
-        if canon is None or canon == place.category:
-            if canon and canon in PLACE_CATEGORIES:
-                skipped += 1
+        if canon is None or canon not in PLACE_CATEGORIES:
+            skipped += 1
+            unknown += 1
             continue
-        if canon not in PLACE_CATEGORIES:
+
+        category = _canonical_category(db, canon, apply=apply)
+        category_id = getattr(category, "id", None)
+        category_changed = canon != place.category
+        fk_changed = bool(category_id) and place.category_id != category_id
+
+        if not category_changed and not fk_changed:
             skipped += 1
             continue
+
         if apply:
             place.category = canon
+            if category_id:
+                place.category_id = category_id
             db.add(place)
         updated += 1
     if apply and updated:
         db.commit()
-    return {"scanned": scanned, "updated": updated, "skipped": skipped, "legacy_map": LEGACY_TO_CANONICAL}
+    return {
+        "scanned": scanned,
+        "updated": updated,
+        "skipped": skipped,
+        "unknown": unknown,
+        "legacy_map": LEGACY_TO_CANONICAL,
+    }
+
+
+def _canonical_category(db: Session, code: str, *, apply: bool) -> Category | None:
+    category = db.query(Category).filter(Category.code == code).first()
+    if category is not None or not apply:
+        return category
+
+    is_route_eligible = code not in ROUTE_EXCLUDED_CATEGORIES
+    category = Category(
+        code=code,
+        name=CATEGORY_LABELS_RU.get(code, code),
+        is_active=True,
+        is_route_eligible=is_route_eligible,
+        is_catalog_visible=is_route_eligible,
+        is_default_enabled=True,
+        is_spam_category=False,
+    )
+    db.add(category)
+    db.flush()
+    return category
