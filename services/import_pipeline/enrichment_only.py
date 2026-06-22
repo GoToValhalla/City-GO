@@ -94,6 +94,17 @@ def run_enrichment_only_pipeline(
         city.launch_status = "review_required"
         log_import_event(db, event="enrichment_pipeline_finished", city_slug=slug, actor_id=actor_id,
                          message=f"Обогащение #{job.id} завершено", details={"job_id": job.id, **results})
+        db.commit()
+        db.refresh(job)
+        db.refresh(city)
+        send_admin_alert(
+            title="Enrichment pipeline finished",
+            message=f"{city.name} готов к проверке после обогащения. Мест обработано: {places_total}.",
+            level="info",
+            city_slug=slug,
+            job_id=int(job.id),
+            details={"status": job.status, "source": job.source, "places_total": places_total, "readiness": readiness},
+        )
         return results
     except Exception as exc:  # noqa: BLE001
         job.status = "failed"
