@@ -16,6 +16,8 @@ class EligibilityPlaceRow(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     primary_reason: str
     city_slug: str | None = None
+    placeholder_name: bool = False
+    high_quality_route_candidate: bool = False
 
 
 class EligibilityListResponse(BaseModel):
