@@ -12,7 +12,7 @@
   .admin-sidebar {
     position: fixed; top: 0; left: 0; height: 100dvh; max-height: 100dvh; z-index: 1100; transform: translateX(-100%);
     transition: transform .2s ease; width: min(280px, 85vw); padding-top: max(20px, env(safe-area-inset-top));
-    overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+    padding-bottom: max(20px, env(safe-area-inset-bottom)); overflow: hidden; overscroll-behavior: contain; touch-action: pan-y;
   }
   .admin-sidebar-open { transform: translateX(0); }
   .admin-main { width: 100%; min-height: 100vh; }
