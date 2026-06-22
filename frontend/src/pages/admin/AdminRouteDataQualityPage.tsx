@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
+import { categoryText, qualityText, routeReasonText } from './adminRouteCopy'
 import type { AdminCitiesResponse } from './adminTypes'
 import type { DataQualityReport } from './adminRouteTypes'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
@@ -47,7 +48,7 @@ export const AdminRouteDataQualityPage = () => {
       setActionLoading(true)
       setActionMessage('Ставлю задачу обновления адресов...')
       const result = await adminPost<{ operation_id: number; status: string }>('/admin/places/address-refresh', { city_slug: citySlug })
-      setActionMessage(`Адреса поставлены в очередь: operation #${result.operation_id}, status ${result.status}`)
+      setActionMessage(`Адреса поставлены в очередь: операция #${result.operation_id}.`)
       load()
     } catch (e) {
       setActionMessage(e instanceof Error ? e.message : 'Не удалось запустить обновление адресов')
@@ -61,7 +62,8 @@ export const AdminRouteDataQualityPage = () => {
 
   return (
     <div>
-      <h2 className="admin-page-title">Маршруты → Data Quality</h2>
+      <h2 className="admin-page-title">Маршруты → качество данных</h2>
+      <p className="admin-page-subtitle">Показывает, что мешает местам попадать в маршруты.</p>
       <div className="admin-filters">
         <select value={citySlug} onChange={(e) => setCitySlug(e.target.value)}>
           <option value="">Город</option>
@@ -71,8 +73,16 @@ export const AdminRouteDataQualityPage = () => {
       </div>
       {!report ? <AdminEmpty message="Выберите город" /> : (
         <div className="admin-cards">
+          <section className="admin-help-panel">
+            <div className="admin-help-title">Как пользоваться этим экраном</div>
+            <ul className="admin-help-list">
+              <li>Сначала откройте проблему из плана исправления.</li>
+              <li>На странице мест отфильтруйте список и примените массовое действие.</li>
+              <li>После исправлений вернитесь сюда и обновите отчет.</li>
+            </ul>
+          </section>
           <section className="admin-card">
-            <strong>P0 план исправления каталога</strong>
+            <strong>План исправления каталога</strong>
             {report.action_plan.length === 0 ? (
               <p className="admin-muted">Критичных действий по каталогу нет.</p>
             ) : (
@@ -84,10 +94,10 @@ export const AdminRouteDataQualityPage = () => {
                   {report.action_plan.map((action) => (
                     <tr key={action.code}>
                       <td>{severityLabel(action.severity)}</td>
-                      <td>{action.title}</td>
+                      <td>{routeReasonText(action.code) === '—' ? action.title : routeReasonText(action.code)}</td>
                       <td>{action.count}</td>
                       <td>{action.recommended_action}</td>
-                      <td><Link className="admin-btn admin-btn-sm" to={action.admin_link}>Открыть</Link></td>
+                      <td><Link className="admin-btn admin-btn-sm" to={action.admin_link}>Открыть места</Link></td>
                     </tr>
                   ))}
                 </tbody>
@@ -96,6 +106,7 @@ export const AdminRouteDataQualityPage = () => {
           </section>
           <section className="admin-card">
             <strong>Действия по качеству данных</strong>
+            <p className="admin-muted">Кнопка ниже не публикует места и не меняет координаты. Она ставит задачу дозаполнить адреса по выбранному городу.</p>
             <div className="admin-filters admin-filters-stack">
               <button type="button" className="admin-btn admin-btn-primary" disabled={actionLoading} onClick={() => void refreshAddresses()}>
                 Обновить адреса по городу
@@ -103,27 +114,27 @@ export const AdminRouteDataQualityPage = () => {
               <Link className="admin-btn admin-btn-sm" to={placesLink(report.city_slug, 'no_photo')}>Открыть места без фото</Link>
               <Link className="admin-btn admin-btn-sm" to={placesLink(report.city_slug, 'no_address')}>Открыть места без адреса</Link>
               <Link className="admin-btn admin-btn-sm" to={placesLink(report.city_slug, 'no_description')}>Открыть места без описания</Link>
-              <Link className="admin-btn admin-btn-sm" to={`/admin/routes/eligibility?city_slug=${report.city_slug}&issue=forbidden_category`}>Forbidden в Eligibility</Link>
+              <Link className="admin-btn admin-btn-sm" to={`/admin/routes/eligibility?city_slug=${report.city_slug}&issue=forbidden_category`}>Категории, запрещенные для маршрутов</Link>
             </div>
             {actionMessage ? <p className="admin-muted">{actionMessage}</p> : null}
           </section>
-          <div className="admin-card"><strong>Всего</strong><div>{report.places_total}</div></div>
-          <div className="admin-card"><strong>Eligible</strong><div>{report.places_eligible}</div></div>
-          <div className="admin-card"><strong>Not eligible</strong><div>{report.places_not_eligible}</div></div>
+          <div className="admin-card"><strong>Всего мест</strong><div>{report.places_total}</div></div>
+          <div className="admin-card"><strong>Готовы для маршрутов</strong><div>{report.places_eligible}</div></div>
+          <div className="admin-card"><strong>Нужно исправить</strong><div>{report.places_not_eligible}</div></div>
           <div className="admin-card"><strong>Без фото</strong><div>{report.places_without_photo}</div></div>
           <div className="admin-card"><strong>Без адреса</strong><div>{report.places_without_address}</div></div>
           <div className="admin-card"><strong>Без описания</strong><div>{report.places_without_description}</div></div>
-          <h3>ТОП категорий</h3>
-          <ul>{topCategories(report.category_counts).map(([k, v]) => <li key={k}>{k}: {v}</li>)}</ul>
-          <h3>ТОП запрещённых</h3>
-          <ul>{topCategories(report.forbidden_category_counts).map(([k, v]) => <li key={k}>{k}: {v}</li>)}</ul>
-          <h3>Quality buckets</h3>
-          <ul>{Object.entries(report.quality_buckets).map(([k, v]) => <li key={k}>{k}: {v}</li>)}</ul>
+          <h3>Топ категорий</h3>
+          <ul>{topCategories(report.category_counts).map(([k, v]) => <li key={k}>{categoryText(k)}: {v}</li>)}</ul>
+          <h3>Запрещенные категории</h3>
+          <ul>{topCategories(report.forbidden_category_counts).map(([k, v]) => <li key={k}>{categoryText(k)}: {v}</li>)}</ul>
+          <h3>Уровни качества</h3>
+          <ul>{Object.entries(report.quality_buckets).map(([k, v]) => <li key={k}>{qualityText(k)}: {v}</li>)}</ul>
           <h3>Проблемы</h3>
-          <table className="admin-table"><thead><tr><th>Код</th><th>Кол-во</th><th /></tr></thead><tbody>
+          <table className="admin-table"><thead><tr><th>Проблема</th><th>Кол-во</th><th /></tr></thead><tbody>
             {report.issues.map((i) => (
-              <tr key={i.code}><td>{i.code}</td><td>{i.count}</td>
-                <td><Link className="admin-btn admin-btn-sm" to={i.places_link}>Список</Link></td></tr>
+              <tr key={i.code}><td>{routeReasonText(i.code)}</td><td>{i.count}</td>
+                <td><Link className="admin-btn admin-btn-sm" to={i.places_link}>Открыть список</Link></td></tr>
             ))}
           </tbody></table>
         </div>
