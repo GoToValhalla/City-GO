@@ -6,6 +6,31 @@ from __future__ import annotations
 START_REPLACED_WARNING = "start_coordinates_replaced_with_city_center"
 
 
+def test_tm_002_interest_exclusion_conflict_keeps_route_new(client, city_factory, place_factory) -> None:
+    city = city_factory(
+        slug="tm-interest-clash",
+        center_lat=43.2389,
+        center_lng=76.8897,
+    )
+    _seed_route_places(place_factory, city.id, 43.2389, 76.8897)
+
+    response = client.post(
+        "/admin/routes/dry-run",
+        json={
+            "city_slug": city.slug,
+            "duration_min": 120,
+            "interests": ["museum"],
+            "avoided_categories": ["museum"],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["counts"]["selected_places"] > 0
+    assert all(item["category"] != "museum" for item in body["selected_places"])
+    assert "interest_removed_due_to_avoidance" in body["quality"]["warnings"]
+
+
 def test_tm_004_deep_suburb_start_keeps_route_new(client, city_factory, place_factory) -> None:
     city = city_factory(
         slug="tm-deep-suburb",
