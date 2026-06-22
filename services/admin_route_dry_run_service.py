@@ -34,6 +34,7 @@ class AdminRouteDryRunService:
             timezone=city.timezone,
             time_budget_minutes=request.duration_min,
             interests=request.interests,
+            avoided_categories=request.avoided_categories,
             budget_level=request.budget_level,
             start_source=start_source,
             start_warnings=start_warnings,
