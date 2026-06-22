@@ -28,7 +28,7 @@ from services.import_pipeline.steps import (
     STEP_RUNNING,
 )
 
-ADDRESS_LIMIT = 2000
+ADDRESS_LIMIT = 5000
 IMAGE_LIMIT = 2000
 
 
@@ -71,7 +71,7 @@ def run_enrichment_only_pipeline(
         cats = normalize_city_categories(db, city_slug=slug, apply=True)
         results["categories"] = cats
         set_step(job, STEP_CATEGORIES_TAGS, processed=cats["scanned"], successful=cats["updated"],
-                 detail={"mode": "partial", "tags": "not_implemented"})
+                 detail={"mode": "automatic", "category_normalization": cats})
         db.commit()
 
         set_step(job, STEP_COMPUTING_QUALITY)
