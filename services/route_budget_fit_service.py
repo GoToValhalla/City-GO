@@ -14,6 +14,7 @@ ROUTE_BUDGET_TOO_TIGHT_WARNING = "budget_too_tight"
 ROUTE_BUDGET_UNDERFILLED_WARNING = "route_underfilled_by_budget"
 ROUTE_LOW_DENSITY_SHORT_WARNING = "route_short_due_to_low_place_density"
 ROUTE_BUDGET_OVERFLOW_TOLERATED_WARNING = "route_budget_overflow_tolerated"
+ROUTE_BUDGET_VISIT_CLAMPED_WARNING = "visit_time_clamped_to_fit_budget"
 _TIGHT_BUDGET_MINUTES = 75
 _LOW_UTILIZATION_RATIO = 0.5
 _BUDGET_OVERFLOW_TOLERANCE = 1.15
@@ -37,14 +38,25 @@ class RouteBudgetFitService:
         tolerated_budget = self._tolerated_budget(budget)
         first_total = self._point_total_minutes(route[0])
         if first_total > tolerated_budget:
+            recovered, clamped = self._single_point_with_budgeted_visit(route[0], budget)
             return BudgetFitResult(
-                route=[route[0]],
-                warnings=[self._short_route_warning(budget)],
+                route=[recovered],
+                warnings=list(dict.fromkeys([
+                    self._short_route_warning(budget),
+                    ROUTE_BUDGET_VISIT_CLAMPED_WARNING if clamped else "",
+                ])),
             )
 
         kept, dropped = self._fit_ordered_subset(route, tolerated_budget)
         if not kept:
-            return BudgetFitResult(route=[route[0]], warnings=["budget_fit_recovered_first_point"])
+            recovered, clamped = self._single_point_with_budgeted_visit(route[0], budget)
+            return BudgetFitResult(
+                route=[recovered],
+                warnings=list(dict.fromkeys([
+                    "budget_fit_recovered_first_point",
+                    ROUTE_BUDGET_VISIT_CLAMPED_WARNING if clamped else "",
+                ])),
+            )
 
         warnings: List[str] = []
         if dropped > 0:
@@ -86,6 +98,15 @@ class RouteBudgetFitService:
         if fits:
             return [*kept, point], total + point_minutes, dropped
         return kept, total, dropped + 1
+
+    def _single_point_with_budgeted_visit(self, point: RoutePoint, budget: int) -> tuple[RoutePoint, bool]:
+        walk = int(getattr(point, "estimated_walk_minutes", 0) or 0)
+        visit = int(getattr(point, "visit_minutes", 0) or 0)
+        max_visit = max(1, budget - walk)
+        if walk <= budget and visit > max_visit:
+            point.visit_minutes = max_visit
+            return point, True
+        return point, False
 
     def _short_route_warning(self, budget: int) -> str:
         return ROUTE_BUDGET_SINGLE_POINT_WARNING if budget < _TIGHT_BUDGET_MINUTES else ROUTE_LOW_DENSITY_SHORT_WARNING
