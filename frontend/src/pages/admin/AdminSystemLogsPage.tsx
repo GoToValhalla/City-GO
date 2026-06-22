@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { adminGet } from './adminApi'
+import { logLevelText } from './adminHumanText'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 
 type Log = {
@@ -32,11 +33,11 @@ export const AdminSystemLogsPage = () => {
   return (
     <div>
       <h2 className="admin-page-title">Системные логи ({total})</h2>
-      <p className="admin-page-subtitle">Ошибки и события приложения (не audit)</p>
+      <p className="admin-page-subtitle">Ошибки и события приложения.</p>
       <div className="admin-filters admin-filters-stack">
         <select value={level} onChange={(e) => setLevel(e.target.value)}>
           <option value="">Все уровни</option>
-          {['info', 'warning', 'error', 'critical'].map((l) => <option key={l} value={l}>{l}</option>)}
+          {['info', 'warning', 'error', 'critical'].map((l) => <option key={l} value={l}>{logLevelText(l)}</option>)}
         </select>
         <input placeholder="Модуль" value={module} onChange={(e) => setModule(e.target.value)} />
         <button type="button" className="admin-btn admin-btn-primary" onClick={load}>Применить</button>
@@ -50,9 +51,9 @@ export const AdminSystemLogsPage = () => {
               {items.map((l) => (
                 <tr key={l.id}>
                   <td>{new Date(l.created_at).toLocaleString('ru-RU')}</td>
-                  <td><span className={`admin-badge pub-${l.level === 'error' ? 'hidden' : 'published'}`}>{l.level}</span></td>
+                  <td><span className={`admin-badge pub-${l.level === 'error' || l.level === 'critical' ? 'hidden' : 'published'}`}>{logLevelText(l.level)}</span></td>
                   <td>{l.module}</td>
-                  <td>{l.message}{l.details && <pre className="admin-muted" style={{ fontSize: 11 }}>{JSON.stringify(l.details)}</pre>}</td>
+                  <td>{l.message}{l.details && <details className="admin-muted"><summary>Детали</summary><pre style={{ fontSize: 11 }}>{JSON.stringify(l.details, null, 2)}</pre></details>}</td>
                 </tr>
               ))}
             </tbody>
