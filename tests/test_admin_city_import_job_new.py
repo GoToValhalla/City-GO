@@ -231,7 +231,7 @@ def test_successful_import_pipeline_persists_final_status_and_sends_alert_new(db
     run_enrichment_pipeline(db_session, job=job, city=city, actor_id="test-admin")
     job_id = job.id
     city_id = city.id
-    db_session.rollback()
+    db_session.expire_all()
     persisted_job = db_session.get(CityAdminImportJob, job_id)
     persisted_city = db_session.get(City, city_id)
 
@@ -265,7 +265,7 @@ def test_enrichment_only_pipeline_persists_final_status_and_sends_alert_new(db_s
     run_enrichment_only_pipeline(db_session, job=job, city=city, actor_id="test-admin")
     job_id = job.id
     city_id = city.id
-    db_session.rollback()
+    db_session.expire_all()
     persisted_job = db_session.get(CityAdminImportJob, job_id)
     persisted_city = db_session.get(City, city_id)
 
