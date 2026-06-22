@@ -19,6 +19,7 @@ const dryRunResult = {
   selected_places: [{ place_id: 1, title: 'Museum', category: 'museum', is_eligible: true, selected: true, score: 0.9, rejection_reasons: [], selection_reasons: ['score'] }],
   rejected_candidates: [{ place_id: 2, title: 'Pharm', category: 'pharmacy', is_eligible: false, selected: false, score: null, rejection_reasons: ['forbidden_category:pharmacy'], selection_reasons: [] }],
   counts: { total_candidates: 2, eligible_candidates: 1, rejected_candidates: 1, selected_places: 1 },
+  quality: { status: 'acceptable', score: 0.58, score_percent: 58, warnings: ['route_built_without_selected_interests'], breakdown: { completeness: 0.8 }, partial_reason: 'route_incomplete' },
 }
 
 const draftResult = {
@@ -46,7 +47,7 @@ const renderPage = () =>
   )
 
 const selectedCityValue = () => (screen.getByLabelText('Город dry-run') as HTMLSelectElement).value
-const runButtonDisabled = () => (screen.getByText('Запустить') as HTMLButtonElement).disabled
+const runButtonDisabled = () => (screen.getByText('Проверить сборку') as HTMLButtonElement).disabled
 
 describe('AdminRouteDryRunPage', () => {
   beforeEach(() => {
@@ -66,24 +67,28 @@ describe('AdminRouteDryRunPage', () => {
 
   it('renders form and submits dry run_new', async () => {
     renderPage()
-    expect(screen.getByText('Маршруты → Dry Run')).toBeTruthy()
+    expect(screen.getByText('Маршруты → проверка сборки')).toBeTruthy()
     await waitFor(() => expect(selectedCityValue()).toBe('test-city'))
-    fireEvent.click(screen.getByText('Запустить'))
+    fireEvent.click(screen.getByText('Проверить сборку'))
     await waitFor(() => expect(mockedAdminPost).toHaveBeenCalledWith('/admin/routes/dry-run', expect.objectContaining({ city_slug: 'test-city' })))
-    await waitFor(() => expect(screen.getByText(/Run #42/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Проверка #42/)).toBeTruthy())
     expect(screen.getByText('Museum')).toBeTruthy()
     expect(screen.getByText('Pharm')).toBeTruthy()
+    expect(screen.getByText('Выбрано в маршрут')).toBeTruthy()
+    expect(screen.getByText('Не вошли в маршрут')).toBeTruthy()
+    expect(screen.getByText(/Категория не подходит для маршрутов/)).toBeTruthy()
+    expect(screen.getByText(/Маршрут собран без выбранных интересов/)).toBeTruthy()
   })
 
   it('saves and publishes draft route_new', async () => {
     renderPage()
     await waitFor(() => expect(selectedCityValue()).toBe('test-city'))
-    fireEvent.click(screen.getByText('Запустить'))
-    await waitFor(() => expect(screen.getByText(/Можно собрать маршрут/)).toBeTruthy())
-    fireEvent.click(screen.getByText('Сохранить draft'))
-    await waitFor(() => expect(screen.getByText(/Draft #7/)).toBeTruthy())
-    fireEvent.click(screen.getByText('Опубликовать draft'))
-    await waitFor(() => expect(screen.getByText(/Опубликован route #99/)).toBeTruthy())
+    fireEvent.click(screen.getByText('Проверить сборку'))
+    await waitFor(() => expect(screen.getByText(/Можно сохранить черновик/)).toBeTruthy())
+    fireEvent.click(screen.getByText('Сохранить черновик'))
+    await waitFor(() => expect(screen.getByText(/Черновик #7/)).toBeTruthy())
+    fireEvent.click(screen.getByText('Опубликовать маршрут'))
+    await waitFor(() => expect(screen.getByText(/Маршрут опубликован: #99/)).toBeTruthy())
   })
 
   it('selects first loaded city by default_new', async () => {
