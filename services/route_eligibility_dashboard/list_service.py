@@ -8,8 +8,20 @@ from sqlalchemy.orm import Query, Session
 from models.city import City
 from models.place import Place
 from services.place_quality_score import compute_place_quality_score, quality_bucket
+from services.place_quality_signals import has_high_quality_route_core, is_placeholder_title
 from services.route_eligibility import evaluate_place_route_eligibility
 from services.route_eligibility_dashboard.reasons import dashboard_reasons, primary_reason
+
+
+QUALITY_BUCKETS = frozenset({"high", "medium", "low"})
+READINESS_FILTERS = frozenset({
+    "route_ready",
+    "catalog_ready",
+    "needs_fix",
+    "high_quality",
+    "low_quality",
+    "placeholder",
+})
 
 
 def list_eligibility_places(
@@ -24,6 +36,10 @@ def list_eligibility_places(
     unpublished: bool | None = None,
     inactive: bool | None = None,
     issue: str | None = None,
+    readiness: str | None = None,
+    quality: str | None = None,
+    min_quality_score: int | None = None,
+    placeholder_name: bool | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict[str, object]], int]:
@@ -35,12 +51,17 @@ def list_eligibility_places(
         query, category=category, no_photo=no_photo, no_address=no_address,
         no_description=no_description, unpublished=unpublished, inactive=inactive,
     )
-    rows = query.order_by(Place.id.desc()).limit(1000).all()
+    rows = query.order_by(Place.id.desc()).all()
     items = [_row(place, city) for place in rows]
-    if eligible is not None:
-        items = [row for row in items if row["eligible"] is eligible]
-    if issue:
-        items = [row for row in items if issue in row["reasons"] or row["primary_reason"] == issue]
+    items = _apply_computed_filters(
+        items,
+        eligible=eligible,
+        issue=issue,
+        readiness=readiness,
+        quality=quality,
+        min_quality_score=min_quality_score,
+        placeholder_name=placeholder_name,
+    )
     total = len(items)
     return items[offset : offset + min(limit, 200)], total
 
@@ -48,7 +69,10 @@ def list_eligibility_places(
 def _row(place: Place, city: City | None) -> dict[str, object]:
     result = evaluate_place_route_eligibility(place, city=city)
     score = compute_place_quality_score(place)
+    bucket = quality_bucket(score)
     reasons = dashboard_reasons(place, city=city)
+    placeholder = is_placeholder_title(getattr(place, "title", None))
+    high_quality_route_candidate = has_high_quality_route_core(place)
     return {
         "place_id": place.id,
         "title": place.title,
@@ -56,10 +80,12 @@ def _row(place: Place, city: City | None) -> dict[str, object]:
         "category": place.category,
         "eligible": result.eligible,
         "quality_score": score,
-        "quality_bucket": quality_bucket(score),
+        "quality_bucket": bucket,
         "reasons": reasons,
         "primary_reason": primary_reason(reasons),
         "city_slug": city.slug if city else None,
+        "placeholder_name": placeholder,
+        "high_quality_route_candidate": high_quality_route_candidate,
     }
 
 
@@ -92,3 +118,48 @@ def _apply_filters(
     if inactive:
         query = query.filter(or_(Place.is_active.is_(False), Place.status != "active"))
     return query
+
+
+def _apply_computed_filters(
+    items: list[dict[str, object]],
+    *,
+    eligible: bool | None,
+    issue: str | None,
+    readiness: str | None,
+    quality: str | None,
+    min_quality_score: int | None,
+    placeholder_name: bool | None,
+) -> list[dict[str, object]]:
+    result = items
+    if eligible is not None:
+        result = [row for row in result if row["eligible"] is eligible]
+    if issue:
+        result = [row for row in result if issue in row["reasons"] or row["primary_reason"] == issue]
+    if quality in QUALITY_BUCKETS:
+        result = [row for row in result if row["quality_bucket"] == quality]
+    if min_quality_score is not None:
+        result = [row for row in result if int(row["quality_score"] or 0) >= min_quality_score]
+    if placeholder_name is not None:
+        result = [row for row in result if bool(row.get("placeholder_name")) is placeholder_name]
+    if readiness in READINESS_FILTERS:
+        result = _apply_readiness_filter(result, readiness)
+    return result
+
+
+def _apply_readiness_filter(items: list[dict[str, object]], readiness: str) -> list[dict[str, object]]:
+    if readiness == "route_ready":
+        return [row for row in items if bool(row["eligible"])]
+    if readiness == "catalog_ready":
+        return [
+            row for row in items
+            if row["primary_reason"] not in {"placeholder_title", "no_coordinates", "unpublished_place", "hidden_place"}
+        ]
+    if readiness == "needs_fix":
+        return [row for row in items if not bool(row["eligible"])]
+    if readiness == "high_quality":
+        return [row for row in items if bool(row.get("high_quality_route_candidate")) and not bool(row.get("placeholder_name"))]
+    if readiness == "low_quality":
+        return [row for row in items if row["quality_bucket"] == "low" or "low_quality" in row["reasons"]]
+    if readiness == "placeholder":
+        return [row for row in items if bool(row.get("placeholder_name")) or "placeholder_title" in row["reasons"]]
+    return items
