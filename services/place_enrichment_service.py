@@ -67,9 +67,9 @@ def run_enrichment_export(
         only_published=req.only_published, only_route_eligible=req.only_route_eligible,
         missing_fields=req.missing_fields,
     )
-    if req.git_artifact:
-        return _export_to_batch(db, req, actor, city_name, places)
-    raise ValueError("Legacy flat export removed; use git_artifact=True")
+    # Legacy flat exports were removed; keep the public contract compatible by
+    # always returning a batch artifact even when older clients send git_artifact=false.
+    return _export_to_batch(db, req, actor, city_name, places)
 
 
 def list_enrichment_exports(limit: int = 50) -> list[EnrichmentExportMeta]:
