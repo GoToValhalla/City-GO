@@ -250,7 +250,7 @@ jobs:
             echo "=== backend health ==="
             BACKEND_OK=0
             for attempt in $(seq 1 30); do
-              if docker compose exec -T backend curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+              if docker compose exec -T backend curl -sf http://localhost:8000/health </dev/null >/dev/null 2>&1; then
                 BACKEND_OK=1
                 echo "Backend health OK attempt=$attempt"
                 break
@@ -327,8 +327,8 @@ jobs:
           PY
 
             echo "=== alembic current/head ==="
-            docker compose exec -T backend alembic current || true
-            docker compose exec -T backend alembic heads || true
+            docker compose exec -T backend alembic current </dev/null || true
+            docker compose exec -T backend alembic heads </dev/null || true
 
             echo "=== production diagnostic after deploy ==="
             docker compose ps || true
