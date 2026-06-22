@@ -11,7 +11,15 @@ from models.place_image import PLACE_IMAGE_STATUS_NEEDS_REVIEW, PlaceImage
 from services.import_pipeline.progress import is_stalled, step_label
 from services.import_pipeline.steps import STEP_QUEUED, STEP_READY_FOR_REVIEW, TERMINAL_STEPS
 
-PUBLISHABLE_CITY_STATUSES = {"review_required", "imported", "success", "success_with_warnings", "partial_success", "unpublished"}
+PUBLISHABLE_CITY_STATUSES = {
+    "review_required",
+    "imported",
+    "success",
+    "success_with_warnings",
+    "partial_success",
+    "import_failed",
+    "unpublished",
+}
 
 
 def _latest_job(db: Session, city_id: int) -> CityAdminImportJob | None:
@@ -111,6 +119,8 @@ def _import_next_step(current_step: str, status: str, launch_status: str) -> str
         return "Город опубликован и доступен на сайте."
     if current_step == STEP_READY_FOR_REVIEW or status in {"success", "success_with_warnings", "partial_success", "imported"} or launch_status == "review_required":
         return "Проверьте качество данных и нажмите «Опубликовать город»."
+    if launch_status == "import_failed" and status in {"failed", "stalled", "import_failed"}:
+        return "Проверьте качество данных: можно повторить импорт или опубликовать уже собранные места."
     if status in {"failed", "stalled", "import_failed"}:
         return "Проверьте ошибку и нажмите «Повторить»."
     if current_step in {STEP_QUEUED, "queued"}:
