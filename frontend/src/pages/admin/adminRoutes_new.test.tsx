@@ -12,7 +12,15 @@ vi.mock('./adminApi', () => ({
   adminPost: vi.fn(),
 }))
 
-const cities = { items: [{ id: 1, slug: 'test-city', name: 'Test', places_total: 10 }], total: 1, limit: 100, offset: 0 }
+const cities = {
+  items: [
+    { id: 1, slug: 'test-city', name: 'Test', places_total: 10 },
+    { id: 2, slug: 'second-city', name: 'Second', places_total: 12 },
+  ],
+  total: 2,
+  limit: 100,
+  offset: 0,
+}
 
 const dryRunResult = {
   request_summary: { city_slug: 'test-city' },
@@ -21,6 +29,23 @@ const dryRunResult = {
   rejected_candidates: [{ place_id: 2, title: 'Pharm', category: 'pharmacy', is_eligible: false, selected: false, score: null, rejection_reasons: ['forbidden_category:pharmacy'], selection_reasons: [] }],
   counts: { total_candidates: 2, eligible_candidates: 1, rejected_candidates: 1, selected_places: 1 },
   quality: { status: 'acceptable', score: 0.58, score_percent: 58, warnings: ['route_built_without_selected_interests'], breakdown: { completeness: 0.8 }, partial_reason: 'route_incomplete' },
+}
+
+const manyRejectedDryRunResult = {
+  ...dryRunResult,
+  generation_run_id: 77,
+  selected_places: [],
+  rejected_candidates: Array.from({ length: 55 }, (_, index) => ({
+    place_id: index + 10,
+    title: `Candidate ${index + 1}`,
+    category: 'cafe',
+    is_eligible: true,
+    selected: false,
+    score: 0.4,
+    rejection_reasons: [],
+    selection_reasons: [],
+  })),
+  counts: { total_candidates: 55, eligible_candidates: 55, rejected_candidates: 0, selected_places: 0 },
 }
 
 const zeroCandidatesResult = {
@@ -112,12 +137,38 @@ describe('AdminRouteDryRunPage', () => {
     fireEvent.click(screen.getByText('Проверить сборку'))
     await waitFor(() => expect(mockedAdminPost).toHaveBeenCalledWith('/admin/routes/dry-run', expect.objectContaining({ city_slug: 'test-city' })))
     await waitFor(() => expect(screen.getByText(/Проверка #42/)).toBeTruthy())
+    expect(screen.getByText('Результат для города: Test')).toBeTruthy()
     expect(screen.getByText('Museum')).toBeTruthy()
     expect(screen.getByText('Pharm')).toBeTruthy()
     expect(screen.getByText('Выбрано в маршрут')).toBeTruthy()
     expect(screen.getByText('Не вошли в маршрут')).toBeTruthy()
     expect(screen.getByText(/Категория не подходит для маршрутов/)).toBeTruthy()
     expect(screen.getByText(/Маршрут собран без выбранных интересов/)).toBeTruthy()
+  })
+
+  it('clears stale dry-run result when city changes_new', async () => {
+    renderPage()
+    await waitFor(() => expect(selectedCityValue()).toBe('test-city'))
+    fireEvent.click(screen.getByText('Проверить сборку'))
+    await waitFor(() => expect(screen.getByText(/Проверка #42/)).toBeTruthy())
+    fireEvent.change(screen.getByLabelText('Город dry-run'), { target: { value: 'second-city' } })
+    expect(screen.queryByText(/Проверка #42/)).toBeNull()
+    expect(screen.queryByText('Museum')).toBeNull()
+  })
+
+  it('replaces empty rejected reasons and paginates rejected places_new', async () => {
+    mockedAdminPost.mockResolvedValueOnce(manyRejectedDryRunResult)
+    renderPage()
+    await waitFor(() => expect(selectedCityValue()).toBe('test-city'))
+    fireEvent.click(screen.getByText('Проверить сборку'))
+    await waitFor(() => expect(screen.getByText(/Проверка #77/)).toBeTruthy())
+    expect(screen.queryByText('Нет явной причины')).toBeNull()
+    expect(screen.getAllByText(/Не выбрано: ниже приоритет/).length).toBeGreaterThan(0)
+    expect(screen.getByText('Показано 50 из 55')).toBeTruthy()
+    expect(screen.queryByText('Candidate 55')).toBeNull()
+    fireEvent.click(screen.getByText('Показать еще'))
+    expect(screen.getByText('Candidate 55')).toBeTruthy()
+    expect(screen.getByText('Показаны все отклоненные места: 55.')).toBeTruthy()
   })
 
   it('explains empty route dry run_new', async () => {
