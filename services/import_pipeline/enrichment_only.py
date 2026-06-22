@@ -13,6 +13,7 @@ from data.scripts.enrich_place_images import run as run_image_enrich
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.place import Place
+from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_log import log_import_event
 from services.category_normalize_service import normalize_city_categories
 from services.city_readiness.score import compute_city_readiness
@@ -101,4 +102,12 @@ def run_enrichment_only_pipeline(
         set_step(job, "error", detail={"error": str(exc)})
         log_import_event(db, event="enrichment_pipeline_failed", city_slug=slug, actor_id=actor_id,
                          level="error", message=str(exc), details={"job_id": job.id})
+        send_admin_alert(
+            title="Enrichment pipeline failed",
+            message=str(exc)[:1000],
+            level="error",
+            city_slug=slug,
+            job_id=int(job.id),
+            details={"status": job.status, "source": job.source, "step_details": job.step_details},
+        )
         raise
