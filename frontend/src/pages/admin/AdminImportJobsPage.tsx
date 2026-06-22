@@ -144,10 +144,10 @@ export const AdminImportJobsPage = () => {
           <p>{selected.next_step}</p>
           {selected.step_details && (
             <div className="admin-muted">
-              {detailLine('Найдено мест', selected.step_details.places_found)}
-              {detailLine('Сохранено мест', selected.step_details.places_saved)}
-              {detailLine('Всего к обработке', selected.step_details.total_items)}
-              {detailLine('Обработано', selected.step_details.processed_items)}
+              {detailLine('Найдено мест', selected.step_details['places_found'])}
+              {detailLine('Сохранено мест', selected.step_details['places_saved'])}
+              {detailLine('Всего к обработке', selected.step_details['total_items'])}
+              {detailLine('Обработано', selected.step_details['processed_items'])}
             </div>
           )}
           <div className="admin-actions-cell">
