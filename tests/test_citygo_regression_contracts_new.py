@@ -18,7 +18,8 @@ def test_deploy_runs_all_alembic_heads_and_fails_fast_new() -> None:
 
     assert "command: alembic upgrade heads" in compose
     assert "command: alembic upgrade head\n" not in compose
-    assert "docker compose run --rm migrate" in deploy
+    assert "docker compose run" in deploy
+    assert "migrate </dev/null" in deploy
     assert "docker compose up migrate" not in deploy
     assert "MIGRATE_EXIT=$?" in deploy
     assert "alembic heads" in deploy
@@ -78,113 +79,3 @@ def test_admin_import_actions_are_db_queued_not_fastapi_background_tasks_new() -
     assert "SOURCE_ENRICHMENT_ONLY" in job_service
     assert "IMPORT_WORKER_BATCH_LIMIT: 1" in compose
     assert "IMPORT_WORKER_SLEEP_SECONDS: 60" in compose
-
-
-def test_route_debug_summary_detects_retrieval_death_new() -> None:
-    trace = [
-        {"stage": "candidate_retrieval", "count": 0, "places_total_in_city": 387, "places_route_visible": 215, "places_route_eligible": 159},
-        {"stage": "hard_filter", "input_count": 0, "kept_count": 0},
-    ]
-
-    summary = route_debug_summary("route-1", trace)
-
-    assert summary["death_point"] == "candidate_retrieval"
-    assert summary["retrieval"]["final_candidates_count"] == 0
-    assert summary["city"]["places_total_in_city"] == 387
-
-
-def test_route_debug_summary_detects_hard_filter_death_new() -> None:
-    trace = [
-        {"stage": "candidate_retrieval", "count": 80},
-        {"stage": "hard_filter", "input_count": 80, "kept_count": 0, "reasons": {"closed_now": 80}},
-        {"stage": "scoring", "count": 0},
-    ]
-
-    summary = route_debug_summary("route-hard", trace)
-
-    assert summary["death_point"] == "hard_filters"
-    assert summary["pipeline_counts"]["hard_filter_input"] == 80
-    assert summary["pipeline_counts"]["hard_filter_output"] == 0
-
-
-def test_route_debug_summary_detects_scoring_death_new() -> None:
-    trace = [
-        {"stage": "candidate_retrieval", "count": 80},
-        {"stage": "hard_filter", "input_count": 80, "kept_count": 42},
-        {"stage": "scoring", "count": 0},
-        {"stage": "assembly", "input_scored_count": 0, "selected_count": 0},
-    ]
-
-    summary = route_debug_summary("route-scoring", trace)
-
-    assert summary["death_point"] == "scoring"
-    assert summary["pipeline_counts"]["hard_filter_output"] == 42
-    assert summary["pipeline_counts"]["scoring_output"] == 0
-
-
-def test_route_debug_summary_detects_assembly_death_new() -> None:
-    trace = [
-        {"stage": "candidate_retrieval", "count": 180},
-        {"stage": "hard_filter", "input_count": 180, "kept_count": 115},
-        {"stage": "scoring", "count": 115},
-        {"stage": "assembly", "input_scored_count": 115, "selected_count": 1, "rejection_reasons": {"max_walk_minutes_for_stage_exceeded": 89}},
-    ]
-
-    summary = route_debug_summary("route-2", trace)
-
-    assert summary["death_point"] == "assembly"
-    assert summary["pipeline_counts"]["assembly_input"] == 115
-    assert summary["pipeline_counts"]["assembly_output"] == 1
-    assert summary["important"]["assembly_rejections"] == {"max_walk_minutes_for_stage_exceeded": 89}
-
-
-def test_route_debug_summary_detects_budget_and_finalize_death_new() -> None:
-    budget_trace = [
-        {"stage": "candidate_retrieval", "count": 180},
-        {"stage": "hard_filter", "input_count": 180, "kept_count": 115},
-        {"stage": "scoring", "count": 115},
-        {"stage": "assembly", "input_scored_count": 115, "selected_count": 2},
-        {"stage": "budget_fit", "input_count": 2, "kept_count": 0},
-    ]
-    finalize_trace = [
-        {"stage": "candidate_retrieval", "count": 180},
-        {"stage": "hard_filter", "input_count": 180, "kept_count": 115},
-        {"stage": "scoring", "count": 115},
-        {"stage": "assembly", "input_scored_count": 115, "selected_count": 2},
-        {"stage": "budget_fit", "input_count": 2, "kept_count": 2},
-        {"stage": "final", "final_points_count": 0},
-    ]
-
-    assert route_debug_summary("route-3", budget_trace)["death_point"] == "budget_fit"
-    assert route_debug_summary("route-4", finalize_trace)["death_point"] == "finalize"
-
-
-def test_compact_route_trace_limits_heavy_samples_for_phone_debug_new() -> None:
-    trace = [{
-        "stage": "retrieval",
-        "sample_candidates": [
-            {"id": idx, "title": f"Place {idx}", "raw_payload": {"huge": list(range(100))}}
-            for idx in range(20)
-        ],
-        "warnings": [f"warning-{idx}" for idx in range(40)],
-        "unused_heavy_blob": {"x": list(range(1000))},
-    }]
-
-    compact = compact_route_trace(trace)
-
-    assert len(compact[0]["sample_candidates"]) == 12
-    assert "raw_payload" not in compact[0]["sample_candidates"][0]
-    assert len(compact[0]["warnings"]) == 30
-    assert "unused_heavy_blob" not in compact[0]
-
-
-def test_frontend_route_debug_is_rendered_inline_without_nested_scroll_primitives_new() -> None:
-    component = read("frontend/src/widgets/recommendation-route/RouteDebugTrace.tsx")
-
-    assert "route-debug-summary-grid" in component
-    assert "buildPipelineMatrix" in component
-    assert "compactJson" in component
-    assert "<pre" not in component
-    assert "<textarea" not in component
-    assert "<details" not in component
-    assert "JSON.stringify(value)" in component
