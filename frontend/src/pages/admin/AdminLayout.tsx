@@ -1,11 +1,19 @@
 import { useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { clearAdminSession } from './adminSession'
-import { ADMIN_NAV_ITEMS } from './adminNavItems'
+import { ADMIN_NAV_ITEMS, ADMIN_NAV_SECTION_LABELS } from './adminNavItems'
 import './Admin.css'
 import './AdminResponsive.css'
 
 type Props = { children: ReactNode }
+
+const navSections = Object.entries(
+  ADMIN_NAV_ITEMS.reduce<Record<string, typeof ADMIN_NAV_ITEMS>>((acc, item) => {
+    const section = item.section ?? 'main'
+    acc[section] = [...(acc[section] ?? []), item]
+    return acc
+  }, {}),
+)
 
 export const AdminLayout = ({ children }: Props) => {
   const navigate = useNavigate()
@@ -27,10 +35,15 @@ export const AdminLayout = ({ children }: Props) => {
       <aside className={`admin-sidebar ${menuOpen ? 'admin-sidebar-open' : ''}`}>
         <div className="admin-sidebar-title">City Go</div>
         <nav className="admin-nav">
-          {ADMIN_NAV_ITEMS.map((item) => (
-            <NavLink key={item.path} to={item.path} className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`} onClick={closeMenu}>
-              {item.label}
-            </NavLink>
+          {navSections.map(([section, items]) => (
+            <div key={section} className="admin-nav-section">
+              <div className="admin-nav-section-title">{ADMIN_NAV_SECTION_LABELS[section] ?? section}</div>
+              {items.map((item) => (
+                <NavLink key={item.path} to={item.path} className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`} onClick={closeMenu}>
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
       </aside>
