@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
+import { categoryText, routeReasonText } from './adminRouteCopy'
 import type { AdminCitiesResponse } from './adminTypes'
 import type { DryRunCandidate, DryRunResponse, RouteDraft, RouteDraftGenerationResponse, RoutePublishResponse } from './adminRouteTypes'
 import { AdminError } from './shared/AdminStates'
@@ -21,65 +22,8 @@ const qualityClass = (status?: string) => {
   return 'admin-badge pub-draft'
 }
 
-const warningText = (code: string) => {
-  const map: Record<string, string> = {
-    route_failed_no_places: 'Не удалось собрать маршрут: нет подходящих точек.',
-    route_incomplete: 'Маршрут не собран до конца.',
-    route_short_due_to_time_budget: 'Маршрут короткий из-за малого бюджета времени.',
-    route_short_due_to_low_place_density: 'Маршрут короткий: мало подходящих мест.',
-    route_built_without_selected_interests: 'Маршрут собран без выбранных интересов.',
-    long_initial_transfer: 'Старт далеко от первой точки маршрута.',
-    budget_swallowed_by_transfer: 'Дорога до первой точки съела большую часть бюджета времени.',
-    visit_time_clamped_to_fit_budget: 'Время визита в первой точке сокращено, чтобы уложиться в бюджет.',
-    start_coordinates_replaced_with_city_center: 'Стартовые координаты были некорректны, использован центр города.',
-    some_places_have_no_address: 'У части точек нет адреса.',
-    some_places_have_no_photo: 'У части точек нет фото.',
-    some_places_have_weak_description: 'У части точек слабое описание.',
-    route_has_long_walk_segments: 'Есть длинные пешие переходы.',
-    category_diversity_limited: 'Ограничено разнообразие категорий.',
-  }
-  return map[code] ?? humanizeCode(code)
-}
-
-const reasonText = (code: string) => {
-  if (code.startsWith('forbidden_category:')) {
-    return `Категория не подходит для маршрутов: ${code.split(':')[1] || 'неизвестно'}.`
-  }
-  if (code.startsWith('quality_tier_not_route_allowed:')) {
-    return `Низкий уровень качества места: ${code.split(':')[1] || 'неизвестно'}.`
-  }
-  const map: Record<string, string> = {
-    selected: 'Выбрано в маршрут.',
-    score: 'Высокая оценка для маршрута.',
-    close_to_start: 'Рядом со стартом маршрута.',
-    category_match: 'Подходит под выбранные интересы.',
-    city_not_published: 'Город не опубликован. Сначала переведите город в опубликованное состояние.',
-    city_inactive: 'Город выключен. Включите город перед сборкой маршрутов.',
-    missing_city_id: 'У места не указан город.',
-    place_not_published: 'Место не опубликовано. Опубликуйте место или уберите его из кандидатов.',
-    unpublished_place: 'Место не опубликовано. Опубликуйте место или уберите его из кандидатов.',
-    place_not_visible_in_catalog: 'Место скрыто в каталоге. Сделайте его видимым.',
-    hidden_place: 'Место скрыто в каталоге. Сделайте его видимым.',
-    route_eligible_false: 'Место вручную исключено из маршрутов.',
-    place_inactive: 'Место выключено.',
-    inactive_place: 'Место выключено.',
-    place_status_not_active: 'Статус места не active.',
-    lifecycle_not_active: 'Место не в активном жизненном цикле.',
-    missing_coordinates: 'Нет координат. Добавьте широту и долготу.',
-    no_coordinates: 'Нет координат. Добавьте широту и долготу.',
-    invalid_coordinates: 'Координаты выглядят неверными.',
-    missing_canonical_category: 'Не определена категория места.',
-    spam_poi: 'Место похоже на служебную или мусорную точку.',
-    duplicate_suspected: 'Место похоже на дубль.',
-    critical_field_expired: 'Ключевые данные устарели, нужна проверка.',
-    place_archived: 'Место в архиве.',
-    no_photo: 'Нет фото.',
-    no_address: 'Нет адреса.',
-    no_description: 'Нет описания.',
-    low_quality: 'Низкое качество карточки места.',
-  }
-  return map[code] ?? `Техническая причина: ${humanizeCode(code)}.`
-}
+const warningText = (code: string) => routeReasonText(code)
+const reasonText = (code: string) => routeReasonText(code)
 
 const routeStatusText = (status?: string) => {
   const map: Record<string, string> = {
@@ -89,10 +33,8 @@ const routeStatusText = (status?: string) => {
     active: 'активен',
     published: 'опубликован',
   }
-  return status ? map[status] ?? humanizeCode(status) : '—'
+  return status ? map[status] ?? status.replace(/[_-]+/g, ' ') : '—'
 }
-
-const humanizeCode = (code: string) => code.replace(/[_-]+/g, ' ')
 
 const formatScore = (score: number | null) => {
   if (score === null || score === undefined) return '—'
@@ -319,8 +261,8 @@ export const AdminRouteDryRunPage = () => {
           {result.selected_places.length > 0 ? (
             <>
               <h3>Выбрано в маршрут</h3>
-              <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Оценка</th><th>Почему выбрано</th></tr></thead><tbody>
-                {result.selected_places.map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td>{formatScore(p.score)}</td><td><ReasonList reasons={p.selection_reasons} empty="Подходит" /></td></tr>)}
+              <table className="admin-table"><thead><tr><th>Место</th><th>Категория</th><th>Оценка</th><th>Почему выбрано</th></tr></thead><tbody>
+                {result.selected_places.map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{categoryText(p.category)}</td><td>{formatScore(p.score)}</td><td><ReasonList reasons={p.selection_reasons} empty="Подходит" /></td></tr>)}
               </tbody></table>
             </>
           ) : null}
@@ -328,8 +270,8 @@ export const AdminRouteDryRunPage = () => {
             <>
               <h3>Не вошли в маршрут</h3>
               <p className="admin-muted">Здесь показано, что нужно исправить, чтобы место могло попасть в маршрут.</p>
-              <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Что мешает</th></tr></thead><tbody>
-                {result.rejected_candidates.slice(0, 50).map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td><ReasonList reasons={p.rejection_reasons} empty="Нет явной причины" /></td></tr>)}
+              <table className="admin-table"><thead><tr><th>Место</th><th>Категория</th><th>Что мешает</th></tr></thead><tbody>
+                {result.rejected_candidates.slice(0, 50).map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{categoryText(p.category)}</td><td><ReasonList reasons={p.rejection_reasons} empty="Нет явной причины" /></td></tr>)}
               </tbody></table>
               {result.rejected_candidates.length > 50 ? <p className="admin-muted">Показаны первые 50 отклоненных мест из {result.rejected_candidates.length}.</p> : null}
             </>
