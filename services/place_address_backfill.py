@@ -27,20 +27,29 @@ def run_backfill(
     sleep_seconds: float,
     apply: bool,
     verify_existing: bool = False,
+    start_after_id: int = 0,
 ) -> dict[str, Any]:
-    stats = _empty_stats(city_slug, apply, verify_existing)
-    for place in _iter_candidate_places(db, city_slug, verify_existing=verify_existing):
+    stats = _empty_stats(city_slug, apply, verify_existing, start_after_id)
+    for place in _iter_candidate_places(
+        db,
+        city_slug,
+        verify_existing=verify_existing,
+        start_after_id=start_after_id,
+    ):
+        stats["last_scanned_place_id"] = int(place.id)
         if stats["checked"] >= limit:
             break
         _process_place(db, place, stats, sleep_seconds, apply, verify_existing)
     return stats
 
 
-def _empty_stats(city_slug: str, apply: bool, verify_existing: bool) -> dict[str, Any]:
+def _empty_stats(city_slug: str, apply: bool, verify_existing: bool, start_after_id: int) -> dict[str, Any]:
     return {
         "mode": "apply" if apply else "dry_run",
         "city": city_slug,
         "verify_existing": verify_existing,
+        "start_after_id": start_after_id,
+        "last_scanned_place_id": start_after_id,
         "checked": 0,
         "updated": 0,
         "verified_existing": 0,
@@ -63,18 +72,25 @@ def _needs_backfill_sql():
     return or_(*clauses)
 
 
-def _iter_candidate_places(db: Session, city_slug: str, *, verify_existing: bool, page_size: int = 50):
-    offset = 0
+def _iter_candidate_places(
+    db: Session,
+    city_slug: str,
+    *,
+    verify_existing: bool,
+    start_after_id: int = 0,
+    page_size: int = 50,
+):
+    last_id = int(start_after_id or 0)
     while True:
-        query = db.query(Place).join(City).filter(City.slug == city_slug)
+        query = db.query(Place).join(City).filter(City.slug == city_slug, Place.id > last_id)
         if not verify_existing:
             query = query.filter(_needs_backfill_sql())
-        page = query.order_by(Place.id.asc()).offset(offset).limit(page_size).all()
+        page = query.order_by(Place.id.asc()).limit(page_size).all()
         if not page:
             return
         for place in page:
+            last_id = int(place.id)
             yield place
-        offset += page_size
 
 
 def _process_place(
