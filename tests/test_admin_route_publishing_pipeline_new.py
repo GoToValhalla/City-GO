@@ -56,6 +56,27 @@ def test_admin_route_publishing_new(client, db_session, city_factory, place_fact
     assert db_session.query(Route).filter(Route.slug == "admin-published-route").count() == 1
 
 
+def test_admin_route_publish_rejects_already_published_draft_new(client, db_session, city_factory, place_factory) -> None:
+    city = city_factory(slug="pipeline-publish-once")
+    place_factory(slug="publish-once-cafe", category="cafe", city_id=city.id)
+    with patch("services.route_builder_service.RouteBuilderService.build_route", _fake_build):
+        draft = client.post("/admin/routes/drafts/generate", json={"city_slug": city.slug}).json()["draft"]
+
+    first = client.post(
+        f"/admin/routes/drafts/{draft['draft_id']}/publish",
+        json={"title": "Publish Once", "slug": "publish-once"},
+    )
+    second = client.post(
+        f"/admin/routes/drafts/{draft['draft_id']}/publish",
+        json={"title": "Publish Twice", "slug": "publish-twice"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 409
+    assert second.json()["detail"]["code"] == "DRAFT_ALREADY_PUBLISHED"
+    assert db_session.query(Route).filter(Route.slug.in_(["publish-once", "publish-twice"])).count() == 1
+
+
 def test_city_readiness_includes_published_routes_new(client, db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="pipeline-readiness")
     place_factory(slug="ready-cafe", category="cafe", city_id=city.id)
