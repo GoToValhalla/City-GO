@@ -180,17 +180,63 @@ def run_enrichment_pipeline(
             )
         return results
     except Exception as exc:  # noqa: BLE001
-        job.status = "failed"
-        job.last_error = str(exc)[:2000]
+        error_text = str(exc)
+        failed_step = job.current_step or "unknown"
+        places_total = db.query(Place).filter(Place.city_id == city.id).count()
+        job.last_error = error_text[:2000]
         job.finished_at = datetime.utcnow()
-        city.launch_status = "import_failed"
         city.is_active = False
-        set_step(job, "error", detail={"error": str(exc)})
+
+        if places_total > 0:
+            append_step_warning(job, failed_step, exc, extra={"recovered_as": "partial_success"})
+            recovery_detail = {
+                "step": failed_step,
+                "error": error_text[:1000],
+                "places_total": places_total,
+            }
+            set_step(
+                job,
+                STEP_READY_FOR_REVIEW,
+                total=places_total,
+                processed=places_total,
+                successful=places_total,
+                detail={"partial_success_after_error": recovery_detail},
+            )
+            job.status = "partial_success"
+            city.launch_status = "review_required"
+            city.last_import_at = job.finished_at
+            results["partial_success_after_error"] = recovery_detail
+            log_import_event(
+                db,
+                event="import_pipeline_partial_success",
+                city_slug=slug,
+                actor_id=actor_id,
+                level="warning",
+                message=f"Pipeline #{job.id}: места сохранены, требуется ручная проверка после ошибки: {error_text}",
+                details={"job_id": job.id, **recovery_detail},
+            )
+            db.commit()
+            db.refresh(job)
+            db.refresh(city)
+            send_admin_alert(
+                title="Import completed with warnings",
+                message=f"{city.name} переведён на ручную проверку после ошибки: {error_text[:700]}",
+                level="warning",
+                city_slug=slug,
+                job_id=int(job.id),
+                details={"status": job.status, "source": job.source, "step_details": job.step_details},
+            )
+            return results
+
+        job.status = "failed"
+        city.launch_status = "import_failed"
+        set_step(job, "error", detail={"error": error_text})
         log_import_event(db, event="import_pipeline_failed", city_slug=slug, actor_id=actor_id, level="error",
                          message=f"Pipeline #{job.id}: {exc}", details={"job_id": job.id})
+        db.commit()
         send_admin_alert(
             title="Import pipeline failed",
-            message=str(exc)[:1000],
+            message=error_text[:1000],
             level="error",
             city_slug=slug,
             job_id=int(job.id),
