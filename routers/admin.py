@@ -20,6 +20,7 @@ from schemas.admin import (
     AdminPlaceImageCreateRequest,
     AdminPlaceImageRead,
     AdminPlaceListResponse,
+    AdminRouteActionResponse,
     AdminTaxonomyResponse,
     AdminPlaceUpdate,
     AdminRouteCreateRequest,
@@ -67,7 +68,7 @@ from services.admin_service import (
     verify_place,
 )
 from services.place_read_service import build_place_read, build_place_reads
-from services.route_service import build_route_points
+from services.route_service import build_route_points, get_route_by_id
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
