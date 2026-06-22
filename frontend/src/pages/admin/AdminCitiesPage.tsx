@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
 import { AdminCityCreateForm } from './AdminCityCreateForm'
 import { AdminCitySettingsPanel, type CitySettings } from './AdminCitySettingsPanel'
+import { readinessStatusText } from './adminHumanText'
 import type { AdminCitiesResponse, AdminCityPublicationResponse } from './adminTypes'
 import type { CityReadiness } from './adminRouteTypes'
 import { AdminError, AdminLoading } from './shared/AdminStates'
@@ -45,8 +46,8 @@ export const AdminCitiesPage = () => {
     adminGet<CitySettings>(`/admin/cities/${slug}/settings`).then(setSettings).catch((e: Error) => setError(e.message))
   }
 
-  const refreshAddresses = async (slug: string) => {
-    if (!window.confirm(`Обновить адреса города ${slug}?`)) return
+  const refreshAddresses = async (slug: string, name: string) => {
+    if (!window.confirm(`Обновить адреса для города ${name}? Это поставит фоновую задачу и не опубликует места.`)) return
     await adminPost('/admin/places/address-refresh', { city_slug: slug })
   }
 
@@ -97,7 +98,7 @@ export const AdminCitiesPage = () => {
         <div className="admin-table-wrap">
           <table className="admin-table">
             <thead>
-              <tr><th>Город</th><th>Статус</th><th>Readiness</th><th>Мест</th><th>Действия</th></tr>
+              <tr><th>Город</th><th>Статус</th><th>Готовность маршрутов</th><th>Мест</th><th>Действия</th></tr>
             </thead>
             <tbody>
               {data.items.map((c) => (
@@ -107,18 +108,18 @@ export const AdminCitiesPage = () => {
                   <td>
                     {readiness[c.slug] ? (
                       <span className={`admin-quality admin-quality-${readiness[c.slug].status === 'ready' ? 'green' : readiness[c.slug].status === 'needs_review' ? 'yellow' : 'red'}`}>
-                        {readiness[c.slug].readiness_score}% · {readiness[c.slug].status}
+                        {readiness[c.slug].readiness_score}% · {readinessStatusText(readiness[c.slug].status)}
                       </span>
                     ) : '—'}
                   </td>
                   <td>{c.places_total ?? 0}<div className="admin-muted">на сайте: {c.places_published ?? 0}</div></td>
                   <td className="admin-actions-cell">
-                    <button type="button" className="admin-btn admin-btn-sm" onClick={() => openSettings(c.slug)}>Настройки</button>
-                    <Link className="admin-btn admin-btn-sm" to={`/admin/coverage?city=${c.slug}`}>Покрытие</Link>
-                    <Link className="admin-btn admin-btn-sm" to={`/admin/routes/data-quality?city=${c.slug}`}>Quality</Link>
-                    <button type="button" className="admin-btn admin-btn-sm" onClick={() => void refreshAddresses(c.slug)}>Адреса</button>
-                    {c.can_publish && <button type="button" className="admin-btn admin-btn-sm" disabled={busyCityId === c.id} onClick={() => void publishCity(c.id, c.name)}>Опубликовать</button>}
-                    {c.can_unpublish && <button type="button" className="admin-btn admin-btn-sm admin-btn-danger" disabled={busyCityId === c.id} onClick={() => void unpublishCity(c.id, c.name)}>Снять</button>}
+                    <button type="button" className="admin-btn admin-btn-sm" title="Открыть настройки публикации и сборов по городу" onClick={() => openSettings(c.slug)}>Настройки</button>
+                    <Link className="admin-btn admin-btn-sm" to={`/admin/coverage?city=${c.slug}`}>Покрытие данных</Link>
+                    <Link className="admin-btn admin-btn-sm" to={`/admin/routes/data-quality?city=${c.slug}`}>Качество маршрутов</Link>
+                    <button type="button" className="admin-btn admin-btn-sm" title="Поставить задачу обновления адресов по местам города" onClick={() => void refreshAddresses(c.slug, c.name)}>Обновить адреса</button>
+                    {c.can_publish && <button type="button" className="admin-btn admin-btn-sm" disabled={busyCityId === c.id} onClick={() => void publishCity(c.id, c.name)}>Опубликовать город</button>}
+                    {c.can_unpublish && <button type="button" className="admin-btn admin-btn-sm admin-btn-danger" disabled={busyCityId === c.id} onClick={() => void unpublishCity(c.id, c.name)}>Снять с сайта</button>}
                   </td>
                 </tr>
               ))}
