@@ -72,7 +72,7 @@ def _row(place: Place, city: City | None) -> dict[str, object]:
     bucket = quality_bucket(score)
     reasons = dashboard_reasons(place, city=city)
     placeholder = is_placeholder_title(getattr(place, "title", None))
-    high_quality_route_candidate = has_high_quality_route_core(place)
+    high_quality_route_candidate = has_high_quality_route_core(place, computed_score=score)
     return {
         "place_id": place.id,
         "title": place.title,
