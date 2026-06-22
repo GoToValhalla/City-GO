@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { adminGet } from './adminApi'
+import { categoryText } from './adminRouteCopy'
 import type { AdminTaxonomyCategory, AdminTaxonomyResponse } from './adminTypes'
 
 type Props = {
@@ -14,7 +15,7 @@ const fallbackCategories: AdminTaxonomyCategory[] = [
   'culture', 'viewpoint', 'transport', 'useful', 'health',
 ].map((code) => ({
   code,
-  label: code,
+  label: categoryText(code),
   is_active: true,
   is_route_eligible: false,
   is_catalog_visible: false,
@@ -44,11 +45,11 @@ export const AdminCategorySelect = ({ value, onChange, includeAll = false, ariaL
         {includeAll && <option value="">Все категории</option>}
         {items.map((item) => (
           <option key={item.code} value={item.code}>
-            {item.label} ({item.code}){item.is_observed ? ` · ${item.observed_count}` : ''}
+            {item.label || categoryText(item.code)}{item.is_observed ? ` · ${item.observed_count}` : ''}
           </option>
         ))}
       </select>
-      {failed && <span className="admin-muted">taxonomy fallback</span>}
+      {failed && <span className="admin-muted">Справочник категорий недоступен, показан базовый список.</span>}
     </label>
   )
 }
