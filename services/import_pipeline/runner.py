@@ -150,6 +150,16 @@ def run_enrichment_pipeline(
             job.step_details = {**dict(job.step_details or {}), "warnings": warnings}
         log_import_event(db, event="import_pipeline_finished", city_slug=slug, actor_id=actor_id,
                          message=f"Pipeline #{job.id} готов к проверке и ручной публикации", details={"job_id": job.id, **results})
+        db.commit()
+        db.refresh(job)
+        db.refresh(city)
+        alert_details = {
+            "places_total": places_total,
+            "readiness": results.get("readiness"),
+            "warnings": warnings,
+            "status": job.status,
+            "source": job.source,
+        }
         if warnings:
             send_admin_alert(
                 title="Import completed with warnings",
@@ -157,7 +167,16 @@ def run_enrichment_pipeline(
                 level="warning",
                 city_slug=slug,
                 job_id=int(job.id),
-                details={"warnings": warnings, "readiness": results.get("readiness")},
+                details=alert_details,
+            )
+        else:
+            send_admin_alert(
+                title="Import pipeline finished",
+                message=f"{city.name} готов к проверке. Мест собрано: {places_total}.",
+                level="info",
+                city_slug=slug,
+                job_id=int(job.id),
+                details=alert_details,
             )
         return results
     except Exception as exc:  # noqa: BLE001
