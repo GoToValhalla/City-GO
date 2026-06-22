@@ -9,6 +9,7 @@ from typing import Any
 from db.session import SessionLocal
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
+from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_job_service import (
     SOURCE_ENRICHMENT_ONLY,
     run_city_import_job,
@@ -68,7 +69,15 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
             processed += 1
         except Exception as exc:  # noqa: BLE001
             failed += 1
-            errors.append({"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]})
+            error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
+            errors.append(error)
+            send_admin_alert(
+                title="Import worker job failed",
+                message=str(exc)[:1000],
+                level="error",
+                job_id=job_id,
+                details=error,
+            )
     with SessionLocal() as db:
         queue = import_queue_summary(db)
     return {"processed": processed, "failed": failed, "stalled_marked": stalled, "errors": errors, "queue": queue}
@@ -78,17 +87,30 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
     current = now or datetime.utcnow()
     jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").all()
     stalled = [job for job in jobs if is_stalled(job, now=current)]
+    alerts: list[dict[str, object]] = []
     for job in stalled:
         city = db.query(City).filter(City.id == job.city_id).first()
         job.status = "stalled"
         job.finished_at = current
         job.last_error = job.last_error or "Import job stalled: no heartbeat before timeout"
         set_step(job, STEP_ERROR, detail={"stalled_at": current.isoformat(), "stalled": True})
+        city_slug = None
         if city is not None:
             city.launch_status = "import_failed"
             city.is_active = False
+            city_slug = city.slug
+        alerts.append({"job_id": int(job.id), "city_slug": city_slug, "source": job.source, "last_error": job.last_error})
     if stalled:
         db.commit()
+        for alert in alerts:
+            send_admin_alert(
+                title="Import job stalled",
+                message="Import job stopped sending heartbeat and was marked as stalled.",
+                level="error",
+                city_slug=str(alert.get("city_slug") or "") or None,
+                job_id=int(alert["job_id"]),
+                details=alert,
+            )
     return len(stalled)
 
 
