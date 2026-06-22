@@ -11,7 +11,11 @@ MISSING_OPENING_HOURS_WARNING = "У части мест нет часов раб
 MALFORMED_OPENING_HOURS_WARNING = "У части мест некорректные часы работы; использована деградация."
 STALE_PLACES_WARNING = "У части мест давно не проверялась актуальность; маршрут может требовать ручной проверки."
 LONG_WALK_SEGMENTS_WARNING = "route_has_long_walk_segments"
+LONG_INITIAL_TRANSFER_WARNING = "long_initial_transfer"
+BUDGET_SWALLOWED_BY_TRANSFER_WARNING = "budget_swallowed_by_transfer"
 _LONG_WALK_MINUTES = 45
+_LONG_INITIAL_WALK_MINUTES = 20
+_BUDGET_SWALLOWED_RATIO = 0.40
 
 
 def candidate_warnings(candidates: Sequence[object]) -> list[str]:
@@ -36,10 +40,13 @@ def filter_warnings(
 def assembly_warnings(
     filtered: Sequence[object],
     route: Sequence[object],
+    budget_minutes: int | None = None,
 ) -> list[str]:
     return _unique(
         [
             NO_ROUTE_POINTS_WARNING if filtered and not route else "",
+            LONG_INITIAL_TRANSFER_WARNING if _has_long_initial_transfer(route) else "",
+            BUDGET_SWALLOWED_BY_TRANSFER_WARNING if _budget_swallowed_by_transfer(route, budget_minutes) else "",
             LONG_WALK_SEGMENTS_WARNING if _has_long_walk_segment(route) else "",
         ]
     )
@@ -59,6 +66,19 @@ def _has_opening_hours_issue(candidates: Sequence[object]) -> bool:
 
 def _has_stale_places(candidates: Sequence[object]) -> bool:
     return any(is_needs_verification(candidate) for candidate in candidates)
+
+
+def _has_long_initial_transfer(route: Sequence[object]) -> bool:
+    if not route:
+        return False
+    return int(getattr(route[0], "estimated_walk_minutes", 0) or 0) > _LONG_INITIAL_WALK_MINUTES
+
+
+def _budget_swallowed_by_transfer(route: Sequence[object], budget_minutes: int | None) -> bool:
+    if not route or not budget_minutes or budget_minutes <= 0:
+        return False
+    first_walk = int(getattr(route[0], "estimated_walk_minutes", 0) or 0)
+    return (first_walk / max(1, int(budget_minutes))) > _BUDGET_SWALLOWED_RATIO
 
 
 def _has_long_walk_segment(route: Sequence[object]) -> bool:
