@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
+import { AdminCategorySelect } from './AdminCategorySelect'
 import { AdminPlacesFilters } from './AdminPlacesFilters'
 import { AdminPlacesLoadSentinel } from './AdminPlacesLoadSentinel'
 import { AdminPlacesTable } from './AdminPlacesTable'
@@ -17,13 +18,15 @@ export const AdminPlacesPage = () => {
   const [pubStatus, setPubStatus] = useState('')
   const [verifyStatus, setVerifyStatus] = useState('')
   const [category, setCategory] = useState('')
+  const [routeEligible, setRouteEligible] = useState('')
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [bulkCategory, setBulkCategory] = useState('')
   const [preview, setPreview] = useState<{ affected_count?: number; warnings?: string[] } | null>(null)
   const filters = useMemo(
-    () => ({ citySlug, preset, pubStatus, verifyStatus, category, q }),
-    [citySlug, preset, pubStatus, verifyStatus, category, q],
+    () => ({ citySlug, preset, pubStatus, verifyStatus, category, routeEligible, q }),
+    [citySlug, preset, pubStatus, verifyStatus, category, routeEligible, q],
   )
   const { items, total, loading, loadingMore, error, hasMore, reload, loadMore, setError } = useAdminPlacesList(filters)
 
@@ -54,6 +57,7 @@ export const AdminPlacesPage = () => {
     setPubStatus('')
     setVerifyStatus('')
     setCategory('')
+    setRouteEligible('')
     setQ('')
   }
 
@@ -75,6 +79,11 @@ export const AdminPlacesPage = () => {
     reload()
   }
 
+  const changeSelectedCategory = () => {
+    if (!bulkCategory) return
+    void bulk('set_category', { category: bulkCategory })
+  }
+
   const action = async (placeId: number, endpoint: string, body?: object) => {
     setBusy(placeId)
     try { await adminPost(`/admin/places/${placeId}/${endpoint}`, body ?? {}); reload() }
@@ -93,9 +102,10 @@ export const AdminPlacesPage = () => {
       <h2 className="admin-page-title">Места ({total})</h2>
       <p className="admin-page-subtitle">Управление качеством данных и публикацией · <Link to="/admin/places/new">Создать место</Link></p>
       <AdminPlacesFilters cities={cities} citySlug={citySlug} preset={preset} pubStatus={pubStatus}
-        verifyStatus={verifyStatus} category={category} q={q}
+        verifyStatus={verifyStatus} category={category} routeEligible={routeEligible} q={q}
         onCityChange={setCitySlug} onPresetChange={setPreset} onPubStatusChange={setPubStatus}
-        onVerifyStatusChange={setVerifyStatus} onCategoryChange={setCategory} onQChange={setQ} onSearch={reload} onReset={resetFilters} />
+        onVerifyStatusChange={setVerifyStatus} onCategoryChange={setCategory} onRouteEligibleChange={setRouteEligible}
+        onQChange={setQ} onSearch={reload} onReset={resetFilters} />
       <section className="admin-bulk-panel">
         <div className="admin-bulk-row">
           <span className="admin-bulk-title">Массовые действия</span>
@@ -110,10 +120,14 @@ export const AdminPlacesPage = () => {
           <button type="button" className="admin-btn admin-btn-sm" disabled={!selected.size} title={bulkActionHint('disable_route')} onClick={() => bulk('disable_route', { reason: 'bulk' })}>{bulkActionText('disable_route')}</button>
           <button type="button" className="admin-btn admin-btn-sm" disabled={!selected.size} title={bulkActionHint('refresh_addresses')} onClick={() => void refreshSelectedAddresses()}>{bulkActionText('refresh_addresses')}</button>
         </div>
+        <div className="admin-bulk-row">
+          <AdminCategorySelect value={bulkCategory} onChange={setBulkCategory} includeAll ariaLabel="Новая категория" citySlug={citySlug} />
+          <button type="button" className="admin-btn admin-btn-sm" disabled={!selected.size || !bulkCategory} title={bulkActionHint('set_category')} onClick={changeSelectedCategory}>{bulkActionText('set_category')}</button>
+        </div>
         <ul className="admin-help-list">
           <li>{bulkActionHint('enable_route')}</li>
           <li>{bulkActionHint('disable_route')}</li>
-          <li>{bulkActionHint('refresh_addresses')}</li>
+          <li>{bulkActionHint('set_category')}</li>
         </ul>
         {preview && (
           <p className="admin-muted">
