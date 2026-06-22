@@ -29,8 +29,8 @@ from services.import_pipeline.steps import (
     STEP_RUNNING,
 )
 
-ADDRESS_LIMIT = 5000
-IMAGE_LIMIT = 2000
+ADDRESS_BATCH_LIMIT = 5000
+IMAGE_BATCH_LIMIT = 2000
 
 
 def run_enrichment_only_pipeline(
@@ -51,28 +51,48 @@ def run_enrichment_only_pipeline(
     try:
         set_step(job, STEP_FINDING_ADDRESSES, total=places_total)
         db.commit()
-        addr = run_address_backfill(["--city", slug, "--limit", str(ADDRESS_LIMIT), "--apply"])
+        addr = _run_address_batches(slug)
         results["addresses"] = addr
-        set_step(job, STEP_FINDING_ADDRESSES, processed=int(addr.get("checked") or 0),
-                 successful=int(addr.get("updated") or 0), failed=int(addr.get("errors") or 0))
+        set_step(
+            job,
+            STEP_FINDING_ADDRESSES,
+            processed=int(addr.get("checked") or 0),
+            successful=int(addr.get("updated") or 0),
+            failed=int(addr.get("errors") or 0),
+            detail={"batches": addr.get("batches"), "last_scanned_place_id": addr.get("last_scanned_place_id")},
+        )
         db.commit()
 
         set_step(job, STEP_FINDING_IMAGES, total=places_total)
         db.commit()
-        images = run_image_enrich(["--city", slug, "--limit", str(IMAGE_LIMIT), "--apply"])
+        images = _run_image_batches(slug)
         results["images"] = images
-        set_step(job, STEP_FINDING_IMAGES, processed=int(images.get("scanned_places") or 0),
-                 successful=int(images.get("created") or 0))
+        set_step(
+            job,
+            STEP_FINDING_IMAGES,
+            processed=int(images.get("scanned_places") or 0),
+            successful=int(images.get("created") or 0),
+            failed=len(images.get("errors") or []),
+            detail={"batches": images.get("batches"), "last_scanned_place_id": images.get("last_scanned_place_id")},
+        )
         db.commit()
 
-        set_step(job, STEP_PREPARING_DESCRIPTIONS, detail={"mode": "manual_required",
-            "reason": "Автогенерация описаний не подключена"})
+        set_step(
+            job,
+            STEP_PREPARING_DESCRIPTIONS,
+            detail={"mode": "manual_required", "reason": "Автогенерация описаний не подключена"},
+        )
         db.commit()
 
         cats = normalize_city_categories(db, city_slug=slug, apply=True)
         results["categories"] = cats
-        set_step(job, STEP_CATEGORIES_TAGS, processed=cats["scanned"], successful=cats["updated"],
-                 detail={"mode": "automatic", "category_normalization": cats})
+        set_step(
+            job,
+            STEP_CATEGORIES_TAGS,
+            processed=cats["scanned"],
+            successful=cats["updated"],
+            detail={"mode": "automatic", "category_normalization": cats},
+        )
         db.commit()
 
         set_step(job, STEP_COMPUTING_QUALITY)
@@ -92,8 +112,14 @@ def run_enrichment_only_pipeline(
         job.status = "success"
         job.finished_at = datetime.utcnow()
         city.launch_status = "review_required"
-        log_import_event(db, event="enrichment_pipeline_finished", city_slug=slug, actor_id=actor_id,
-                         message=f"Обогащение #{job.id} завершено", details={"job_id": job.id, **results})
+        log_import_event(
+            db,
+            event="enrichment_pipeline_finished",
+            city_slug=slug,
+            actor_id=actor_id,
+            message=f"Обогащение #{job.id} завершено",
+            details={"job_id": job.id, **results},
+        )
         db.commit()
         db.refresh(job)
         db.refresh(city)
@@ -111,8 +137,15 @@ def run_enrichment_only_pipeline(
         job.last_error = str(exc)[:2000]
         job.finished_at = datetime.utcnow()
         set_step(job, "error", detail={"error": str(exc)})
-        log_import_event(db, event="enrichment_pipeline_failed", city_slug=slug, actor_id=actor_id,
-                         level="error", message=str(exc), details={"job_id": job.id})
+        log_import_event(
+            db,
+            event="enrichment_pipeline_failed",
+            city_slug=slug,
+            actor_id=actor_id,
+            level="error",
+            message=str(exc),
+            details={"job_id": job.id},
+        )
         send_admin_alert(
             title="Enrichment pipeline failed",
             message=str(exc)[:1000],
@@ -122,3 +155,117 @@ def run_enrichment_only_pipeline(
             details={"status": job.status, "source": job.source, "step_details": job.step_details},
         )
         raise
+
+
+def _run_address_batches(slug: str) -> dict[str, Any]:
+    cursor = 0
+    batches = 0
+    totals: dict[str, Any] = {
+        "checked": 0,
+        "updated": 0,
+        "verified_existing": 0,
+        "sent_to_review": 0,
+        "skipped_no_coordinates": 0,
+        "skipped_generic_result": 0,
+        "skipped_existing_address": 0,
+        "cleared_placeholders": 0,
+        "errors": 0,
+        "last_scanned_place_id": 0,
+    }
+
+    while True:
+        batch = run_address_backfill(
+            [
+                "--city",
+                slug,
+                "--limit",
+                str(ADDRESS_BATCH_LIMIT),
+                "--start-after-id",
+                str(cursor),
+                "--apply",
+            ]
+        )
+        batches += 1
+        _add_int_counts(totals, batch, [
+            "checked",
+            "updated",
+            "verified_existing",
+            "sent_to_review",
+            "skipped_no_coordinates",
+            "skipped_generic_result",
+            "skipped_existing_address",
+            "cleared_placeholders",
+            "errors",
+        ])
+        last_id = int(batch.get("last_scanned_place_id") or 0)
+        totals["last_scanned_place_id"] = max(int(totals["last_scanned_place_id"] or 0), last_id)
+        if last_id <= cursor:
+            break
+        cursor = last_id
+        if int(batch.get("checked") or 0) < ADDRESS_BATCH_LIMIT:
+            break
+
+    totals["batches"] = batches
+    return totals
+
+
+def _run_image_batches(slug: str) -> dict[str, Any]:
+    cursor = 0
+    batches = 0
+    totals: dict[str, Any] = {
+        "scanned_places": 0,
+        "candidates_found": 0,
+        "created": 0,
+        "auto_approved": 0,
+        "place_image_url_synced": 0,
+        "skipped_duplicates": 0,
+        "skipped_has_approved": 0,
+        "skipped_ineligible": 0,
+        "skipped_no_source": 0,
+        "errors": [],
+        "last_scanned_place_id": 0,
+    }
+
+    while True:
+        batch = run_image_enrich(
+            [
+                "--city",
+                slug,
+                "--limit",
+                str(IMAGE_BATCH_LIMIT),
+                "--start-after-id",
+                str(cursor),
+                "--apply",
+            ]
+        )
+        batches += 1
+        _add_int_counts(totals, batch, [
+            "scanned_places",
+            "candidates_found",
+            "created",
+            "auto_approved",
+            "place_image_url_synced",
+            "skipped_duplicates",
+            "skipped_has_approved",
+            "skipped_ineligible",
+            "skipped_no_source",
+        ])
+        errors = batch.get("errors") or []
+        if isinstance(errors, list):
+            totals["errors"].extend(errors)
+        last_id = int(batch.get("last_scanned_place_id") or 0)
+        totals["last_scanned_place_id"] = max(int(totals["last_scanned_place_id"] or 0), last_id)
+        scanned = int(batch.get("scanned_places") or 0)
+        if last_id <= cursor or scanned <= 0:
+            break
+        cursor = last_id
+        if scanned < IMAGE_BATCH_LIMIT:
+            break
+
+    totals["batches"] = batches
+    return totals
+
+
+def _add_int_counts(target: dict[str, Any], source: dict[str, object], keys: list[str]) -> None:
+    for key in keys:
+        target[key] = int(target.get(key) or 0) + int(source.get(key) or 0)
