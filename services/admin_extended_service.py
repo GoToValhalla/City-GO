@@ -18,7 +18,15 @@ from services.admin_extra_service import admin_coverage
 from services.place_service import get_place_by_id
 from services.route_service import get_route_by_id
 
-PUBLISHABLE_CITY_STATUSES = {"review_required", "imported", "success", "success_with_warnings", "partial_success", "unpublished"}
+PUBLISHABLE_CITY_STATUSES = {
+    "review_required",
+    "imported",
+    "success",
+    "success_with_warnings",
+    "partial_success",
+    "import_failed",
+    "unpublished",
+}
 
 
 def get_admin_cities(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, object]], int]:
