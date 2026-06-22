@@ -1,5 +1,8 @@
 """Тесты фильтров и покрытия админки."""
 
+from collections.abc import Callable
+from typing import TypeVar
+
 try:
     import allure
 except ModuleNotFoundError:  # pragma: no cover
@@ -9,11 +12,22 @@ from models.city import City
 from models.place import Place
 from services.admin_coverage_metrics import build_coverage_summary
 from services.admin_place_update_service import update_admin_place_fields
-from services.admin_places_filters import apply_place_filters
 from services.admin_service import get_admin_places
 from services.admin_taxonomy_service import admin_category_taxonomy
 
-pytestmark = [allure.epic("Admin QA"), allure.feature("Places filters and quality gates")] if allure else []
+F = TypeVar("F", bound=Callable[..., object])
+
+
+def qa_title(title: str) -> Callable[[F], F]:
+    if allure is None:
+        return lambda fn: fn
+    return allure.title(title)
+
+
+def qa_story(story: str) -> Callable[[F], F]:
+    if allure is None:
+        return lambda fn: fn
+    return allure.story(story)
 
 
 def _seed_city(db, slug: str = "test-city") -> City:
@@ -35,6 +49,8 @@ def _seed_place(db, city: City, **kwargs) -> Place:
     return place
 
 
+@qa_story("Admin places filtering")
+@qa_title("Фильтр no_photo показывает только места без фото")
 def test_preset_no_photo_new(client, db_session) -> None:
     city = _seed_city(db_session)
     _seed_place(db_session, city, slug="no-photo", image_url=None)
@@ -45,6 +61,8 @@ def test_preset_no_photo_new(client, db_session) -> None:
     assert items[0].slug == "no-photo"
 
 
+@qa_story("Route eligibility gates")
+@qa_title("Фильтр маршрутов разделяет включенные и исключенные места")
 def test_admin_places_route_filter_positive_and_negative_new(client, db_session) -> None:
     city = _seed_city(db_session, slug="route-city")
     _seed_place(db_session, city, slug="bank-disabled", title="Банк", category="service", is_route_eligible=False)
@@ -60,6 +78,8 @@ def test_admin_places_route_filter_positive_and_negative_new(client, db_session)
     assert disabled[0].slug == "bank-disabled"
 
 
+@qa_story("Admin places search")
+@qa_title("Поиск мест работает по названию, slug и адресу")
 def test_admin_places_searches_title_slug_and_address_new(client, db_session) -> None:
     city = _seed_city(db_session, slug="search-city")
     _seed_place(db_session, city, slug="archeopark", title="Археопарк", category="service", address="Ханты-Мансийск")
@@ -78,6 +98,8 @@ def test_admin_places_searches_title_slug_and_address_new(client, db_session) ->
     assert missing == []
 
 
+@qa_story("City-scoped taxonomy")
+@qa_title("Счетчики категорий считаются в рамках выбранного города")
 def test_category_taxonomy_counts_are_scoped_by_city_new(client, db_session) -> None:
     khanty = _seed_city(db_session, slug="khanty")
     arch = _seed_city(db_session, slug="arkhangelsk")
@@ -94,6 +116,8 @@ def test_category_taxonomy_counts_are_scoped_by_city_new(client, db_session) -> 
     assert arch_categories["park"]["observed_count"] == 1
 
 
+@qa_story("Manual category corrections")
+@qa_title("Ручная смена категории синхронизирует canonical_category")
 def test_manual_category_change_updates_canonical_category_new(client, db_session) -> None:
     city = _seed_city(db_session, slug="manual-category")
     place = _seed_place(
@@ -117,6 +141,8 @@ def test_manual_category_change_updates_canonical_category_new(client, db_sessio
     assert updated.route_exclusion_reason is None
 
 
+@qa_story("Coverage summary")
+@qa_title("Coverage summary возвращает quality score по городу")
 def test_coverage_summary_new(client, db_session) -> None:
     city = _seed_city(db_session, slug="cov-city")
     _seed_place(db_session, city, slug="p1", address="ул. Ленина", image_url="http://x/1.jpg", verification_status="verified")
@@ -129,6 +155,8 @@ def test_coverage_summary_new(client, db_session) -> None:
     assert row["severity"] in ("green", "yellow", "red")
 
 
+@qa_story("Coverage summary")
+@qa_title("Coverage summary API возвращает items и total")
 def test_coverage_summary_api_new(client) -> None:
     response = client.get("/admin/coverage/summary")
     assert response.status_code == 200
