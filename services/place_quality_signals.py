@@ -7,7 +7,7 @@ import re
 from models.place import Place
 
 PLACEHOLDER_TITLE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"^\s*культурн(?:ое|ый|ая)\s+место\s+osm\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*культурн(?:ое|ый|ая)\s+(?:место|объект)\s+osm\s+\d+\s*$", re.IGNORECASE),
     re.compile(r"^\s*место\s+для\s+прогулки\s+osm\s+\d+\s*$", re.IGNORECASE),
     re.compile(r"^\s*парк\s+osm\s+\d+\s*$", re.IGNORECASE),
     re.compile(r"^\s*пляж\s+osm\s+\d+\s*$", re.IGNORECASE),
@@ -38,15 +38,24 @@ def is_placeholder_title(title: str | None) -> bool:
     return any(pattern.match(text) for pattern in PLACEHOLDER_TITLE_PATTERNS)
 
 
-def has_high_quality_route_core(place: Place) -> bool:
+def has_high_quality_route_core(place: Place, *, computed_score: int | None = None) -> bool:
     """Core quality gate for route publication and bulk selection."""
 
+    score = _quality_score(place, computed_score=computed_score)
     return (
         not is_placeholder_title(getattr(place, "title", None))
         and getattr(place, "lat", None) is not None
         and getattr(place, "lng", None) is not None
         and not (float(getattr(place, "lat", 0.0) or 0.0) == 0.0 and float(getattr(place, "lng", 0.0) or 0.0) == 0.0)
         and bool(str(getattr(place, "category", "") or getattr(place, "canonical_category", "") or "").strip())
-        and int(getattr(place, "quality_score", 0) or 0) >= 75
+        and score >= 75
         and str(getattr(place, "quality_tier", "") or "").strip().lower() in {"gold", "silver", "high", "medium"}
     )
+
+
+def _quality_score(place: Place, *, computed_score: int | None) -> int:
+    if computed_score is not None:
+        return computed_score
+    from services.place_quality_score import compute_place_quality_score
+
+    return compute_place_quality_score(place)
