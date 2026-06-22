@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from services.route_assembly_service import RoutePoint
+
+try:  # pragma: no cover - локально allure может быть не установлен.
+    import allure
+except Exception:  # pragma: no cover
+    allure = None
+
+
+def _allure_story(name: str) -> None:
+    if allure is not None:
+        allure.dynamic.feature("Admin route dry-run")
+        allure.dynamic.story(name)
 
 
 def _fake_build(self, db, request, profile=None):  # noqa: ARG001
@@ -37,8 +48,10 @@ def _fake_build(self, db, request, profile=None):  # noqa: ARG001
 
 
 def test_admin_dry_run_returns_candidates_new(client, db_session, city_factory, place_factory) -> None:
+    _allure_story("Dry-run returns actionable selected and rejected candidates")
     city = city_factory(slug="dry-run-city")
     place_factory(slug="dry-cafe", category="cafe", city_id=city.id)
+    place_factory(slug="dry-cafe-backup", category="cafe", city_id=city.id)
     place_factory(slug="dry-pharm", category="pharmacy", city_id=city.id)
     with patch("services.route_builder_service.RouteBuilderService.build_route", _fake_build):
         response = client.post(
@@ -52,6 +65,12 @@ def test_admin_dry_run_returns_candidates_new(client, db_session, city_factory, 
     assert response.status_code == 200
     body = response.json()
     assert body["generation_run_id"] > 0
-    assert body["counts"]["total_candidates"] >= 2
+    assert body["counts"]["total_candidates"] >= 3
     rejected_categories = {row.get("category") for row in body["rejected_candidates"]}
     assert "pharmacy" in rejected_categories
+    assert all(row["rejection_reasons"] for row in body["rejected_candidates"])
+    assert any(
+        "not_selected_lower_score" in row["rejection_reasons"]
+        for row in body["rejected_candidates"]
+        if row.get("category") == "cafe"
+    )
