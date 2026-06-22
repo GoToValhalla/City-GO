@@ -16,6 +16,7 @@ from models.city_admin_import_job import CityAdminImportJob
 from models.place import Place
 from services.admin_city_import_log import log_import_event
 from services.admin_city_import_runner import run_osm_import_only, summarize_import_results
+from services.category_normalize_service import normalize_city_categories
 from services.city_readiness.score import compute_city_readiness
 from services.import_pipeline.progress import append_step_warning, set_step
 from services.import_pipeline.steps import (
@@ -30,8 +31,8 @@ from services.import_pipeline.steps import (
     STEP_RUNNING,
 )
 
-IMAGE_LIMIT = 500
-ADDRESS_LIMIT = 500
+IMAGE_LIMIT = 2000
+ADDRESS_LIMIT = 5000
 
 
 def run_enrichment_pipeline(
@@ -115,8 +116,11 @@ def run_enrichment_pipeline(
             "reason": "Автогенерация описаний не подключена. Используйте экспорт enrichment."})
         db.commit()
 
-        set_step(job, STEP_CATEGORIES_TAGS, detail={"mode": "not_implemented",
-            "reason": "Теги и нормализация категорий — ручной шаг через админку."})
+        cats = normalize_city_categories(db, city_slug=slug, apply=True)
+        results["categories"] = cats
+        set_step(job, STEP_CATEGORIES_TAGS, processed=int(cats.get("scanned") or 0),
+                 successful=int(cats.get("updated") or 0), failed=int(cats.get("skipped") or 0),
+                 detail={"mode": "automatic", "category_normalization": cats})
         db.commit()
 
         set_step(job, STEP_COMPUTING_QUALITY)
