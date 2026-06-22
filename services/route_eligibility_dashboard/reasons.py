@@ -6,11 +6,13 @@ from models.city import City
 from models.place import Place
 
 from services.place_quality_score import compute_place_quality_score, is_low_quality
+from services.place_quality_signals import is_placeholder_title
 from services.route_eligibility import evaluate_place_route_eligibility
 
 _DASHBOARD_CODES = frozenset({
     "forbidden_category", "no_coordinates", "inactive_place", "unpublished_place",
-    "hidden_place", "no_photo", "no_address", "no_description", "low_quality", "other",
+    "hidden_place", "placeholder_title", "no_photo", "no_address", "no_description",
+    "low_quality", "other",
 })
 
 _REASON_MAP = {
@@ -22,6 +24,7 @@ _REASON_MAP = {
     "place_not_published": "unpublished_place",
     "place_not_visible_in_catalog": "hidden_place",
     "route_eligible_false": "other",
+    "placeholder_title": "placeholder_title",
     "missing_coordinates": "no_coordinates",
     "invalid_coordinates": "no_coordinates",
 }
@@ -34,6 +37,8 @@ def dashboard_reasons(place: Place, *, city: City | None = None) -> list[str]:
             codes.append("forbidden_category")
         else:
             codes.append(_REASON_MAP.get(raw, "other"))
+    if is_placeholder_title(getattr(place, "title", None)):
+        codes.append("placeholder_title")
     if not place.image_url:
         codes.append("no_photo")
     if not place.address or not str(place.address).strip():
@@ -47,8 +52,9 @@ def dashboard_reasons(place: Place, *, city: City | None = None) -> list[str]:
 
 def primary_reason(reasons: list[str]) -> str:
     for code in (
-        "forbidden_category", "no_coordinates", "inactive_place", "unpublished_place",
-        "hidden_place", "low_quality", "no_photo", "no_address", "no_description", "other",
+        "forbidden_category", "placeholder_title", "no_coordinates", "inactive_place",
+        "unpublished_place", "hidden_place", "low_quality", "no_photo", "no_address",
+        "no_description", "other",
     ):
         if code in reasons:
             return code
