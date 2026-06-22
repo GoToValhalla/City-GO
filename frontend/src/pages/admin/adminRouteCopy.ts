@@ -11,6 +11,7 @@ const REASON_LABELS: Record<string, string> = {
   place_not_visible_in_catalog: 'Место скрыто в каталоге.',
   hidden_place: 'Место скрыто в каталоге.',
   route_eligible_false: 'Место не подтверждено для маршрутов.',
+  placeholder_title: 'Название создано автоматически. Нужно проверить реальное место.',
   place_inactive: 'Место выключено.',
   inactive_place: 'Место выключено.',
   place_status_not_active: 'Статус места не активен.',
@@ -78,6 +79,9 @@ const QUALITY_LABELS: Record<string, string> = {
   bronze: 'можно проверить',
   draft: 'черновик',
   rejected: 'отклонено',
+  high: 'высокое',
+  medium: 'среднее',
+  low: 'низкое',
   unknown: 'неизвестно',
 }
 
