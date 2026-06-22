@@ -21,6 +21,17 @@ const dryRunResult = {
   counts: { total_candidates: 2, eligible_candidates: 1, rejected_candidates: 1, selected_places: 1 },
 }
 
+const draftResult = {
+  draft: { draft_id: 7, route_status: 'partial', total_minutes: 40, budget_minutes: 180, points: [{ id: 1, place_id: 1, position: 1, title: 'Museum', category: 'museum' }] },
+  dry_run: dryRunResult,
+}
+
+const publishResult = {
+  draft_id: 7,
+  route: { id: 99, slug: 'test-city-route-7', title: 'Route', is_active: true },
+  message: 'Маршрут опубликован',
+}
+
 const mockedAdminGet = vi.mocked(adminGet)
 const mockedAdminPost = vi.mocked(adminPost)
 
@@ -40,7 +51,11 @@ const runButtonDisabled = () => (screen.getByText('Запустить') as HTMLB
 describe('AdminRouteDryRunPage', () => {
   beforeEach(() => {
     mockedAdminGet.mockResolvedValue(cities)
-    mockedAdminPost.mockResolvedValue(dryRunResult)
+    mockedAdminPost.mockImplementation((path: string) => {
+      if (path === '/admin/routes/drafts/generate') return Promise.resolve(draftResult)
+      if (path === '/admin/routes/drafts/7/publish') return Promise.resolve(publishResult)
+      return Promise.resolve(dryRunResult)
+    })
   })
 
   afterEach(() => {
@@ -58,6 +73,17 @@ describe('AdminRouteDryRunPage', () => {
     await waitFor(() => expect(screen.getByText(/Run #42/)).toBeTruthy())
     expect(screen.getByText('Museum')).toBeTruthy()
     expect(screen.getByText('Pharm')).toBeTruthy()
+  })
+
+  it('saves and publishes draft route_new', async () => {
+    renderPage()
+    await waitFor(() => expect(selectedCityValue()).toBe('test-city'))
+    fireEvent.click(screen.getByText('Запустить'))
+    await waitFor(() => expect(screen.getByText(/Можно собрать маршрут/)).toBeTruthy())
+    fireEvent.click(screen.getByText('Сохранить draft'))
+    await waitFor(() => expect(screen.getByText(/Draft #7/)).toBeTruthy())
+    fireEvent.click(screen.getByText('Опубликовать draft'))
+    await waitFor(() => expect(screen.getByText(/Опубликован route #99/)).toBeTruthy())
   })
 
   it('selects first loaded city by default_new', async () => {

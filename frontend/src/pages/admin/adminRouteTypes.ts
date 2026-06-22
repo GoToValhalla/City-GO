@@ -75,6 +75,33 @@ export type DryRunResponse = {
   quality?: DryRunQuality | null
 }
 
+export type RouteDraftPoint = {
+  id: number
+  place_id: number
+  position: number
+  title: string
+  category: string | null
+}
+
+export type RouteDraft = {
+  draft_id: number
+  route_status: string
+  total_minutes: number
+  budget_minutes: number
+  points: RouteDraftPoint[]
+}
+
+export type RouteDraftGenerationResponse = {
+  draft: RouteDraft
+  dry_run: DryRunResponse
+}
+
+export type RoutePublishResponse = {
+  draft_id: number
+  route: { id: number; slug: string; title: string; is_active: boolean }
+  message: string
+}
+
 export type DataQualityAction = {
   code: string
   severity: 'blocker' | 'critical' | 'major' | string

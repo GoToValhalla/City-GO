@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from schemas.route import RouteDetailRead
+from schemas.route_draft import RouteDraftRead
+
 
 class AdminRouteDryRunRequest(BaseModel):
     city_slug: str
@@ -43,3 +46,20 @@ class AdminRouteDryRunResponse(BaseModel):
     rejected_candidates: list[AdminRouteDryRunCandidate]
     counts: AdminRouteDryRunCounts
     quality: dict[str, object] | None = None
+
+
+class AdminRouteDraftGenerationResponse(BaseModel):
+    draft: RouteDraftRead
+    dry_run: AdminRouteDryRunResponse
+
+
+class AdminRouteDraftPublishRequest(BaseModel):
+    title: str | None = None
+    slug: str | None = None
+    reason: str | None = None
+
+
+class AdminRouteDraftPublishResponse(BaseModel):
+    draft_id: int
+    route: RouteDetailRead
+    message: str

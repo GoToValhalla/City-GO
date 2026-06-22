@@ -9,6 +9,7 @@ from sqlalchemy.orm import Query, Session
 from models.city import City
 from models.data_foundation import CityQualitySnapshot
 from models.place import Place
+from models.route import Route
 from services.quality_scoring import apply_place_quality_scores
 from services.route_eligibility import route_eligible_sql_conditions
 
@@ -30,7 +31,7 @@ def compute_city_readiness_for_city(db: Session, *, city: City) -> dict[str, obj
     total = base.count()
     if total == 0:
         return _empty(city)
-    metrics = _metrics(base, total)
+    metrics = _metrics(base, total, city.id)
     score = _weighted_score(metrics)
     return {
         "city_slug": city.slug,
@@ -103,7 +104,7 @@ def latest_city_readiness_snapshot(db: Session, *, city_slug: str) -> CityQualit
     )
 
 
-def _metrics(base: Query, total: int) -> dict[str, float | int]:
+def _metrics(base: Query, total: int, city_id: int) -> dict[str, float | int]:
     active = base.filter(Place.is_active.is_(True), Place.lifecycle_status == "active").count()
     with_coords = base.filter(Place.lat.isnot(None), Place.lng.isnot(None)).count()
     with_photo = base.filter(Place.image_url.isnot(None), Place.image_url != "").count()
@@ -112,6 +113,7 @@ def _metrics(base: Query, total: int) -> dict[str, float | int]:
     with_hours = base.filter(Place.opening_hours.isnot(None)).count()
     verified = base.filter(Place.verification_status == "verified").count()
     eligible = base.filter(*route_eligible_sql_conditions()).count()
+    published_routes = _published_routes(base.session, city_id)
     spam = base.filter(Place.is_spam_poi.is_(True)).count()
     stale = base.filter(Place.critical_field_expired.is_(True)).count()
     never_verified = base.filter(Place.verified_at.is_(None), Place.last_verified_at.is_(None)).count()
@@ -135,6 +137,8 @@ def _metrics(base: Query, total: int) -> dict[str, float | int]:
         "route_eligibility_pct": _pct(eligible, total),
         "verification_coverage_pct": _pct(verified, total),
         "eligible_places": eligible,
+        "published_routes": published_routes,
+        "has_published_routes": int(published_routes > 0),
         "spam_poi_count": spam,
         "spam_poi_pct": _pct(spam, total),
         "gold_pct": _pct(gold, total),
@@ -204,6 +208,10 @@ def _pct(count: int, total: int) -> float:
     return round(count / total * 100, 1)
 
 
+def _published_routes(db: Session, city_id: int) -> int:
+    return db.query(Route).filter(Route.city_id == city_id, Route.is_active.is_(True)).count()
+
+
 def _empty(city: City) -> dict[str, object]:
     return {
         "city_slug": city.slug,
@@ -225,6 +233,8 @@ def _empty(city: City) -> dict[str, object]:
             "route_eligibility_pct": 0.0,
             "verification_coverage_pct": 0.0,
             "eligible_places": 0,
+            "published_routes": 0,
+            "has_published_routes": 0,
             "spam_poi_count": 0,
             "spam_poi_pct": 0.0,
             "gold_pct": 0.0,

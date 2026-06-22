@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { adminGet, adminPost } from './adminApi'
 import type { AdminCitiesResponse } from './adminTypes'
-import type { DryRunCandidate, DryRunResponse } from './adminRouteTypes'
+import type { DryRunCandidate, DryRunResponse, RouteDraft, RouteDraftGenerationResponse, RoutePublishResponse } from './adminRouteTypes'
 import { AdminError } from './shared/AdminStates'
 
 const qualityLabel = (status?: string) => {
@@ -84,6 +84,8 @@ export const AdminRouteDryRunPage = () => {
   const [startLng, setStartLng] = useState('')
   const [interests, setInterests] = useState('')
   const [result, setResult] = useState<DryRunResponse | null>(null)
+  const [draft, setDraft] = useState<RouteDraft | null>(null)
+  const [published, setPublished] = useState<RoutePublishResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -96,6 +98,16 @@ export const AdminRouteDryRunPage = () => {
       .catch((e: Error) => setError(e.message))
   }, [])
 
+  const dryRunBody = (): Record<string, unknown> => {
+    const body: Record<string, unknown> = {
+      city_slug: citySlug, duration_min: duration, route_mode: 'walk',
+      interests: interests.split(',').map((s) => s.trim()).filter(Boolean),
+    }
+    if (budget !== '') body.budget_level = Number(budget)
+    if (startLat && startLng) { body.start_lat = Number(startLat); body.start_lng = Number(startLng) }
+    return body
+  }
+
   const run = async () => {
     if (!citySlug) {
       setError('Выберите город для dry-run.')
@@ -104,13 +116,32 @@ export const AdminRouteDryRunPage = () => {
     setBusy(true)
     setError(null)
     try {
-      const body: Record<string, unknown> = {
-        city_slug: citySlug, duration_min: duration, route_mode: 'walk',
-        interests: interests.split(',').map((s) => s.trim()).filter(Boolean),
-      }
-      if (budget !== '') body.budget_level = Number(budget)
-      if (startLat && startLng) { body.start_lat = Number(startLat); body.start_lng = Number(startLng) }
-      setResult(await adminPost<DryRunResponse>('/admin/routes/dry-run', body))
+      setDraft(null)
+      setPublished(null)
+      setResult(await adminPost<DryRunResponse>('/admin/routes/dry-run', dryRunBody()))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка')
+    } finally { setBusy(false) }
+  }
+
+  const createDraft = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const response = await adminPost<RouteDraftGenerationResponse>('/admin/routes/drafts/generate', dryRunBody())
+      setDraft(response.draft)
+      setResult(response.dry_run)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка')
+    } finally { setBusy(false) }
+  }
+
+  const publishDraft = async () => {
+    if (!draft) return
+    setBusy(true)
+    setError(null)
+    try {
+      setPublished(await adminPost<RoutePublishResponse>(`/admin/routes/drafts/${draft.draft_id}/publish`, {}))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка')
     } finally { setBusy(false) }
@@ -146,7 +177,16 @@ export const AdminRouteDryRunPage = () => {
       {error && <AdminError message={error} />}
       {result && (
         <div>
-          <p>Run #{result.generation_run_id}: total {result.counts.total_candidates}, eligible {result.counts.eligible_candidates}, selected {result.counts.selected_places}</p>
+          <p>
+            Run #{result.generation_run_id}: total {result.counts.total_candidates}, eligible {result.counts.eligible_candidates},
+            selected {result.counts.selected_places}. {result.counts.selected_places > 0 ? 'Можно собрать маршрут.' : 'Маршрут собрать нельзя.'}
+          </p>
+          <div className="admin-filters">
+            <button type="button" className="admin-btn admin-btn-sm" disabled={busy || result.counts.selected_places === 0} onClick={createDraft}>Сохранить draft</button>
+            <button type="button" className="admin-btn admin-btn-sm" disabled={busy || !draft} onClick={publishDraft}>Опубликовать draft</button>
+            {draft ? <span className="admin-muted">Draft #{draft.draft_id}: {draft.points.length} точек, {draft.route_status}</span> : null}
+            {published ? <span className="admin-muted">Опубликован route #{published.route.id}: {published.route.slug}</span> : null}
+          </div>
           <DryRunMiniMap points={result.selected_places} />
           {result.quality ? (
             <section className="admin-metric-card" style={{ marginBottom: 16 }}>
@@ -169,6 +209,7 @@ export const AdminRouteDryRunPage = () => {
             {result.selected_places.map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td>{p.score ?? '—'}</td><td>{p.selection_reasons.join(', ')}</td></tr>)}
           </tbody></table>
           <h3>Rejected</h3>
+          <p className="admin-muted">Blockers: причины ниже показывают, почему место не вошло в маршрут.</p>
           <table className="admin-table"><thead><tr><th>Место</th><th>Кат.</th><th>Reasons</th></tr></thead><tbody>
             {result.rejected_candidates.slice(0, 50).map((p) => <tr key={p.place_id}><td>{p.title}</td><td>{p.category}</td><td>{p.rejection_reasons.join(', ')}</td></tr>)}
           </tbody></table>
