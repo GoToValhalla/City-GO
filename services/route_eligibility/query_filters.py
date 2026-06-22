@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import or_
+from sqlalchemy import not_, or_
 from sqlalchemy.orm import Query
 
 from models.place import Place
 from services.place_public_visibility import public_route_place_conditions
+from services.place_quality_signals import PLACEHOLDER_SQL_PATTERNS
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 
 
@@ -22,7 +23,8 @@ def route_eligible_sql_conditions() -> tuple[Any, ...]:
 
     - место публично и доступно для маршрутов;
     - есть координаты;
-    - категория не входит в технический/запрещённый список.
+    - категория не входит в технический/запрещённый список;
+    - название не является auto-generated placeholder вида "Культурное место OSM ...".
 
     Data-quality поля вроде quality_tier, lifecycle_status, critical_field_expired,
     duplicate/spam flags и canonical_category не должны быть hard blocker на этапе
@@ -33,6 +35,7 @@ def route_eligible_sql_conditions() -> tuple[Any, ...]:
         *public_route_place_conditions(),
         Place.lat.is_not(None),
         Place.lng.is_not(None),
+        *placeholder_title_sql_conditions(),
         or_(
             Place.canonical_category.is_(None),
             Place.canonical_category.notin_(tuple(ROUTE_FORBIDDEN_CATEGORIES)),
@@ -42,6 +45,10 @@ def route_eligible_sql_conditions() -> tuple[Any, ...]:
             Place.category.notin_(tuple(ROUTE_FORBIDDEN_CATEGORIES)),
         ),
     )
+
+
+def placeholder_title_sql_conditions() -> tuple[Any, ...]:
+    return tuple(not_(Place.title.ilike(pattern)) for pattern in PLACEHOLDER_SQL_PATTERNS)
 
 
 def apply_route_eligible_filters(query: Query) -> Query:
