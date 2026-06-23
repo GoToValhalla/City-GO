@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     # Telegram Bot — токен API бота (Long Poll / webhook).
     bot_token: str = ""
+    bot_webhook_secret: str = ""
 
     # Telegram runtime alerts — чат, куда уходят ошибки import-worker/enrichment.
     # TELEGRAM_BOT_TOKEN переиспользует того же бота, что и CI/deploy notifications.
@@ -55,7 +56,7 @@ class Settings(BaseSettings):
     food_category_id: int | None = None
     food_tag_id: int | None = None
 
-    # Optional filters for walking places — опциональные id для сценария «прогулки».
+    # Optional filters for walking places — опциональные id для dog-friendly подборок.
     walks_category_id: int | None = None
     walks_tag_id: int | None = None
 
