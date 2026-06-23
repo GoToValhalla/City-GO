@@ -10,12 +10,12 @@ import {
 
 type Props = {
   citySlug: string
-  features: string[]
+  features?: string[]
 }
 
 const fallbackCategories = interestOptions.map((item) => ({ code: item.value, name: item.label }))
 
-export const RandomRouteDraftEditor = ({ citySlug, features }: Props) => {
+export const RandomRouteDraftEditor = ({ citySlug, features = [] }: Props) => {
   const [categories, setCategories] = useState<CategoryOption[]>(fallbackCategories)
   const [selected, setSelected] = useState<string[]>([])
   const [budget, setBudget] = useState(120)
