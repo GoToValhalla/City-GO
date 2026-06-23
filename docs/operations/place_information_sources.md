@@ -1,46 +1,67 @@
 # Place Information Sources
 
-City GO needs full, reliable place profiles without inventing facts. The implemented model is source-first: collect observations, store source and freshness, calculate field confidence, then publish only fields that pass quality rules.
+City GO uses a source-first pipeline: collect place entities, preserve raw observations, enrich missing fields, calculate field confidence and publish only data that passes quality rules.
 
-## Implemented enrichment flow
+## Unified Run
 
-The legal enrichment implementation lives in `services/place_enrichment_sources.py` and is wired into the foundation import pipeline as the `enrich_external_sources` step.
+The admin action `Собрать и обогатить` now starts one background job:
 
-Current providers:
+```text
+OSM discovery by enabled scopes
+→ upsert and deduplication
+→ addresses, photos and category normalization
+→ Geoapify, Wikidata and official-site enrichment
+→ confidence and conflict review
+→ publication decisions
+→ quality and readiness
+```
 
-1. Geoapify Places API, enabled by `GEOAPIFY_API_KEY`.
-   - Used for address, website, phone and opening hours near the existing place coordinates.
-   - Stored as `SourceObservation.source_type = "geoapify"`.
-   - Safe fields are applied only when the public field is empty.
+The job is queued through `POST /admin/place-enrichment/pipeline/{city_slug}/run` and executed by `import-worker`.
 
-2. Wikidata / Wikimedia Commons.
-   - Used for cultural objects, landmarks, official website links, short factual descriptions and Commons photo candidates.
-   - Stored as `SourceObservation.source_type = "wikidata"`.
-   - Best match is selected by title similarity; weak matches are ignored.
+## Discovery Sources
 
-3. Official website metadata.
-   - Uses `place.website`, `place.source_url`, or a website found by Geoapify/Wikidata in the same enrichment run.
-   - Reads public HTML metadata, Open Graph, JSON-LD/schema.org, phone and opening-hours hints.
-   - Stored as `SourceObservation.source_type = "official_site"`.
-   - Photo URLs become `PlacePhotoCandidate` rows for admin review; they are not silently published as primary photos.
+### OSM / Overpass
 
-4. City GO category rules.
-   - Adds safe generic detail sections for `atmosphere`, `inside` and `best_for` when they are missing.
-   - This keeps Place Detail useful while real source-backed descriptions are still incomplete.
+OSM is the current source for discovering places that do not yet exist in City GO.
 
-## Files involved
+- Collection uses enabled `city_import_scopes`.
+- Repeated runs can find newly created or previously missed OSM objects.
+- Imported entities go through upsert and deduplication before enrichment.
+- If a required district or nearby territory is absent from scopes, it will not be searched.
 
-- `services/place_enrichment_sources.py` - provider orchestration, source observations, safe field application, conflict review items and photo candidates.
-- `services/import_pipeline_foundation.py` - includes `enrich_external_sources` in the pipeline after address backfill.
-- `services/import_pipeline_foundation_steps.py` - exposes the enrichment step and expands confidence fields.
-- `models/place.py` - stores `website`, `phone`, `atmosphere`, `inside`, `best_for`.
-- `schemas/place.py` - exposes the same fields to API consumers.
-- `migrations/versions/fb7e3c2a91d4_add_place_enrichment_profile_fields.py` - database migration for the new place profile fields.
-- `tests/test_place_enrichment_sources.py` - coverage for legal provider enrichment, source observations, confidence rows, photo candidates and conflict review queue.
+Geoapify and Wikidata currently enrich known coordinates/entities. They are not yet configured as independent city-wide discovery collectors.
 
-## Field policy
+## Enrichment Sources
 
-The enrichment step may fill only missing public fields:
+### Geoapify Places API
+
+Enabled by `GEOAPIFY_API_KEY`.
+
+- Address, website, phone and opening hours near existing coordinates.
+- Stored as `SourceObservation.source_type = "geoapify"`.
+- Only missing public fields are filled automatically.
+
+### Wikidata / Wikimedia Commons
+
+- Cultural objects, landmarks, official websites, factual descriptions and Commons photo candidates.
+- Stored as `SourceObservation.source_type = "wikidata"`.
+- Weak title matches are ignored.
+
+### Official Website Metadata
+
+- Uses an existing website/source URL or a URL found by Geoapify/Wikidata.
+- Reads HTML metadata, Open Graph and JSON-LD/schema.org.
+- Extracts descriptions, phone, opening hours and photo candidates.
+- Stored as `SourceObservation.source_type = "official_site"`.
+
+### City GO Category Rules
+
+- Adds safe generic `atmosphere`, `inside` and `best_for` sections when missing.
+- Does not invent addresses, contacts, ratings or opening hours.
+
+## Field Policy
+
+The pipeline can fill missing values for:
 
 - `address`
 - `website`
@@ -51,33 +72,35 @@ The enrichment step may fill only missing public fields:
 - `inside`
 - `best_for`
 
-If a provider returns a different value for an already populated field, the public field is preserved and a `ReviewQueueItem` with `reason = "source_conflict"` is created.
+Conflicting non-empty values are preserved and added to `review_queue_items` with `reason = "source_conflict"`.
 
-Photo URLs are saved as candidates, not directly as `place.image_url`. Public photos still require the existing candidate approval flow.
+Photo URLs are saved as candidates. They do not silently replace the primary photo.
 
-## Missing data handling
+Missing fields after enrichment are queued with `reason = "missing_after_enrichment"`.
 
-After enrichment, missing critical fields are queued for review with `reason = "missing_after_enrichment"`:
+## Provider Policy
 
-- address
-- website
-- phone
-- opening hours
-- description
-- photo
+Yandex Maps, 2GIS and Google can be used for map UI or outbound links where their terms permit it. Their proprietary place databases, reviews, ratings and photos must not be scraped or persisted without a suitable licence/API plan.
 
-Public UI must never show `null`, raw backend keys or invented values. If a field is missing, the block is hidden or shown as `Уточнить` only where uncertainty is useful to the user.
+## Runtime Configuration
 
-## Yandex, 2GIS and Google policy
+```env
+GEOAPIFY_API_KEY=
+PLACE_ADDRESS_GEOCODER_USER_AGENT=CityGoAddressBackfill/1.0
+```
 
-Yandex Maps, 2GIS and Google Places can be used as map UI providers or external outbound links where their terms allow it. They must not be scraped or used to copy/store proprietary place databases, photos, reviews or ratings unless City GO has an explicit license/API plan that allows persistence and display.
+Without a Geoapify key, OSM collection, Wikidata/Wikimedia, official-site metadata and City GO rules continue to work.
 
-For the current implementation, enrichment uses Geoapify, Wikidata/Wikimedia and official pages. Yandex/2GIS are intentionally excluded from ingestion to avoid ToS and data-license risk.
+## Operational Check
 
-## Recommended next data work
+After one city run, inspect:
 
-1. Configure `GEOAPIFY_API_KEY` in backend environment and run the pipeline for one city.
-2. Review `source_observations`, `place_field_confidence`, `place_photo_candidates` and `review_queue_items` for sample places.
-3. Add city/regional open-data and tourism-portal importers as additional licensed providers.
-4. Add an admin screen for resolving enrichment conflicts and approving photo candidates at scale.
-5. Add a scheduled re-verification job for opening hours, website and phone freshness.
+- places found and saved;
+- `source_observations` by provider;
+- fields enriched and provider errors;
+- `place_field_confidence`;
+- `place_photo_candidates`;
+- `review_queue_items`;
+- city readiness and route eligibility.
+
+Next data expansion: add licensed regional open-data and tourism-portal collectors as additional discovery sources before enrichment.
