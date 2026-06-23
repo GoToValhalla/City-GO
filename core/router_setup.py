@@ -8,6 +8,7 @@ from routers.admin_ops import router as admin_ops_router
 from routers.admin_route_ops import router as admin_route_ops_router
 from routers.admin_route_eligibility import router as admin_route_eligibility_router
 from routers.admin_place_ops import router as admin_place_ops_router
+from routers.admin_place_search import router as admin_place_search_router
 from routers.ai import router as ai_router
 from routers.categories import router as categories_router
 from routers.city_expansion import router as city_expansion_router
@@ -65,6 +66,7 @@ _ROOT_ROUTERS = (
     admin_route_ops_router,
     admin_route_eligibility_router,
     admin_place_ops_router,
+    admin_place_search_router,
     ai_router,
     categories_router,
     city_expansion_router,
