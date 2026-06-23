@@ -14,6 +14,7 @@ from models.import_batch import ImportBatch
 from models.place import Place
 from models.review_queue_item import ReviewQueueItem
 from models.source_observation import SourceObservation
+from services.category_normalize_service import normalize_places_categories
 from services.import_pipeline_publication import apply_pipeline_publication
 from services.place_enrichment_sources import enrich_places_from_sources
 from services.place_field_confidence_service import is_protected, upsert_field_confidence
@@ -36,7 +37,7 @@ PROTECTED_PLACE_FIELDS = {
 def run_step(db: Session, *, step: str, city: City, job: CityAdminImportJob, batch: ImportBatch, places: list[Place], counters: dict[str, int]) -> None:
     actions = {
         "collect_places": lambda: tuple(_observe_place(db, batch, city, place) for place in places),
-        "normalize_categories": lambda: None,
+        "normalize_categories": lambda: _normalize_categories(db, places, counters),
         "backfill_addresses": lambda: None,
         "enrich_external_sources": lambda: _enrich_external_sources(db, city, job, batch, places, counters),
         "generate_ai_descriptions": lambda: tuple(_ai_description(db, place, job.id) for place in places),
@@ -45,6 +46,12 @@ def run_step(db: Session, *, step: str, city: City, job: CityAdminImportJob, bat
         "apply_publication_decisions": lambda: tuple(apply_pipeline_publication(db, city, job, place, counters) for place in places),
     }
     actions[step]()
+
+
+def _normalize_categories(db: Session, places: list[Place], counters: dict[str, int]) -> None:
+    result = normalize_places_categories(db, places=places)
+    counters["categories_updated"] = counters.get("categories_updated", 0) + int(result["updated"])
+    counters["categories_unknown"] = counters.get("categories_unknown", 0) + int(result["unknown"])
 
 
 def _enrich_external_sources(
