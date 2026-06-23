@@ -27,7 +27,13 @@ def ensure_review_item(
         .first()
     )
     if item is None:
-        item = ReviewQueueItem(city_id=city_id, place_id=place_id, field_name=field_name, reason=reason)
+        item = ReviewQueueItem(
+            city_id=city_id,
+            place_id=place_id,
+            field_name=field_name,
+            reason=reason,
+            status="open",
+        )
     item.job_id = job_id
     item.severity = severity
     item.payload = payload or {}
