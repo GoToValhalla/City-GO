@@ -1,32 +1,87 @@
-import { Search } from 'lucide-react'
+import { SlidersHorizontal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { PlaceCard } from '../../components/places/PlaceCard'
+import { Button } from '../../components/ui/Button'
 import { AppHeader } from '../../components/ui/AppHeader'
+import { FilterChips, FilterSheet, PlaceList, SearchBar } from '../../components/places'
+import { ALL_VALUE, type FilterChipOption } from '../../components/places/FilterChips'
+import type { FilterSheetDraft } from '../../components/places/FilterSheet'
+import { placeStatus } from '../../components/places/placeViewModel'
 import { filterPlaces } from '../../features/place-search/model/filterPlaces'
 import { PlacesLoadMoreTrigger } from '../../features/places-list/PlacesLoadMoreTrigger'
 import { usePlacesPagination } from '../../features/places-list/usePlacesPagination'
 import { getCurrentCity, type CityOption } from '../../shared/city/currentCity'
+import { categoryLabel } from '../../shared/place/categoryLabels'
+
+const initialFilters: FilterSheetDraft = {
+  category: ALL_VALUE,
+  onlyOpen: false,
+  radiusKm: null,
+  minRating: null,
+}
 
 export const PlacesListPage = () => {
   const [city, setCity] = useState<CityOption>(getCurrentCity())
   const [search, setSearch] = useState('')
+  const [filters, setFilters] = useState<FilterSheetDraft>(initialFilters)
+  const [draftFilters, setDraftFilters] = useState<FilterSheetDraft>(initialFilters)
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false)
 
-  const { places, total, loading, hasMore, loadMore } = usePlacesPagination(city.slug)
+  const { places, total, loading, error, hasMore, loadMore, retry } = usePlacesPagination(city.slug)
 
   useEffect(() => {
     const syncCity = () => {
       setCity(getCurrentCity())
       setSearch('')
+      setFilters(initialFilters)
+      setDraftFilters(initialFilters)
+      setFilterSheetOpen(false)
     }
     window.addEventListener('citygo:city-changed', syncCity)
     return () => window.removeEventListener('citygo:city-changed', syncCity)
   }, [])
 
-  const filteredPlaces = useMemo(() => filterPlaces(places, search), [places, search])
+  const categoryOptions = useMemo<FilterChipOption[]>(() => {
+    const counters = places.reduce<Record<string, number>>((acc, place) => {
+      acc[place.category] = (acc[place.category] ?? 0) + 1
+      return acc
+    }, {})
+
+    return Object.entries(counters)
+      .sort(([, leftCount], [, rightCount]) => rightCount - leftCount)
+      .map(([value, count]) => ({ value, label: categoryLabel(value), count }))
+  }, [places])
+
+  const filteredPlaces = useMemo(() => {
+    const bySearch = filterPlaces(places, search)
+    return bySearch.filter((place) => {
+      if (filters.category !== ALL_VALUE && place.category !== filters.category) return false
+      if (filters.onlyOpen && placeStatus(place) !== 'open') return false
+      return true
+    })
+  }, [filters.category, filters.onlyOpen, places, search])
+
   const isSearchActive = search.trim().length > 0
-  const shownCount = isSearchActive ? filteredPlaces.length : places.length
-  const effectiveTotal = isSearchActive ? filteredPlaces.length : total
-  const isEmpty = !loading && filteredPlaces.length === 0
+  const shownCount = isSearchActive || filters.category !== ALL_VALUE || filters.onlyOpen ? filteredPlaces.length : places.length
+  const effectiveTotal = isSearchActive || filters.category !== ALL_VALUE || filters.onlyOpen ? filteredPlaces.length : total
+  const loadingMore = loading && places.length > 0
+
+  const resetFilters = () => {
+    setSearch('')
+    setFilters(initialFilters)
+    setDraftFilters(initialFilters)
+    setFilterSheetOpen(false)
+  }
+
+  const applyFilters = () => {
+    setFilters(draftFilters)
+    setFilterSheetOpen(false)
+  }
+
+  const handleChipChange = (category: string) => {
+    const nextFilters = { ...filters, category }
+    setFilters(nextFilters)
+    setDraftFilters(nextFilters)
+  }
 
   return (
     <div className="app-screen">
@@ -38,51 +93,55 @@ export const PlacesListPage = () => {
             <div>
               <h1 className="places-list-title">Места: {city.name}</h1>
               <p className="places-muted">
-                Поиск по текущей базе: кафе, музеи, парки, прогулки и вечерние места.
+                Карточки мест с фото, статусом, категорией и быстрым переходом к деталям.
               </p>
               {!loading || places.length > 0 ? (
                 <p className="places-muted">
-                  {isSearchActive
-                    ? `Найдено ${effectiveTotal} мест по текущему поиску.`
+                  {isSearchActive || filters.category !== ALL_VALUE || filters.onlyOpen
+                    ? `Найдено ${effectiveTotal} мест.`
                     : `Показано ${shownCount} из ${effectiveTotal} мест.`}
                 </p>
               ) : null}
             </div>
-            <span className="place-chip">
-              {loading && places.length === 0 ? 'загрузка' : `${effectiveTotal} мест`}
-            </span>
+            <Button variant="ghost" size="md" leftIcon={<SlidersHorizontal size={17} />} onClick={() => setFilterSheetOpen(true)}>
+              Фильтры
+            </Button>
           </div>
 
-          <label className="places-search">
-            <Search size={18} color="#6e6e73" />
-            <input
-              type="text"
-              placeholder="Поиск мест, категорий и адресов..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
+          <SearchBar
+            value={search}
+            onChange={setSearch}
+            placeholder="Поиск мест в городе"
+            loading={loading && places.length === 0}
+          />
+
+          <FilterChips options={categoryOptions} value={filters.category} onChange={handleChipChange} />
         </section>
 
-        {isEmpty && (
-          <section className="places-page-section">
-            <div className="state-panel">
-              По вашему запросу ничего не найдено.
-            </div>
-          </section>
-        )}
+        <section className="places-page-section">
+          <PlaceList
+            places={filteredPlaces}
+            loading={loading && places.length === 0}
+            loadingMore={loadingMore}
+            error={error}
+            onRetry={retry}
+            onResetFilters={resetFilters}
+          />
+        </section>
 
-        {!isEmpty && (
-          <section className="places-grid places-page-section">
-            {filteredPlaces.map((place) => (
-              <PlaceCard key={place.id} place={place} />
-            ))}
-          </section>
-        )}
-
-        {!isSearchActive && (
+        {!isSearchActive && filters.category === ALL_VALUE && !filters.onlyOpen ? (
           <PlacesLoadMoreTrigger onVisible={loadMore} loading={loading} hasMore={hasMore} />
-        )}
+        ) : null}
+
+        <FilterSheet
+          open={filterSheetOpen}
+          value={draftFilters}
+          categories={categoryOptions}
+          onChange={setDraftFilters}
+          onApply={applyFilters}
+          onReset={resetFilters}
+          onClose={() => setFilterSheetOpen(false)}
+        />
       </div>
     </div>
   )
