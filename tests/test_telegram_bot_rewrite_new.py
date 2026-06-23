@@ -20,6 +20,8 @@ def test_callback_data_stays_under_telegram_limit_new() -> None:
         cb("p", "view", "a1B2"),
         cb("near", "list", "coffee", 2),
         cb("open", "list", 1),
+        cb("fav", "add", "p", "a1B2"),
+        cb("fav", "del", "r", "a1B2"),
         cb("fav", "toggle", "p", "a1B2"),
     ]
 
@@ -88,10 +90,10 @@ def test_facade_filters_non_tourist_and_technical_places_new(db_session, city_fa
     assert [item.id for item in page.items] == [visible.id]
 
 
-def test_facade_nearby_skips_places_without_coordinates_new(db_session, city_factory, place_factory) -> None:
+def test_facade_nearby_skips_far_places_new(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="nearby-city")
     visible = place_factory(city_id=city.id, title="Парк", category="park", lat=54.9611, lng=20.4703)
-    place_factory(city_id=city.id, title="Без координат", category="park", lat=None, lng=None)
+    place_factory(city_id=city.id, title="Далеко", category="park", lat=55.9611, lng=21.4703)
 
     places = BotFacade(db_session).nearby_places("nearby-city", 54.9611, 20.4703)
 
