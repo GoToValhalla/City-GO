@@ -41,7 +41,7 @@ export const HomePage = () => {
         setPlacesTotal(data.total)
       } catch (err) {
         console.error(err)
-        setError('Не удалось загрузить places с backend')
+        setError('Не удалось загрузить места')
         setPlaces([])
         setPlacesTotal(0)
       } finally {
