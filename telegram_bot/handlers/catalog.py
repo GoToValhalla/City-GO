@@ -29,6 +29,19 @@ from telegram_bot.utils import haversine_meters
 logger = logging.getLogger(__name__)
 router = Router()
 
+CATEGORY_TITLES = {
+    "sights": "👀 Что посмотреть",
+    "food": "☕ Еда и кофе",
+    "coffee": "☕ Кофе",
+    "cafe": "☕ Кофе",
+    "park": "🌿 Парки",
+    "museum": "🏛 Музеи",
+    "culture": "🏛 Культура",
+    "walk": "🚶 Прогулки",
+    "viewpoint": "👀 Смотровые точки",
+    "beach": "🌊 Пляжи",
+}
+
 
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
@@ -290,7 +303,7 @@ async def _handle_place(callback: CallbackQuery, db: Session, session, facade: B
         category = parts[0]
         page_no = _int(parts[1])
         page = facade.places_by_category(session.selected_city_slug, category, page_no)
-        title = "☕ Еда и кофе" if category == "food" else "👀 Что посмотреть"
+        title = CATEGORY_TITLES.get(category, f"📍 {category}")
         await _edit_or_answer(callback, renderers.places_list_text(title, page.items, page.page), reply_markup=kb.places_page(page, session, "p", "cat", category))
         return
     if action == "view" and parts:
@@ -372,7 +385,7 @@ async def _render_route_step(callback: CallbackQuery, session, route: BotRoute, 
     distance = None
     if session.last_location and point.lat is not None and point.lng is not None:
         distance = haversine_meters(float(session.last_location["lat"]), float(session.last_location["lng"]), point.lat, point.lng)
-    await _edit_or_answer(callback, renderers.route_step_text(route, point, len(visited), distance), reply_markup=kb.route_step(index, len(route.points), index in visited))
+    await _edit_or_answer(callback, renderers.route_step_text(route, point, len(visited), distance), reply_markup=kb.route_step(point, len(route.points), index in visited))
 
 
 async def _send_place_card(callback: CallbackQuery, session, place: BotPlace) -> None:
