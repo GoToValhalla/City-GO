@@ -13,22 +13,12 @@ from models.place_field_confidence import PlaceFieldConfidence
 from models.place_schedule import PlaceSchedule
 from models.route import Route
 from models.route_place import RoutePlace
+from services.city_service import get_available_cities
 from telegram_bot.quality import category_code, is_hours_reliable, is_place_bot_visible, is_route_point_bot_eligible
 from telegram_bot.schemas import BotCity, BotPlace, BotRoute, BotRoutePoint, Page
 from telegram_bot.utils import haversine_meters
 
 DEFAULT_LIMIT = 5
-PUBLIC_CITY_STATUSES = {
-    "published",
-    "auto_published",
-    "limited_published",
-    "ready",
-    "ready_for_review",
-    "review",
-    "needs_review",
-    "enriched",
-    "launch_ready",
-}
 CATEGORY_GROUPS = {
     "all": set(),
     "sights": {"culture", "museum", "park", "walk", "viewpoint", "beach", "attraction", "landmark", "historic", "monument", "art", "architecture"},
@@ -46,44 +36,28 @@ class BotFacade:
         self.db = db
 
     def published_cities(self) -> list[BotCity]:
-        rows = (
-            self.db.query(City)
-            .filter(City.is_active.is_(True), City.launch_status.in_(PUBLIC_CITY_STATUSES))
-            .order_by(City.name.asc())
-            .all()
-        )
-        return [self._city(row) for row in rows]
+        return [self._city_from_available(row) for row in get_available_cities(self.db)]
 
     def city(self, slug: str | None) -> BotCity | None:
         if not slug:
             return None
-        row = (
-            self.db.query(City)
-            .filter(City.slug == slug, City.is_active.is_(True), City.launch_status.in_(PUBLIC_CITY_STATUSES))
-            .first()
-        )
-        return self._city(row) if row is not None else None
+        for row in get_available_cities(self.db):
+            if row["slug"] == slug:
+                return self._city_from_available(row)
+        return None
 
     def city_by_text(self, value: str) -> BotCity | None:
-        normalized = value.strip()
+        normalized = value.strip().lower()
         if not normalized:
             return None
-        row = (
-            self.db.query(City)
-            .filter(City.is_active.is_(True), City.launch_status.in_(PUBLIC_CITY_STATUSES))
-            .filter(or_(City.slug.ilike(normalized), City.name.ilike(normalized)))
-            .first()
-        )
-        if row is None:
-            pattern = f"%{normalized}%"
-            row = (
-                self.db.query(City)
-                .filter(City.is_active.is_(True), City.launch_status.in_(PUBLIC_CITY_STATUSES))
-                .filter(or_(City.slug.ilike(pattern), City.name.ilike(pattern)))
-                .order_by(City.name.asc())
-                .first()
-            )
-        return self._city(row) if row is not None else None
+        cities = get_available_cities(self.db)
+        for row in cities:
+            if str(row["slug"]).lower() == normalized or str(row["name"]).lower() == normalized:
+                return self._city_from_available(row)
+        for row in cities:
+            if normalized in str(row["slug"]).lower() or normalized in str(row["name"]).lower():
+                return self._city_from_available(row)
+        return None
 
     def routes(self, city_slug: str, page: int = 0, limit: int = DEFAULT_LIMIT) -> Page:
         city = self._city_row(city_slug)
@@ -216,16 +190,17 @@ class BotFacade:
         return [route for route in (self._route(row) for row in rows) if len(route.points) >= 2]
 
     def _city_row(self, slug: str) -> City | None:
-        return (
-            self.db.query(City)
-            .filter(City.slug == slug, City.is_active.is_(True), City.launch_status.in_(PUBLIC_CITY_STATUSES))
-            .first()
-        )
+        if self.city(slug) is None:
+            return None
+        return self.db.query(City).filter(City.slug == slug, City.is_active.is_(True)).first()
 
-    def _city(self, row: City) -> BotCity:
-        rows = self.db.query(Place).filter(Place.city_id == row.id).all()
-        count = sum(1 for place in rows if is_place_bot_visible(place))
-        return BotCity(id=row.id, slug=row.slug, name=row.name, places_count=count)
+    def _city_from_available(self, row: dict[str, object]) -> BotCity:
+        return BotCity(
+            id=0,
+            slug=str(row["slug"]),
+            name=str(row["name"]),
+            places_count=int(row.get("places_count") or 0),
+        )
 
     def _route(self, row: Route) -> BotRoute:
         points = []
