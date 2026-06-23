@@ -26,6 +26,13 @@ type ScreenPoint = {
   y: number
 }
 
+type MapTile = {
+  key: string
+  href: string
+  x: number
+  y: number
+}
+
 type Props = {
   points: NavigationPoint[]
   currentPointId?: number
@@ -138,7 +145,7 @@ export const RouteMapPreview = ({
   const tileStartY = Math.floor((center.worldY - MAP_HEIGHT / 2) / TILE_SIZE)
   const tileEndY = Math.floor((center.worldY + MAP_HEIGHT / 2) / TILE_SIZE)
   const tileCount = 2 ** camera.zoom
-  const tiles = []
+  const tiles: MapTile[] = []
   for (let x = tileStartX; x <= tileEndX; x += 1) {
     for (let y = tileStartY; y <= tileEndY; y += 1) {
       if (y < 0 || y >= tileCount) continue
