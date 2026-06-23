@@ -9,6 +9,7 @@ type PlaceListProps = {
   error?: string | null
   noCity?: boolean
   activePlaceId?: number | null
+  onActivePlaceChange?: (placeId: number) => void
   onRetry?: () => void
   onResetFilters?: () => void
   onSelectCity?: () => void
@@ -41,6 +42,7 @@ export const PlaceList = ({
   loading = false,
   loadingMore = false,
   noCity = false,
+  onActivePlaceChange,
   onResetFilters,
   onRetry,
   onSelectCity,
@@ -92,7 +94,12 @@ export const PlaceList = ({
       )}
     >
       {places.map((place) => (
-        <PlaceCard key={place.id} place={place} active={activePlaceId === place.id} />
+        <PlaceCard
+          key={place.id}
+          place={place}
+          active={activePlaceId === place.id}
+          onActivate={(selected) => onActivePlaceChange?.(selected.id)}
+        />
       ))}
       {loadingMore ? <div className="place-ui-list__more">{renderSkeletons(MORE_SKELETON_COUNT)}</div> : null}
     </div>
