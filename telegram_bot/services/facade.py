@@ -45,6 +45,27 @@ class BotFacade:
         row = self.db.query(City).filter(City.slug == slug, City.is_active.is_(True), City.launch_status == "published").first()
         return self._city(row) if row is not None else None
 
+    def city_by_text(self, value: str) -> BotCity | None:
+        normalized = value.strip()
+        if not normalized:
+            return None
+        row = (
+            self.db.query(City)
+            .filter(City.is_active.is_(True), City.launch_status == "published")
+            .filter(or_(City.slug.ilike(normalized), City.name.ilike(normalized)))
+            .first()
+        )
+        if row is None:
+            pattern = f"%{normalized}%"
+            row = (
+                self.db.query(City)
+                .filter(City.is_active.is_(True), City.launch_status == "published")
+                .filter(or_(City.slug.ilike(pattern), City.name.ilike(pattern)))
+                .order_by(City.name.asc())
+                .first()
+            )
+        return self._city(row) if row is not None else None
+
     def routes(self, city_slug: str, page: int = 0, limit: int = DEFAULT_LIMIT) -> Page:
         city = self._city_row(city_slug)
         if city is None:
