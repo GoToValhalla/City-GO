@@ -228,7 +228,8 @@ def _mini_app_url(path: str, params: dict[str, object] | None = None) -> str | N
         return None
     normalized_path = path if path.startswith("/") else f"/{path}"
     query = urlencode({key: value for key, value in (params or {}).items() if value not in (None, "")})
-    return f"{base_url}{normalized_path}{f'?{query}' if query else ''}"
+    suffix = f"?{query}" if query else ""
+    return f"{base_url}{normalized_path}{suffix}"
 
 
 def _map_url(lat: float, lng: float) -> str:
