@@ -104,6 +104,21 @@ describe('RouteNavigationView', () => {
     expect(screen.getByTestId('route-gps-status')).toHaveTextContent('До текущей точки')
   })
 
+  it('does not request geolocation for invalid route start', () => {
+    const watchPosition = vi.fn()
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: { watchPosition, clearWatch: vi.fn() },
+    })
+
+    renderView(baseRoute([point(1, 'Парк'), point(2, 'Без координат', { lat: null })]))
+    fireEvent.click(screen.getByRole('button', { name: 'Начать маршрут' }))
+
+    expect(watchPosition).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('route-active-panel')).not.toBeInTheDocument()
+    expect(screen.getByTestId('route-preview-panel')).toBeInTheDocument()
+  })
+
   it('marks visited, moves next and completes after last point', () => {
     renderView(baseRoute([point(1, 'Парк'), point(2, 'Площадь')]))
     fireEvent.click(screen.getByRole('button', { name: 'Начать маршрут' }))
