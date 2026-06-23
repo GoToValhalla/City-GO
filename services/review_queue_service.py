@@ -20,7 +20,8 @@ def ensure_review_item(
     severity: str = "medium",
     payload: dict[str, object] | None = None,
 ) -> ReviewQueueItem:
-    item = (
+    item = _pending_item(db, place_id=place_id, field_name=field_name, reason=reason)
+    item = item or (
         db.query(ReviewQueueItem)
         .filter_by(place_id=place_id, field_name=field_name, reason=reason, status="open")
         .first()
@@ -53,3 +54,22 @@ def resolve_review_item(db: Session, item_id: int, *, actor: str, resolution: st
     item.resolution = resolution
     db.add(item)
     return item
+
+
+def _pending_item(
+    db: Session,
+    *,
+    place_id: int,
+    field_name: str,
+    reason: str,
+) -> ReviewQueueItem | None:
+    for pending in db.new:
+        if (
+            isinstance(pending, ReviewQueueItem)
+            and pending.place_id == place_id
+            and pending.field_name == field_name
+            and pending.reason == reason
+            and pending.status in {None, "open"}
+        ):
+            return pending
+    return None
