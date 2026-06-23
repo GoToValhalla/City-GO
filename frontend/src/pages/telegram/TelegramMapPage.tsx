@@ -2,20 +2,16 @@ import { ExternalLink, MapPin } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { ErrorState } from '../../components/ui/ErrorState'
+import { buildYandexMapUrl, buildYandexWidgetUrl, type MapCoordinate } from '../../shared/map/yandexMaps'
+import { useTelegramMiniApp } from '../../shared/telegram/useTelegramMiniApp'
 
 const parseCoordinate = (value: string | null) => {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : null
 }
 
-const buildYandexWidgetUrl = (lat: number, lng: number) => {
-  const point = `${lng},${lat},pm2rdm`
-  return `https://yandex.ru/map-widget/v1/?ll=${lng}%2C${lat}&z=16&pt=${encodeURIComponent(point)}`
-}
-
-const buildYandexMapUrl = (lat: number, lng: number) => `https://yandex.ru/maps/?pt=${lng},${lat}&z=16&l=map`
-
 export const TelegramMapPage = () => {
+  useTelegramMiniApp()
   const [params] = useSearchParams()
   const lat = parseCoordinate(params.get('lat'))
   const lng = parseCoordinate(params.get('lng'))
@@ -34,12 +30,14 @@ export const TelegramMapPage = () => {
     )
   }
 
+  const center: MapCoordinate = { lat, lng }
+
   return (
     <main className="telegram-map-screen" aria-label="Карта места">
       <section className="telegram-map-frame" aria-label={`Карта: ${title}`}>
         <iframe
           title={`Карта: ${title}`}
-          src={buildYandexWidgetUrl(lat, lng)}
+          src={buildYandexWidgetUrl({ center, zoom: 16 })}
           loading="lazy"
           referrerPolicy="no-referrer-when-downgrade"
           allowFullScreen
@@ -52,7 +50,7 @@ export const TelegramMapPage = () => {
           <h1>{title}</h1>
           {address ? <p>{address}</p> : null}
         </div>
-        <a className="telegram-map-link" href={buildYandexMapUrl(lat, lng)} target="_blank" rel="noreferrer">
+        <a className="telegram-map-link" href={buildYandexMapUrl({ center, zoom: 16 })} target="_blank" rel="noreferrer">
           <Button variant="secondary" size="md" rightIcon={<ExternalLink size={16} />}>Открыть в картах</Button>
         </a>
       </section>
