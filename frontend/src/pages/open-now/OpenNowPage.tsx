@@ -33,7 +33,7 @@ export const OpenNowPage = () => {
         setPlaces(data)
       } catch (err) {
         console.error(err)
-        setError('Не удалось загрузить open-now с backend')
+        setError('Не удалось загрузить открытые места')
       } finally {
         setLoading(false)
       }
@@ -52,11 +52,7 @@ export const OpenNowPage = () => {
             { label: 'Главная', to: '/' },
             { label: 'Открыто сейчас' },
           ]}
-          right={
-            <div style={{ color: '#64748b' }}>
-              {loading ? 'Загрузка...' : `${places.length} открыто сейчас`}
-            </div>
-          }
+          right={<div className="places-muted">{loading ? 'Загрузка' : `${places.length} открыто сейчас`}</div>}
         />
 
         <section className="places-list-panel">
