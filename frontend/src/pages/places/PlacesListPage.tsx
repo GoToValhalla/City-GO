@@ -2,7 +2,7 @@ import { SlidersHorizontal } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Button } from '../../components/ui/Button'
 import { AppHeader } from '../../components/ui/AppHeader'
-import { FilterChips, FilterSheet, PlaceList, SearchBar } from '../../components/places'
+import { FilterChips, FilterSheet, PlaceList, PlaceMapPanel, SearchBar } from '../../components/places'
 import type { FilterChipOption } from '../../components/places/FilterChips'
 import type { FilterSheetDraft } from '../../components/places/FilterSheet'
 import { ALL_VALUE } from '../../components/places/placeFilterConstants'
@@ -11,6 +11,7 @@ import { filterPlaces } from '../../features/place-search/model/filterPlaces'
 import { PlacesLoadMoreTrigger } from '../../features/places-list/PlacesLoadMoreTrigger'
 import { usePlacesPagination } from '../../features/places-list/usePlacesPagination'
 import { getCurrentCity, type CityOption } from '../../shared/city/currentCity'
+import { useUserLocation } from '../../shared/location/useUserLocation'
 import { categoryLabel } from '../../shared/place/categoryLabels'
 
 const initialFilters: FilterSheetDraft = {
@@ -26,6 +27,8 @@ export const PlacesListPage = () => {
   const [filters, setFilters] = useState<FilterSheetDraft>(initialFilters)
   const [draftFilters, setDraftFilters] = useState<FilterSheetDraft>(initialFilters)
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
+  const [activePlaceId, setActivePlaceId] = useState<number | null>(null)
+  const userLocation = useUserLocation()
 
   const { places, total, loading, error, hasMore, loadMore, retry } = usePlacesPagination(city.slug)
 
@@ -35,6 +38,7 @@ export const PlacesListPage = () => {
       setSearch('')
       setFilters(initialFilters)
       setDraftFilters(initialFilters)
+      setActivePlaceId(null)
       setFilterSheetOpen(false)
     }
     window.addEventListener('citygo:city-changed', syncCity)
@@ -61,6 +65,16 @@ export const PlacesListPage = () => {
     })
   }, [filters.category, filters.onlyOpen, places, search])
 
+  useEffect(() => {
+    if (filteredPlaces.length === 0) {
+      setActivePlaceId(null)
+      return
+    }
+    if (!activePlaceId || !filteredPlaces.some((place) => place.id === activePlaceId)) {
+      setActivePlaceId(filteredPlaces[0].id)
+    }
+  }, [activePlaceId, filteredPlaces])
+
   const isSearchActive = search.trim().length > 0
   const shownCount = isSearchActive || filters.category !== ALL_VALUE || filters.onlyOpen ? filteredPlaces.length : places.length
   const effectiveTotal = isSearchActive || filters.category !== ALL_VALUE || filters.onlyOpen ? filteredPlaces.length : total
@@ -70,6 +84,7 @@ export const PlacesListPage = () => {
     setSearch('')
     setFilters(initialFilters)
     setDraftFilters(initialFilters)
+    setActivePlaceId(null)
     setFilterSheetOpen(false)
   }
 
@@ -94,7 +109,7 @@ export const PlacesListPage = () => {
             <div>
               <h1 className="places-list-title">Места: {city.name}</h1>
               <p className="places-muted">
-                Карточки мест с фото, статусом, категорией и быстрым переходом к деталям.
+                Карта и карточки мест с фото, статусом, категорией и быстрым переходом к деталям.
               </p>
               {!loading || places.length > 0 ? (
                 <p className="places-muted">
@@ -119,12 +134,24 @@ export const PlacesListPage = () => {
           <FilterChips options={categoryOptions} value={filters.category} onChange={handleChipChange} />
         </section>
 
-        <section className="places-page-section">
+        <section className="places-map-list-layout">
+          <PlaceMapPanel
+            places={filteredPlaces}
+            activePlaceId={activePlaceId}
+            userLocation={userLocation.coordinates}
+            locationLoading={userLocation.status === 'loading'}
+            locationError={userLocation.error}
+            onActivePlaceChange={setActivePlaceId}
+            onRequestLocation={userLocation.requestLocation}
+          />
+
           <PlaceList
             places={filteredPlaces}
             loading={loading && places.length === 0}
             loadingMore={loadingMore}
             error={error}
+            activePlaceId={activePlaceId}
+            onActivePlaceChange={setActivePlaceId}
             onRetry={retry}
             onResetFilters={resetFilters}
           />
