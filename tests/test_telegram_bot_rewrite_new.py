@@ -1,7 +1,11 @@
+from datetime import datetime
+
 from models.place_field_confidence import PlaceFieldConfidence
 from models.route import Route
 from models.route_place import RoutePlace
-from telegram_bot.callbacks import cb
+from models.route_session import RouteSession, RouteSessionPoint
+from telegram_bot.callbacks import cb, parse_callback
+from telegram_bot.handlers.catalog import _route_state_from_backend, _should_push_nav
 from telegram_bot.quality import is_hours_reliable, is_place_bot_visible, is_technical_osm_title
 from telegram_bot.renderers import place_card_text
 from telegram_bot.schemas import BotPlace
@@ -26,6 +30,41 @@ def test_callback_data_stays_under_telegram_limit_new() -> None:
     ]
 
     assert all(len(item.encode("utf-8")) <= 64 for item in samples)
+
+
+def test_action_callbacks_do_not_pollute_back_stack_new() -> None:
+    assert _should_push_nav("back", parse_callback("back")) is False
+    assert _should_push_nav("fav:add:p:a1B2", parse_callback("fav:add:p:a1B2")) is False
+    assert _should_push_nav("fav:del:r:a1B2", parse_callback("fav:del:r:a1B2")) is False
+    assert _should_push_nav("rn:visit:0", parse_callback("rn:visit:0")) is False
+    assert _should_push_nav("rn:pt:1", parse_callback("rn:pt:1")) is False
+    assert _should_push_nav("r:view:a1B2", parse_callback("r:view:a1B2")) is True
+    assert _should_push_nav("p:cat:sights:0", parse_callback("p:cat:sights:0")) is True
+    assert _should_push_nav("fav:list", parse_callback("fav:list")) is True
+
+
+def test_telegram_route_state_keeps_backend_session_id_new() -> None:
+    backend_session = RouteSession(
+        id=77,
+        route_id=12,
+        status="active",
+        current_point_index=1,
+        visited_point_indexes=[0],
+        skipped_point_indexes=[],
+        started_at=datetime.utcnow(),
+    )
+    backend_session.points = [
+        RouteSessionPoint(session_id=77, place_id=1, ordering_index=0, title="Парк"),
+        RouteSessionPoint(session_id=77, place_id=2, ordering_index=1, title="Музей"),
+    ]
+
+    state = _route_state_from_backend(backend_session)
+
+    assert state["route_id"] == 12
+    assert state["session_id"] == 77
+    assert state["current_index"] == 1
+    assert state["visited"] == [0]
+    assert state["skipped"] == []
 
 
 def test_technical_osm_titles_are_hidden_new() -> None:
@@ -88,6 +127,15 @@ def test_facade_filters_non_tourist_and_technical_places_new(db_session, city_fa
     page = BotFacade(db_session).places_by_category("bot-city", "sights")
 
     assert [item.id for item in page.items] == [visible.id]
+
+
+def test_facade_finds_city_by_slug_or_name_text_new(db_session, city_factory) -> None:
+    city = city_factory(slug="zelenogradsk-text", name="Зеленоградск")
+    facade = BotFacade(db_session)
+
+    assert facade.city_by_text("zelenogradsk-text") == facade.city(city.slug)
+    assert facade.city_by_text("Зеленоградск") == facade.city(city.slug)
+    assert facade.city_by_text("Зелен") == facade.city(city.slug)
 
 
 def test_facade_nearby_skips_far_places_new(db_session, city_factory, place_factory) -> None:
