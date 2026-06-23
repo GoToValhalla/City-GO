@@ -101,7 +101,7 @@ route_session_points
 - `favorites`
 - `last_location`
 
-`bot_sessions.route_session` now stores a lightweight pointer/state snapshot:
+`bot_sessions.route_session` stores a lightweight pointer/state snapshot:
 
 - route id;
 - backend route session id;
@@ -117,7 +117,7 @@ route_session_points
 - bot started;
 - city selected;
 - route viewed/started/completed;
-- route point visited;
+- route point visited/skipped;
 - place viewed;
 - nearby used;
 - open-now used;
@@ -131,16 +131,17 @@ route_session_points
 
 `/start`:
 
-- if one published city exists, the bot immediately selects it and shows main menu;
-- if multiple published cities exist, it shows city selection;
+- if the user already has a valid selected city, the bot opens that city menu;
+- if one public city exists, the bot immediately selects it and shows main menu;
+- if multiple public cities exist, it shows city selection with place counts;
 - if none exist, it shows an honest empty state without an empty inline keyboard.
 
-Published city means:
+Public city means:
 
 - `City.is_active = true`
-- `City.launch_status = published`
+- `City.launch_status` is one of `published`, `auto_published`, `limited_published`, `ready`, `ready_for_review`, `review`, `needs_review`, `enriched`, `launch_ready`.
 
-If no city is selected yet, a free-text message can select a published city by slug or name match before falling back to the city selector.
+If no city is selected yet, a free-text message can select a public city by slug or name match before falling back to the city selector.
 
 ### Main Menu
 
@@ -178,6 +179,7 @@ Route mode starts by creating a backend `route_sessions` record through `service
 Controls:
 
 - `Я на месте`;
+- `Пропустить точку`;
 - `Предыдущая`;
 - `Следующая`;
 - `На карте`;
@@ -186,10 +188,11 @@ Controls:
 
 Behavior:
 
-- `Я на месте` calls backend check-in and advances to the next open point;
-- `Предыдущая` / `Следующая` update current point index;
+- `Я на месте` calls backend check-in with action `visit` and advances to the next open point;
+- `Пропустить точку` calls backend check-in with action `skip` and advances to the next open point;
+- `Предыдущая` / `Следующая` update current point index without marking a point visited;
 - `Завершить` completes backend route session;
-- route-point visits and route completion are logged to `bot_events`;
+- route-point visits/skips and route completion are logged to `bot_events`;
 - old Telegram route session dicts without `session_id` still degrade through the legacy in-session flow.
 
 If the user sent Telegram location earlier, route step text includes distance to the current point. If there is no GPS, route mode remains manual.
@@ -198,7 +201,12 @@ If the user sent Telegram location earlier, route step text includes distance to
 
 Category place lists use `BotFacade.places_by_category()` and `telegram_bot.quality.is_place_bot_visible()`.
 
-Place card shows:
+The main category groups intentionally cover common real taxonomy aliases:
+
+- sights: culture, museum, park, walk, viewpoint, beach, attraction, landmark, historic, monument, art, architecture;
+- food: food, coffee, cafe, restaurant, bar, bakery, fast_food, ice_cream.
+
+Place list rows show category, distance when known, and address when available. Place card shows:
 
 - clean title;
 - human category label;
@@ -219,153 +227,22 @@ If user sends location:
 - sort by distance;
 - show only bot-visible places with coordinates.
 
-If location is missing, bot shows the location request button.
+Nearby category callbacks are parsed as `near:list:{category}:{page}`. The current implementation returns the first distance-sorted page from the stored location.
 
-### Open Now
+### Favorites
 
-Open-now uses only places where opening hours confidence is reliable:
-
-- `confidence_level in {high, medium}`;
-- `freshness_status != stale`;
-- `conflict_status is none/null`.
-
-Low/stale/conflict/unknown hours are excluded.
-
-### Search
-
-Any free text outside command/help/menu context is a search query after a city is selected.
-
-Search behavior:
-
-- stores `current_flow = search:{query}`;
-- supports pagination through `p:src:{page}`;
-- logs `search_query`;
-- logs `search_no_results` when empty.
-
-## Callback Contract
-
-Telegram callback_data limit is 64 bytes. Never place UUIDs or long strings directly into callback_data.
-
-Pattern examples:
-
-```text
-m:main
-c:list
-c:set:{slug}
-r:list:{page}
-r:view:{short_id}
-r:go:{short_id}
-r:pts:{short_id}
-rn:pt:{idx}
-rn:visit:{idx}
-rn:done
-p:cat:{code}:{page}
-p:view:{short_id}
-p:src:{page}
-near:ask
-near:list:{cat}:{page}
-open:list:{page}
-fav:list
-fav:add:p:{short_id}
-fav:del:p:{short_id}
-fav:add:r:{short_id}
-fav:del:r:{short_id}
-back
-help
-```
-
-`fav:toggle` is still supported for old already-rendered messages, but new keyboards must use explicit `add`/`del`.
-
-Back-stack stores navigation screens only. Action callbacks such as `fav:add`, `fav:del`, `rn:visit`, `rn:pt`, and `rn:done` must not pollute history.
-
-## Quality Gates
-
-A place is visible in bot lists only if:
-
-- active;
-- not spam;
-- published;
-- visible in catalog;
-- publication status is `published`, `auto_published`, or `limited_published`;
-- title is not technical;
-- category is not blacklisted.
-
-Blacklisted bot categories:
-
-```text
-service, bank, atm, mvd, police, government, transport,
-hospital, health, medical, pharmacy, military, cemetery,
-industrial, waste_disposal, fuel, parking, car_service
-```
-
-Technical title examples:
-
-```text
-node/123
-way/123
-relation/123
-OSM 123
-Культурное место OSM 15446204
-Место для прогулки OSM 1492576554
-```
-
-## Admin Analytics
-
-Endpoint:
-
-```http
-GET /admin/telegram-bot/analytics?days=7
-```
-
-Returns:
-
-- `active_users`;
-- `events_total`;
-- `events_by_type`;
-- `top_cities`;
-- `route_funnel.started`;
-- `route_funnel.completed`;
-- `route_funnel.completion_rate_percent`;
-- `search_no_results`;
-- `latest_events`.
-
-No-result searches are a content backlog source.
-
-## Rate Limit
-
-`SoftRateLimitMiddleware` allows 30 events per user per 60 seconds.
-
-If exceeded:
-
-- callback gets a short answer: `Не так быстро. Подожди пару секунд и нажми снова.`;
-- message gets the same text as a reply.
+Favorites are stored in `bot_sessions.favorites`. The favorites screen renders saved routes and places as clickable buttons, so the user can open the saved entity directly instead of seeing a dead text list.
 
 ## Verification
 
+Targeted tests:
+
 ```bash
-.venv/bin/python -m pytest --no-cov \
-  tests/test_telegram_bot_rewrite_new.py \
-  tests/test_telegram_bot_completion_new.py \
-  tests/test_route_sessions_new.py -q
+.venv/bin/python -m pytest --no-cov tests/test_telegram_bot_rewrite_new.py -q
 ```
 
-Critical assertions:
+Relevant deploy checks:
 
-- callback_data <= 64 bytes;
-- action callbacks do not pollute back-stack;
-- technical OSM titles are hidden;
-- service/bank/police/etc do not pass quality filter;
-- low/stale/conflict hours do not pass open-now reliability;
-- renderers do not show debug/source/confidence fields;
-- route with fewer than two valid points is unavailable;
-- Telegram route mode keeps backend route session id;
-- route/place cards include external map actions;
-- admin bot analytics returns route funnel and no-result search data.
-
-## Known Boundaries
-
-- No full map inside Telegram.
-- No route geometry drawing inside Telegram.
-- No Redis in MVP; sessions are persisted in PostgreSQL.
-- No broadcast/mass notification flow.
-- Webhook exists, but docker-compose bot service currently runs polling.
+```bash
+python -m py_compile telegram_bot/handlers/catalog.py telegram_bot/services/facade.py telegram_bot/renderers.py telegram_bot/keyboards/catalog.py
+```
