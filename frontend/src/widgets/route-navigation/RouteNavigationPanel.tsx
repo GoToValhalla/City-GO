@@ -23,7 +23,8 @@ const pointTitle = (point: NavigationPoint | undefined): string =>
   point?.place_title ?? (point ? `Место #${point.place_id}` : 'Точка маршрута')
 
 const navigationUrl = (point: NavigationPoint | undefined): string | null => {
-  if (!Number.isFinite(point?.lat) || !Number.isFinite(point?.lng)) return null
+  if (!point || typeof point.lat !== 'number' || typeof point.lng !== 'number') return null
+  if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null
   return `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lng}&travelmode=walking`
 }
 
