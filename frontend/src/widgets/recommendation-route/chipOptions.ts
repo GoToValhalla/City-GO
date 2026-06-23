@@ -41,6 +41,17 @@ export const filterInterestsForFeatures = (interests: string[], routeFeatures: s
   return interests.filter((interest) => featuresSupportInterest(routeFeatures, interest))
 }
 
+export const filterCategoryOptionsForFeatures = <T extends { code: string }>(categories: T[], routeFeatures: string[]): T[] => {
+  return categories.filter((category) => featuresSupportInterest(routeFeatures, category.code))
+}
+
+export const getUnsupportedInterestLabels = (interests: string[], routeFeatures: string[]): string[] => {
+  const optionByValue = new Map(interestOptions.map((option) => [option.value, option.label]))
+  return interests
+    .filter((interest) => !featuresSupportInterest(routeFeatures, interest))
+    .map((interest) => optionByValue.get(interest) ?? interest)
+}
+
 export const avoidedCategoryOptions = [
   { value: 'bar', label: 'Бары' },
   { value: 'museum', label: 'Музеи' },
