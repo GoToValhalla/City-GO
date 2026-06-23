@@ -63,6 +63,12 @@ class BotFacade:
                 return self._city_from_available(row)
         return None
 
+    def city_center(self, city_slug: str) -> tuple[float, float] | None:
+        city = self._city_row(city_slug)
+        if city is None or city.center_lat is None or city.center_lng is None:
+            return None
+        return float(city.center_lat), float(city.center_lng)
+
     def routes(self, city_slug: str, page: int = 0, limit: int = DEFAULT_LIMIT) -> Page:
         city = self._city_row(city_slug)
         if city is None:
@@ -77,6 +83,39 @@ class BotFacade:
         valid = [route for route in (self._route(row) for row in rows) if len(route.points) >= 2]
         start = page * limit
         return Page(valid[start:start + limit], page, len(valid) > start + limit)
+
+    def generated_route(self, city_slug: str, limit: int = 5) -> BotRoute | None:
+        city = self._city_row(city_slug)
+        if city is None:
+            return None
+        rows = self._route_candidate_rows(city, limit)
+        if len(rows) < 2:
+            return None
+        points = [
+            BotRoutePoint(
+                index=index,
+                place_id=row.id,
+                title=row.title,
+                category=category_code(row),
+                short_description=row.short_description,
+                address=row.address,
+                image_url=_safe_image_url(row.image_url),
+                lat=row.lat,
+                lng=row.lng,
+            )
+            for index, row in enumerate(rows)
+        ]
+        distance_km = _points_distance_km(points)
+        walking_minutes = int((distance_km / 4.5) * 60) if distance_km else 0
+        duration_minutes = max(30, walking_minutes + len(points) * 10)
+        return BotRoute(
+            id=0,
+            title=f"Прогулка по {city.name}",
+            short_description="Временный маршрут из опубликованных точек города. Можно пройти его прямо в Telegram.",
+            duration_minutes=duration_minutes,
+            distance_km=round(distance_km, 1) if distance_km else None,
+            points=points,
+        )
 
     def route(self, route_id: int) -> BotRoute | None:
         row = (
@@ -176,6 +215,26 @@ class BotFacade:
         start = page * limit
         return Page(valid[start:start + limit], page, len(valid) > start + limit)
 
+    def reliable_hours_places(self, city_slug: str, page: int = 0, limit: int = DEFAULT_LIMIT) -> Page:
+        city = self._city_row(city_slug)
+        if city is None:
+            return Page([], page, False)
+        rows = (
+            self.db.query(Place)
+            .options(joinedload(Place.category_ref))
+            .filter(Place.city_id == city.id)
+            .order_by(Place.quality_score.desc(), Place.title.asc())
+            .all()
+        )
+        valid = []
+        for row in rows:
+            if not is_place_bot_visible(row) or not _format_opening_hours(row.opening_hours):
+                continue
+            if is_hours_reliable(self._field_confidence(row.id, "opening_hours")):
+                valid.append(self._place(row))
+        start = page * limit
+        return Page(valid[start:start + limit], page, len(valid) > start + limit)
+
     def favorite_places(self, place_ids: list[int]) -> list[BotPlace]:
         if not place_ids:
             return []
@@ -205,6 +264,37 @@ class BotFacade:
             name=str(row["name"]),
             places_count=int(row.get("places_count") or 0),
         )
+
+    def _route_candidate_rows(self, city: City, limit: int) -> list[Place]:
+        rows = (
+            self.db.query(Place)
+            .options(joinedload(Place.category_ref))
+            .filter(Place.city_id == city.id)
+            .filter(Place.lat.isnot(None), Place.lng.isnot(None), Place.is_route_eligible.is_(True))
+            .order_by(Place.quality_score.desc(), Place.title.asc())
+            .all()
+        )
+        visible = [row for row in rows if is_route_point_bot_eligible(row)]
+        if city.center_lat is not None and city.center_lng is not None:
+            visible = sorted(visible, key=lambda row: haversine_meters(float(city.center_lat), float(city.center_lng), row.lat, row.lng))
+
+        selected = []
+        seen_categories = set()
+        for row in visible:
+            code = category_code(row)
+            if len(selected) < 2 or code not in seen_categories:
+                selected.append(row)
+                seen_categories.add(code)
+            if len(selected) >= limit:
+                break
+        if len(selected) < min(limit, len(visible)):
+            selected_ids = {row.id for row in selected}
+            for row in visible:
+                if row.id not in selected_ids:
+                    selected.append(row)
+                if len(selected) >= limit:
+                    break
+        return selected[:limit]
 
     def _route(self, row: Route) -> BotRoute:
         points = []
@@ -246,6 +336,15 @@ class BotFacade:
 
     def _field_confidence(self, place_id: int, field_name: str) -> PlaceFieldConfidence | None:
         return self.db.query(PlaceFieldConfidence).filter_by(place_id=place_id, field_name=field_name).first()
+
+
+def _points_distance_km(points: list[BotRoutePoint]) -> float:
+    distance_m = 0.0
+    for current, next_point in zip(points, points[1:]):
+        if current.lat is None or current.lng is None or next_point.lat is None or next_point.lng is None:
+            continue
+        distance_m += haversine_meters(current.lat, current.lng, next_point.lat, next_point.lng)
+    return distance_m / 1000
 
 
 def _format_opening_hours(value: object) -> str | None:
