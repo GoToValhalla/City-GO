@@ -10,7 +10,7 @@ from typing import Any
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import CallbackQuery, Message, TelegramObject, Update
+from aiogram.types import BotCommand, CallbackQuery, Message, TelegramObject, Update
 
 from core.config import settings
 from telegram_bot.handlers.catalog import router as catalog_router
@@ -58,6 +58,16 @@ def create_dispatcher() -> Dispatcher:
     return dp
 
 
+async def setup_bot_commands(bot: Bot) -> None:
+    await bot.set_my_commands(
+        [
+            BotCommand(command="start", description="Запустить City GO"),
+            BotCommand(command="menu", description="Открыть главное меню"),
+            BotCommand(command="help", description="Помощь и возможности"),
+        ]
+    )
+
+
 async def feed_webhook_update(bot: Bot, update_payload: dict[str, object]) -> None:
     update = Update.model_validate(update_payload)
     dp = create_dispatcher()
@@ -68,6 +78,7 @@ async def run_polling() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
     bot = create_bot()
     dp = create_dispatcher()
+    await setup_bot_commands(bot)
     logger.info("Telegram bot is starting...")
     await dp.start_polling(bot)
 
