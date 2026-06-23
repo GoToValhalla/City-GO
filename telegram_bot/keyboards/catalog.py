@@ -64,7 +64,7 @@ def route_card(route: BotRoute, session: BotSession) -> InlineKeyboardMarkup:
     ]
     start_point = next((point for point in route.points if point.lat is not None and point.lng is not None), None)
     if start_point is not None:
-        rows.append([InlineKeyboardButton(text="🗺 Маршрут на карте", url=_map_url(start_point.lat, start_point.lng))])
+        rows.append([InlineKeyboardButton(text="🗺 Открыть карту", url=_map_url(start_point.lat, start_point.lng))])
     rows.extend(
         [
             [InlineKeyboardButton(text=favorite_text, callback_data=favorite_callback)],
@@ -125,7 +125,7 @@ def place_card(place: BotPlace, session: BotSession) -> InlineKeyboardMarkup:
     favorite_text, favorite_callback = _favorite_button("p", place.id, sid, session)
     rows = []
     if place.lat is not None and place.lng is not None:
-        rows.append([InlineKeyboardButton(text="🗺 Маршрут", url=_map_url(place.lat, place.lng))])
+        rows.append([InlineKeyboardButton(text="🗺 На карте", url=_map_url(place.lat, place.lng))])
     rows.append([InlineKeyboardButton(text=favorite_text, callback_data=favorite_callback)])
     if place.category:
         rows.append([InlineKeyboardButton(text="🔁 Похожие места", callback_data=cb("p", "cat", place.category, 0))])
