@@ -59,7 +59,8 @@ const diagnostics = {
   sample_blocked_places: [],
 }
 
-const jsonResponse = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+const jsonResponse = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
+let failBulkApply = false
 
 const renderPage = () => render(
   <MemoryRouter initialEntries={['/admin/routes/eligibility?city_slug=kemerovo']}>
@@ -71,12 +72,17 @@ const renderPage = () => render(
 
 describe('AdminRouteEligibilityPage quality gates', () => {
   beforeEach(() => {
+    failBulkApply = false
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
+    vi.stubGlobal('confirm', vi.fn(() => true))
     vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/admin/cities')) return jsonResponse(cities)
       if (url.includes('/admin/routes/eligibility/kemerovo')) return jsonResponse(diagnostics)
       if (url.includes('/admin/routes/eligibility?')) return jsonResponse(eligibility)
+      if (url.includes('/admin/places/bulk/apply')) {
+        return failBulkApply ? jsonResponse({ detail: 'bulk failed' }, 500) : jsonResponse({ affected_count: 1, warnings: [] })
+      }
       return jsonResponse({})
     })
   })
@@ -84,6 +90,7 @@ describe('AdminRouteEligibilityPage quality gates', () => {
   afterEach(() => {
     clearAdminSession()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     vi.unstubAllEnvs()
     cleanup()
   })
@@ -126,5 +133,16 @@ describe('AdminRouteEligibilityPage quality gates', () => {
       const urls = calls.map((call) => String(call[0]))
       expect(urls.some((url) => url.includes('/admin/routes/eligibility?') && url.includes('offset=50'))).toBe(true)
     })
+  })
+
+  it('shows a visible error when bulk action fails', async () => {
+    failBulkApply = true
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Краеведческий музей')).toBeTruthy())
+    fireEvent.click(screen.getByLabelText('Выбрать Краеведческий музей'))
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить для маршрутов' }))
+
+    await waitFor(() => expect(screen.getByText('bulk failed')).toBeTruthy())
   })
 })
