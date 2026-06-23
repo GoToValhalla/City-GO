@@ -13,8 +13,8 @@ async def telegram_bot_webhook(
 ) -> dict[str, bool]:
     if settings.bot_webhook_secret and x_telegram_bot_api_secret_token != settings.bot_webhook_secret:
         raise HTTPException(status_code=403, detail="Invalid Telegram webhook secret")
-    if not settings.bot_token:
-        raise HTTPException(status_code=503, detail="BOT_TOKEN is not configured")
+    if not (settings.bot_token or settings.telegram_bot_token):
+        raise HTTPException(status_code=503, detail="BOT_TOKEN/TELEGRAM_BOT_TOKEN is not configured")
     payload = await request.json()
     bot = create_bot()
     try:
