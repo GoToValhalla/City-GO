@@ -17,6 +17,8 @@ async def telegram_bot_webhook(
         raise HTTPException(status_code=503, detail="BOT_TOKEN is not configured")
     payload = await request.json()
     bot = create_bot()
-    await feed_webhook_update(bot, payload)
-    await bot.session.close()
+    try:
+        await feed_webhook_update(bot, payload)
+    finally:
+        await bot.session.close()
     return {"ok": True}
