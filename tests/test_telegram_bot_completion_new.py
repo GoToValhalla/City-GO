@@ -2,13 +2,35 @@ from datetime import datetime
 
 from models.bot_event import BotEvent
 from services.admin_bot_analytics_service import get_bot_analytics_summary
-from telegram_bot.keyboards.catalog import place_card, route_step
-from telegram_bot.schemas import BotPlace, BotRoutePoint
+from telegram_bot.keyboards.catalog import place_card, route_card, route_step
+from telegram_bot.schemas import BotPlace, BotRoute, BotRoutePoint
 from telegram_bot.session import get_or_create_session
 
 
 def _buttons(markup):
     return [button for row in markup.inline_keyboard for button in row]
+
+
+def test_route_card_has_start_map_action_and_short_callbacks_new(db_session) -> None:
+    session = get_or_create_session(db_session, 776655, "qa")
+    route = BotRoute(
+        id=5,
+        title="Городская прогулка",
+        points=[
+            BotRoutePoint(index=0, place_id=10, title="Археопарк", lat=61.0042, lng=69.0019),
+            BotRoutePoint(index=1, place_id=11, title="Парк", lat=61.0050, lng=69.0024),
+        ],
+    )
+
+    markup = route_card(route, session)
+    buttons = _buttons(markup)
+
+    assert any(button.text == "🗺 Открыть карту" and button.url and "yandex" in button.url for button in buttons)
+    assert all(
+        len(button.callback_data.encode("utf-8")) <= 64
+        for button in buttons
+        if button.callback_data
+    )
 
 
 def test_route_step_has_external_map_and_short_callbacks_new() -> None:
