@@ -54,7 +54,7 @@ describe('RouteNavigationView', () => {
         value: originalGeolocation,
       })
     } else {
-      delete (navigator as Navigator & { geolocation?: Geolocation }).geolocation
+      Reflect.deleteProperty(navigator, 'geolocation')
     }
   })
 
