@@ -7,6 +7,8 @@ from telegram_bot.callbacks import cb
 from telegram_bot.schemas import BotCity, BotPlace, BotRoute, BotRoutePoint, Page
 from telegram_bot.session import get_short_id
 
+CITY_LIST_VISIBLE_LIMIT = 5
+
 
 def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -31,11 +33,12 @@ def main_menu() -> InlineKeyboardMarkup:
     )
 
 
-def city_list(cities: list[BotCity]) -> InlineKeyboardMarkup:
+def city_list(cities: list[BotCity], *, limit: int = CITY_LIST_VISIBLE_LIMIT) -> InlineKeyboardMarkup:
     rows = []
-    for city in cities:
+    for city in cities[:limit]:
         suffix = f" · {city.places_count} мест" if city.places_count else ""
         rows.append([InlineKeyboardButton(text=f"{city.name}{suffix}", callback_data=cb("c", "set", city.slug))])
+    rows.append([InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
