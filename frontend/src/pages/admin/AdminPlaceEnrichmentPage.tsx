@@ -33,7 +33,7 @@ export const AdminPlaceEnrichmentPage = () => {
       <h3 style={{ marginTop: 24 }}>История batch ({batches.length})</h3>
       {batchesError ? <div className="admin-state admin-state-error">{batchesError}</div> : null}
       {batchesLoading ? <div className="admin-state">Загружаем историю batch...</div> : null}
-      <AdminEnrichmentBatchTable batches={batches} onRefresh={loadBatches} />
+      {!batchesLoading ? <AdminEnrichmentBatchTable batches={batches} onRefresh={loadBatches} /> : null}
     </div>
   )
 }
