@@ -44,9 +44,10 @@ class SoftRateLimitMiddleware(BaseMiddleware):
 
 
 def create_bot() -> Bot:
-    if not settings.bot_token:
-        raise ValueError("BOT_TOKEN пустой. Заполни его в .env перед запуском Telegram-бота.")
-    return Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    token = _bot_token()
+    if not token:
+        raise ValueError("BOT_TOKEN/TELEGRAM_BOT_TOKEN пустой. Заполни токен в .env перед запуском Telegram-бота.")
+    return Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 
 
 def create_dispatcher() -> Dispatcher:
@@ -73,6 +74,10 @@ async def run_polling() -> None:
 
 def main() -> None:
     asyncio.run(run_polling())
+
+
+def _bot_token() -> str:
+    return settings.bot_token or settings.telegram_bot_token
 
 
 async def _send_rate_limit_notice(event: TelegramObject) -> None:
