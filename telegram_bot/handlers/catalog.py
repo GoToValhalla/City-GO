@@ -21,7 +21,7 @@ from telegram_bot import renderers
 from telegram_bot.analytics import log_event
 from telegram_bot.callbacks import ParsedCallback, parse_callback
 from telegram_bot.keyboards import catalog as kb
-from telegram_bot.schemas import BotPlace, BotRoute
+from telegram_bot.schemas import BotPlace, BotRoute, BotRoutePoint
 from telegram_bot.services.facade import BotFacade
 from telegram_bot.session import (
     get_or_create_session,
@@ -165,7 +165,7 @@ async def _dispatch_callback(callback: CallbackQuery, db: Session, session, faca
         await _handle_place(callback, db, session, facade, action, parts)
         return
     if scope == "near":
-        await _handle_nearby(callback, session, facade, action, parts)
+        await _handle_nearby(callback, db, session, facade, action, parts)
         return
     if scope == "open":
         await _handle_open_now(callback, db, session, facade, parts)
@@ -300,7 +300,27 @@ async def _handle_route(callback: CallbackQuery, db: Session, session, facade: B
     if action == "list":
         page_no = _int(parts[0] if parts else "0")
         page = facade.routes(city.slug, page_no)
+        if not page.items:
+            generated = facade.generated_route(city.slug)
+            if generated is not None:
+                session.route_session = _route_state_from_generated(generated)
+                save_session(db, session)
+                await _edit_or_answer(callback, renderers.generated_route_intro_text(city, generated), reply_markup=kb.generated_route_card(generated))
+                return
         await _edit_or_answer(callback, renderers.routes_list_text(city, page.items, page.page), reply_markup=kb.routes_page(page, session))
+        return
+    if action in {"ggo", "gpts"}:
+        route = _generated_route_for_city(facade, session, city.slug)
+        if route is None:
+            await _edit_or_answer(callback, "Маршрут пока не собрать: в городе меньше двух качественных точек для прогулки.", reply_markup=kb.back_to_menu())
+            return
+        session.route_session = _route_state_from_generated(route)
+        save_session(db, session)
+        if action == "gpts":
+            await _edit_or_answer(callback, renderers.route_points_text(route), reply_markup=kb.generated_route_card(route))
+            return
+        log_event(db, session, "route_started", entity_type="route", entity_id="generated", payload={"points": len(route.points)})
+        await _render_route_step(callback, session, route, 0)
         return
     if action in {"view", "pts", "go"} and parts:
         route = _route_by_short_id(facade, session, parts[0])
@@ -333,20 +353,21 @@ async def _handle_route_navigation(callback: CallbackQuery, db: Session, session
     if not route_state:
         await _edit_or_answer(callback, "Активный маршрут не найден.", reply_markup=kb.back_to_menu())
         return
-    route = facade.route(int(route_state.get("route_id", 0)))
+    route = _route_from_session_state(facade, route_state)
     if route is None:
         session.route_session = None
         await _edit_or_answer(callback, "Маршрут больше недоступен.", reply_markup=kb.back_to_menu())
         return
 
-    backend_session_id = _int(route_state.get("session_id"), 0)
+    backend_session_id = 0 if route_state.get("generated") else _int(route_state.get("session_id"), 0)
+    event_entity_id = route.id if route.id else "generated"
     if action == "done":
         visited_count = len(list(route_state.get("visited", [])))
         if backend_session_id:
             with suppress(RouteSessionError):
                 backend_session = complete_backend_route_session(db, backend_session_id)
                 visited_count = len(list(backend_session.visited_point_indexes or []))
-        log_event(db, session, "route_completed", entity_type="route", entity_id=route.id, payload={"visited": visited_count, "total": len(route.points)})
+        log_event(db, session, "route_completed", entity_type="route", entity_id=event_entity_id, payload={"visited": visited_count, "total": len(route.points)})
         session.route_session = None
         save_session(db, session)
         await _edit_or_answer(callback, renderers.route_completed_text(route, visited_count), reply_markup=kb.back_to_menu())
@@ -366,10 +387,10 @@ async def _handle_route_navigation(callback: CallbackQuery, db: Session, session
             route_state = _route_state_from_backend(backend_session)
             session.route_session = route_state
             save_session(db, session)
-            log_event(db, session, "route_point_visited" if action == "visit" else "route_point_skipped", entity_type="route", entity_id=route.id, payload={"index": index})
+            log_event(db, session, "route_point_visited" if action == "visit" else "route_point_skipped", entity_type="route", entity_id=event_entity_id, payload={"index": index})
             if backend_session.status == "completed":
                 visited_count = len(list(backend_session.visited_point_indexes or []))
-                log_event(db, session, "route_completed", entity_type="route", entity_id=route.id, payload={"visited": visited_count, "total": len(route.points)})
+                log_event(db, session, "route_completed", entity_type="route", entity_id=event_entity_id, payload={"visited": visited_count, "total": len(route.points)})
                 session.route_session = None
                 save_session(db, session)
                 await _edit_or_answer(callback, renderers.route_completed_text(route, visited_count), reply_markup=kb.back_to_menu())
@@ -382,7 +403,7 @@ async def _handle_route_navigation(callback: CallbackQuery, db: Session, session
         values = list(route_state.get(key, []))
         if index not in values:
             values.append(index)
-            log_event(db, session, "route_point_visited" if action == "visit" else "route_point_skipped", entity_type="route", entity_id=route.id, payload={"index": index})
+            log_event(db, session, "route_point_visited" if action == "visit" else "route_point_skipped", entity_type="route", entity_id=event_entity_id, payload={"index": index})
             index = min(index + 1, len(route.points) - 1)
         route_state[key] = values
         route_state["current_index"] = index
@@ -439,16 +460,25 @@ async def _handle_place(callback: CallbackQuery, db: Session, session, facade: B
     await _edit_or_answer(callback, renderers.error_text(), reply_markup=kb.back_to_menu())
 
 
-async def _handle_nearby(callback: CallbackQuery, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
+async def _handle_nearby(callback: CallbackQuery, db: Session, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
     if not session.selected_city_slug:
-        await _show_city_select_callback(callback, facade, session=session)
+        await _show_city_select_callback(callback, facade, db=db, session=session)
         return
+    category = "all" if action == "ask" else (parts[0] if parts else "all")
+    city = facade.city(session.selected_city_slug)
     if not session.last_location:
+        center = facade.city_center(session.selected_city_slug)
+        if center is not None and city is not None:
+            places = facade.nearby_places(session.selected_city_slug, center[0], center[1], category)
+            log_event(db, session, "nearby_used", payload={"results_count": len(places), "source": "city_center"})
+            page = type("PageLike", (), {"items": places, "page": 0, "has_next": False})()
+            await _edit_or_answer(callback, renderers.nearby_city_center_text(city, places), reply_markup=kb.places_page(page, session, "near", "list", category or "all"))
+            return
         await callback.message.answer(renderers.nearby_request_text(), reply_markup=kb.request_location()) if callback.message else None
         return
     location = session.last_location
-    category = "all" if action == "ask" else (parts[0] if parts else "all")
     places = facade.nearby_places(session.selected_city_slug, float(location["lat"]), float(location["lng"]), category)
+    log_event(db, session, "nearby_used", payload={"results_count": len(places), "source": "user_location"})
     page = type("PageLike", (), {"items": places, "page": 0, "has_next": False})()
     title = "📍 Рядом с тобой" if category == "all" else f"📍 Рядом: {CATEGORY_TITLES.get(category, category)}"
     await _edit_or_answer(callback, renderers.places_list_text(title, places, 0), reply_markup=kb.places_page(page, session, "near", "list", category or "all"))
@@ -462,6 +492,11 @@ async def _handle_open_now(callback: CallbackQuery, db: Session, session, facade
     page = facade.open_now(session.selected_city_slug, page_no)
     log_event(db, session, "open_now_used", payload={"results_count": len(page.items)})
     if not page.items:
+        city = facade.city(session.selected_city_slug)
+        fallback = facade.reliable_hours_places(session.selected_city_slug, page_no)
+        if city is not None and fallback.items:
+            await _edit_or_answer(callback, renderers.open_now_fallback_text(city, fallback.items), reply_markup=kb.places_page(fallback, session, "open", "list"))
+            return
         await _edit_or_answer(callback, renderers.open_now_empty_text(), reply_markup=kb.back_to_menu())
         return
     await _edit_or_answer(callback, renderers.places_list_text("🕐 Открыто сейчас", page.items, page.page), reply_markup=kb.places_page(page, session, "open", "list"))
@@ -539,6 +574,53 @@ def _route_by_short_id(facade: BotFacade, session, short_id: str) -> BotRoute | 
     return facade.route(route_id or 0)
 
 
+def _generated_route_for_city(facade: BotFacade, session, city_slug: str) -> BotRoute | None:
+    route_state = dict(session.route_session) if isinstance(session.route_session, dict) else None
+    route = _generated_route_from_state(route_state) if route_state and route_state.get("generated") else None
+    return route or facade.generated_route(city_slug)
+
+
+def _route_from_session_state(facade: BotFacade, route_state: dict[str, object]) -> BotRoute | None:
+    if route_state.get("generated"):
+        return _generated_route_from_state(route_state)
+    return facade.route(_int(route_state.get("route_id"), 0))
+
+
+def _generated_route_from_state(route_state: dict[str, object] | None) -> BotRoute | None:
+    if not route_state:
+        return None
+    points_raw = route_state.get("points")
+    if not isinstance(points_raw, list):
+        return None
+    points = []
+    for index, item in enumerate(points_raw):
+        if not isinstance(item, dict):
+            continue
+        points.append(
+            BotRoutePoint(
+                index=index,
+                place_id=_int(item.get("place_id"), 0),
+                title=str(item.get("title") or "Место"),
+                category=str(item.get("category")) if item.get("category") else None,
+                short_description=str(item.get("short_description")) if item.get("short_description") else None,
+                address=str(item.get("address")) if item.get("address") else None,
+                image_url=str(item.get("image_url")) if item.get("image_url") else None,
+                lat=float(item["lat"]) if item.get("lat") is not None else None,
+                lng=float(item["lng"]) if item.get("lng") is not None else None,
+            )
+        )
+    if len(points) < 2:
+        return None
+    return BotRoute(
+        id=0,
+        title=str(route_state.get("title") or "Прогулка"),
+        short_description=str(route_state.get("short_description")) if route_state.get("short_description") else None,
+        duration_minutes=_int(route_state.get("duration_minutes"), 0) or None,
+        distance_km=float(route_state["distance_km"]) if route_state.get("distance_km") is not None else None,
+        points=points,
+    )
+
+
 def _current_search_query(session) -> str | None:
     flow = session.current_flow if isinstance(session.current_flow, str) else ""
     if not flow.startswith("search:"):
@@ -570,6 +652,33 @@ def _route_state_from_backend(route_session) -> dict[str, object]:
         "visited": list(route_session.visited_point_indexes or []),
         "skipped": list(route_session.skipped_point_indexes or []),
         "started_at": route_session.started_at.isoformat() if route_session.started_at else None,
+    }
+
+
+def _route_state_from_generated(route: BotRoute) -> dict[str, object]:
+    return {
+        "route_id": 0,
+        "generated": True,
+        "current_index": 0,
+        "visited": [],
+        "skipped": [],
+        "title": route.title,
+        "short_description": route.short_description,
+        "duration_minutes": route.duration_minutes,
+        "distance_km": route.distance_km,
+        "points": [
+            {
+                "place_id": point.place_id,
+                "title": point.title,
+                "category": point.category,
+                "short_description": point.short_description,
+                "address": point.address,
+                "image_url": point.image_url,
+                "lat": point.lat,
+                "lng": point.lng,
+            }
+            for point in route.points
+        ],
     }
 
 
