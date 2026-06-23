@@ -12,12 +12,15 @@ def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def test_deploy_runs_all_alembic_heads_and_fails_fast_new() -> None:
+def test_deploy_repairs_known_alembic_overlap_and_fails_fast_new() -> None:
     compose = read("docker-compose.yml")
     deploy = read(".github/workflows/deploy.yml")
 
-    assert "command: alembic upgrade heads" in compose
-    assert "command: alembic upgrade head\n" not in compose
+    assert 'if inspect(engine).has_table("alembic_version")' in compose
+    assert '{"9d0e1f2a3b4c", "fb7e3c2a91d4"}.issubset(revisions)' in compose
+    assert '"revision": "9d0e1f2a3b4c"' in compose
+    assert "alembic upgrade head" in compose
+    assert "alembic upgrade heads" not in compose
     assert "docker compose run" in deploy
     assert "migrate </dev/null" in deploy
     assert "docker compose up migrate" not in deploy
