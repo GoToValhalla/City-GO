@@ -1,5 +1,5 @@
 """
-Инвариант Alembic: ровно один head, ровно один base, 29 ревизий.
+Инвариант Alembic: ровно один head, ровно один base, 42 ревизии.
 
 Не требует подключения к БД — проверяет только структуру migrations/versions/.
 
@@ -40,12 +40,8 @@ class TestAlembicSingleHead(unittest.TestCase):
         )
 
     def test_known_head_revision(self) -> None:
-        """Фиксирует текущий финальный head (c1f4e7a9d2b3 — merge_remaining_heads).
-
-        Если этот тест падает при добавлении новой миграции — это ожидаемо.
-        Обновите KNOWN_HEAD на новый head после создания merge-ревизии.
-        """
-        KNOWN_HEAD = "7b8c9d0e1f2a"
+        """Фиксирует текущий финальный head."""
+        KNOWN_HEAD = "8c9d0e1f2a3b"
         heads = _script().get_heads()
         self.assertIn(
             KNOWN_HEAD,
@@ -88,12 +84,12 @@ class TestAlembicSingleHead(unittest.TestCase):
         )
 
     def test_total_revision_count(self) -> None:
-        """Фиксирует общее число ревизий (29 на момент написания теста).
+        """Фиксирует общее число ревизий.
 
         Падение с другим числом — сигнал к ревью: добавлена или удалена миграция.
         Обновите EXPECTED_COUNT после добавления легитимной ревизии.
         """
-        EXPECTED_COUNT = 41
+        EXPECTED_COUNT = 42
         script = _script()
         total = sum(1 for _ in script.walk_revisions())
         self.assertEqual(
@@ -132,6 +128,8 @@ class TestAlembicSingleHead(unittest.TestCase):
             "place_field_confidence",
             "place_photo_candidates",
             "review_queue_items",
+            "bot_sessions",
+            "bot_events",
         }
         actual_tables = set(Base.metadata.tables.keys())
         missing = expected_tables - actual_tables
