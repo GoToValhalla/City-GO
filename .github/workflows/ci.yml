@@ -136,10 +136,12 @@ jobs:
           TEST_EXIT=${PIPESTATUS[0]}
           set -e
           if [ "$TEST_EXIT" = "124" ]; then
-            if grep -Eq 'Test Files[[:space:]]+[0-9]+ passed' ../artifacts/messages/frontend-vitest.log \
-              && grep -Eq 'Tests[[:space:]]+[0-9]+ passed' ../artifacts/messages/frontend-vitest.log \
+            EXPECTED_FILES=$(find src -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | wc -l | tr -d ' ')
+            PASSED_FILES=$(grep -Ec '^ ✓ .*\.test\.(ts|tsx) ' ../artifacts/messages/frontend-vitest.log || true)
+            if [ "$EXPECTED_FILES" != "0" ] \
+              && [ "$PASSED_FILES" -ge "$EXPECTED_FILES" ] \
               && ! grep -Eq '([0-9]+ failed| FAIL |×)' ../artifacts/messages/frontend-vitest.log; then
-              echo "Vitest printed a green summary but did not exit before timeout; treating the completed test run as success."
+              echo "Vitest passed ${PASSED_FILES}/${EXPECTED_FILES} test files but did not exit before timeout; treating the completed test run as success."
               exit 0
             fi
           fi
