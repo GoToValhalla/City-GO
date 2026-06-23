@@ -29,6 +29,10 @@ class CityPublicationResult:
     places_hidden: int
 
 
+# TODO(Data Foundation V2): city publication is a legacy operation.
+# Target model: publish Destination, not only City. For Baikal/Altai/Karelia publication must support
+# staged release: publish Tier 1 places first, then review/publish Tier 2/3 by cluster/import scope.
+# Place visibility must become context-aware via PlaceDestination/DestinationPublicationStatus.
 def publish_city(db: Session, city_id: int, *, actor: str, reason: str | None = None) -> CityPublicationResult | None:
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
