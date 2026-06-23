@@ -19,16 +19,18 @@ type PlaceCardProps = {
   place: Place
   active?: boolean
   className?: string
+  onActivate?: (place: Place) => void
 }
 
 const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(' ')
 
-export const PlaceCard = ({ active = false, className, place }: PlaceCardProps) => {
+export const PlaceCard = ({ active = false, className, onActivate, place }: PlaceCardProps) => {
   const status = placeStatus(place)
   const title = placeTitle(place)
   const description = placeDescription(place)
   const distance = placeDistanceLabel(place)
   const address = placeAddressLabel(place) ?? UNCLEAR_ADDRESS_LABEL
+  const activate = () => onActivate?.(place)
 
   return (
     <Link
@@ -40,6 +42,8 @@ export const PlaceCard = ({ active = false, className, place }: PlaceCardProps) 
       )}
       to={`/places/${place.slug}`}
       aria-label={`Открыть место: ${title}`}
+      onFocus={activate}
+      onMouseEnter={activate}
     >
       <div className="place-ui-card__media">
         <PlacePhoto
