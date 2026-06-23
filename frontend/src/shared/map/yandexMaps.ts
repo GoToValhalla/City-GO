@@ -23,7 +23,7 @@ export const buildYandexWidgetUrl = (params: {
   zoom?: number
 }) => {
   const zoom = params.zoom ?? 13
-  const points = (params.places ?? [])
+  const placePoints = (params.places ?? [])
     .slice(0, 50)
     .map((place) => {
       const coord = placeCoordinate(place)
@@ -31,13 +31,13 @@ export const buildYandexWidgetUrl = (params: {
       return `${coord.lng},${coord.lat},${markerStyle(place.id === params.activePlaceId)}`
     })
     .filter(Boolean)
-    .join('~')
+  const points = placePoints.length > 0 ? placePoints.join('~') : `${params.center.lng},${params.center.lat},pm2rdm`
 
   const query = new URLSearchParams({
     ll: `${params.center.lng},${params.center.lat}`,
     z: String(zoom),
+    pt: points,
   })
-  if (points) query.set('pt', points)
   return `https://yandex.ru/map-widget/v1/?${query.toString()}`
 }
 
