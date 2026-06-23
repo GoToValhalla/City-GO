@@ -24,6 +24,11 @@ class PlaceBase(BaseModel):
     address: str | None = None
     source: str | None = None
     source_url: str | None = None
+    website: str | None = None
+    phone: str | None = None
+    atmosphere: str | None = None
+    inside: str | None = None
+    best_for: str | None = None
     confidence: float | None = None
     last_verified_at: datetime | None = None
     status: str = "active"
