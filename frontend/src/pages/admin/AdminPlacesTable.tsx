@@ -16,6 +16,8 @@ type Props = {
 }
 
 const routeFlag = (v: boolean) => (v ? 'да' : 'нет')
+const technicalOsmLabel = /^(?:osm[\s:_-]*)?(?:node|way|relation)[\s:_-]*\d+$/i
+const displayPlaceTitle = (place: AdminPlace) => (technicalOsmLabel.test(place.title.trim()) ? 'Без названия' : place.title)
 
 const AdminAddressCell = ({ place }: { place: AdminPlace }) => {
   const view = placeAddressView({
@@ -51,26 +53,26 @@ export const AdminPlacesTable = ({ items, busy, selected, onToggle, onToggleAll,
           </tr>
         </thead>
         <tbody>
-          {items.map((p) => (
+          {items.map((p) => {
+            const title = displayPlaceTitle(p)
+            return (
               <tr key={p.id}>
-                  <td><input type="checkbox" aria-label={`Выбрать ${p.title}`} checked={selected.has(p.id)} onChange={() => onToggle(p.id)} /></td>
-                  <td>{p.id}</td>
-                  <td>
-                    <Link to={`/admin/places/${p.id}`}><strong>{p.title}</strong></Link>
-                <div className="admin-muted">{p.slug}</div>
-              </td>
-              <td>{categoryText(p.category)}</td>
-              <td><AdminAddressCell place={p} /></td>
-              <td><span className={`admin-badge pub-${p.publication_status}`}>{publicationStatusText(p.publication_status)}</span></td>
-              <td>{verificationStatusText(p.verification_status)}</td>
-              <td>{routeFlag(p.is_route_eligible)}</td>
-              <td className="admin-actions-cell">
-                <button disabled={busy === p.id} onClick={() => onPublish(p.id)} className="admin-btn admin-btn-sm" title="Сделать место видимым на сайте">Опубликовать</button>
-                <button disabled={busy === p.id} onClick={() => onUnpublish(p.id)} className="admin-btn admin-btn-sm admin-btn-muted" title="Скрыть место с сайта, но не удалить из базы">Скрыть с сайта</button>
-                <button disabled={busy === p.id} onClick={() => onVerify(p.id)} className="admin-btn admin-btn-sm admin-btn-ok" title="Подтвердить, что место реально существует и данные можно использовать">Подтвердить</button>
-              </td>
-            </tr>
-          ))}
+                <td><input type="checkbox" aria-label={`Выбрать место ${p.id}`} checked={selected.has(p.id)} onChange={() => onToggle(p.id)} /></td>
+                <td>{p.id}</td>
+                <td><Link to={`/admin/places/${p.id}`}><strong>{title}</strong></Link></td>
+                <td>{categoryText(p.category)}</td>
+                <td><AdminAddressCell place={p} /></td>
+                <td><span className={`admin-badge pub-${p.publication_status}`}>{publicationStatusText(p.publication_status)}</span></td>
+                <td>{verificationStatusText(p.verification_status)}</td>
+                <td>{routeFlag(p.is_route_eligible)}</td>
+                <td className="admin-actions-cell">
+                  <button disabled={busy === p.id} onClick={() => onPublish(p.id)} className="admin-btn admin-btn-sm" title="Сделать место видимым на сайте">Опубликовать</button>
+                  <button disabled={busy === p.id} onClick={() => onUnpublish(p.id)} className="admin-btn admin-btn-sm admin-btn-muted" title="Скрыть место с сайта, но не удалить из базы">Скрыть с сайта</button>
+                  <button disabled={busy === p.id} onClick={() => onVerify(p.id)} className="admin-btn admin-btn-sm admin-btn-ok" title="Подтвердить, что место реально существует и данные можно использовать">Подтвердить</button>
+                </td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
