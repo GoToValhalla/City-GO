@@ -74,6 +74,23 @@ def route_card(route: BotRoute, session: BotSession) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def generated_route_card(route: BotRoute) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="🚶 Начать временную прогулку", callback_data=cb("r", "ggo"))],
+        [InlineKeyboardButton(text="📋 Показать точки", callback_data=cb("r", "gpts"))],
+    ]
+    start_point = next((point for point in route.points if point.lat is not None and point.lng is not None), None)
+    if start_point is not None:
+        rows.append([InlineKeyboardButton(text="🗺 Первая точка на карте", url=_map_url(start_point.lat, start_point.lng))])
+    rows.extend(
+        [
+            [InlineKeyboardButton(text="👀 Смотреть места", callback_data=cb("p", "cat", "sights", 0))],
+            [InlineKeyboardButton(text="← Назад", callback_data="back"), InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))],
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def route_step(point: BotRoutePoint, total: int, is_visited: bool) -> InlineKeyboardMarkup:
     rows = []
     if not is_visited:
