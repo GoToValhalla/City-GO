@@ -11,7 +11,7 @@ City GO currently has four user/admin surfaces:
 1. Public web app: cities, places, routes, route detail, route navigation MVP.
 2. Admin web app: place/catalog operations, route readiness, import/enrichment pipeline, review queues.
 3. Telegram bot: lightweight guide with city selection, routes, places, nearby, open-now, favorites, search, and route mode.
-4. Backend APIs: public catalog, user route build, admin operations, bot webhook.
+4. Backend APIs: public catalog, user route build, persisted route sessions, admin operations, bot webhook.
 
 The system must not expose raw imported data directly to users. Every user-facing surface should pass through quality gates.
 
@@ -96,7 +96,7 @@ Expected statuses:
 
 ### Route Detail For Navigation
 
-Route detail now includes read-only point fields for route navigation MVP:
+Route detail includes read-only point fields for route navigation MVP:
 
 - `lat`, `lng`
 - `category`
@@ -107,7 +107,24 @@ Route detail now includes read-only point fields for route navigation MVP:
 - `is_active`
 - `status`
 
-Backend does not create route sessions for Stage 1 navigation. State is frontend-only.
+### Persisted Route Sessions
+
+Backend route-session endpoints:
+
+```http
+POST /routes/{route_id}/sessions
+GET /route-sessions/{session_id}
+PATCH /route-sessions/{session_id}
+POST /route-sessions/{session_id}/events/checkin
+POST /route-sessions/{session_id}/complete
+```
+
+Tables:
+
+- `route_sessions`
+- `route_session_points`
+
+The backend filters route points before creating a session. A route with fewer than two valid points returns `409 route_has_less_than_two_eligible_points`.
 
 ## 5. Route Navigation MVP
 
@@ -118,15 +135,20 @@ frontend/src/features/route-navigation/model/
 frontend/src/widgets/route-navigation/
 frontend/src/pages/routes/RouteDetailPage.tsx
 frontend/src/pages/routes/RouteDetailPage.css
+models/route_session.py
+schemas/route_session.py
+services/route_session_service.py
+routers/route_sessions.py
 ```
 
 Implemented behavior:
 
-- `not_started` → `active` → `completed` state machine.
+- `not_started` → `active` → `completed` frontend state machine.
 - Manual controls: start, mark visited, next, finish, restart.
-- `localStorage` persistence by route id.
+- Current web persistence: `localStorage` by route id.
+- Backend route-session foundation: start/read/patch/check-in/complete.
 - SVG/HTML route schematic using straight segments.
-- Frontend quality gate before rendering navigation points.
+- Frontend and backend quality gates before using navigation points.
 
 Quality blockers for navigation point:
 
@@ -136,7 +158,7 @@ Quality blockers for navigation point:
 - service/non-tourist category;
 - invalid publication status.
 
-Stage 1 intentionally does not include MapLibre, GPS, OSRM, off-route, backend session history, or voice guidance.
+Current boundary: frontend route player is not connected to backend sessions yet. MapLibre, GPS, OSRM, off-route, and voice guidance are still next work.
 
 ## 6. Import / Enrichment Pipeline
 
@@ -257,6 +279,7 @@ telegram_bot/quality.py
 telegram_bot/renderers.py
 telegram_bot/services/facade.py
 frontend/src/features/route-navigation/model/qualityGate.ts
+services/route_session_service.py
 services/quality_scoring.py
 services/import_pipeline_publication.py
 ```
@@ -358,7 +381,10 @@ git diff --check
 
 ```bash
 npm --prefix frontend run test -- routeNavigation routeQualityGate
-.venv/bin/python -m pytest --no-cov tests/test_route_detail_navigation_fields_new.py -q
+.venv/bin/python -m pytest --no-cov \
+  tests/test_route_detail_navigation_fields_new.py \
+  tests/test_route_sessions_new.py \
+  tests/test_alembic_single_head_new.py -q
 ```
 
 ### Import/enrichment changes
@@ -383,8 +409,8 @@ npm --prefix frontend run test -- routeNavigation routeQualityGate
 
 ## 12. Known Intentional Boundaries
 
-- Route navigation MVP is manual and frontend-only.
-- MapLibre/GPS/OSRM/backend route sessions are not implemented yet.
+- Route navigation MVP has backend sessions, but the current web route player still uses frontend local state.
+- MapLibre/GPS/OSRM/off-route/voice guidance are not implemented yet.
 - Import/enrichment Stage 1 is deterministic and does not require external AI/photo provider secrets in tests.
 - CSV enrichment remains a legacy fallback only.
 - Telegram bot does not provide a full interactive map; it links to external maps.
