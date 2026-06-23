@@ -1,4 +1,4 @@
-name: Deploy
+name: Production Deploy
 
 on:
   workflow_dispatch:
@@ -7,9 +7,13 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
 jobs:
   build:
-    name: Build and push production images
+    name: Build production images
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -89,7 +93,7 @@ jobs:
           docker push "$FRONTEND_IMAGE:latest"
 
   deploy:
-    name: Deploy to production server
+    name: Deploy production
     runs-on: ubuntu-latest
     needs: build
     timeout-minutes: 30
@@ -97,7 +101,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate existing production secrets
+      - name: Validate production secrets
         shell: bash
         env:
           SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
@@ -198,12 +202,12 @@ jobs:
             curl -sf http://localhost/build.json || true
             echo
 
-            echo "=== rescue frontend with local image before registry operations ==="
+            echo "=== keep current frontend alive before registry operations ==="
             if ! docker compose ps frontend 2>/dev/null | grep -q "Up"; then
               docker compose up -d --no-deps frontend || true
             fi
 
-            echo "=== docker login / pull ==="
+            echo "=== docker login and pull fresh images ==="
             REGISTRY_OK=0
             for attempt in 1 2 3; do
               if echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin && docker compose pull; then
@@ -258,7 +262,7 @@ jobs:
             echo "=== stop backend-side services only; keep current frontend alive until backend is healthy ==="
             docker compose stop import-worker bot backend || true
 
-            echo "=== force recreate backend ==="
+            echo "=== recreate backend ==="
             docker compose up -d --no-deps --force-recreate backend
 
             echo "=== backend startup diagnostics ==="
@@ -288,7 +292,7 @@ jobs:
               exit 1
             fi
 
-            echo "=== hard restart frontend from freshly pulled image ==="
+            echo "=== recreate frontend from freshly pulled image ==="
             docker compose rm -sf frontend || true
             docker compose up -d --no-deps --force-recreate --pull never frontend
 
@@ -329,8 +333,28 @@ jobs:
               exit 1
             fi
 
-            echo "=== force recreate backend-side background services ==="
+            echo "=== recreate background services ==="
             docker compose up -d --no-deps --force-recreate bot import-worker
+
+            echo "=== background services health ==="
+            BACKGROUND_OK=0
+            for attempt in $(seq 1 10); do
+              if docker compose ps bot 2>/dev/null | grep -q "Up" && docker compose ps import-worker 2>/dev/null | grep -q "Up"; then
+                BACKGROUND_OK=1
+                echo "Background services are running attempt=$attempt"
+                break
+              fi
+              echo "Background services not ready yet attempt=$attempt/10"
+              docker compose ps || true
+              docker compose logs --tail=80 bot import-worker || true
+              sleep 3
+            done
+            if [ "$BACKGROUND_OK" != "1" ]; then
+              echo "ERROR: Background services failed to start."
+              docker compose ps || true
+              docker compose logs --tail=200 bot import-worker || true
+              exit 1
+            fi
 
             echo "=== external local api proxy health ==="
             curl -sf http://localhost/api/health >/dev/null || (echo "ERROR: frontend /api/health proxy failed"; docker compose logs --tail=160 frontend backend || true; exit 1)
@@ -356,6 +380,8 @@ jobs:
             docker compose logs --tail=120 backend || true
             echo "=== final logs frontend ==="
             docker compose logs --tail=120 frontend || true
+            echo "=== final logs bot/import-worker ==="
+            docker compose logs --tail=120 bot import-worker || true
             docker image prune -f || true
             echo "Deploy done: $(date)"
           REMOTE_EOF
