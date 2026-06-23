@@ -9,7 +9,7 @@ type Props = {
 /**
  * Невидимый sentinel-элемент внизу списка.
  * Вызывает onVisible() когда появляется в видимой области экрана
- * (IntersectionObserver, rootMargin 200px — предзагрузка).
+ * (IntersectionObserver, rootMargin 300px — предзагрузка).
  */
 export const PlacesLoadMoreTrigger = ({ onVisible, loading, hasMore }: Props) => {
   const ref = useRef<HTMLDivElement>(null)
@@ -28,9 +28,5 @@ export const PlacesLoadMoreTrigger = ({ onVisible, loading, hasMore }: Props) =>
 
   if (!hasMore) return null
 
-  return (
-    <div ref={ref} className="places-load-more" aria-hidden="true">
-      {loading ? <span className="places-load-more-label">Загрузка...</span> : null}
-    </div>
-  )
+  return <div ref={ref} className="places-load-more" aria-hidden="true" />
 }
