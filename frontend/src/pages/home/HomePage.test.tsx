@@ -84,7 +84,7 @@ describe('HomePage', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText('Не удалось загрузить places с backend')).toBeInTheDocument()
+      expect(screen.getByText('Не удалось загрузить места')).toBeInTheDocument()
     })
   })
 })
