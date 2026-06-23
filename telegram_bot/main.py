@@ -10,7 +10,7 @@ from typing import Any
 from aiogram import BaseMiddleware, Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.types import TelegramObject, Update
+from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 
 from core.config import settings
 from telegram_bot.handlers.catalog import router as catalog_router
@@ -36,6 +36,7 @@ class SoftRateLimitMiddleware(BaseMiddleware):
         now = time.monotonic()
         values = [item for item in self._events[user.id] if now - item <= self.window_seconds]
         if len(values) >= self.max_events:
+            await _send_rate_limit_notice(event)
             return None
         values.append(now)
         self._events[user.id] = values
@@ -72,3 +73,12 @@ async def run_polling() -> None:
 
 def main() -> None:
     asyncio.run(run_polling())
+
+
+async def _send_rate_limit_notice(event: TelegramObject) -> None:
+    text = "Не так быстро. Подожди пару секунд и нажми снова."
+    if isinstance(event, CallbackQuery):
+        await event.answer(text, show_alert=False)
+        return
+    if isinstance(event, Message):
+        await event.answer(text)
