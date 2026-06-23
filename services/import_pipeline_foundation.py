@@ -14,10 +14,16 @@ from services.import_job_step_service import record_step
 from services.import_pipeline_foundation_steps import run_step
 
 FOUNDATION_STEPS = (
-    "collect_places", "normalize_categories", "backfill_addresses", "generate_ai_descriptions",
-    "fetch_photo_candidates", "calculate_field_confidence", "apply_publication_decisions",
+    "collect_places",
+    "normalize_categories",
+    "backfill_addresses",
+    "enrich_external_sources",
+    "generate_ai_descriptions",
+    "fetch_photo_candidates",
+    "calculate_field_confidence",
+    "apply_publication_decisions",
 )
-NON_CRITICAL_STEPS = {"generate_ai_descriptions", "fetch_photo_candidates"}
+NON_CRITICAL_STEPS = {"enrich_external_sources", "generate_ai_descriptions", "fetch_photo_candidates"}
 
 
 def run_foundation_pipeline(db: Session, *, city: City, job: CityAdminImportJob, actor: str) -> dict[str, int]:
@@ -65,7 +71,19 @@ def _finish_batch(batch: ImportBatch, counters: dict[str, int], *, status: str) 
 
 
 def _empty_counters() -> dict[str, int]:
-    return {"found": 0, "enriched": 0, "auto_published": 0, "limited_published": 0, "review_required": 0, "rejected": 0, "failed": 0}
+    return {
+        "found": 0,
+        "enriched": 0,
+        "auto_published": 0,
+        "limited_published": 0,
+        "review_required": 0,
+        "rejected": 0,
+        "failed": 0,
+        "source_observations": 0,
+        "fields_enriched": 0,
+        "source_conflicts": 0,
+        "provider_errors": 0,
+    }
 
 
 def _write_job_counters(job: CityAdminImportJob, counters: dict[str, int]) -> None:
