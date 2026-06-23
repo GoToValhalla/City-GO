@@ -59,13 +59,16 @@ def create_dispatcher() -> Dispatcher:
 
 
 async def setup_bot_commands(bot: Bot) -> None:
-    await bot.set_my_commands(
-        [
-            BotCommand(command="start", description="Запустить City GO"),
-            BotCommand(command="menu", description="Открыть главное меню"),
-            BotCommand(command="help", description="Помощь и возможности"),
-        ]
-    )
+    try:
+        await bot.set_my_commands(
+            [
+                BotCommand(command="start", description="Запустить City GO"),
+                BotCommand(command="menu", description="Открыть главное меню"),
+                BotCommand(command="help", description="Помощь и возможности"),
+            ]
+        )
+    except Exception:
+        logger.warning("Failed to register Telegram bot commands", exc_info=True)
 
 
 async def feed_webhook_update(bot: Bot, update_payload: dict[str, object]) -> None:
