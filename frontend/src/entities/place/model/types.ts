@@ -26,6 +26,8 @@ export type Place = {
   description?: string | null
   category: string
   address: string | null
+  lat?: number | null
+  lng?: number | null
   image_url?: string | null
   photo_url?: string | null
   image_urls?: Array<string | null> | null
