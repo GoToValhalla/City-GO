@@ -1,20 +1,42 @@
-import { SurfaceCard } from './SurfaceCard'
+import { MapPinned } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { Button } from './Button'
 
 type EmptyStateProps = {
-  message: string
+  title?: string
+  message?: string
+  description?: string
+  icon?: ReactNode
+  actionLabel?: string
+  onAction?: () => void
+  className?: string
 }
 
-export const EmptyState = ({ message }: EmptyStateProps) => {
+const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(' ')
+
+export const EmptyState = ({
+  actionLabel,
+  className,
+  description,
+  icon,
+  message,
+  onAction,
+  title,
+}: EmptyStateProps) => {
+  const resolvedTitle = title ?? message ?? 'Здесь пока ничего нет'
+
   return (
-    <SurfaceCard
-      style={{
-        background: '#ffffff',
-        border: '1px dashed #cbd5e1',
-        color: '#475569',
-        padding: '20px',
-      }}
-    >
-      {message}
-    </SurfaceCard>
+    <section className={classNames('cg-state', className)}>
+      <div className="cg-state__icon" aria-hidden="true">
+        {icon ?? <MapPinned size={22} />}
+      </div>
+      <strong className="cg-state__title">{resolvedTitle}</strong>
+      {description ? <p className="cg-state__description">{description}</p> : null}
+      {actionLabel && onAction ? (
+        <div className="cg-state__action">
+          <Button variant="secondary" size="sm" onClick={onAction}>{actionLabel}</Button>
+        </div>
+      ) : null}
+    </section>
   )
 }
