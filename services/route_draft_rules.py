@@ -13,14 +13,26 @@ OUT_OF_CITY_MAX_METERS = 50_000
 ROUTE_DRAFT_BLOCKED_CATEGORIES = {
     "atm",
     "bank",
+    "bus_station",
+    "bus_stop",
+    "car_service",
+    "cemetery",
+    "fuel",
     "government",
+    "health",
     "hospital",
     "industrial",
+    "medical",
+    "military",
     "mvd",
+    "parking",
     "pharmacy",
     "police",
     "service",
+    "services",
+    "stop",
     "transport",
+    "waste_disposal",
 }
 
 CATEGORY_ALIASES: dict[str, str] = {
