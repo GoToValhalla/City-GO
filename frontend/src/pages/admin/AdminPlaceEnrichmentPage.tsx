@@ -25,14 +25,14 @@ export const AdminPlaceEnrichmentPage = () => {
 
   return (
     <div>
-      <h2 className="admin-page-title">Обогащение данных</h2>
-      <p className="admin-page-subtitle">Основной сценарий: автоматическое обогащение. CSV оставлен как запасной ручной способ.</p>
+      <h2 className="admin-page-title">Сбор и обогащение данных</h2>
+      <p className="admin-page-subtitle">Основной сценарий досбирает места и сразу запускает полное обогащение. CSV оставлен только как запасной ручной способ.</p>
       <AdminPipelineEnrichmentPanel form={form} />
       <AdminLegacyEnrichmentPanel form={form} onExported={loadBatches} />
 
-      <h3 style={{ marginTop: 24 }}>История batch ({batches.length})</h3>
+      <h3 style={{ marginTop: 24 }}>История ручных пакетов ({batches.length})</h3>
       {batchesError ? <div className="admin-state admin-state-error">{batchesError}</div> : null}
-      {batchesLoading ? <div className="admin-state">Загружаем историю batch...</div> : null}
+      {batchesLoading ? <div className="admin-state">Загружаем историю...</div> : null}
       {!batchesLoading ? <AdminEnrichmentBatchTable batches={batches} onRefresh={loadBatches} /> : null}
     </div>
   )
