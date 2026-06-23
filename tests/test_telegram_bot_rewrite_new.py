@@ -7,7 +7,7 @@ from models.route_session import RouteSession, RouteSessionPoint
 from telegram_bot.callbacks import cb, parse_callback
 from telegram_bot.handlers.catalog import _route_state_from_backend, _should_push_nav
 from telegram_bot.keyboards.catalog import favorites_list, request_location, route_step
-from telegram_bot.quality import is_hours_reliable, is_place_bot_visible, is_technical_osm_title
+from telegram_bot.quality import is_hours_reliable, is_non_tourist_category, is_place_bot_visible, is_technical_osm_title
 from telegram_bot.renderers import nearby_request_text, place_card_text, places_list_text, route_step_text
 from telegram_bot.schemas import BotPlace, BotRoute, BotRoutePoint
 from telegram_bot.services.facade import BotFacade
@@ -108,6 +108,14 @@ def test_technical_osm_titles_are_hidden_new() -> None:
     assert is_technical_osm_title("Культурное место OSM 15446204")
     assert is_technical_osm_title("Место для прогулки OSM 1492576554")
     assert not is_technical_osm_title("Археопарк")
+
+
+def test_non_tourist_category_variants_are_filtered_new() -> None:
+    assert is_non_tourist_category("service")
+    assert is_non_tourist_category("services")
+    assert is_non_tourist_category("STOP")
+    assert is_non_tourist_category(" pharmacy ")
+    assert not is_non_tourist_category("park")
 
 
 def test_service_category_is_not_bot_visible_new(place_factory) -> None:
