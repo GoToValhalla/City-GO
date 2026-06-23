@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from urllib.parse import urlencode
 
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+
+from core.config import settings
 from models.bot_session import BotSession
 from telegram_bot.callbacks import cb
 from telegram_bot.quality import clean_title
@@ -14,8 +17,12 @@ BUTTON_TITLE_LIMIT = 42
 
 
 def main_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+    rows = []
+    mini_app_button = _mini_app_button("🚀 Открыть City GO", "/")
+    if mini_app_button is not None:
+        rows.append([mini_app_button])
+    rows.extend(
+        [
             [
                 InlineKeyboardButton(text="🚶 Маршруты", callback_data=cb("r", "list", 0)),
                 InlineKeyboardButton(text="📍 Рядом", callback_data=cb("near", "ask")),
@@ -34,6 +41,7 @@ def main_menu() -> InlineKeyboardMarkup:
             ],
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def city_list(cities: list[BotCity], *, limit: int = CITY_LIST_VISIBLE_LIMIT) -> InlineKeyboardMarkup:
@@ -62,9 +70,13 @@ def route_card(route: BotRoute, session: BotSession) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🚶 Начать", callback_data=cb("r", "go", sid))],
         [InlineKeyboardButton(text="📋 Точки по порядку", callback_data=cb("r", "pts", sid))],
     ]
-    start_point = next((point for point in route.points if point.lat is not None and point.lng is not None), None)
-    if start_point is not None:
-        rows.append([InlineKeyboardButton(text="🗺 Открыть карту", url=_map_url(start_point.lat, start_point.lng))])
+    mini_app_route = _mini_app_button("🗺 Открыть маршрут", f"/routes/{route.slug}") if route.slug else None
+    if mini_app_route is not None:
+        rows.append([mini_app_route])
+    else:
+        start_point = next((point for point in route.points if point.lat is not None and point.lng is not None), None)
+        if start_point is not None:
+            rows.append([_map_button("🗺 Открыть карту", start_point.lat, start_point.lng, start_point.title, start_point.address)])
     rows.extend(
         [
             [InlineKeyboardButton(text=favorite_text, callback_data=favorite_callback)],
@@ -81,7 +93,7 @@ def generated_route_card(route: BotRoute) -> InlineKeyboardMarkup:
     ]
     start_point = next((point for point in route.points if point.lat is not None and point.lng is not None), None)
     if start_point is not None:
-        rows.append([InlineKeyboardButton(text="🗺 Первая точка на карте", url=_map_url(start_point.lat, start_point.lng))])
+        rows.append([_map_button("🗺 Первая точка на карте", start_point.lat, start_point.lng, start_point.title, start_point.address)])
     rows.extend(
         [
             [InlineKeyboardButton(text="👀 Смотреть места", callback_data=cb("p", "cat", "sights", 0))],
@@ -104,7 +116,7 @@ def route_step(point: BotRoutePoint, total: int, is_visited: bool) -> InlineKeyb
     if nav:
         rows.append(nav)
     if point.lat is not None and point.lng is not None:
-        rows.append([InlineKeyboardButton(text="🗺 На карте", url=_map_url(point.lat, point.lng))])
+        rows.append([_map_button("🗺 На карте", point.lat, point.lng, point.title, point.address)])
     rows.append([InlineKeyboardButton(text="🏁 Завершить", callback_data=cb("rn", "done"))])
     rows.append([InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -124,8 +136,11 @@ def place_card(place: BotPlace, session: BotSession) -> InlineKeyboardMarkup:
     sid = get_short_id(session, place.id)
     favorite_text, favorite_callback = _favorite_button("p", place.id, sid, session)
     rows = []
+    mini_app_place = _mini_app_button("ℹ️ Подробнее в City GO", f"/places/{place.slug}") if place.slug else None
+    if mini_app_place is not None:
+        rows.append([mini_app_place])
     if place.lat is not None and place.lng is not None:
-        rows.append([InlineKeyboardButton(text="🗺 На карте", url=_map_url(place.lat, place.lng))])
+        rows.append([_map_button("🗺 На карте", place.lat, place.lng, place.title, place.address)])
     rows.append([InlineKeyboardButton(text=favorite_text, callback_data=favorite_callback)])
     if place.category:
         rows.append([InlineKeyboardButton(text="🔍 Похожие", callback_data=cb("p", "cat", place.category, 0))])
@@ -148,14 +163,19 @@ def back_to_menu() -> InlineKeyboardMarkup:
 
 
 def request_location() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+    rows = []
+    mini_app_button = _mini_app_button("🚀 Открыть City GO", "/places")
+    if mini_app_button is not None:
+        rows.append([mini_app_button])
+    rows.extend(
+        [
             [InlineKeyboardButton(text="👀 Смотреть места", callback_data=cb("p", "cat", "sights", 0))],
             [InlineKeyboardButton(text="☕ Еда и кофе", callback_data=cb("p", "cat", "food", 0))],
             [InlineKeyboardButton(text="📍 Все места", callback_data=cb("p", "cat", "all", 0))],
             [InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))],
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _pagination(scope: str, action: str, page: int, has_next: bool, *prefix_parts: object) -> list[list[InlineKeyboardButton]]:
@@ -177,6 +197,38 @@ def _favorite_button(kind: str, entity_id: int, short_id: str, session: BotSessi
 
 def _button_title(title: str) -> str:
     return compact_text(clean_title(title), BUTTON_TITLE_LIMIT) or "Место"
+
+
+def _map_button(text: str, lat: float, lng: float, title: str | None = None, address: str | None = None) -> InlineKeyboardButton:
+    mini_app_button = _mini_app_button(
+        text,
+        "/telegram/map",
+        {
+            "lat": lat,
+            "lng": lng,
+            "title": title or "Место",
+            "address": address or "",
+        },
+    )
+    if mini_app_button is not None:
+        return mini_app_button
+    return InlineKeyboardButton(text=text, url=_map_url(lat, lng))
+
+
+def _mini_app_button(text: str, path: str, params: dict[str, object] | None = None) -> InlineKeyboardButton | None:
+    url = _mini_app_url(path, params)
+    if url is None:
+        return None
+    return InlineKeyboardButton(text=text, web_app=WebAppInfo(url=url))
+
+
+def _mini_app_url(path: str, params: dict[str, object] | None = None) -> str | None:
+    base_url = settings.telegram_mini_app_url.strip().rstrip("/")
+    if not base_url.startswith("https://"):
+        return None
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    query = urlencode({key: value for key, value in (params or {}).items() if value not in (None, "")})
+    return f"{base_url}{normalized_path}{f'?{query}' if query else ''}"
 
 
 def _map_url(lat: float, lng: float) -> str:
