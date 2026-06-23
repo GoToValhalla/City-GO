@@ -25,6 +25,8 @@ export type EnrichmentExportMeta = {
   file_path: string
   export_csv_path?: string | null
   enriched_csv_path?: string | null
+  import_preview_path?: string | null
+  import_result_path?: string | null
   city_slug?: string | null
   total_exported: number
   by_city: Record<string, number>
@@ -48,21 +50,14 @@ export type ImportApplyResult = {
   errors: string[]
 }
 
-export type PipelineCounters = {
-  found: number
-  enriched: number
-  auto_published: number
-  limited_published: number
-  review_required: number
-  rejected: number
-  failed: number
-}
+export type PipelineCounters = Record<string, number>
 
 export type PipelineRunResponse = {
   job_id: number
   city_slug: string
   status: string
   counters: PipelineCounters
+  message?: string | null
 }
 
 export type ImportJobStep = {
