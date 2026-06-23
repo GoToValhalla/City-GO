@@ -16,6 +16,7 @@ City GO — городской travel/local guide: публичный катал
 
 - FastAPI backend + PostgreSQL/PostGIS-ready schema + Alembic migrations.
 - React/Vite frontend с публичными страницами, админкой и route navigation MVP.
+- Backend route sessions foundation для сохранения прогресса маршрута.
 - Telegram-бот на `aiogram 3` с webhook/polling entrypoint.
 - Admin import/enrichment pipeline foundation.
 - Field-level confidence, review queue, photo candidates, route eligibility diagnostics.
@@ -57,6 +58,9 @@ GET /cities/by-slug/{slug}
 GET /places/
 GET /places/{place_id}
 GET /routes/{route_id}
+POST /routes/{route_id}/sessions
+GET /route-sessions/{session_id}
+POST /route-sessions/{session_id}/events/checkin
 POST /v1/user-routes/build
 GET /open-now
 GET /nearby
@@ -98,15 +102,16 @@ POST /v1/user-routes/build
 
 Публичная route detail страница теперь использует route player:
 
-- frontend-only state machine: `not_started`, `active`, `completed`;
+- frontend state machine: `not_started`, `active`, `completed`;
 - SVG/HTML схема маршрута с прямыми сегментами;
 - кнопки: `Начать маршрут`, `Я на месте`, `Следующая`, `Завершить`, `Пройти заново`;
-- state persistence: `localStorage` ключ `citygo:route-navigation:{routeId}`;
-- frontend quality gate отбрасывает точки без координат, hidden/unpublished/inactive, `is_route_eligible=false`, service/bank/police/transport/pharmacy/etc.
+- current web persistence: `localStorage` ключ `citygo:route-navigation:{routeId}`;
+- backend route sessions foundation: `route_sessions`, `route_session_points`, check-in/complete API;
+- frontend/backend quality gates отбрасывают точки без координат, hidden/unpublished/inactive, `is_route_eligible=false`, service/bank/police/transport/pharmacy/etc.
 
 Подробнее: `docs/architecture/route_navigation_stage1.md`.
 
-Следующий технический шаг: MapLibre + GPS + backend route sessions, но текущий MVP уже должен быть usable без GPS.
+Следующий технический шаг: подключить веб route player к backend sessions, затем MapLibre + GPS.
 
 ### Import / Enrichment Pipeline
 
@@ -177,6 +182,7 @@ POST /admin/place-enrichment/photo-candidates/{candidate_id}/set-primary
 - `services/quality_scoring.py`
 - `services/import_pipeline_publication.py`
 - `frontend/src/features/route-navigation/model/qualityGate.ts`
+- `services/route_session_service.py`
 
 ## Запуск локально
 
@@ -242,7 +248,10 @@ git diff --check
 
 ```bash
 npm --prefix frontend run test -- routeNavigation routeQualityGate
-.venv/bin/python -m pytest --no-cov tests/test_route_detail_navigation_fields_new.py -q
+.venv/bin/python -m pytest --no-cov \
+  tests/test_route_detail_navigation_fields_new.py \
+  tests/test_route_sessions_new.py \
+  tests/test_alembic_single_head_new.py -q
 ```
 
 Для import/enrichment pipeline:
