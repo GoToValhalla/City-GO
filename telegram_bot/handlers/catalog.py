@@ -10,9 +10,16 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
+from services.route_session_service import (
+    RouteSessionError,
+    check_in_route_point as check_in_backend_route_point,
+    complete_route_session as complete_backend_route_session,
+    start_route_session as start_backend_route_session,
+    update_route_session as update_backend_route_session,
+)
 from telegram_bot import renderers
 from telegram_bot.analytics import log_event
-from telegram_bot.callbacks import parse_callback
+from telegram_bot.callbacks import ParsedCallback, parse_callback
 from telegram_bot.keyboards import catalog as kb
 from telegram_bot.schemas import BotPlace, BotRoute
 from telegram_bot.services.facade import BotFacade
@@ -96,6 +103,15 @@ async def text_message(message: Message) -> None:
             await message.answer(renderers.help_text(), reply_markup=kb.back_to_menu())
             return
         if not session.selected_city_slug:
+            city = facade.city_by_text(text)
+            if city is not None:
+                session.selected_city_slug = city.slug
+                session.current_flow = "main"
+                session.nav_stack = ["m:main"]
+                save_session(db, session)
+                log_event(db, session, "city_selected", entity_type="city", entity_id=city.slug)
+                await message.answer(renderers.main_menu_text(city), reply_markup=kb.main_menu())
+                return
             await _show_city_select_message(message, facade)
             return
         page = facade.search_places(session.selected_city_slug, text)
@@ -122,7 +138,7 @@ async def callback_handler(callback: CallbackQuery) -> None:
     async def action(db: Session, session, facade: BotFacade) -> None:
         data = str(callback.data or "")
         parsed = parse_callback(data)
-        if data != "back":
+        if _should_push_nav(data, parsed):
             push_nav(session, data)
         try:
             await _dispatch_callback(callback, db, session, facade, parsed.scope, parsed.action, parsed.parts)
@@ -175,6 +191,9 @@ async def _dispatch_callback(callback: CallbackQuery, db: Session, session, faca
 async def _start_flow(db: Session, session, facade: BotFacade, message: Message) -> None:
     cities = facade.published_cities()
     log_event(db, session, "bot_started")
+    if not cities:
+        await message.answer(renderers.city_select_text(cities))
+        return
     if len(cities) == 1:
         session.selected_city_slug = cities[0].slug
         save_session(db, session)
@@ -202,12 +221,15 @@ async def _show_main_menu_callback(callback: CallbackQuery, session, facade: Bot
 
 async def _show_city_select_message(message: Message, facade: BotFacade) -> None:
     cities = facade.published_cities()
+    if not cities:
+        await message.answer(renderers.city_select_text(cities))
+        return
     await message.answer(renderers.city_select_text(cities), reply_markup=kb.city_list(cities))
 
 
 async def _show_city_select_callback(callback: CallbackQuery, facade: BotFacade) -> None:
     cities = facade.published_cities()
-    await _edit_or_answer(callback, renderers.city_select_text(cities), reply_markup=kb.city_list(cities))
+    await _edit_or_answer(callback, renderers.city_select_text(cities), reply_markup=kb.city_list(cities) if cities else None)
 
 
 async def _handle_city(callback: CallbackQuery, db: Session, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
@@ -248,7 +270,13 @@ async def _handle_route(callback: CallbackQuery, db: Session, session, facade: B
             await _edit_or_answer(callback, renderers.route_points_text(route), reply_markup=kb.route_card(route, session))
             return
         if action == "go":
-            session.route_session = {"route_id": route.id, "current_index": 0, "visited": [], "started_at": callback.message.date.isoformat() if callback.message else None}
+            try:
+                backend_session = start_backend_route_session(db, route.id, user_key=f"tg:{session.telegram_user_id}")
+            except RouteSessionError:
+                logger.exception("Failed to start backend route session for Telegram")
+                await _edit_or_answer(callback, "Маршрут нельзя начать: недостаточно качественных точек.", reply_markup=kb.route_card(route, session))
+                return
+            session.route_session = _route_state_from_backend(backend_session)
             save_session(db, session)
             log_event(db, session, "route_started", entity_type="route", entity_id=route.id)
             await _render_route_step(callback, session, route, 0)
@@ -260,7 +288,7 @@ async def _handle_route(callback: CallbackQuery, db: Session, session, facade: B
 
 
 async def _handle_route_navigation(callback: CallbackQuery, db: Session, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
-    route_state = session.route_session if isinstance(session.route_session, dict) else None
+    route_state = dict(session.route_session) if isinstance(session.route_session, dict) else None
     if not route_state:
         await _edit_or_answer(callback, "Активный маршрут не найден.", reply_markup=kb.back_to_menu())
         return
@@ -269,29 +297,71 @@ async def _handle_route_navigation(callback: CallbackQuery, db: Session, session
         session.route_session = None
         await _edit_or_answer(callback, "Маршрут больше недоступен.", reply_markup=kb.back_to_menu())
         return
+
+    backend_session_id = _int(route_state.get("session_id"), 0)
     if action == "done":
-        visited = list(route_state.get("visited", []))
-        log_event(db, session, "route_completed", entity_type="route", entity_id=route.id, payload={"visited": len(visited), "total": len(route.points)})
+        visited_count = len(list(route_state.get("visited", [])))
+        if backend_session_id:
+            with suppress(RouteSessionError):
+                backend_session = complete_backend_route_session(db, backend_session_id)
+                visited_count = len(list(backend_session.visited_point_indexes or []))
+        log_event(db, session, "route_completed", entity_type="route", entity_id=route.id, payload={"visited": visited_count, "total": len(route.points)})
         session.route_session = None
         save_session(db, session)
-        await _edit_or_answer(callback, renderers.route_completed_text(route, len(visited)), reply_markup=kb.back_to_menu())
+        await _edit_or_answer(callback, renderers.route_completed_text(route, visited_count), reply_markup=kb.back_to_menu())
         return
+
     index = _int(parts[0] if parts else route_state.get("current_index", 0))
     index = min(max(index, 0), len(route.points) - 1)
-    visited = list(route_state.get("visited", []))
-    if action == "visit" and index not in visited:
-        visited.append(index)
-        log_event(db, session, "route_point_visited", entity_type="route", entity_id=route.id, payload={"index": index})
-        index = min(index + 1, len(route.points) - 1)
-    route_state["visited"] = visited
+
+    if action == "visit":
+        if backend_session_id:
+            try:
+                backend_session = check_in_backend_route_point(db, backend_session_id, index, "visit")
+            except RouteSessionError:
+                logger.exception("Failed to check in Telegram route point")
+                await _edit_or_answer(callback, "Не удалось отметить точку. Попробуй еще раз.", reply_markup=kb.route_step(route.points[index], len(route.points), False))
+                return
+            route_state = _route_state_from_backend(backend_session)
+            session.route_session = route_state
+            save_session(db, session)
+            log_event(db, session, "route_point_visited", entity_type="route", entity_id=route.id, payload={"index": index})
+            if backend_session.status == "completed":
+                visited_count = len(list(backend_session.visited_point_indexes or []))
+                log_event(db, session, "route_completed", entity_type="route", entity_id=route.id, payload={"visited": visited_count, "total": len(route.points)})
+                session.route_session = None
+                save_session(db, session)
+                await _edit_or_answer(callback, renderers.route_completed_text(route, visited_count), reply_markup=kb.back_to_menu())
+                return
+            index = min(_int(route_state.get("current_index"), 0), len(route.points) - 1)
+            await _render_route_step(callback, session, route, index)
+            return
+
+        visited = list(route_state.get("visited", []))
+        if index not in visited:
+            visited.append(index)
+            log_event(db, session, "route_point_visited", entity_type="route", entity_id=route.id, payload={"index": index})
+            index = min(index + 1, len(route.points) - 1)
+        route_state["visited"] = visited
+        route_state["current_index"] = index
+        session.route_session = route_state
+        save_session(db, session)
+        if len(visited) >= len(route.points):
+            session.route_session = None
+            save_session(db, session)
+            await _edit_or_answer(callback, renderers.route_completed_text(route, len(visited)), reply_markup=kb.back_to_menu())
+            return
+        await _render_route_step(callback, session, route, index)
+        return
+
+    if action == "pt" and backend_session_id:
+        with suppress(RouteSessionError):
+            backend_session = update_backend_route_session(db, backend_session_id, current_point_index=index)
+            route_state = _route_state_from_backend(backend_session)
+
     route_state["current_index"] = index
     session.route_session = route_state
     save_session(db, session)
-    if len(visited) >= len(route.points):
-        session.route_session = None
-        save_session(db, session)
-        await _edit_or_answer(callback, renderers.route_completed_text(route, len(visited)), reply_markup=kb.back_to_menu())
-        return
     await _render_route_step(callback, session, route, index)
 
 
@@ -335,9 +405,10 @@ async def _handle_nearby(callback: CallbackQuery, session, facade: BotFacade, ac
         await _show_city_select_callback(callback, facade)
         return
     location = session.last_location
-    places = facade.nearby_places(session.selected_city_slug, float(location["lat"]), float(location["lng"]), parts[0] if parts else None)
+    category = parts[0] if parts else None
+    places = facade.nearby_places(session.selected_city_slug, float(location["lat"]), float(location["lng"]), category)
     page = type("PageLike", (), {"items": places, "page": 0, "has_next": False})()
-    await _edit_or_answer(callback, renderers.places_list_text("📍 Рядом с тобой", places, 0), reply_markup=kb.places_page(page, session, "near", "list", "all"))
+    await _edit_or_answer(callback, renderers.places_list_text("📍 Рядом с тобой", places, 0), reply_markup=kb.places_page(page, session, "near", "list", category or "all"))
 
 
 async def _handle_open_now(callback: CallbackQuery, db: Session, session, facade: BotFacade, parts: tuple[str, ...]) -> None:
@@ -438,6 +509,31 @@ def _set_favorite(session, kind: str, entity_id: int, should_add: bool) -> bool:
     favorites[key] = values
     session.favorites = favorites
     return should_add
+
+
+def _route_state_from_backend(route_session) -> dict[str, object]:
+    total = len(route_session.points or [])
+    current_index = min(int(route_session.current_point_index), max(total - 1, 0)) if total else 0
+    return {
+        "route_id": route_session.route_id,
+        "session_id": route_session.id,
+        "current_index": current_index,
+        "visited": list(route_session.visited_point_indexes or []),
+        "skipped": list(route_session.skipped_point_indexes or []),
+        "started_at": route_session.started_at.isoformat() if route_session.started_at else None,
+    }
+
+
+def _should_push_nav(data: str, parsed: ParsedCallback) -> bool:
+    if data == "back":
+        return False
+    if parsed.scope == "fav":
+        return parsed.action == "list"
+    if parsed.scope == "rn":
+        return False
+    if parsed.scope == "near" and parsed.action == "ask":
+        return True
+    return parsed.scope in {"m", "c", "r", "p", "near", "open", "help"}
 
 
 async def _edit_or_answer(callback: CallbackQuery, text: str, *, reply_markup=None) -> None:
