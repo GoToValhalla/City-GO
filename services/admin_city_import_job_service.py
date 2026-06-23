@@ -118,10 +118,6 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
         db.refresh(job)
         db.refresh(city)
 
-        places = db.query(Place).filter(Place.city_id == city.id).order_by(Place.id.asc()).all()
-        if not places:
-            raise RuntimeError("Сбор завершился без мест")
-
         source_counters = run_foundation_pipeline(db, city=city, job=job, actor=actor_id)
         source_status = job.status
         readiness = compute_city_readiness(db, city_slug=city.slug) or {}
