@@ -25,6 +25,8 @@ import models.admin_operation  # noqa: F401
 import models.feature_toggle  # noqa: F401
 import models.product_event  # noqa: F401
 import models.system_log  # noqa: F401
+import models.bot_event  # noqa: F401
+import models.bot_session  # noqa: F401
 import models.route_build_event  # noqa: F401
 import models.route_generation_run  # noqa: F401
 import models.route_generation_candidate  # noqa: F401
@@ -58,10 +60,6 @@ def migrate_session_local_database() -> None:
         apply_alembic_migrations(settings.database_url)
 
 
-# ============================================================================
-# DATABASE SETUP
-# ============================================================================
-
 @pytest.fixture(scope="session")
 def test_db_url() -> str:
     """In-memory SQLite для изолированных тестовых фикстур (get_db override)."""
@@ -94,9 +92,9 @@ def db_session(engine) -> Generator[Session, None, None]:
     connection = engine.connect()
     transaction = connection.begin()
     session = sessionmaker(autocommit=False, autoflush=False, bind=connection)()
-    
+
     yield session
-    
+
     session.close()
     transaction.rollback()
     connection.close()
@@ -124,15 +122,11 @@ def client(override_get_db):
     return TestClient(app)
 
 
-# ============================================================================
-# FACTORIES FOR TEST DATA
-# ============================================================================
-
 @pytest.fixture
 def city_factory(db_session: Session):
     """Factory для создания City объектов."""
     from models.city import City
-    
+
     def create_city(
         slug: str = "zelenogradsk",
         name: str = "Зеленоградск",
@@ -159,7 +153,7 @@ def city_factory(db_session: Session):
         db_session.commit()
         db_session.refresh(city)
         return city
-    
+
     return create_city
 
 
@@ -167,7 +161,7 @@ def city_factory(db_session: Session):
 def category_factory(db_session: Session):
     """Factory для создания Category объектов."""
     from models.category import Category
-    
+
     def create_category(
         code: str = "cafe",
         name: str = "Кафе",
@@ -178,7 +172,7 @@ def category_factory(db_session: Session):
         db_session.commit()
         db_session.refresh(category)
         return category
-    
+
     return create_category
 
 
@@ -186,7 +180,6 @@ def category_factory(db_session: Session):
 def place_factory(db_session: Session, city_factory, category_factory):
     """Factory для создания Place объектов."""
     from models.place import Place
-    
     from models.category import Category
 
     city = city_factory()
@@ -198,7 +191,7 @@ def place_factory(db_session: Session, city_factory, category_factory):
         if existing is not None:
             return existing
         return category_factory(code=code, name=code)
-    
+
     def create_place(
         slug: str | None = None,
         title: str = "Test Place",
@@ -232,7 +225,7 @@ def place_factory(db_session: Session, city_factory, category_factory):
         else:
             resolved_category_id = default_category.id
             resolved_category = default_category.code
-        
+
         place = Place(
             slug=slug or f"test-place-{counter}",
             title=title,
@@ -258,5 +251,5 @@ def place_factory(db_session: Session, city_factory, category_factory):
         db_session.commit()
         db_session.refresh(place)
         return place
-    
+
     return create_place
