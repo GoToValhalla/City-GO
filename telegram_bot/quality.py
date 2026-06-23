@@ -8,12 +8,17 @@ from models.place_field_confidence import PlaceFieldConfidence
 
 NON_TOURIST_CATEGORIES = {
     "service",
+    "services",
     "bank",
     "atm",
     "mvd",
     "police",
     "government",
     "transport",
+    "stop",
+    "bus_stop",
+    "bus_station",
+    "railway_station",
     "hospital",
     "health",
     "medical",
@@ -56,7 +61,8 @@ def category_code(place: Place | Any) -> str | None:
 
 
 def is_non_tourist_category(category: str | None) -> bool:
-    return bool(category and category in NON_TOURIST_CATEGORIES)
+    normalized = (category or "").strip().lower()
+    return normalized in NON_TOURIST_CATEGORIES
 
 
 def is_place_bot_visible(place: Place) -> bool:
