@@ -11,6 +11,7 @@
 | [`route_generation_status_and_roadmap.md`](route_generation_status_and_roadmap.md) | Рабочая карта маршрутов: три route-слоя, текущая реализация, планы по Active Route Session и карте. |
 | [`architecture/application_architecture_ru.md`](architecture/application_architecture_ru.md) | Архитектура приложения и слои backend/frontend/Telegram. |
 | [`architecture/backend_file_map.md`](architecture/backend_file_map.md) | Рабочий реестр ключевых файлов backend и route pipeline. |
+| [`architecture/frontend_design_system.md`](architecture/frontend_design_system.md) | Design System Foundation для Web App и Telegram App: токены, UI-компоненты и план миграции экранов. |
 
 ## 2. Операционные документы
 
