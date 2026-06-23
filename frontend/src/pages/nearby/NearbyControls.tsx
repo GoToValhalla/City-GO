@@ -1,8 +1,8 @@
 import { Badge } from '../../components/ui/Badge'
 
 type Props = {
-  lat: number
-  lng: number
+  lat: number | null
+  lng: number | null
   locating: boolean
   locationLabel: string
   radiusKm: number
@@ -24,7 +24,7 @@ export const NearbyControls = ({
   <>
     <div className="discovery-stats">
       <Badge variant="brand">{locationLabel}</Badge>
-      <span>{lat}, {lng}</span>
+      <span>{lat !== null && lng !== null ? `${lat}, ${lng}` : 'координаты не заданы'}</span>
       <span>радиус {radiusKm} км</span>
     </div>
     <div className="nearby-controls">
