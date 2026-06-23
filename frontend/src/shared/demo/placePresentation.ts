@@ -1,5 +1,5 @@
 import type { Place } from '../../entities/place/model/types'
-import { categoryLabel } from './categoryLabels'
+import { categoryLabel } from '../place/categoryLabels'
 
 const GENERIC_BY_CATEGORY: Record<string, string> = {
   bar: 'Вечерняя точка для маршрута, которую стоит проверить по часам перед визитом.',
