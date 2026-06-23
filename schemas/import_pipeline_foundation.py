@@ -5,14 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PipelineRunResponse(BaseModel):
     job_id: int
     city_slug: str
     status: str
-    counters: dict[str, int]
+    counters: dict[str, int] = Field(default_factory=dict)
+    message: str | None = None
 
 
 class ImportJobStepRead(BaseModel):
