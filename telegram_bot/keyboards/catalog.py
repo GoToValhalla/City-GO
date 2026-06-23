@@ -48,7 +48,7 @@ def routes_page(page: Page, session: BotSession) -> InlineKeyboardMarkup:
 
 def route_card(route: BotRoute, session: BotSession) -> InlineKeyboardMarkup:
     sid = get_short_id(session, route.id)
-    favorite_text = "💔 Убрать" if route.id in (session.favorites or {}).get("routes", []) else "❤️ Сохранить"
+    favorite_text, favorite_callback = _favorite_button("r", route.id, sid, session)
     rows = [
         [InlineKeyboardButton(text="🚶 Начать маршрут", callback_data=cb("r", "go", sid))],
         [InlineKeyboardButton(text="📋 Все точки", callback_data=cb("r", "pts", sid))],
@@ -58,7 +58,7 @@ def route_card(route: BotRoute, session: BotSession) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="🗺 Открыть карту", url=_map_url(start_point.lat, start_point.lng))])
     rows.extend(
         [
-            [InlineKeyboardButton(text=favorite_text, callback_data=cb("fav", "toggle", "r", sid))],
+            [InlineKeyboardButton(text=favorite_text, callback_data=favorite_callback)],
             [InlineKeyboardButton(text="← Назад", callback_data="back"), InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))],
         ]
     )
@@ -95,11 +95,11 @@ def places_page(page: Page, session: BotSession, scope: str, action: str, *prefi
 
 def place_card(place: BotPlace, session: BotSession) -> InlineKeyboardMarkup:
     sid = get_short_id(session, place.id)
-    favorite_text = "💔 Убрать" if place.id in (session.favorites or {}).get("places", []) else "❤️ Сохранить"
+    favorite_text, favorite_callback = _favorite_button("p", place.id, sid, session)
     rows = []
     if place.lat is not None and place.lng is not None:
         rows.append([InlineKeyboardButton(text="🗺 На карте", url=_map_url(place.lat, place.lng))])
-    rows.append([InlineKeyboardButton(text=favorite_text, callback_data=cb("fav", "toggle", "p", sid))])
+    rows.append([InlineKeyboardButton(text=favorite_text, callback_data=favorite_callback)])
     if place.category:
         rows.append([InlineKeyboardButton(text="🔍 Похожие", callback_data=cb("p", "cat", place.category, 0))])
     rows.append([InlineKeyboardButton(text="← Назад", callback_data="back"), InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))])
@@ -125,6 +125,14 @@ def _pagination(scope: str, action: str, page: int, has_next: bool, *prefix_part
     if has_next:
         row.append(InlineKeyboardButton(text="→", callback_data=cb(scope, action, *prefix_parts, page + 1)))
     return [row] if row else []
+
+
+def _favorite_button(kind: str, entity_id: int, short_id: str, session: BotSession) -> tuple[str, str]:
+    key = "routes" if kind == "r" else "places"
+    is_saved = entity_id in (session.favorites or {}).get(key, [])
+    action = "del" if is_saved else "add"
+    text = "💔 Убрать" if is_saved else "❤️ Сохранить"
+    return text, cb("fav", action, kind, short_id)
 
 
 def _map_url(lat: float, lng: float) -> str:
