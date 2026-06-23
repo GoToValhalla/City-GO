@@ -25,7 +25,7 @@ export const HomeHero = ({ search, cityName = 'выбранном городе',
         </p>
 
         <label className="hero-search">
-          <Search size={20} color="#6e6e73" />
+          <Search size={20} aria-hidden="true" />
           <input
             type="text"
             placeholder="Кафе, музей, парк, адрес..."
