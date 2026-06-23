@@ -48,10 +48,14 @@ describe('RouteNavigationView', () => {
   beforeEach(() => window.localStorage.clear())
   afterEach(() => {
     cleanup()
-    Object.defineProperty(navigator, 'geolocation', {
-      configurable: true,
-      value: originalGeolocation,
-    })
+    if (originalGeolocation) {
+      Object.defineProperty(navigator, 'geolocation', {
+        configurable: true,
+        value: originalGeolocation,
+      })
+    } else {
+      delete (navigator as Navigator & { geolocation?: Geolocation }).geolocation
+    }
   })
 
   it('renders real map shell, route points and polyline', () => {
