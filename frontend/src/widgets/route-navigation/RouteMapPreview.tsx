@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { PointerEvent } from 'react'
 import type { GeoPoint } from '../../features/route-navigation/model/geo'
 import type { RouteGeolocationStatus } from '../../features/route-navigation/model/useRouteGeolocation'
 import type { NavigationPoint } from '../../features/route-navigation/model/types'
@@ -156,11 +157,11 @@ export const RouteMapPreview = ({
   }
   const zoomBy = (delta: number) => setCamera((current) => ({ ...current, zoom: clamp(current.zoom + delta, MIN_ZOOM, MAX_ZOOM) }))
 
-  const onPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
+  const onPointerDown = (event: PointerEvent<SVGSVGElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId)
     dragStartRef.current = { x: event.clientX, y: event.clientY, center }
   }
-  const onPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
+  const onPointerMove = (event: PointerEvent<SVGSVGElement>) => {
     const dragStart = dragStartRef.current
     if (!dragStart) return
     const nextCenter = {
@@ -169,7 +170,7 @@ export const RouteMapPreview = ({
     }
     setCamera((current) => ({ ...current, ...worldToLngLat(nextCenter.worldX, nextCenter.worldY, current.zoom) }))
   }
-  const onPointerEnd = (event: React.PointerEvent<SVGSVGElement>) => {
+  const onPointerEnd = (event: PointerEvent<SVGSVGElement>) => {
     event.currentTarget.releasePointerCapture(event.pointerId)
     dragStartRef.current = null
   }
