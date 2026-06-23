@@ -66,12 +66,8 @@ export const PlacesListPage = () => {
   }, [filters.category, filters.onlyOpen, places, search])
 
   useEffect(() => {
-    if (filteredPlaces.length === 0) {
+    if (activePlaceId && !filteredPlaces.some((place) => place.id === activePlaceId)) {
       setActivePlaceId(null)
-      return
-    }
-    if (!activePlaceId || !filteredPlaces.some((place) => place.id === activePlaceId)) {
-      setActivePlaceId(filteredPlaces[0].id)
     }
   }, [activePlaceId, filteredPlaces])
 
