@@ -4,10 +4,13 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from models.bot_session import BotSession
 from telegram_bot.callbacks import cb
+from telegram_bot.quality import clean_title
 from telegram_bot.schemas import BotCity, BotPlace, BotRoute, BotRoutePoint, Page
 from telegram_bot.session import get_short_id
+from telegram_bot.utils import compact_text
 
 CITY_LIST_VISIBLE_LIMIT = 5
+BUTTON_TITLE_LIMIT = 42
 
 
 def main_menu() -> InlineKeyboardMarkup:
@@ -15,18 +18,18 @@ def main_menu() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="🚶 Маршруты", callback_data=cb("r", "list", 0)),
-                InlineKeyboardButton(text="📍 Места рядом", callback_data=cb("near", "ask")),
+                InlineKeyboardButton(text="📍 Рядом", callback_data=cb("near", "ask")),
             ],
             [
-                InlineKeyboardButton(text="👀 Что посмотреть", callback_data=cb("p", "cat", "sights", 0)),
+                InlineKeyboardButton(text="👀 Смотреть места", callback_data=cb("p", "cat", "sights", 0)),
                 InlineKeyboardButton(text="☕ Еда и кофе", callback_data=cb("p", "cat", "food", 0)),
             ],
             [
-                InlineKeyboardButton(text="🕐 Открыто сейчас", callback_data=cb("open", "list", 0)),
-                InlineKeyboardButton(text="❤️ Избранное", callback_data=cb("fav", "list")),
+                InlineKeyboardButton(text="🟢 Открыто", callback_data=cb("open", "list", 0)),
+                InlineKeyboardButton(text="❤️ Сохранённое", callback_data=cb("fav", "list")),
             ],
             [
-                InlineKeyboardButton(text="🏙 Сменить город", callback_data=cb("c", "list")),
+                InlineKeyboardButton(text="🏙 Город", callback_data=cb("c", "list")),
                 InlineKeyboardButton(text="❓ Помощь", callback_data=cb("help")),
             ],
         ]
@@ -46,7 +49,7 @@ def routes_page(page: Page, session: BotSession) -> InlineKeyboardMarkup:
     rows = []
     for route in page.items:
         assert isinstance(route, BotRoute)
-        rows.append([InlineKeyboardButton(text=route.title, callback_data=cb("r", "view", get_short_id(session, route.id)))])
+        rows.append([InlineKeyboardButton(text=_button_title(route.title), callback_data=cb("r", "view", get_short_id(session, route.id)))])
     rows += _pagination("r", "list", page.page, page.has_next)
     rows.append([InlineKeyboardButton(text="← Назад", callback_data="back"), InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -56,12 +59,12 @@ def route_card(route: BotRoute, session: BotSession) -> InlineKeyboardMarkup:
     sid = get_short_id(session, route.id)
     favorite_text, favorite_callback = _favorite_button("r", route.id, sid, session)
     rows = [
-        [InlineKeyboardButton(text="🚶 Начать маршрут", callback_data=cb("r", "go", sid))],
-        [InlineKeyboardButton(text="📋 Все точки", callback_data=cb("r", "pts", sid))],
+        [InlineKeyboardButton(text="🚶 Начать", callback_data=cb("r", "go", sid))],
+        [InlineKeyboardButton(text="📋 Точки по порядку", callback_data=cb("r", "pts", sid))],
     ]
     start_point = next((point for point in route.points if point.lat is not None and point.lng is not None), None)
     if start_point is not None:
-        rows.append([InlineKeyboardButton(text="🗺 Открыть карту", url=_map_url(start_point.lat, start_point.lng))])
+        rows.append([InlineKeyboardButton(text="🗺 Маршрут на карте", url=_map_url(start_point.lat, start_point.lng))])
     rows.extend(
         [
             [InlineKeyboardButton(text=favorite_text, callback_data=favorite_callback)],
@@ -75,7 +78,7 @@ def route_step(point: BotRoutePoint, total: int, is_visited: bool) -> InlineKeyb
     rows = []
     if not is_visited:
         rows.append([InlineKeyboardButton(text="✅ Я на месте", callback_data=cb("rn", "visit", point.index))])
-        rows.append([InlineKeyboardButton(text="⏭ Пропустить точку", callback_data=cb("rn", "skip", point.index))])
+        rows.append([InlineKeyboardButton(text="↪️ Пропустить", callback_data=cb("rn", "skip", point.index))])
     nav = []
     if point.index > 0:
         nav.append(InlineKeyboardButton(text="← Предыдущая", callback_data=cb("rn", "pt", point.index - 1)))
@@ -94,7 +97,7 @@ def places_page(page: Page, session: BotSession, scope: str, action: str, *prefi
     rows = []
     for place in page.items:
         assert isinstance(place, BotPlace)
-        rows.append([InlineKeyboardButton(text=place.title, callback_data=cb("p", "view", get_short_id(session, place.id)))])
+        rows.append([InlineKeyboardButton(text=_button_title(place.title), callback_data=cb("p", "view", get_short_id(session, place.id)))])
     rows += _pagination(scope, action, page.page, page.has_next, *prefix_parts)
     rows.append([InlineKeyboardButton(text="← Назад", callback_data="back"), InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -105,10 +108,10 @@ def place_card(place: BotPlace, session: BotSession) -> InlineKeyboardMarkup:
     favorite_text, favorite_callback = _favorite_button("p", place.id, sid, session)
     rows = []
     if place.lat is not None and place.lng is not None:
-        rows.append([InlineKeyboardButton(text="🗺 На карте", url=_map_url(place.lat, place.lng))])
+        rows.append([InlineKeyboardButton(text="🗺 Маршрут", url=_map_url(place.lat, place.lng))])
     rows.append([InlineKeyboardButton(text=favorite_text, callback_data=favorite_callback)])
     if place.category:
-        rows.append([InlineKeyboardButton(text="🔍 Похожие", callback_data=cb("p", "cat", place.category, 0))])
+        rows.append([InlineKeyboardButton(text="🔁 Похожие места", callback_data=cb("p", "cat", place.category, 0))])
     rows.append([InlineKeyboardButton(text="← Назад", callback_data="back"), InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -116,9 +119,9 @@ def place_card(place: BotPlace, session: BotSession) -> InlineKeyboardMarkup:
 def favorites_list(routes: list[BotRoute], places: list[BotPlace], session: BotSession) -> InlineKeyboardMarkup:
     rows = []
     for route in routes:
-        rows.append([InlineKeyboardButton(text=f"🚶 {route.title}", callback_data=cb("r", "view", get_short_id(session, route.id)))])
+        rows.append([InlineKeyboardButton(text=f"🚶 {_button_title(route.title)}", callback_data=cb("r", "view", get_short_id(session, route.id)))])
     for place in places:
-        rows.append([InlineKeyboardButton(text=f"📍 {place.title}", callback_data=cb("p", "view", get_short_id(session, place.id)))])
+        rows.append([InlineKeyboardButton(text=f"📍 {_button_title(place.title)}", callback_data=cb("p", "view", get_short_id(session, place.id)))])
     rows.append([InlineKeyboardButton(text="← Назад", callback_data="back"), InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -130,9 +133,9 @@ def back_to_menu() -> InlineKeyboardMarkup:
 def request_location() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="👀 Что посмотреть", callback_data=cb("p", "cat", "sights", 0))],
+            [InlineKeyboardButton(text="👀 Смотреть места", callback_data=cb("p", "cat", "sights", 0))],
             [InlineKeyboardButton(text="☕ Еда и кофе", callback_data=cb("p", "cat", "food", 0))],
-            [InlineKeyboardButton(text="📍 Все места города", callback_data=cb("p", "cat", "all", 0))],
+            [InlineKeyboardButton(text="📍 Все места", callback_data=cb("p", "cat", "all", 0))],
             [InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))],
         ]
     )
@@ -153,6 +156,10 @@ def _favorite_button(kind: str, entity_id: int, short_id: str, session: BotSessi
     action = "del" if is_saved else "add"
     text = "💔 Убрать" if is_saved else "❤️ Сохранить"
     return text, cb("fav", action, kind, short_id)
+
+
+def _button_title(title: str) -> str:
+    return compact_text(clean_title(title), BUTTON_TITLE_LIMIT) or "Место"
 
 
 def _map_url(lat: float, lng: float) -> str:
