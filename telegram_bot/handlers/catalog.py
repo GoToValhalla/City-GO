@@ -150,7 +150,7 @@ async def callback_handler(callback: CallbackQuery) -> None:
 
 async def _dispatch_callback(callback: CallbackQuery, db: Session, session, facade: BotFacade, scope: str, action: str | None, parts: tuple[str, ...]) -> None:
     if scope == "m" and action == "main":
-        await _show_main_menu_callback(callback, session, facade)
+        await _show_main_menu_callback(callback, db, session, facade)
         return
     if scope == "c":
         await _handle_city(callback, db, session, facade, action, parts)
@@ -221,11 +221,13 @@ async def _show_main_menu_message(db: Session, session, facade: BotFacade, messa
     await message.answer(renderers.main_menu_text(city), reply_markup=kb.main_menu())
 
 
-async def _show_main_menu_callback(callback: CallbackQuery, session, facade: BotFacade) -> None:
+async def _show_main_menu_callback(callback: CallbackQuery, db: Session, session, facade: BotFacade) -> None:
     city = facade.city(session.selected_city_slug)
     if city is None:
-        await _show_city_select_callback(callback, facade, session=session)
+        await _show_city_select_callback(callback, facade, db=db, session=session)
         return
+    session.current_flow = "main"
+    save_session(db, session)
     await _edit_or_answer(callback, renderers.main_menu_text(city), reply_markup=kb.main_menu())
 
 
@@ -498,7 +500,7 @@ async def _handle_back(callback: CallbackQuery, db: Session, session, facade: Bo
     previous = pop_nav(session)
     save_session(db, session)
     if previous is None:
-        await _show_main_menu_callback(callback, session, facade)
+        await _show_main_menu_callback(callback, db, session, facade)
         return
     parsed = parse_callback(previous)
     await _dispatch_callback(callback, db, session, facade, parsed.scope, parsed.action, parsed.parts)
