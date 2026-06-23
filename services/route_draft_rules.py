@@ -3,37 +3,15 @@ from __future__ import annotations
 import re
 from unicodedata import normalize as unicode_normalize
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Query
 
 from models.place import Place
+from services.public_place_quality import NON_TOURIST_CATEGORIES
 
 WALK_SPEED_KMH = 4.5
 OUT_OF_CITY_MAX_METERS = 50_000
-
-ROUTE_DRAFT_BLOCKED_CATEGORIES = {
-    "atm",
-    "bank",
-    "bus_station",
-    "bus_stop",
-    "car_service",
-    "cemetery",
-    "fuel",
-    "government",
-    "health",
-    "hospital",
-    "industrial",
-    "medical",
-    "military",
-    "mvd",
-    "parking",
-    "pharmacy",
-    "police",
-    "service",
-    "services",
-    "stop",
-    "transport",
-    "waste_disposal",
-}
+ROUTE_DRAFT_BLOCKED_CATEGORIES = NON_TOURIST_CATEGORIES
 
 CATEGORY_ALIASES: dict[str, str] = {
     "кофе": "cafe",
@@ -76,7 +54,8 @@ def eligible_place_query(query: Query, city_id: int) -> Query:
         Place.publication_status == "published",
         Place.lat.is_not(None),
         Place.lng.is_not(None),
-        ~Place.category.in_(ROUTE_DRAFT_BLOCKED_CATEGORIES),
+        or_(Place.category.is_(None), ~Place.category.in_(ROUTE_DRAFT_BLOCKED_CATEGORIES)),
+        or_(Place.canonical_category.is_(None), ~Place.canonical_category.in_(ROUTE_DRAFT_BLOCKED_CATEGORIES)),
     )
 
 
