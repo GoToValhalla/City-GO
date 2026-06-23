@@ -33,8 +33,8 @@ telegram_bot/
 Entrypoints:
 
 ```text
-telegram_bot_main.py          Polling process used by docker-compose bot service
-telegram_bot/main.py          Bot, dispatcher, middleware, polling/webhook feed
+telegram_bot_main.py             Polling process used by docker-compose bot service
+telegram_bot/main.py             Bot, dispatcher, middleware, polling/webhook feed
 routers/telegram_bot_webhook.py  FastAPI webhook endpoint
 ```
 
@@ -63,6 +63,13 @@ telegram_bot/handlers/catalog.py   /start, menu, callbacks, route mode, places, 
 telegram_bot/analytics.py          bot_events logger
 ```
 
+Route mode also uses the shared backend route-session service:
+
+```text
+models/route_session.py
+services/route_session_service.py
+```
+
 Admin analytics:
 
 ```text
@@ -77,9 +84,11 @@ Tables:
 ```text
 bot_sessions
 bot_events
+route_sessions
+route_session_points
 ```
 
-`bot_sessions` stores:
+`bot_sessions` stores Telegram UI/session context:
 
 - `telegram_user_id`
 - `username`
@@ -91,6 +100,17 @@ bot_events
 - `route_session`
 - `favorites`
 - `last_location`
+
+`bot_sessions.route_session` now stores a lightweight pointer/state snapshot:
+
+- route id;
+- backend route session id;
+- current index;
+- visited indexes;
+- skipped indexes;
+- started_at.
+
+`route_sessions` and `route_session_points` store durable route progress shared with future web navigation.
 
 `bot_events` stores product analytics:
 
@@ -113,12 +133,14 @@ bot_events
 
 - if one published city exists, the bot immediately selects it and shows main menu;
 - if multiple published cities exist, it shows city selection;
-- if none exist, it shows an honest empty state.
+- if none exist, it shows an honest empty state without an empty inline keyboard.
 
 Published city means:
 
 - `City.is_active = true`
 - `City.launch_status = published`
+
+If no city is selected yet, a free-text message can select a published city by slug or name match before falling back to the city selector.
 
 ### Main Menu
 
@@ -151,14 +173,7 @@ Route card shows:
 
 ### Route Mode
 
-Route mode is stored inside `bot_sessions.route_session`.
-
-State includes:
-
-- route id;
-- current index;
-- visited indexes;
-- started_at.
+Route mode starts by creating a backend `route_sessions` record through `services.route_session_service.start_route_session()`.
 
 Controls:
 
@@ -168,6 +183,14 @@ Controls:
 - `На карте`;
 - `Завершить`;
 - `В меню`.
+
+Behavior:
+
+- `Я на месте` calls backend check-in and advances to the next open point;
+- `Предыдущая` / `Следующая` update current point index;
+- `Завершить` completes backend route session;
+- route-point visits and route completion are logged to `bot_events`;
+- old Telegram route session dicts without `session_id` still degrade through the legacy in-session flow.
 
 If the user sent Telegram location earlier, route step text includes distance to the current point. If there is no GPS, route mode remains manual.
 
@@ -210,7 +233,7 @@ Low/stale/conflict/unknown hours are excluded.
 
 ### Search
 
-Any free text outside command/help/menu context is a search query.
+Any free text outside command/help/menu context is a search query after a city is selected.
 
 Search behavior:
 
@@ -242,6 +265,7 @@ p:src:{page}
 near:ask
 near:list:{cat}:{page}
 open:list:{page}
+fav:list
 fav:add:p:{short_id}
 fav:del:p:{short_id}
 fav:add:r:{short_id}
@@ -251,6 +275,8 @@ help
 ```
 
 `fav:toggle` is still supported for old already-rendered messages, but new keyboards must use explicit `add`/`del`.
+
+Back-stack stores navigation screens only. Action callbacks such as `fav:add`, `fav:del`, `rn:visit`, `rn:pt`, and `rn:done` must not pollute history.
 
 ## Quality Gates
 
@@ -319,17 +345,20 @@ If exceeded:
 ```bash
 .venv/bin/python -m pytest --no-cov \
   tests/test_telegram_bot_rewrite_new.py \
-  tests/test_telegram_bot_completion_new.py -q
+  tests/test_telegram_bot_completion_new.py \
+  tests/test_route_sessions_new.py -q
 ```
 
 Critical assertions:
 
 - callback_data <= 64 bytes;
+- action callbacks do not pollute back-stack;
 - technical OSM titles are hidden;
 - service/bank/police/etc do not pass quality filter;
 - low/stale/conflict hours do not pass open-now reliability;
 - renderers do not show debug/source/confidence fields;
 - route with fewer than two valid points is unavailable;
+- Telegram route mode keeps backend route session id;
 - route/place cards include external map actions;
 - admin bot analytics returns route funnel and no-result search data.
 
