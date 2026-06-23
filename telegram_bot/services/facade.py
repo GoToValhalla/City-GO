@@ -18,7 +18,17 @@ from telegram_bot.schemas import BotCity, BotPlace, BotRoute, BotRoutePoint, Pag
 from telegram_bot.utils import haversine_meters
 
 DEFAULT_LIMIT = 5
-PUBLIC_CITY_STATUSES = {"published", "auto_published", "limited_published", "ready", "review", "needs_review"}
+PUBLIC_CITY_STATUSES = {
+    "published",
+    "auto_published",
+    "limited_published",
+    "ready",
+    "ready_for_review",
+    "review",
+    "needs_review",
+    "enriched",
+    "launch_ready",
+}
 CATEGORY_GROUPS = {
     "all": set(),
     "sights": {"culture", "museum", "park", "walk", "viewpoint", "beach", "attraction", "landmark", "historic", "monument", "art", "architecture"},
