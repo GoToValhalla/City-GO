@@ -1,3 +1,4 @@
+import { ALL_VALUE } from './placeFilterConstants'
 import { placeCategoryLabel } from './placeViewModel'
 
 export type FilterChipOption = {
@@ -13,7 +14,6 @@ type FilterChipsProps = {
   className?: string
 }
 
-const ALL_VALUE = 'all'
 const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(' ')
 
 export const FilterChips = ({ className, onChange, options, value }: FilterChipsProps) => {
@@ -43,5 +43,3 @@ export const FilterChips = ({ className, onChange, options, value }: FilterChips
     </div>
   )
 }
-
-export { ALL_VALUE }
