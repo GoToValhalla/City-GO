@@ -74,8 +74,11 @@ def create_draft(body: AdminPlaceCreateDraftRequest, auth: AdminContext = Depend
 
 @router.patch("/places/{place_id}", response_model=AdminPlaceDetailRead)
 def patch_place(place_id: int, body: AdminPlaceUpdateRequest, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)):
-    fields = {k: v for k, v in body.model_dump().items() if v is not None}
-    place = update_admin_place_fields(db, place_id, fields, actor=auth.actor_id)
+    fields = {key: value for key, value in body.model_dump().items() if value is not None}
+    try:
+        place = update_admin_place_fields(db, place_id, fields, actor=auth.actor_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     if place is None:
         raise HTTPException(404, "Место не найдено")
     payload = build_admin_place_detail(db, place.id)
@@ -124,7 +127,7 @@ def read_system_logs(
     auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db),
 ):
     items, total = list_system_logs(db, level=level, module=module, city_slug=city_slug, request_id=request_id, limit=limit, offset=offset)
-    return SystemLogListResponse(items=[SystemLogRead.model_validate(i) for i in items], total=total, limit=limit, offset=offset)
+    return SystemLogListResponse(items=[SystemLogRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)
 
 
 @router.get("/deployment/status")
