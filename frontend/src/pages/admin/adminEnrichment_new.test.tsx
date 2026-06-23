@@ -135,10 +135,13 @@ describe('AdminPlaceEnrichmentPage', () => {
 
     renderPage()
     const runButton = await screen.findByRole('button', { name: /Собрать и обогатить/i })
+    await waitFor(() => expect(runButton).toHaveProperty('disabled', false))
     fireEvent.click(runButton)
 
     await waitFor(() => expect(screen.getByText(/Задача #7/)).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: /Обновить очередь проверки/i }))
+    const reviewButton = screen.getByRole('button', { name: /Обновить очередь проверки/i })
+    await waitFor(() => expect(reviewButton).toHaveProperty('disabled', false))
+    fireEvent.click(reviewButton)
     await waitFor(() => expect(screen.getByText('Низкое доверие')).toBeTruthy())
   })
 
@@ -150,6 +153,7 @@ describe('AdminPlaceEnrichmentPage', () => {
 
     renderPage()
     const runButton = await screen.findByRole('button', { name: /Собрать и обогатить/i })
+    await waitFor(() => expect(runButton).toHaveProperty('disabled', false))
     fireEvent.click(runButton)
 
     await waitFor(() => expect(screen.getByText(/boom/)).toBeTruthy())
