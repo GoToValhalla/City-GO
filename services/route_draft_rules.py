@@ -10,6 +10,19 @@ from models.place import Place
 WALK_SPEED_KMH = 4.5
 OUT_OF_CITY_MAX_METERS = 50_000
 
+ROUTE_DRAFT_BLOCKED_CATEGORIES = {
+    "atm",
+    "bank",
+    "government",
+    "hospital",
+    "industrial",
+    "mvd",
+    "pharmacy",
+    "police",
+    "service",
+    "transport",
+}
+
 CATEGORY_ALIASES: dict[str, str] = {
     "кофе": "cafe",
     "кофейня": "cafe",
@@ -51,6 +64,7 @@ def eligible_place_query(query: Query, city_id: int) -> Query:
         Place.publication_status == "published",
         Place.lat.is_not(None),
         Place.lng.is_not(None),
+        ~Place.category.in_(ROUTE_DRAFT_BLOCKED_CATEGORIES),
     )
 
 
