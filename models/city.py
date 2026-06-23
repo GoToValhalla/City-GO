@@ -9,6 +9,10 @@ from db.base import Base
 
 # Модель города.
 # Нужна для масштабирования проекта на несколько городов.
+# TODO(Data Foundation V2): City не должен оставаться корневой продуктовой сущностью.
+# Целевая модель: City становится частным типом Destination(type='city'), а городовые поля
+# сохраняются как legacy/backward-compatible слой до полной миграции каталога, импорта и маршрутов.
+# Нельзя моделировать Байкал/Алтай/Карелию как fake City — для них нужны Destination/GeoZone/ImportScope.
 class City(Base):
     __tablename__ = "cities"
 
@@ -22,6 +26,8 @@ class City(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
 
     # Регион, к которому относится город.
+    # TODO(Data Foundation V2): разделить административный регион и туристический Destination.
+    # Поле region остается legacy-текстом; целевая связь должна идти через AdminRegion/DestinationRelation.
     region: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Страна.
@@ -39,6 +45,9 @@ class City(Base):
     secondary_languages: Mapped[list[str] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
 
     # Внешняя идентификация города и границы импорта.
+    # TODO(Data Foundation V2): эти поля должны переехать/дублироваться в Destination.
+    # Для city destination можно сохранить текущую bbox-логику; для natural_region/national_park
+    # нужны real boundary / OSM relation / manual polygon / tiled import scopes.
     osm_relation_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     boundary: Mapped[dict[str, object] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
 
@@ -50,6 +59,8 @@ class City(Base):
     slug_aliases: Mapped[list[str] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
 
     # Data Foundation city-level quality metadata.
+    # TODO(Data Foundation V2): readiness/quality должны считаться по Destination и ImportScope,
+    # иначе большой регион нельзя публиковать поэтапно и оценивать по кластерам.
     readiness_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
     quality_status: Mapped[str] = mapped_column(String(32), nullable=False, default="not_ready", index=True)
     last_import_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
