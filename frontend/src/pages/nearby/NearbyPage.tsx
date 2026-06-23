@@ -55,7 +55,7 @@ export const NearbyPage = () => {
       <div className="app-container">
         <AppHeader />
         <PageBreadcrumbs items={[{ label: 'Главная', to: '/' }, { label: 'Рядом' }]}
-          right={<div className="places-muted">{loading ? 'Загрузка...' : `${places.length} рядом`}</div>} />
+          right={<div className="places-muted">{loading ? 'Загрузка' : `${places.length} рядом`}</div>} />
         <section className="places-list-panel">
           <SectionHeader title="Рядом с точкой"
             description="Ближайшие места с фото, адресом, временем визита и открытием. Можно сменить радиус или взять текущую геолокацию." />
