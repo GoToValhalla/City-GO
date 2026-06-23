@@ -133,7 +133,7 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
                 "readiness_score": readiness.get("readiness_score"),
             },
         }
-        job.status = "partial_success" if source_status == "partial_success" else "success"
+        job.status = "partial_success" if source_status in {"partial_success", "success_with_warnings", "failed"} else "success"
         job.finished_at = datetime.utcnow()
         city.launch_status = "review_required"
         city.is_active = False
