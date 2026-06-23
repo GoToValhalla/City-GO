@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 import type { GeoPoint } from '../../features/route-navigation/model/geo'
 import type { RouteGeolocationStatus } from '../../features/route-navigation/model/useRouteGeolocation'
@@ -116,12 +116,11 @@ export const RouteMapPreview = ({
   onRequestLocation,
 }: Props) => {
   const routeCamera = useMemo(() => cameraForPoints(points), [points])
-  const [camera, setCamera] = useState<Camera>(routeCamera)
+  const [manualCamera, setManualCamera] = useState<Camera | null>(null)
   const dragStartRef = useRef<{ x: number; y: number; center: ProjectedPoint } | null>(null)
+  const camera = manualCamera ?? routeCamera
   const center = useMemo(() => lngLatToWorld(camera.lat, camera.lng, camera.zoom), [camera])
   const mapPoints = useMemo(() => points.filter(validCoords), [points])
-
-  useEffect(() => setCamera(routeCamera), [routeCamera])
 
   if (mapPoints.length === 0) {
     return (
@@ -158,11 +157,14 @@ export const RouteMapPreview = ({
     }
   }
 
-  const recenterRoute = () => setCamera(routeCamera)
+  const recenterRoute = () => setManualCamera(null)
   const recenterUser = () => {
-    if (userLocation) setCamera((current) => ({ ...current, lat: userLocation.lat, lng: userLocation.lng, zoom: Math.max(current.zoom, 16) }))
+    if (userLocation) setManualCamera((current) => ({ ...(current ?? camera), lat: userLocation.lat, lng: userLocation.lng, zoom: Math.max((current ?? camera).zoom, 16) }))
   }
-  const zoomBy = (delta: number) => setCamera((current) => ({ ...current, zoom: clamp(current.zoom + delta, MIN_ZOOM, MAX_ZOOM) }))
+  const zoomBy = (delta: number) => setManualCamera((current) => {
+    const base = current ?? camera
+    return { ...base, zoom: clamp(base.zoom + delta, MIN_ZOOM, MAX_ZOOM) }
+  })
 
   const onPointerDown = (event: PointerEvent<SVGSVGElement>) => {
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -171,11 +173,14 @@ export const RouteMapPreview = ({
   const onPointerMove = (event: PointerEvent<SVGSVGElement>) => {
     const dragStart = dragStartRef.current
     if (!dragStart) return
-    const nextCenter = {
-      worldX: dragStart.center.worldX - (event.clientX - dragStart.x),
-      worldY: dragStart.center.worldY - (event.clientY - dragStart.y),
-    }
-    setCamera((current) => ({ ...current, ...worldToLngLat(nextCenter.worldX, nextCenter.worldY, current.zoom) }))
+    setManualCamera((current) => {
+      const base = current ?? camera
+      const nextCenter = {
+        worldX: dragStart.center.worldX - (event.clientX - dragStart.x),
+        worldY: dragStart.center.worldY - (event.clientY - dragStart.y),
+      }
+      return { ...base, ...worldToLngLat(nextCenter.worldX, nextCenter.worldY, base.zoom) }
+    })
   }
   const onPointerEnd = (event: PointerEvent<SVGSVGElement>) => {
     event.currentTarget.releasePointerCapture(event.pointerId)
