@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { RouteDetail } from '../../api/routes/routes.api'
+import { haversineMeters } from '../../features/route-navigation/model/geo'
 import { evaluateRouteQuality } from '../../features/route-navigation/model/qualityGate'
 import { routeNavigationReducer } from '../../features/route-navigation/model/state'
 import type { RouteNavigationEvent } from '../../features/route-navigation/model/types'
+import { useRouteGeolocation } from '../../features/route-navigation/model/useRouteGeolocation'
 import { clearNavigationState, restoreNavigationState, saveNavigationState } from '../../features/route-navigation/model/storage'
 import { RouteMapPreview } from './RouteMapPreview'
 import { RouteNavigationPanel } from './RouteNavigationPanel'
@@ -16,6 +18,7 @@ type Props = {
 export const RouteNavigationView = ({ route }: Props) => {
   const quality = useMemo(() => evaluateRouteQuality(route.points), [route.points])
   const [state, setState] = useState(() => restoreNavigationState(route.id, quality.validPoints))
+  const geolocation = useRouteGeolocation()
 
   useEffect(() => {
     if (state.status === 'not_started' && state.visitedPointIds.length === 0 && state.currentPointIndex === 0) return
@@ -28,7 +31,15 @@ export const RouteNavigationView = ({ route }: Props) => {
     if (event.type === 'RESET_ROUTE') clearNavigationState(route.id)
   }
 
+  const startRoute = () => {
+    dispatch({ type: 'START_ROUTE' })
+    geolocation.requestLocation()
+  }
+
   const currentPoint = state.status === 'active' ? quality.validPoints[state.currentPointIndex] : undefined
+  const distanceToCurrentMeters = currentPoint && geolocation.position
+    ? haversineMeters(geolocation.position, { lat: Number(currentPoint.lat), lng: Number(currentPoint.lng) })
+    : null
   const blockMessage = quality.canStart ? null : invalidRouteMessage
 
   return (
@@ -38,6 +49,10 @@ export const RouteNavigationView = ({ route }: Props) => {
           points={quality.validPoints}
           currentPointId={currentPoint?.place_id}
           visitedPointIds={state.visitedPointIds}
+          userLocation={geolocation.position}
+          locationStatus={geolocation.status}
+          locationError={geolocation.errorMessage}
+          onRequestLocation={geolocation.requestLocation}
         />
         <RouteQualityNotice result={quality} />
       </div>
@@ -47,11 +62,15 @@ export const RouteNavigationView = ({ route }: Props) => {
           points={quality.validPoints}
           canStart={quality.canStart}
           blockMessage={blockMessage}
-          onStart={() => dispatch({ type: 'START_ROUTE' })}
+          distanceToCurrentMeters={distanceToCurrentMeters}
+          accuracyMeters={geolocation.position?.accuracy ?? null}
+          locationStatus={geolocation.status}
+          onStart={startRoute}
           onVisited={() => dispatch({ type: 'MARK_CURRENT_VISITED' })}
           onNext={() => dispatch({ type: 'GO_NEXT_POINT' })}
           onComplete={() => dispatch({ type: 'COMPLETE_ROUTE' })}
           onReset={() => dispatch({ type: 'RESET_ROUTE' })}
+          onRequestLocation={geolocation.requestLocation}
         />
         <div className="route-nav-point-list" data-testid="route-point-list">
           {quality.validPoints.map((point) => (
