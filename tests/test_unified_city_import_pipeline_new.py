@@ -33,6 +33,7 @@ def test_city_import_runs_collection_then_source_enrichment_new(
     assert result.status == "success"
     assert result.source == service.SOURCE_FULL_IMPORT
     assert result.step_details["unified_pipeline"]["source_enrichment"]["fields_enriched"] == 2
+    assert result.step_details["unified_pipeline"]["readiness_score"] == 80
 
 
 def test_enrichment_queue_alias_uses_full_import_source_new(db_session, city_factory) -> None:
