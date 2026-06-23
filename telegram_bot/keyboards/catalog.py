@@ -4,7 +4,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardBu
 
 from models.bot_session import BotSession
 from telegram_bot.callbacks import cb
-from telegram_bot.schemas import BotCity, BotPlace, BotRoute, Page
+from telegram_bot.schemas import BotCity, BotPlace, BotRoute, BotRoutePoint, Page
 from telegram_bot.session import get_short_id
 
 
@@ -59,17 +59,19 @@ def route_card(route: BotRoute, session: BotSession) -> InlineKeyboardMarkup:
     )
 
 
-def route_step(index: int, total: int, is_visited: bool) -> InlineKeyboardMarkup:
+def route_step(point: BotRoutePoint, total: int, is_visited: bool) -> InlineKeyboardMarkup:
     rows = []
     if not is_visited:
-        rows.append([InlineKeyboardButton(text="✅ Я на месте", callback_data=cb("rn", "visit", index))])
+        rows.append([InlineKeyboardButton(text="✅ Я на месте", callback_data=cb("rn", "visit", point.index))])
     nav = []
-    if index > 0:
-        nav.append(InlineKeyboardButton(text="← Предыдущая", callback_data=cb("rn", "pt", index - 1)))
-    if index < total - 1:
-        nav.append(InlineKeyboardButton(text="Следующая →", callback_data=cb("rn", "pt", index + 1)))
+    if point.index > 0:
+        nav.append(InlineKeyboardButton(text="← Предыдущая", callback_data=cb("rn", "pt", point.index - 1)))
+    if point.index < total - 1:
+        nav.append(InlineKeyboardButton(text="Следующая →", callback_data=cb("rn", "pt", point.index + 1)))
     if nav:
         rows.append(nav)
+    if point.lat is not None and point.lng is not None:
+        rows.append([InlineKeyboardButton(text="🗺 На карте", url=_map_url(point.lat, point.lng))])
     rows.append([InlineKeyboardButton(text="🏁 Завершить", callback_data=cb("rn", "done"))])
     rows.append([InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -90,8 +92,10 @@ def place_card(place: BotPlace, session: BotSession) -> InlineKeyboardMarkup:
     favorite_text = "💔 Убрать" if place.id in (session.favorites or {}).get("places", []) else "❤️ Сохранить"
     rows = []
     if place.lat is not None and place.lng is not None:
-        rows.append([InlineKeyboardButton(text="🗺 На карте", url=f"https://yandex.ru/maps/?pt={place.lng},{place.lat}&z=16&l=map")])
+        rows.append([InlineKeyboardButton(text="🗺 На карте", url=_map_url(place.lat, place.lng))])
     rows.append([InlineKeyboardButton(text=favorite_text, callback_data=cb("fav", "toggle", "p", sid))])
+    if place.category:
+        rows.append([InlineKeyboardButton(text="🔍 Похожие", callback_data=cb("p", "cat", place.category, 0))])
     rows.append([InlineKeyboardButton(text="← Назад", callback_data="back"), InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -115,3 +119,7 @@ def _pagination(scope: str, action: str, page: int, has_next: bool, *prefix_part
     if has_next:
         row.append(InlineKeyboardButton(text="→", callback_data=cb(scope, action, *prefix_parts, page + 1)))
     return [row] if row else []
+
+
+def _map_url(lat: float, lng: float) -> str:
+    return f"https://yandex.ru/maps/?pt={lng},{lat}&z=16&l=map"
