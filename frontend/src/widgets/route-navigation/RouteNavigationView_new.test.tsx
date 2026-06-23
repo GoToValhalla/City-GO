@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RouteDetail } from '../../api/routes/routes.api'
 import { RouteNavigationView } from './RouteNavigationView'
 
@@ -43,13 +43,22 @@ const renderView = (route: RouteDetail) => render(
 )
 
 describe('RouteNavigationView', () => {
-  beforeEach(() => window.localStorage.clear())
-  afterEach(() => cleanup())
+  const originalGeolocation = navigator.geolocation
 
-  it('renders map shell, route points and polyline', () => {
+  beforeEach(() => window.localStorage.clear())
+  afterEach(() => {
+    cleanup()
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: originalGeolocation,
+    })
+  })
+
+  it('renders real map shell, route points and polyline', () => {
     renderView(baseRoute([point(1, 'Парк'), point(2, 'Площадь')]))
     expect(screen.getByTestId('route-map')).toBeInTheDocument()
     expect(screen.getByTestId('route-polyline')).toBeInTheDocument()
+    expect(screen.getByText('Карта маршрута')).toBeInTheDocument()
     expect(screen.getByText('Парк')).toBeInTheDocument()
     expect(screen.getByText('Площадь')).toBeInTheDocument()
   })
@@ -59,6 +68,36 @@ describe('RouteNavigationView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Начать маршрут' }))
     expect(screen.getByTestId('route-active-panel')).toHaveTextContent('Точка 1 из 2')
     expect(screen.getByTestId('route-point-card-1')).toHaveClass('current')
+  })
+
+  it('requests browser geolocation and shows user marker with distance', () => {
+    const watchPosition = vi.fn((success: PositionCallback) => {
+      success({
+        coords: {
+          latitude: 54.91,
+          longitude: 20.41,
+          accuracy: 12,
+          altitude: null,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+        },
+        timestamp: Date.now(),
+      } as GeolocationPosition)
+      return 7
+    })
+    const clearWatch = vi.fn()
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: { watchPosition, clearWatch },
+    })
+
+    renderView(baseRoute([point(1, 'Парк'), point(2, 'Площадь')]))
+    fireEvent.click(screen.getByRole('button', { name: 'Начать маршрут' }))
+
+    expect(watchPosition).toHaveBeenCalled()
+    expect(screen.getByTestId('route-user-marker')).toBeInTheDocument()
+    expect(screen.getByTestId('route-gps-status')).toHaveTextContent('До текущей точки')
   })
 
   it('marks visited, moves next and completes after last point', () => {
