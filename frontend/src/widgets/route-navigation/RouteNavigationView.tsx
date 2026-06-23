@@ -32,6 +32,7 @@ export const RouteNavigationView = ({ route }: Props) => {
   }
 
   const startRoute = () => {
+    if (!quality.canStart) return
     dispatch({ type: 'START_ROUTE' })
     geolocation.requestLocation()
   }
