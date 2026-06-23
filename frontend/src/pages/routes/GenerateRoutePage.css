@@ -248,3 +248,134 @@
   .route-draft-points li,
   .route-draft-search { display: grid; }
 }
+
+/* City GO dark product overrides */
+.route-design {
+  color: var(--cg-text-main);
+}
+
+.route-hero-tile,
+.route-config-tile,
+.route-result-tile,
+.route-error-tile,
+.route-debug-tile,
+.route-debug-trace,
+.route-warning-card,
+.route-leg-row,
+.route-draft-editor,
+.route-debug-summary-grid > div,
+.route-debug-warning-box,
+.route-debug-item,
+.route-debug-raw {
+  color: var(--cg-text-main);
+  background: var(--cg-bg-card);
+  border-color: var(--cg-border-soft);
+  border-radius: var(--cg-radius-lg);
+}
+
+.route-hero-tile,
+.route-result-tile,
+.route-config-tile {
+  box-shadow: var(--cg-shadow-card);
+}
+
+.route-eyebrow,
+.route-debug-trace summary,
+.route-debug-header,
+.route-debug-summary-grid strong,
+.route-debug-item strong,
+.route-debug-warning-box strong {
+  color: var(--cg-text-main);
+}
+
+.route-form-head p,
+.route-hero-copy p:last-child,
+.route-insights span,
+.route-data-notes span,
+.route-debug-header span,
+.route-debug-summary-grid span,
+.route-debug-item span,
+.route-leg-row span,
+.route-draft-points span,
+.route-warning-inline {
+  color: var(--cg-text-muted);
+}
+
+.route-photo-preview,
+.route-result-summary,
+.route-map-preview {
+  color: var(--cg-text-main);
+  background: radial-gradient(circle at top left, rgba(124, 77, 255, .28), transparent 34%), var(--cg-bg-elevated);
+  border: 1px solid var(--cg-border-soft);
+  border-radius: var(--cg-radius-lg);
+}
+
+.route-photo-stack span {
+  color: var(--cg-text-main);
+  background: var(--cg-primary);
+}
+
+.route-result-summary h2,
+.route-photo-preview strong {
+  color: var(--cg-text-main);
+}
+
+.route-insights > div,
+.route-primary-btn,
+.route-draft-points button,
+.route-draft-search button,
+.route-search-row,
+.route-chip,
+.route-draft-controls input,
+.route-draft-search input {
+  color: var(--cg-text-main);
+  background: var(--cg-bg-elevated);
+  border-color: var(--cg-border-soft);
+  border-radius: var(--cg-radius-sm);
+}
+
+.route-primary-btn,
+.route-chip.active {
+  color: var(--cg-text-main);
+  background: var(--cg-primary);
+  border-color: var(--cg-primary);
+}
+
+.route-error-tile,
+.route-error-inline {
+  color: var(--cg-closed);
+  background: var(--cg-closed-soft);
+  border-color: rgba(239, 68, 68, .28);
+}
+
+.route-warning-card.is-warning {
+  color: var(--cg-warning);
+  background: var(--cg-warning-soft);
+  border-color: rgba(245, 166, 35, .28);
+}
+
+.route-map-preview svg {
+  background: var(--cg-bg-main);
+}
+
+.route-map-line {
+  stroke: var(--cg-route);
+}
+
+.route-map-marker {
+  fill: var(--cg-bg-card);
+  stroke: var(--cg-route);
+}
+
+.route-map-marker-text {
+  fill: var(--cg-text-main);
+}
+
+.route-map-caption {
+  background: rgba(255, 255, 255, .08);
+  border-color: var(--cg-border-soft);
+}
+
+.route-map-caption span {
+  color: var(--cg-text-muted);
+}
