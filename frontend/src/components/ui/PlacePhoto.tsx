@@ -7,9 +7,14 @@ type PlacePhotoSize = 'thumb' | 'card' | 'hero'
 
 type PlacePhotoProps = {
   imageUrl?: string | null
-  title: string
+  photoUrl?: string | null
+  photo_url?: string | null
+  title?: string | null
+  name?: string | null
   category?: string | null
   size?: PlacePhotoSize
+  fallbackLabel?: string
+  closed?: boolean
   className?: string
 }
 
@@ -31,38 +36,46 @@ const classNames = (...values: Array<string | false | null | undefined>) => valu
 export const PlacePhoto = ({
   category,
   className,
+  closed = false,
+  fallbackLabel,
   imageUrl,
+  name,
+  photoUrl,
+  photo_url,
   size = 'card',
   title,
 }: PlacePhotoProps) => {
   const [failed, setFailed] = useState(false)
-  const hasImage = Boolean(imageUrl) && !failed
+  const resolvedImageUrl = imageUrl ?? photoUrl ?? photo_url ?? null
+  const resolvedTitle = (title ?? name ?? 'Место').trim()
+  const hasImage = Boolean(resolvedImageUrl) && !failed
   const Icon = CATEGORY_ICONS[category ?? ''] ?? MapPinned
-  const label = categoryLabel(category ?? '')
+  const label = fallbackLabel ?? categoryLabel(category ?? '')
 
   return (
-    <div className={classNames('cg-place-photo', `cg-place-photo--${size}`, className)}>
+    <div className={classNames('cg-place-photo', `cg-place-photo--${size}`, closed && 'cg-place-photo--closed', className)}>
       {hasImage ? (
         <img
           className="cg-place-photo__image"
-          src={imageUrl ?? ''}
-          alt={title}
+          src={resolvedImageUrl ?? undefined}
+          alt={resolvedTitle}
           loading={size === 'hero' ? 'eager' : 'lazy'}
           onError={() => setFailed(true)}
         />
       ) : (
-        <div className="cg-place-photo__fallback" role="img" aria-label={`Нет фото: ${title}`}>
+        <div className="cg-place-photo__fallback" role="img" aria-label={`Нет фото: ${resolvedTitle}`}>
           <span className="cg-place-photo__icon">
             <Icon size={size === 'thumb' ? 18 : 24} aria-hidden="true" />
           </span>
           {size !== 'thumb' ? (
             <>
-              <span className="cg-place-photo__title cg-clamp-2">{title}</span>
+              <span className="cg-place-photo__title cg-clamp-2">{resolvedTitle}</span>
               <span className="cg-place-photo__category cg-clamp-1">{label}</span>
             </>
           ) : null}
         </div>
       )}
+      {closed ? <span className="cg-place-photo__closed" aria-hidden="true" /> : null}
     </div>
   )
 }
