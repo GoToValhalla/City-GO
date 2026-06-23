@@ -1,5 +1,5 @@
 """
-Инвариант Alembic: ровно один head, ровно один base, 43 ревизии.
+Инвариант Alembic: ровно один head, ровно один base, 44 ревизии.
 
 Не требует подключения к БД — проверяет только структуру migrations/versions/.
 
@@ -41,7 +41,7 @@ class TestAlembicSingleHead(unittest.TestCase):
 
     def test_known_head_revision(self) -> None:
         """Фиксирует текущий финальный head."""
-        KNOWN_HEAD = "9d0e1f2a3b4c"
+        KNOWN_HEAD = "fb7e3c2a91d4"
         heads = _script().get_heads()
         self.assertIn(
             KNOWN_HEAD,
@@ -89,7 +89,7 @@ class TestAlembicSingleHead(unittest.TestCase):
         Падение с другим числом — сигнал к ревью: добавлена или удалена миграция.
         Обновите EXPECTED_COUNT после добавления легитимной ревизии.
         """
-        EXPECTED_COUNT = 43
+        EXPECTED_COUNT = 44
         script = _script()
         total = sum(1 for _ in script.walk_revisions())
         self.assertEqual(
