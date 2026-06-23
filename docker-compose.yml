@@ -16,7 +16,26 @@ services:
   migrate:
     image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
-    command: bash -c "PYTHONPATH=/app python scripts/repair_alembic_overlapping_heads.py && alembic upgrade head"
+    command:
+      - bash
+      - -c
+      - |
+        python - <<'PY'
+        from sqlalchemy import create_engine, inspect, text
+        from core.config import settings
+
+        engine = create_engine(settings.database_url)
+        if inspect(engine).has_table("alembic_version"):
+            with engine.begin() as connection:
+                revisions = set(connection.execute(text("SELECT version_num FROM alembic_version")).scalars())
+                if {"9d0e1f2a3b4c", "fb7e3c2a91d4"}.issubset(revisions):
+                    connection.execute(
+                        text("DELETE FROM alembic_version WHERE version_num = :revision"),
+                        {"revision": "9d0e1f2a3b4c"},
+                    )
+                    print("Alembic overlapping heads repaired")
+        PY
+        alembic upgrade head
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
