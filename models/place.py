@@ -11,6 +11,8 @@ class Place(Base):
     __tablename__ = "places"
     __table_args__ = (
         # Slug должен быть уникален внутри города, а не глобально: "central-park" есть в десятках городов.
+        # TODO(Data Foundation V2): после ввода Destination slug uniqueness должен стать context-aware:
+        # legacy city uniqueness сохраняется, но целевой контекст — primary_destination/place_destinations.
         UniqueConstraint("city_id", "slug", name="uq_places_city_id_slug"),
         CheckConstraint("quality_score >= 0 AND quality_score <= 100", name="ck_places_quality_score_range"),
         CheckConstraint("completeness_score >= 0 AND completeness_score <= 40", name="ck_places_completeness_score_range"),
@@ -21,6 +23,9 @@ class Place(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # TODO(Data Foundation V2): city_id остается legacy/backward-compatible FK.
+    # Целевая модель: Place должен быть геонезависимым объектом с координатами, primary_destination_id
+    # и many-to-many связью PlaceDestination. Байкал/Алтай/Карелия не должны требовать fake city_id.
     city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False, index=True)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
 
@@ -67,6 +72,8 @@ class Place(Base):
 
     # Новые импортированные и вручную созданные места безопасно остаются draft.
     # Публикация выполняется отдельным admin-действием после quality gate города.
+    # TODO(Data Foundation V2): публикация должна стать context-aware: Place может быть опубликован
+    # в одном Destination и скрыт в другом. Для больших регионов нужен staged tier publication.
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_visible_in_catalog: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_route_eligible: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
@@ -76,6 +83,9 @@ class Place(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     unpublished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # TODO(Data Foundation V2): добавить PostGIS geometry(Point, 4326) / geography индекс.
+    # lat/lng оставить для backward compatibility и SQLite-тестов, но spatial membership
+    # PlaceDestination должен считаться через геометрию/полигон/corridor, а не через city_id.
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lng: Mapped[float] = mapped_column(Float, nullable=False)
     category: Mapped[str | None] = mapped_column(String, nullable=True)
