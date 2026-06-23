@@ -126,10 +126,12 @@ services:
     build: .
     command: >
       sh -c "
-        if [ -z "$$BOT_TOKEN" ]; then
-          echo 'BOT_TOKEN не задан — бот не запущен. Добавь BOT_TOKEN в .env и перезапусти.';
+        EFFECTIVE_BOT_TOKEN=\"$${BOT_TOKEN:-$${TELEGRAM_BOT_TOKEN:-}}\";
+        if [ -z \"$$EFFECTIVE_BOT_TOKEN\" ]; then
+          echo 'BOT_TOKEN/TELEGRAM_BOT_TOKEN не задан — бот не запущен. Добавь токен в .env и перезапусти.';
           exit 0;
         fi;
+        export BOT_TOKEN=\"$$EFFECTIVE_BOT_TOKEN\";
         python telegram_bot_main.py
       "
     env_file: .env
@@ -141,7 +143,7 @@ services:
         condition: service_started
     restart: on-failure
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf https://api.telegram.org/bot$$BOT_TOKEN/getMe | grep -q '\"ok\":true' || exit 1"]
+      test: ["CMD-SHELL", "EFFECTIVE_BOT_TOKEN=\"$${BOT_TOKEN:-$${TELEGRAM_BOT_TOKEN:-}}\"; test -n \"$$EFFECTIVE_BOT_TOKEN\" && curl -sf https://api.telegram.org/bot$$EFFECTIVE_BOT_TOKEN/getMe | grep -q '\"ok\":true' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
