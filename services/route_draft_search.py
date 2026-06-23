@@ -17,6 +17,14 @@ CATEGORY_SEARCH_GROUPS: dict[str, set[str]] = {
     "walk": {"walk", "park", "viewpoint", "landmark", "historic", "monument"},
 }
 
+CATEGORY_SEARCH_TERMS: dict[str, set[str]] = {
+    "cafe": {"cafe", "coffee", "кофе", "кофейня"},
+    "food": {"еда", "поесть", "restaurant", "ресторан", "cafe", "coffee", "кофе"},
+    "museum": {"museum", "музей", "выставка"},
+    "park": {"park", "парк", "сквер"},
+    "walk": {"walk", "прогулка", "гулять"},
+}
+
 
 def search_places(
     db: Session,
@@ -55,7 +63,7 @@ def _candidate_pool(db: Session, draft: RouteDraft, category: str | None, normal
 
 def _rank(place: Place, draft: RouteDraft, normalized_query: str, category: str | None) -> float:
     category_match = category is not None and (place.category or "") in _category_group(category)
-    text_match = bool(normalized_query and normalized_query in _search_text(place))
+    text_match = _matches_text(place, normalized_query, category)
     match = 2.0 if category_match else 0.0
     match += 1.0 if text_match else 0.0
     return match + place_quality(place, float(draft.start_lat or 0), float(draft.start_lng or 0))
@@ -79,7 +87,14 @@ def _payload(place: Place, draft: RouteDraft, normalized_query: str, category: s
 def _matches_search(place: Place, normalized_query: str, category: str | None) -> bool:
     if category and (place.category or "") in _category_group(category):
         return True
-    return bool(normalized_query and normalized_query in _search_text(place))
+    return _matches_text(place, normalized_query, category)
+
+
+def _matches_text(place: Place, normalized_query: str, category: str | None) -> bool:
+    text = _search_text(place)
+    if normalized_query and normalized_query in text:
+        return True
+    return bool(category and any(term in text for term in _category_terms(category)))
 
 
 def _search_text(place: Place) -> str:
@@ -88,3 +103,7 @@ def _search_text(place: Place) -> str:
 
 def _category_group(category: str) -> set[str]:
     return CATEGORY_SEARCH_GROUPS.get(category, {category})
+
+
+def _category_terms(category: str) -> set[str]:
+    return {normalize_text(term) for term in CATEGORY_SEARCH_TERMS.get(category, {category})}
