@@ -6,6 +6,15 @@ export type RoutePoint = {
   position: number
   place_slug?: string | null
   place_title?: string | null
+  lat?: number | null
+  lng?: number | null
+  category?: string | null
+  address?: string | null
+  is_published?: boolean | null
+  is_route_eligible?: boolean | null
+  publication_status?: string | null
+  is_active?: boolean | null
+  status?: string | null
 }
 
 // Базовая схема маршрута для списка и detail.

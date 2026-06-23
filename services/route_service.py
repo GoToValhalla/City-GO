@@ -73,6 +73,15 @@ def build_route_points(route: Route) -> list[dict]:
                 "position": item.position,
                 "place_slug": place.slug if place else None,
                 "place_title": place.title if place else None,
+                "lat": place.lat if place else None,
+                "lng": place.lng if place else None,
+                "category": place.category if place else None,
+                "address": place.address if place else None,
+                "is_published": place.is_published if place else None,
+                "is_route_eligible": place.is_route_eligible if place else None,
+                "publication_status": place.publication_status if place else None,
+                "is_active": place.is_active if place else None,
+                "status": place.status if place else None,
             }
         )
 

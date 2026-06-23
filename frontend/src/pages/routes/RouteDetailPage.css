@@ -1,0 +1,120 @@
+.route-nav-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 16px;
+  margin-top: 18px;
+  align-items: start;
+}
+.route-nav-main,
+.route-nav-sidebar {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.route-nav-map,
+.route-nav-panel,
+.route-nav-quality,
+.route-nav-point-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+}
+.route-nav-map {
+  display: grid;
+  gap: 10px;
+  min-height: 360px;
+  padding: 14px;
+  color: #fff;
+  background: linear-gradient(135deg, #202124, #30343a);
+}
+.route-nav-map.empty {
+  align-content: center;
+  color: var(--ink);
+  background: var(--canvas);
+  text-align: center;
+}
+.route-nav-map svg {
+  width: 100%;
+  min-height: 290px;
+  border-radius: 8px;
+  background: rgba(255,255,255,.07);
+}
+.route-nav-grid { fill: rgba(255,255,255,.06); }
+.route-nav-line {
+  fill: none;
+  stroke: #7cc7ff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.route-nav-marker circle { fill: #fff; stroke: #0066cc; stroke-width: 1.8; }
+.route-nav-marker text { fill: #0066cc; font-size: 4px; font-weight: 800; }
+.route-nav-marker.current circle { fill: #2997ff; stroke: #fff; }
+.route-nav-marker.current text { fill: #fff; }
+.route-nav-marker.visited circle { fill: #d2d2d7; stroke: #f5f5f7; }
+.route-nav-marker.visited text { fill: #1d1d1f; font-size: 4.3px; }
+.route-nav-map p {
+  margin: 0;
+  padding: 10px 12px;
+  color: rgba(255,255,255,.76);
+  background: rgba(255,255,255,.1);
+  border-radius: 8px;
+}
+.route-nav-panel,
+.route-nav-quality {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+.route-nav-panel h2 { margin: 0; overflow-wrap: anywhere; }
+.route-nav-panel p { margin: 0; color: var(--muted); line-height: 1.45; }
+.route-nav-panel button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #fff;
+  background: #0066cc;
+  font-weight: 800;
+  cursor: pointer;
+}
+.route-nav-panel button:disabled { cursor: not-allowed; opacity: .48; }
+.route-nav-panel button.muted { color: var(--ink); background: #f5f5f7; }
+.route-nav-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.route-nav-actions .muted { grid-column: 1 / -1; }
+.route-nav-warning,
+.route-nav-quality strong { color: #a44800; }
+.route-nav-quality ul { margin: 0; padding-left: 18px; color: var(--muted); }
+.route-nav-progress { display: grid; gap: 8px; }
+.route-nav-progress-top { display: flex; justify-content: space-between; gap: 8px; }
+.route-nav-progress-track { height: 9px; overflow: hidden; background: #eef2f7; border-radius: 999px; }
+.route-nav-progress-track span { display: block; height: 100%; background: #0066cc; }
+.route-nav-point-list { display: grid; gap: 8px; }
+.route-nav-point-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+}
+.route-nav-point-card.current { border-color: #0066cc; background: #f4f8ff; }
+.route-nav-point-card.visited { color: #7a7a7a; background: #fafafc; }
+.route-nav-point-index {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  color: #fff;
+  background: #0066cc;
+  font-weight: 800;
+}
+.route-nav-point-card.visited .route-nav-point-index { color: #1d1d1f; background: #d2d2d7; }
+.route-nav-point-card strong,
+.route-nav-point-card a { color: inherit; overflow-wrap: anywhere; text-decoration: none; }
+.route-nav-point-card p { margin: 4px 0 0; color: var(--muted); font-size: 14px; line-height: 1.35; }
+@media (max-width: 860px) {
+  .route-nav-layout { grid-template-columns: 1fr; }
+  .route-nav-map { min-height: 300px; }
+  .route-nav-map svg { min-height: 230px; }
+  .route-nav-sidebar { grid-row: auto; }
+}

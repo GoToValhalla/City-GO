@@ -42,6 +42,7 @@ describe('AdminPlacesPage', () => {
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
     vi.stubGlobal('confirm', vi.fn(() => true))
+    Object.defineProperty(window, 'confirm', { value: vi.fn(() => true), configurable: true })
     fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/admin/cities')) {

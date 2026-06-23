@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { getRouteBySlug } from '../../api/routes/routes.api'
 import type { RouteDetail } from '../../api/routes/routes.api'
 import { AppHeader } from '../../components/ui/AppHeader'
@@ -8,6 +8,8 @@ import { PageBreadcrumbs } from '../../components/ui/PageBreadcrumbs'
 import { SectionHeader } from '../../components/ui/SectionHeader'
 import { SurfaceCard } from '../../components/ui/SurfaceCard'
 import { getRouteModeLabel } from '../../features/routes/model/getRouteModeLabel'
+import { RouteNavigationView } from '../../widgets/route-navigation/RouteNavigationView'
+import './RouteDetailPage.css'
 
 export const RouteDetailPage = () => {
   // Забираем slug маршрута из URL.
@@ -118,102 +120,7 @@ export const RouteDetailPage = () => {
           </section>
         )}
 
-        {!loading && !error && (
-          <section
-            style={{
-              marginTop: '18px',
-              display: 'grid',
-              gap: '16px',
-            }}
-          >
-            {(route?.points ?? []).map((point, index) => (
-              <SurfaceCard
-                key={`${point.place_id}-${point.position}`}
-                style={{
-                  padding: '20px',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  <div>
-                    <div
-                      style={{
-                        fontSize: '13px',
-                        fontWeight: 700,
-                        letterSpacing: '0.08em',
-                        textTransform: 'uppercase',
-                        color: '#64748b',
-                      }}
-                    >
-                      Точка {index + 1}
-                    </div>
-
-                    {point.place_slug ? (
-                      <Link
-                        to={`/places/${point.place_slug}`}
-                        style={{
-                          display: 'inline-block',
-                          marginTop: '8px',
-                          fontSize: '26px',
-                          lineHeight: 1.05,
-                          letterSpacing: '-0.04em',
-                          color: '#0f172a',
-                          textDecoration: 'none',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {point.place_title ?? `Place #${point.place_id}`}
-                      </Link>
-                    ) : (
-                      <h3
-                        style={{
-                          margin: '8px 0 0',
-                          fontSize: '26px',
-                          lineHeight: 1.05,
-                          letterSpacing: '-0.04em',
-                          color: '#0f172a',
-                        }}
-                      >
-                        {point.place_title ?? `Place #${point.place_id}`}
-                      </h3>
-                    )}
-                  </div>
-
-                  <Badge variant="success">#{point.position}</Badge>
-                </div>
-
-                {point.place_slug && (
-                  <p
-                    style={{
-                      marginTop: '14px',
-                      color: '#475569',
-                      fontSize: '15px',
-                      lineHeight: 1.6,
-                    }}
-                  >
-                    <Link
-                      to={`/places/${point.place_slug}`}
-                      style={{
-                        color: '#2563eb',
-                        textDecoration: 'none',
-                        fontWeight: 600,
-                      }}
-                    >
-                      Открыть точку маршрута
-                    </Link>
-                  </p>
-                )}
-              </SurfaceCard>
-            ))}
-          </section>
-        )}
+        {!loading && !error && route && <RouteNavigationView key={route.id} route={route} />}
       </div>
     </div>
   )

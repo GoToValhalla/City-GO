@@ -18,6 +18,17 @@ class RoutePointRead(BaseModel):
     # Заголовок места для отображения в UI.
     place_title: str | None = None
 
+    # Координаты и read-only поля качества нужны frontend-навигации.
+    lat: float | None = None
+    lng: float | None = None
+    category: str | None = None
+    address: str | None = None
+    is_published: bool | None = None
+    is_route_eligible: bool | None = None
+    publication_status: str | None = None
+    is_active: bool | None = None
+    status: str | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
