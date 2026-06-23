@@ -49,14 +49,20 @@ def routes_page(page: Page, session: BotSession) -> InlineKeyboardMarkup:
 def route_card(route: BotRoute, session: BotSession) -> InlineKeyboardMarkup:
     sid = get_short_id(session, route.id)
     favorite_text = "💔 Убрать" if route.id in (session.favorites or {}).get("routes", []) else "❤️ Сохранить"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🚶 Начать маршрут", callback_data=cb("r", "go", sid))],
-            [InlineKeyboardButton(text="📋 Все точки", callback_data=cb("r", "pts", sid))],
+    rows = [
+        [InlineKeyboardButton(text="🚶 Начать маршрут", callback_data=cb("r", "go", sid))],
+        [InlineKeyboardButton(text="📋 Все точки", callback_data=cb("r", "pts", sid))],
+    ]
+    start_point = next((point for point in route.points if point.lat is not None and point.lng is not None), None)
+    if start_point is not None:
+        rows.append([InlineKeyboardButton(text="🗺 Открыть карту", url=_map_url(start_point.lat, start_point.lng))])
+    rows.extend(
+        [
             [InlineKeyboardButton(text=favorite_text, callback_data=cb("fav", "toggle", "r", sid))],
             [InlineKeyboardButton(text="← Назад", callback_data="back"), InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))],
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def route_step(point: BotRoutePoint, total: int, is_visited: bool) -> InlineKeyboardMarkup:
