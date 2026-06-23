@@ -104,10 +104,10 @@ async def text_message(message: Message) -> None:
             log_event(db, session, "search_no_results", payload={"query": text})
             await message.answer(renderers.no_results_text(text), reply_markup=kb.back_to_menu())
             return
-        one_page = type("PageLike", (), {"items": page.items, "page": page.page, "has_next": False})()
+        session.current_flow = f"search:{text}"
         await message.answer(
             renderers.places_list_text(f"🔎 Поиск: {text}", page.items, page.page),
-            reply_markup=kb.places_page(one_page, session, "p", "src", "q"),
+            reply_markup=kb.places_page(page, session, "p", "src"),
         )
 
     await _with_session(message, action)
@@ -306,6 +306,15 @@ async def _handle_place(callback: CallbackQuery, db: Session, session, facade: B
         title = CATEGORY_TITLES.get(category, f"📍 {category}")
         await _edit_or_answer(callback, renderers.places_list_text(title, page.items, page.page), reply_markup=kb.places_page(page, session, "p", "cat", category))
         return
+    if action == "src":
+        query = _current_search_query(session)
+        if not query:
+            await _edit_or_answer(callback, renderers.no_results_text(""), reply_markup=kb.back_to_menu())
+            return
+        page_no = _int(parts[0] if parts else "0")
+        page = facade.search_places(session.selected_city_slug, query, page_no)
+        await _edit_or_answer(callback, renderers.places_list_text(f"🔎 Поиск: {query}", page.items, page.page), reply_markup=kb.places_page(page, session, "p", "src"))
+        return
     if action == "view" and parts:
         place_id = resolve_short_id(session, parts[0])
         place = facade.place(place_id or 0)
@@ -404,6 +413,14 @@ async def _send_place_card(callback: CallbackQuery, session, place: BotPlace) ->
 def _route_by_short_id(facade: BotFacade, session, short_id: str) -> BotRoute | None:
     route_id = resolve_short_id(session, short_id)
     return facade.route(route_id or 0)
+
+
+def _current_search_query(session) -> str | None:
+    flow = session.current_flow if isinstance(session.current_flow, str) else ""
+    if not flow.startswith("search:"):
+        return None
+    query = flow.removeprefix("search:").strip()
+    return query or None
 
 
 async def _edit_or_answer(callback: CallbackQuery, text: str, *, reply_markup=None) -> None:
