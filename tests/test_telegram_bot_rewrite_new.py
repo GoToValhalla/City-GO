@@ -6,7 +6,7 @@ from telegram_bot.quality import is_hours_reliable, is_place_bot_visible, is_tec
 from telegram_bot.renderers import place_card_text
 from telegram_bot.schemas import BotPlace
 from telegram_bot.services.facade import BotFacade
-from telegram_bot.session import get_or_create_session, get_short_id, resolve_short_id, toggle_favorite
+from telegram_bot.session import get_or_create_session, get_short_id, pop_nav, push_nav, resolve_short_id, toggle_favorite
 
 
 def test_callback_data_stays_under_telegram_limit_new() -> None:
@@ -132,3 +132,15 @@ def test_session_short_ids_and_favorites_new(db_session) -> None:
     assert 987 in session.favorites["places"]
     assert toggle_favorite(session, "p", 987) is False
     assert 987 not in session.favorites["places"]
+
+
+def test_nav_stack_returns_to_previous_screen_new(db_session) -> None:
+    session = get_or_create_session(db_session, 124, "tester")
+
+    push_nav(session, "m:main")
+    push_nav(session, "r:list:0")
+    push_nav(session, "r:view:a1B2")
+
+    assert pop_nav(session) == "r:list:0"
+    assert pop_nav(session) == "m:main"
+    assert pop_nav(session) is None
