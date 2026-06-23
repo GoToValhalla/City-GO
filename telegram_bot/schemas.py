@@ -23,6 +23,7 @@ class BotPlace:
     lat: float | None = None
     lng: float | None = None
     distance_m: int | None = None
+    slug: str | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class BotRoute:
     duration_minutes: int | None = None
     distance_km: float | None = None
     points: list[BotRoutePoint] = field(default_factory=list)
+    slug: str | None = None
 
 
 @dataclass(frozen=True)
