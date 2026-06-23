@@ -25,14 +25,14 @@ export const useRouteGeolocation = () => {
   const watchIdRef = useRef<number | null>(null)
 
   const stop = useCallback(() => {
-    if (watchIdRef.current != null && 'geolocation' in navigator) {
+    if (watchIdRef.current != null && navigator.geolocation) {
       navigator.geolocation.clearWatch(watchIdRef.current)
     }
     watchIdRef.current = null
   }, [])
 
   const requestLocation = useCallback(() => {
-    if (!('geolocation' in navigator)) {
+    if (!navigator.geolocation) {
       setState((current) => ({ ...current, status: 'unsupported', errorMessage: 'Браузер не поддерживает геолокацию.' }))
       return
     }
