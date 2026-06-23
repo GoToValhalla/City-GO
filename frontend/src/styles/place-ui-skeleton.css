@@ -1,0 +1,19 @@
+.place-ui-card-skeleton {
+  pointer-events: none;
+}
+
+.place-ui-skeleton-thumb {
+  align-self: stretch;
+  width: 92px;
+  height: 92px;
+  min-height: 92px;
+  border-radius: var(--cg-radius-md);
+}
+
+@media (max-width: 520px) {
+  .place-ui-skeleton-thumb {
+    width: 80px;
+    height: 80px;
+    min-height: 80px;
+  }
+}
