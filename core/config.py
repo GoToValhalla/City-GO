@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     # Backend URL for Telegram bot — базовый URL этого FastAPI для запросов из бота.
     backend_base_url: str = "http://127.0.0.1:8000"
 
+    # Public HTTPS frontend URL opened by Telegram Web App buttons.
+    telegram_mini_app_url: str = ""
+
     # Telegram Bot defaults — город по умолчанию в сценариях бота (slug).
     default_city_slug: str = "zelenogradsk"
 
