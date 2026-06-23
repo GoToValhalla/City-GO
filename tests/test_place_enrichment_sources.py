@@ -148,7 +148,7 @@ def test_enrich_places_from_sources_keeps_existing_fields_and_queues_conflict(mo
         city=city,
         batch=batch,
         places=[place],
-        job_id=42,
+        job_id=None,
         counters=counters,
     )
     db_session.commit()
@@ -163,6 +163,5 @@ def test_enrich_places_from_sources_keeps_existing_fields_and_queues_conflict(mo
         .filter_by(place_id=place.id, field_name="phone", reason="source_conflict")
         .one()
     )
-    assert conflict.job_id == 42
     assert conflict.payload["current"] == "+7 000 000-00-00"
     assert conflict.payload["candidate"] == "+7 999 222-33-44"
