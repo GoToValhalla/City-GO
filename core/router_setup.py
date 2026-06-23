@@ -39,6 +39,7 @@ from routers.route_drafts import router as route_drafts_router
 from routers.route_places import router as route_places_router
 from routers.routes import router as routes_router
 from routers.tags import router as tags_router
+from routers.telegram_bot_webhook import router as telegram_bot_webhook_router
 from routers.user_routes import router as user_routes_router
 from routers.user_signals import router as user_signals_router
 from routers.verification import router as verification_router
@@ -92,4 +93,5 @@ _ROOT_ROUTERS = (
     route_places_router,
     tags_router,
     place_tags_router,
+    telegram_bot_webhook_router,
 )
