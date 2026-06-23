@@ -354,13 +354,17 @@ async def _handle_open_now(callback: CallbackQuery, db: Session, session, facade
 
 
 async def _handle_favorites(callback: CallbackQuery, db: Session, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
-    if action == "toggle" and len(parts) >= 2:
+    if action in {"toggle", "add", "del"} and len(parts) >= 2:
         entity_id = resolve_short_id(session, parts[1])
+        added = False
         if entity_id is not None:
-            added = toggle_favorite(session, parts[0], entity_id)
+            if action == "toggle":
+                added = toggle_favorite(session, parts[0], entity_id)
+            else:
+                added = _set_favorite(session, parts[0], entity_id, action == "add")
             save_session(db, session)
             log_event(db, session, "favorite_added" if added else "favorite_removed", entity_type="route" if parts[0] == "r" else "place", entity_id=entity_id)
-        await callback.answer("Сохранено" if entity_id is not None else "Недоступно")
+        await callback.answer(("Сохранено" if added else "Удалено") if entity_id is not None else "Недоступно")
         return
     favorites = {"places": [], "routes": [], **(session.favorites or {})}
     routes = facade.favorite_routes(favorites.get("routes", []))
@@ -421,6 +425,19 @@ def _current_search_query(session) -> str | None:
         return None
     query = flow.removeprefix("search:").strip()
     return query or None
+
+
+def _set_favorite(session, kind: str, entity_id: int, should_add: bool) -> bool:
+    key = "routes" if kind == "r" else "places"
+    favorites = {"places": [], "routes": [], **(session.favorites or {})}
+    values = list(favorites.get(key, []))
+    if should_add and entity_id not in values:
+        values.append(entity_id)
+    if not should_add and entity_id in values:
+        values.remove(entity_id)
+    favorites[key] = values
+    session.favorites = favorites
+    return should_add
 
 
 async def _edit_or_answer(callback: CallbackQuery, text: str, *, reply_markup=None) -> None:
