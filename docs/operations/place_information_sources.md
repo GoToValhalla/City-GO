@@ -1,57 +1,83 @@
 # Place Information Sources
 
-City GO needs full, reliable place profiles without inventing facts. The target model is source-first: collect observations, store source and freshness, calculate field confidence, then publish only fields that pass quality rules.
+City GO needs full, reliable place profiles without inventing facts. The implemented model is source-first: collect observations, store source and freshness, calculate field confidence, then publish only fields that pass quality rules.
 
-## Source options
+## Implemented enrichment flow
 
-1. OpenStreetMap / Overpass
+The legal enrichment implementation lives in `services/place_enrichment_sources.py` and is wired into the foundation import pipeline as the `enrich_external_sources` step.
 
-Use as the baseline for coordinates, categories, addresses, phone, website and opening hours. Coverage is free and broad, but quality varies by city and field. OSM should be treated as a strong starting layer, not as the only source of truth.
+Current providers:
 
-2. Wikidata, Wikimedia Commons, Wikipedia and Wikivoyage
+1. Geoapify Places API, enabled by `GEOAPIFY_API_KEY`.
+   - Used for address, website, phone and opening hours near the existing place coordinates.
+   - Stored as `SourceObservation.source_type = "geoapify"`.
+   - Safe fields are applied only when the public field is empty.
 
-Use for landmarks, museums, monuments, historical objects, photos, short encyclopedic descriptions, official links and heritage metadata. This is strong for cultural places and weak for ordinary cafes, shops and local services.
+2. Wikidata / Wikimedia Commons.
+   - Used for cultural objects, landmarks, official website links, short factual descriptions and Commons photo candidates.
+   - Stored as `SourceObservation.source_type = "wikidata"`.
+   - Best match is selected by title similarity; weak matches are ignored.
 
-3. Official websites and public pages
+3. Official website metadata.
+   - Uses `place.website`, `place.source_url`, or a website found by Geoapify/Wikidata in the same enrichment run.
+   - Reads public HTML metadata, Open Graph, JSON-LD/schema.org, phone and opening-hours hints.
+   - Stored as `SourceObservation.source_type = "official_site"`.
+   - Photo URLs become `PlacePhotoCandidate` rows for admin review; they are not silently published as primary photos.
 
-Use official site pages, Open Graph metadata, schema.org, contact pages and public menus/pages for address, description, photos, phone, working hours and website. This should have higher confidence than generic aggregators when the source is clearly official.
+4. City GO category rules.
+   - Adds safe generic detail sections for `atmosphere`, `inside` and `best_for` when they are missing.
+   - This keeps Place Detail useful while real source-backed descriptions are still incomplete.
 
-4. Local tourism portals and open data
+## Files involved
 
-Use city/regional tourism portals, museum directories, event calendars and public datasets for curated descriptions, collections, routes and seasonal notes. These are useful for travel quality and not only raw POI data.
+- `services/place_enrichment_sources.py` - provider orchestration, source observations, safe field application, conflict review items and photo candidates.
+- `services/import_pipeline_foundation.py` - includes `enrich_external_sources` in the pipeline after address backfill.
+- `services/import_pipeline_foundation_steps.py` - exposes the enrichment step and expands confidence fields.
+- `models/place.py` - stores `website`, `phone`, `atmosphere`, `inside`, `best_for`.
+- `schemas/place.py` - exposes the same fields to API consumers.
+- `migrations/versions/fb7e3c2a91d4_add_place_enrichment_profile_fields.py` - database migration for the new place profile fields.
+- `tests/test_place_enrichment_sources.py` - coverage for legal provider enrichment, source observations, confidence rows, photo candidates and conflict review queue.
 
-5. Commercial place APIs
+## Field policy
 
-Yandex Maps, 2GIS and Google Places can provide richer business data: current hours, ratings, photos, reviews and phone numbers. They require separate legal/product decisions because storage and display of photos, reviews and ratings can be restricted by API terms. Prefer storing provider ids and source metadata unless the license explicitly allows persistence.
+The enrichment step may fill only missing public fields:
 
-6. Admin verification and user signals
+- `address`
+- `website`
+- `phone`
+- `opening_hours`
+- `short_description`
+- `atmosphere`
+- `inside`
+- `best_for`
 
-Use admin review queue, manual verification, user reports, favorites, route usage and skipped places to improve public fields and recommendations. Human review is required for low-confidence hours, addresses, categories and photos.
+If a provider returns a different value for an already populated field, the public field is preserved and a `ReviewQueueItem` with `reason = "source_conflict"` is created.
 
-7. AI enrichment layer
+Photo URLs are saved as candidates, not directly as `place.image_url`. Public photos still require the existing candidate approval flow.
 
-AI may summarize and classify only from collected source observations. It must not hallucinate place facts. Every generated description should keep links to source observations and confidence metadata.
+## Missing data handling
 
-## Recommended data flow
+After enrichment, missing critical fields are queued for review with `reason = "missing_after_enrichment"`:
 
-1. Ingest raw observations into a `place_source_observations`-style table: provider, source URL/id, field name, raw value, fetched timestamp and license/usage notes.
-2. Normalize observations into candidate fields: title, category, address, coordinates, phone, website, hours, photos, descriptions, tags and seasonal notes.
-3. Score each field in `place_field_confidence`: confidence, freshness, source priority and conflict state.
-4. Send conflicts and low-confidence fields to admin review.
-5. Publish only approved or high-confidence fields to public UI, bot and Mini App.
-
-## Fields City GO should target per place
-
-- title and localized category;
-- coordinates and address;
-- short description and detail sections;
-- photos with source and match status;
-- opening hours and reliability status;
-- phone and website;
-- rating/review count only from sources where usage is allowed;
-- tags: atmosphere, inside, audience, budget, seasonality, dog-friendly, family-friendly, route eligibility;
-- source freshness and confidence.
-
-## Product rule
+- address
+- website
+- phone
+- opening hours
+- description
+- photo
 
 Public UI must never show `null`, raw backend keys or invented values. If a field is missing, the block is hidden or shown as `Уточнить` only where uncertainty is useful to the user.
+
+## Yandex, 2GIS and Google policy
+
+Yandex Maps, 2GIS and Google Places can be used as map UI providers or external outbound links where their terms allow it. They must not be scraped or used to copy/store proprietary place databases, photos, reviews or ratings unless City GO has an explicit license/API plan that allows persistence and display.
+
+For the current implementation, enrichment uses Geoapify, Wikidata/Wikimedia and official pages. Yandex/2GIS are intentionally excluded from ingestion to avoid ToS and data-license risk.
+
+## Recommended next data work
+
+1. Configure `GEOAPIFY_API_KEY` in backend environment and run the pipeline for one city.
+2. Review `source_observations`, `place_field_confidence`, `place_photo_candidates` and `review_queue_items` for sample places.
+3. Add city/regional open-data and tourism-portal importers as additional licensed providers.
+4. Add an admin screen for resolving enrichment conflicts and approving photo candidates at scale.
+5. Add a scheduled re-verification job for opening hours, website and phone freshness.
