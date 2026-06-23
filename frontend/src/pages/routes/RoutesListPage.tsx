@@ -4,56 +4,65 @@ import { getRoutesByCity } from '../../api/routes/routes.api'
 import type { Route } from '../../api/routes/routes.api'
 import { AppHeader } from '../../components/ui/AppHeader'
 import { Badge } from '../../components/ui/Badge'
+import { EmptyState } from '../../components/ui/EmptyState'
+import { ErrorState } from '../../components/ui/ErrorState'
 import { PageBreadcrumbs } from '../../components/ui/PageBreadcrumbs'
 import { SectionHeader } from '../../components/ui/SectionHeader'
-import { SurfaceCard } from '../../components/ui/SurfaceCard'
+import { Skeleton } from '../../components/ui/Skeleton'
 import { getRouteModeLabel } from '../../features/routes/model/getRouteModeLabel'
+import { getCurrentCity, type CityOption } from '../../shared/city/currentCity'
 
-// Режимы фильтрации маршрутов на странице.
 type RouteFilterMode = 'all' | 'walk' | 'public_transport' | 'mixed'
 
+const filterOptions: Array<{ value: RouteFilterMode; label: string }> = [
+  { value: 'all', label: 'Все' },
+  { value: 'walk', label: 'Пешком' },
+  { value: 'public_transport', label: 'Транспорт' },
+  { value: 'mixed', label: 'Смешанные' },
+]
+
 export const RoutesListPage = () => {
-  // Список маршрутов, загруженных с backend.
+  const [city, setCity] = useState<CityOption>(getCurrentCity())
   const [routes, setRoutes] = useState<Route[]>([])
-
-  // Флаг загрузки страницы.
   const [loading, setLoading] = useState(true)
-
-  // Текст ошибки, если backend недоступен.
   const [error, setError] = useState<string | null>(null)
-
-  // Активный фильтр по режиму маршрута.
   const [filterMode, setFilterMode] = useState<RouteFilterMode>('all')
+
+  useEffect(() => {
+    const syncCity = () => {
+      setCity(getCurrentCity())
+      setFilterMode('all')
+    }
+    window.addEventListener('citygo:city-changed', syncCity)
+    return () => window.removeEventListener('citygo:city-changed', syncCity)
+  }, [])
 
   useEffect(() => {
     const loadRoutes = async () => {
       try {
-        // Перед запросом включаем загрузку и сбрасываем старую ошибку.
         setLoading(true)
         setError(null)
-
-        // Пока показываем маршруты только для Зеленоградска.
-        const data = await getRoutesByCity('zelenogradsk')
-        setRoutes(data)
+        setRoutes(await getRoutesByCity(city.slug))
       } catch (err) {
         console.error(err)
-        setError('Не удалось загрузить маршруты с backend')
+        setError('Не удалось загрузить маршруты')
+        setRoutes([])
       } finally {
         setLoading(false)
       }
     }
 
-    loadRoutes()
-  }, [])
+    void loadRoutes()
+  }, [city.slug])
 
-  // Отфильтрованный список маршрутов под текущий режим.
   const filteredRoutes = useMemo(() => {
-    if (filterMode === 'all') {
-      return routes
-    }
-
+    if (filterMode === 'all') return routes
     return routes.filter((route) => route.route_mode === filterMode)
   }, [routes, filterMode])
+
+  const retry = () => {
+    setCity(getCurrentCity())
+  }
 
   return (
     <div className="app-screen">
@@ -62,210 +71,82 @@ export const RoutesListPage = () => {
 
         <PageBreadcrumbs
           items={[
-            { label: 'Home', to: '/' },
-            { label: 'Routes' },
+            { label: 'Главная', to: '/' },
+            { label: 'Маршруты' },
           ]}
         />
 
         <section className="places-list-panel">
           <SectionHeader
-            eyebrow="Routes"
-            title="Маршруты по городу"
-            description="Список готовых сценариев: пешие прогулки, будущие транспортные маршруты и смешанные варианты."
+            eyebrow={`Маршруты · ${city.name}`}
+            title="Готовые прогулки"
+            description="Выбирай сценарий, смотри точки по порядку и запускай прогулку без лишних настроек."
           />
 
-          <div
-            style={{
-              marginTop: '18px',
-              display: 'flex',
-              gap: '10px',
-              flexWrap: 'wrap',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setFilterMode('all')}
-              style={{
-                padding: '10px 14px',
-                borderRadius: '999px',
-                border: '1px solid rgba(148, 163, 184, 0.18)',
-                background: filterMode === 'all' ? '#dbeafe' : 'rgba(255,255,255,0.82)',
-                color: '#0f172a',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Все
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setFilterMode('walk')}
-              style={{
-                padding: '10px 14px',
-                borderRadius: '999px',
-                border: '1px solid rgba(148, 163, 184, 0.18)',
-                background: filterMode === 'walk' ? '#dbeafe' : 'rgba(255,255,255,0.82)',
-                color: '#0f172a',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Пешком
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setFilterMode('public_transport')}
-              style={{
-                padding: '10px 14px',
-                borderRadius: '999px',
-                border: '1px solid rgba(148, 163, 184, 0.18)',
-                background:
-                  filterMode === 'public_transport' ? '#dbeafe' : 'rgba(255,255,255,0.82)',
-                color: '#0f172a',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Общественный транспорт
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setFilterMode('mixed')}
-              style={{
-                padding: '10px 14px',
-                borderRadius: '999px',
-                border: '1px solid rgba(148, 163, 184, 0.18)',
-                background: filterMode === 'mixed' ? '#dbeafe' : 'rgba(255,255,255,0.82)',
-                color: '#0f172a',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Смешанные
-            </button>
+          <div className="route-filter-row" role="list" aria-label="Фильтр маршрутов">
+            {filterOptions.map((option) => (
+              <button
+                key={option.value}
+                className={filterMode === option.value ? 'filter-chip is-active' : 'filter-chip'}
+                type="button"
+                onClick={() => setFilterMode(option.value)}
+                aria-pressed={filterMode === option.value}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
         </section>
 
-        {loading && (
-          <section style={{ marginTop: '18px' }}>
-            <SurfaceCard style={{ padding: '20px' }}>
-              <p style={{ margin: 0, color: '#64748b' }}>Загрузка маршрутов...</p>
-            </SurfaceCard>
+        {loading ? (
+          <section className="route-card-list route-state">
+            {Array.from({ length: 3 }, (_, index) => <Skeleton key={index} />)}
           </section>
-        )}
+        ) : null}
 
-        {error && !loading && (
-          <section style={{ marginTop: '18px' }}>
-            <SurfaceCard style={{ padding: '20px' }}>
-              <p style={{ margin: 0, color: '#b91c1c' }}>{error}</p>
-            </SurfaceCard>
+        {error && !loading ? (
+          <section className="route-state">
+            <ErrorState title="Маршруты не загрузились" description={error} onRetry={retry} />
           </section>
-        )}
+        ) : null}
 
-        {!loading && !error && (
-          <section
-            style={{
-              marginTop: '18px',
-              display: 'grid',
-              gap: '16px',
-            }}
-          >
+        {!loading && !error && filteredRoutes.length ? (
+          <section className="route-card-list route-state">
             {filteredRoutes.map((route) => (
-              <SurfaceCard
-                key={route.id}
-                style={{
-                  padding: '20px',
-                }}
-              >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    flexWrap: 'wrap',
-                  }}
-                >
+              <article className="route-card" key={route.id}>
+                <div className="route-card__head">
                   <div>
-                    <h3
-                      style={{
-                        margin: 0,
-                        fontSize: '26px',
-                        lineHeight: 1.05,
-                        letterSpacing: '-0.04em',
-                        color: '#0f172a',
-                      }}
-                    >
-                      {route.title}
-                    </h3>
-
-                    {route.short_description && (
-                      <p
-                        style={{
-                          marginTop: '12px',
-                          color: '#475569',
-                          fontSize: '15px',
-                          lineHeight: 1.6,
-                        }}
-                      >
-                        {route.short_description}
-                      </p>
-                    )}
+                    <h3 className="route-card__title">{route.title}</h3>
+                    {route.short_description ? (
+                      <p className="route-card__description cg-clamp-2">{route.short_description}</p>
+                    ) : null}
                   </div>
-
                   <Badge variant="brand">{getRouteModeLabel(route.route_mode)}</Badge>
                 </div>
 
-                <div
-                  style={{
-                    marginTop: '16px',
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '10px',
-                  }}
-                >
-                  <Badge variant="neutral">
-                    {route.duration_minutes ? `≈ ${route.duration_minutes} мин` : 'Без времени'}
-                  </Badge>
-
-                  <Badge variant="neutral">
-                    {route.distance_km ? `≈ ${route.distance_km} км` : 'Без дистанции'}
-                  </Badge>
+                <div className="route-card__badges">
+                  <Badge variant="neutral">{route.duration_minutes ? `≈ ${route.duration_minutes} мин` : 'Время уточняется'}</Badge>
+                  <Badge variant="neutral">{route.distance_km ? `≈ ${route.distance_km} км` : 'Дистанция уточняется'}</Badge>
                 </div>
 
-                <div
-                  style={{
-                    marginTop: '18px',
-                    paddingTop: '14px',
-                    borderTop: '1px solid #e2e8f0',
-                  }}
-                >
-                  <Link
-                    to={`/routes/${route.slug}`}
-                    style={{
-                      color: '#2563eb',
-                      textDecoration: 'none',
-                      fontWeight: 600,
-                    }}
-                  >
-                    Открыть маршрут
-                  </Link>
+                <div className="route-card__footer">
+                  <Link className="route-link" to={`/routes/${route.slug}`}>Открыть маршрут</Link>
                 </div>
-              </SurfaceCard>
+              </article>
             ))}
-
-            {!filteredRoutes.length && (
-              <SurfaceCard style={{ padding: '20px' }}>
-                <p style={{ margin: 0, color: '#64748b' }}>
-                  Под выбранный режим маршруты пока не найдены.
-                </p>
-              </SurfaceCard>
-            )}
           </section>
-        )}
+        ) : null}
+
+        {!loading && !error && !filteredRoutes.length ? (
+          <section className="route-state">
+            <EmptyState
+              title="Маршруты не найдены"
+              description="Попробуйте другой фильтр или соберите маршрут под себя."
+              actionLabel="Собрать маршрут"
+              onAction={() => { window.location.href = '/routes/generate' }}
+            />
+          </section>
+        ) : null}
       </div>
     </div>
   )
