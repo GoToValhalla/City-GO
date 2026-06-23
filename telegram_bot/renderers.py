@@ -69,7 +69,7 @@ def routes_list_text(city: BotCity, routes: list[BotRoute], page: int) -> str:
     if not routes:
         return (
             f"<b>Маршруты: {escape(city.name)}</b>\n\n"
-            "Пока нет готовых прогулок с качественными точками. Можно посмотреть места или собрать маршрут в приложении."
+            "Пока нет готовых прогулок с качественными точками. Можно посмотреть места или собрать временную прогулку из опубликованных точек."
         )
     lines = [f"<b>🚶 Маршруты: {escape(city.name)}</b>", ""]
     for index, route in enumerate(routes, start=page * 5 + 1):
@@ -77,6 +77,14 @@ def routes_list_text(city: BotCity, routes: list[BotRoute], page: int) -> str:
         lines.append(f"{index}. <b>{escape(clean_title(route.title))}</b>" + (f"\n   {escape(meta)}" if meta else ""))
     lines.append("\nВыбери маршрут кнопкой ниже.")
     return "\n".join(lines)
+
+
+def generated_route_intro_text(city: BotCity, route: BotRoute) -> str:
+    return (
+        f"<b>Маршруты: {escape(city.name)}</b>\n\n"
+        "Готовых прогулок для этого города пока нет. Собрал временную прогулку из опубликованных route-eligible точек.\n\n"
+        + route_card_text(route)
+    )
 
 
 def route_card_text(route: BotRoute) -> str:
@@ -182,11 +190,45 @@ def open_now_empty_text() -> str:
     )
 
 
+def open_now_fallback_text(city: BotCity, places: list[BotPlace]) -> str:
+    if not places:
+        return open_now_empty_text()
+    lines = [
+        "<b>Открыто сейчас</b>",
+        "",
+        "Точно открытых прямо сейчас не нашёл. Показываю места с проверенным расписанием, чтобы было что выбрать без мусора.",
+        "",
+    ]
+    for index, place in enumerate(places, start=1):
+        details = []
+        if place.category:
+            details.append(label_for_category(place.category))
+        if place.opening_hours_display:
+            details.append(place.opening_hours_display)
+        suffix = f"\n   {' · '.join(escape(item) for item in details if item)}" if details else ""
+        lines.append(f"{index}. <b>{escape(clean_title(place.title))}</b>{suffix}")
+    lines.append(f"\nГород: {escape(city.name)}")
+    return "\n".join(lines)
+
+
 def nearby_request_text() -> str:
     return (
         "<b>Места рядом</b>\n\n"
-        "Отправь геолокацию через вложение Telegram, и я покажу ближайшие места. "
-        "Можно также выбрать готовый раздел ниже."
+        "Отправь геолокацию через скрепку Telegram, и я покажу ближайшие места. "
+        "Если геолокация не сработает, использую центр выбранного города."
+    )
+
+
+def nearby_city_center_text(city: BotCity, places: list[BotPlace]) -> str:
+    if not places:
+        return (
+            f"<b>📍 Рядом: {escape(city.name)}</b>\n\n"
+            "Геолокации пока нет, а возле центра города подходящих мест не нашлось. Выбери категорию ниже или отправь геолокацию через скрепку Telegram."
+        )
+    return (
+        f"<b>📍 Рядом: центр города {escape(city.name)}</b>\n\n"
+        "Геолокации пока нет, поэтому показываю точки около центра выбранного города.\n\n"
+        + places_list_text("Ближайшие места", places, 0)
     )
 
 
