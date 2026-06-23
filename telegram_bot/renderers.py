@@ -13,10 +13,17 @@ CATEGORY_LABELS = {
     "walk": ("🚶", "Прогулка"),
     "viewpoint": ("👀", "Смотровая точка"),
     "food": ("🍽", "Еда"),
+    "restaurant": ("🍽", "Ресторан"),
+    "bar": ("🍸", "Бар"),
+    "bakery": ("🥐", "Пекарня"),
     "coffee": ("☕", "Кофе"),
     "cafe": ("☕", "Кофе"),
     "hotel": ("🏨", "Проживание"),
     "beach": ("🌊", "Пляж"),
+    "attraction": ("👀", "Достопримечательность"),
+    "landmark": ("👀", "Достопримечательность"),
+    "historic": ("🏛", "Историческое место"),
+    "monument": ("🏛", "Памятник"),
 }
 
 
@@ -30,21 +37,23 @@ def start_text() -> str:
 
 def city_select_text(cities: list[BotCity]) -> str:
     if not cities:
-        return "<b>Пока нет опубликованных городов.</b>\n\nКаталог еще готовится."
-    return "<b>С какого города начнем?</b>"
+        return "<b>Пока нет доступных городов.</b>\n\nВ админке нет активных городов с публичным статусом."
+    return "<b>Выбери город</b>\n\nПокажу только опубликованный каталог без технических OSM-точек."
 
 
 def main_menu_text(city: BotCity) -> str:
-    return f"<b>🏙 {escape(city.name)}</b>\n\nЧто хочешь найти?"
+    suffix = f" · {city.places_count} мест" if city.places_count else ""
+    return f"<b>🏙 {escape(city.name)}{suffix}</b>\n\nЧто хочешь найти?"
 
 
 def routes_list_text(city: BotCity, routes: list[BotRoute], page: int) -> str:
     if not routes:
-        return f"<b>Маршруты для города {escape(city.name)} появятся скоро.</b>\n\nПока посмотри места и кафе."
+        return f"<b>Маршруты для города {escape(city.name)} пока не готовы.</b>\n\nПоказываю только маршруты, где осталось минимум две качественные точки. Попробуй места или кафе."
     lines = [f"<b>🚶 Маршруты: {escape(city.name)}</b>", ""]
     for index, route in enumerate(routes, start=page * 5 + 1):
         meta = route_meta(route)
-        lines.append(f"{index}. {escape(route.title)}" + (f" · {escape(meta)}" if meta else ""))
+        lines.append(f"{index}. <b>{escape(route.title)}</b>" + (f"\n   {escape(meta)}" if meta else ""))
+    lines.append("\nВыбери маршрут кнопкой ниже.")
     return "\n".join(lines)
 
 
@@ -56,30 +65,39 @@ def route_card_text(route: BotRoute) -> str:
     meta = route_meta(route)
     if meta:
         lines += [escape(meta), ""]
-    lines.append("<b>Точки маршрута:</b>")
+    lines.append("<b>Первые точки:</b>")
     for point in route.points[:5]:
         lines.append(f"{point.index + 1}. {escape(clean_title(point.title))}")
     if len(route.points) > 5:
         lines.append(f"…еще {len(route.points) - 5}")
+    lines.append("\nНажми «Начать маршрут», и я буду вести по точкам в этом сообщении.")
     return "\n".join(lines).strip()
 
 
 def route_points_text(route: BotRoute) -> str:
     lines = [f"<b>Точки маршрута: {escape(route.title)}</b>", ""]
     for point in route.points:
-        lines.append(f"{point.index + 1}. {escape(clean_title(point.title))}")
+        details = [label_for_category(point.category)] if point.category else []
+        if point.address:
+            details.append(compact_text(point.address, 70) or "")
+        suffix = f" — {escape(' · '.join(item for item in details if item))}" if details else ""
+        lines.append(f"{point.index + 1}. {escape(clean_title(point.title))}{suffix}")
     return "\n".join(lines)
 
 
-def route_step_text(route: BotRoute, point: BotRoutePoint, visited_count: int, distance_m: int | None = None) -> str:
+def route_step_text(route: BotRoute, point: BotRoutePoint, visited_count: int, distance_m: int | None = None, skipped_count: int = 0) -> str:
     total = len(route.points)
-    progress = "▓" * visited_count + "░" * max(total - visited_count, 0)
+    done_count = min(visited_count + skipped_count, total)
+    progress = "▓" * done_count + "░" * max(total - done_count, 0)
     lines = [
         f"<b>{escape(route.title)}</b>",
-        f"{progress} {min(point.index + 1, total)} / {total}",
+        f"{progress} точка {min(point.index + 1, total)} из {total}",
+        f"Посещено: {visited_count}. Пропущено: {skipped_count}.",
         "",
-        f"<b>📍 Точка {point.index + 1}: {escape(clean_title(point.title))}</b>",
+        f"<b>📍 {escape(clean_title(point.title))}</b>",
     ]
+    if point.category:
+        lines.append(label_for_category(point.category))
     if distance_m is not None:
         lines.append(f"📏 До точки: {escape(format_meters(distance_m) or '')}")
     description = compact_text(point.short_description, 260)
@@ -100,17 +118,20 @@ def route_completed_text(route: BotRoute, visited_count: int) -> str:
 
 def places_list_text(title: str, places: list[BotPlace], page: int) -> str:
     if not places:
-        return f"<b>{escape(title)}</b>\n\nНичего не нашлось. Попробуй другую категорию или вернись в меню."
+        return f"<b>{escape(title)}</b>\n\nНичего не нашлось. Попробуй другую категорию, поиск текстом или вернись в меню."
     lines = [f"<b>{escape(title)}</b>", ""]
     for index, place in enumerate(places, start=page * 5 + 1):
         details = []
-        if place.address:
-            details.append(escape(compact_text(place.address, 56) or ""))
+        if place.category:
+            details.append(label_for_category(place.category))
         distance = format_meters(place.distance_m)
         if distance:
-            details.append(escape(distance))
-        suffix = f" — {' · '.join(details)}" if details else ""
-        lines.append(f"{index}. {escape(clean_title(place.title))}{suffix}")
+            details.append(distance)
+        if place.address:
+            details.append(compact_text(place.address, 56) or "")
+        suffix = f"\n   {' · '.join(escape(item) for item in details if item)}" if details else ""
+        lines.append(f"{index}. <b>{escape(clean_title(place.title))}</b>{suffix}")
+    lines.append("\nОткрой карточку места кнопкой ниже.")
     return "\n".join(lines)
 
 
@@ -138,20 +159,25 @@ def open_now_empty_text() -> str:
 
 
 def nearby_request_text() -> str:
-    return "Поделись геолокацией, и я покажу места рядом."
+    return "<b>Места рядом</b>\n\nПоделись геолокацией, и я покажу ближайшие опубликованные места."
 
 
 def no_results_text(query: str) -> str:
-    return f"<b>Ничего не нашлось</b>\n\nПо запросу <code>{escape(query)}</code> в каталоге пусто."
+    return (
+        f"<b>Ничего не нашлось</b>\n\n"
+        f"По запросу <code>{escape(query)}</code> в каталоге пусто.\n\n"
+        "Попробуй более общий запрос: парк, музей, кофе, еда."
+    )
 
 
 def help_text() -> str:
     return (
         "<b>Что умеет бот</b>\n\n"
-        "• показывает опубликованные маршруты и места;\n"
+        "• показывает города, маршруты и места из опубликованного каталога;\n"
         "• ищет рядом по геолокации;\n"
+        "• показывает только надежное «открыто сейчас»;\n"
         "• ведет по маршруту внутри чата;\n"
-        "• скрывает технические OSM-id, служебные категории и ненадежные часы."
+        "• скрывает технические OSM-id, служебные категории и debug-поля."
     )
 
 
@@ -168,3 +194,8 @@ def route_meta(route: BotRoute) -> str:
     if distance:
         items.append(f"📏 {distance}")
     return " · ".join(items)
+
+
+def label_for_category(category: str | None) -> str:
+    emoji, label = CATEGORY_LABELS.get(category or "", ("📍", category or "Место"))
+    return f"{emoji} {label}"
