@@ -13,43 +13,24 @@ type PageBreadcrumbsProps = {
 
 export const PageBreadcrumbs = ({ items, right }: PageBreadcrumbsProps) => {
   return (
-    <header
-      className="app-header places-header"
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '16px',
-        flexWrap: 'wrap',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+    <nav className="page-breadcrumbs" aria-label="Навигация по странице">
+      <div className="page-breadcrumbs__items">
         {items.map((item, index) => {
           const isLast = index === items.length - 1
 
           return (
-            <div
-              key={`${item.label}-${index}`}
-              style={{ display: 'flex', alignItems: 'center', gap: '12px' }}
-            >
+            <span className="page-breadcrumbs__item" key={`${item.label}-${index}`}>
               {item.to && !isLast ? (
-                <Link
-                  to={item.to}
-                  style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 600 }}
-                >
-                  {item.label}
-                </Link>
+                <Link to={item.to}>{item.label}</Link>
               ) : (
-                <span style={{ fontWeight: 700, color: '#0f172a' }}>{item.label}</span>
+                <span>{item.label}</span>
               )}
-
-              {!isLast ? <span style={{ color: '#94a3b8' }}>/</span> : null}
-            </div>
+              {!isLast ? <span className="page-breadcrumbs__separator">/</span> : null}
+            </span>
           )
         })}
       </div>
-
       {right ? <div>{right}</div> : null}
-    </header>
+    </nav>
   )
 }
