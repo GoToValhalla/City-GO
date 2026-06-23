@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from routers.admin import router as admin_router
+from routers.admin_bot_analytics import router as admin_bot_analytics_router
 from routers.admin_import_jobs import router as admin_import_jobs_router
 from routers.admin_import_pipeline import router as admin_import_pipeline_router
 from routers.admin_ops import router as admin_ops_router
@@ -56,6 +57,7 @@ def include_app_routers(app: FastAPI) -> None:
 
 _ROOT_ROUTERS = (
     admin_router,
+    admin_bot_analytics_router,
     admin_import_jobs_router,
     admin_import_pipeline_router,
     admin_ops_router,
