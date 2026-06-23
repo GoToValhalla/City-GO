@@ -12,6 +12,10 @@ from schemas.admin import AdminCityCreateRequest
 from services.admin_city_bbox import bbox_from_center_radius
 from services.admin_city_forward_geocode import geocode_city_name
 
+# TODO(Data Foundation V2): DEFAULT_SCOPES подходит только для city destination.
+# Для natural_region/national_park/tourist_cluster нужны DestinationImportScope и стратегии:
+# osm_relation/manual_polygon/tiled/route_corridor/per_child. Нельзя строить Байкал/Алтай от одной
+# точки центра и радиуса — это создает пустые зоны, мусор и Overpass timeouts.
 DEFAULT_SCOPES: tuple[tuple[str, str, str], ...] = (
     ("tourist_core", "tourist_core", "Tourist core"),
     ("food_area", "food_and_coffee", "Food area"),
