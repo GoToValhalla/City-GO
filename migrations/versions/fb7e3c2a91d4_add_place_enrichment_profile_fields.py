@@ -1,7 +1,7 @@
 """add place enrichment profile fields
 
 Revision ID: fb7e3c2a91d4
-Revises: e2f4a6b8c0d1
+Revises: 9d0e1f2a3b4c
 """
 
 from typing import Sequence, Union
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "fb7e3c2a91d4"
-down_revision: Union[str, None] = "e2f4a6b8c0d1"
+down_revision: Union[str, None] = "9d0e1f2a3b4c"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
