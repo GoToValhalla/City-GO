@@ -16,7 +16,7 @@ services:
   migrate:
     image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
-    command: alembic upgrade heads
+    command: bash -c "PYTHONPATH=/app python scripts/repair_alembic_overlapping_heads.py && alembic upgrade head"
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
