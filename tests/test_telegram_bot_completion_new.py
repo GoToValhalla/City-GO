@@ -26,6 +26,7 @@ def test_route_card_has_start_map_action_and_short_callbacks_new(db_session) -> 
     buttons = _buttons(markup)
 
     assert any(button.text == "🗺 Открыть карту" and button.url and "yandex" in button.url for button in buttons)
+    assert any(button.text == "❤️ Сохранить" and button.callback_data.startswith("fav:add:r:") for button in buttons)
     assert all(
         len(button.callback_data.encode("utf-8")) <= 64
         for button in buttons
@@ -67,7 +68,7 @@ def test_place_card_has_map_favorite_similar_and_short_callbacks_new(db_session)
     buttons = _buttons(markup)
 
     assert any(button.text == "🗺 На карте" and button.url and "yandex" in button.url for button in buttons)
-    assert any(button.text == "❤️ Сохранить" for button in buttons)
+    assert any(button.text == "❤️ Сохранить" and button.callback_data.startswith("fav:add:p:") for button in buttons)
     assert any(button.text == "🔍 Похожие" and button.callback_data == "p:cat:food:0" for button in buttons)
     assert all(
         len(button.callback_data.encode("utf-8")) <= 64
