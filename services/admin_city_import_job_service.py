@@ -117,9 +117,18 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
         legacy_results = run_enrichment_pipeline(db, job=job, city=city, actor_id=actor_id, force=True)
         db.refresh(job)
         db.refresh(city)
+        collection_counters = {
+            "places_found": job.places_found,
+            "places_saved": job.places_saved,
+            "scopes_succeeded": job.scopes_succeeded,
+        }
 
         source_counters = run_foundation_pipeline(db, city=city, job=job, actor=actor_id)
         source_status = job.status
+        # Foundation tracks its own item counters; collection counters remain the job summary.
+        job.places_found = collection_counters["places_found"]
+        job.places_saved = collection_counters["places_saved"]
+        job.scopes_succeeded = collection_counters["scopes_succeeded"]
         readiness = compute_city_readiness(db, city_slug=city.slug) or {}
         job.step_details = {
             **dict(job.step_details or {}),
