@@ -37,6 +37,10 @@ class MergedContext(BaseModel):
 
     # --- LOCATION — стартовые координаты (широта, долгота).
     location: Tuple[float, float]  # (lat, lng)
+
+    # TODO(Data Foundation V2): city_id остается legacy route context.
+    # Целевая модель должна добавить destination_id/destination_slug/destination_type/route_type,
+    # чтобы Route Engine мог строить маршруты по Байкалу, Алтаю, Карелии, route corridors и clusters.
     city_id: Optional[str] = None
     start_source: str = "city_center"
     start_warnings: List[str] = Field(default_factory=list)
@@ -47,6 +51,14 @@ class MergedContext(BaseModel):
     original_location: Optional[Tuple[float, float]] = None
     city_center_location: Optional[Tuple[float, float]] = None
     distance_to_city_center_meters: Optional[int] = None
+
+    # TODO(Data Foundation V2): добавить поля после миграции API:
+    # destination_id: Optional[str]
+    # destination_slug: Optional[str]
+    # destination_type: Optional[str]
+    # route_type: Optional[str]
+    # include_child_destinations: bool
+    # corridor_buffer_meters: Optional[int]
 
     # --- TIME — лимиты времени на маршрут.
     time_budget_minutes: int
