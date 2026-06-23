@@ -7,6 +7,8 @@ from models.place_photo_candidate import PlacePhotoCandidate
 from models.review_queue_item import ReviewQueueItem
 from models.source_observation import SourceObservation
 from services import place_enrichment_sources as enrichment
+from services.import_pipeline_foundation_steps import _confidence
+from services.place_field_confidence_service import upsert_field_confidence
 
 
 def _batch(db: Session, city_id: int) -> ImportBatch:
@@ -165,3 +167,26 @@ def test_enrich_places_from_sources_keeps_existing_fields_and_queues_conflict(mo
     )
     assert conflict.payload["current"] == "+7 000 000-00-00"
     assert conflict.payload["candidate"] == "+7 999 222-33-44"
+
+
+def test_pipeline_confidence_keeps_enrichment_source(db_session, place_factory):
+    place = place_factory(title="Кофейня Берег", category="cafe")
+    place.phone = "+7 999 111-22-33"
+    db_session.commit()
+
+    upsert_field_confidence(
+        db_session,
+        place_id=place.id,
+        field_name="phone",
+        confidence=0.82,
+        source_type="official_site",
+        raw_value={"value": place.phone},
+    )
+    db_session.commit()
+
+    _confidence(db_session, place, job_id=None)
+    db_session.commit()
+
+    row = db_session.query(PlaceFieldConfidence).filter_by(place_id=place.id, field_name="phone").one()
+    assert row.source_type == "official_site"
+    assert row.confidence == 0.82
