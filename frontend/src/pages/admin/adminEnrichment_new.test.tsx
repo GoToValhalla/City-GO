@@ -59,8 +59,8 @@ describe('AdminPlaceEnrichmentPage', () => {
   it('renders page title', () => {
     mockInit()
     renderPage()
-    expect(screen.getByText(/Обогащение данных/)).toBeTruthy()
-    expect(screen.getByText(/Автоматическое обогащение/)).toBeTruthy()
+    expect(screen.getByText(/Сбор и обогащение данных/)).toBeTruthy()
+    expect(screen.getByText(/Сбор и обогащение города/)).toBeTruthy()
   })
 
   it('renders missing_fields checkboxes', async () => {
@@ -120,28 +120,26 @@ describe('AdminPlaceEnrichmentPage', () => {
     })
   })
 
-  it('runs pipeline and renders counters plus review queue', async () => {
+  it('queues unified pipeline and loads review queue', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify(cityResponse), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(emptyBatches), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         job_id: 7,
         city_slug: 'zelenogradsk',
-        status: 'success',
-        counters: { found: 3, enriched: 2, auto_published: 1, limited_published: 1, review_required: 1, rejected: 0, failed: 0 },
+        status: 'queued',
+        counters: {},
+        message: 'Полный сбор и обогащение поставлены в очередь',
       }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 1, job_id: 7, step_name: 'collect_places', status: 'success', counters: {}, error_message: null }]), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 5, place_id: 10, field_name: 'address', reason: 'low_confidence', severity: 'medium', status: 'open' }]), { status: 200 }))
 
     renderPage()
-    await waitFor(() => screen.getByText(/Запустить обогащение/i))
-    fireEvent.click(screen.getByText(/Запустить обогащение/i))
+    const runButton = await screen.findByRole('button', { name: /Собрать и обогатить/i })
+    fireEvent.click(runButton)
 
-    await waitFor(() => {
-      expect(screen.getByText(/Задача #7/)).toBeTruthy()
-      expect(screen.getByText('Найдено')).toBeTruthy()
-      expect(screen.getByText('Низкое доверие')).toBeTruthy()
-    })
+    await waitFor(() => expect(screen.getByText(/Задача #7/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /Обновить очередь проверки/i }))
+    await waitFor(() => expect(screen.getByText('Низкое доверие')).toBeTruthy())
   })
 
   it('shows pipeline error state', async () => {
@@ -151,8 +149,8 @@ describe('AdminPlaceEnrichmentPage', () => {
       .mockResolvedValueOnce(new Response('{"detail":"boom"}', { status: 500 }))
 
     renderPage()
-    await waitFor(() => screen.getByText(/Запустить обогащение/i))
-    fireEvent.click(screen.getByText(/Запустить обогащение/i))
+    const runButton = await screen.findByRole('button', { name: /Собрать и обогатить/i })
+    fireEvent.click(runButton)
 
     await waitFor(() => expect(screen.getByText(/boom/)).toBeTruthy())
   })
