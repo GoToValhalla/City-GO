@@ -1,20 +1,45 @@
-"""Иерархия категорий и маппинг legacy/OSM → канон."""
+"""Иерархия категорий и маппинг legacy/OSM -> канон."""
 
 from __future__ import annotations
 
-# parent RU → subcategories (канон codes)
 CATEGORY_HIERARCHY: dict[str, tuple[str, ...]] = {
     "food_drinks": ("coffee", "food", "bar"),
     "attractions": ("attraction", "museum", "walk"),
     "nature": ("park", "beach"),
     "lodging": ("hotel",),
-    "service": ("service",),
+    "shopping": ("shopping_mall",),
+    "healthcare": ("pharmacy", "clinic", "hospital", "healthcare"),
+    "finance": ("bank", "atm"),
+    "transport": ("transport", "bus_stop", "parking"),
+    "public_services": ("police", "toilets", "shelter", "information"),
+    "services": ("service",),
 }
 
 CATEGORY_LABELS_RU: dict[str, str] = {
-    "coffee": "Кофейня", "food": "Еда", "bar": "Бар", "walk": "Прогулка",
-    "museum": "Музей", "attraction": "Достопримечательность", "beach": "Пляж",
-    "park": "Парк", "hotel": "Проживание", "service": "Сервис",
+    "coffee": "Кофейня",
+    "food": "Еда",
+    "bar": "Бар",
+    "walk": "Прогулка",
+    "museum": "Музей",
+    "attraction": "Достопримечательность",
+    "beach": "Пляж",
+    "park": "Парк",
+    "hotel": "Проживание",
+    "shopping_mall": "Торговый центр",
+    "pharmacy": "Аптека",
+    "clinic": "Клиника",
+    "hospital": "Больница",
+    "healthcare": "Медицина",
+    "bank": "Банк",
+    "atm": "Банкомат",
+    "transport": "Транспорт",
+    "bus_stop": "Остановка",
+    "parking": "Парковка",
+    "police": "Полиция",
+    "toilets": "Туалет",
+    "shelter": "Укрытие",
+    "information": "Информация",
+    "service": "Услуги",
 }
 
 LEGACY_TO_CANONICAL: dict[str, str] = {
@@ -35,22 +60,35 @@ LEGACY_TO_CANONICAL: dict[str, str] = {
     "historic": "attraction",
     "nature": "walk",
     "natural": "walk",
+    "mall": "shopping_mall",
+    "shopping_centre": "shopping_mall",
+    "shopping_center": "shopping_mall",
+    "health": "healthcare",
+    "medical": "healthcare",
+    "public_transport": "transport",
+    "stop": "bus_stop",
+    "services": "service",
     "useful": "service",
-    "health": "service",
-    "transport": "service",
-    "information": "service",
-    "toilets": "service",
-    "atm": "service",
-    "parking": "service",
-    "shelter": "service",
-    "bank": "service",
-    "police": "service",
-    "pharmacy": "service",
-    "clinic": "service",
-    "hospital": "service",
 }
 
-ROUTE_EXCLUDED_CATEGORIES = frozenset({"service", "hotel"})
+ROUTE_EXCLUDED_CATEGORIES = frozenset({
+    "hotel",
+    "shopping_mall",
+    "pharmacy",
+    "clinic",
+    "hospital",
+    "healthcare",
+    "bank",
+    "atm",
+    "transport",
+    "bus_stop",
+    "parking",
+    "police",
+    "toilets",
+    "shelter",
+    "information",
+    "service",
+})
 
 
 def normalize_category_code(raw: str | None) -> str | None:
