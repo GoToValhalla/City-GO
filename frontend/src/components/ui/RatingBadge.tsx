@@ -26,7 +26,7 @@ export const RatingBadge = ({ rating, reviewCount, className }: RatingBadgeProps
     <span className={classNames('cg-rating-badge', className)} aria-label={label}>
       <Star size={13} fill="currentColor" aria-hidden="true" />
       {formatter.format(rating)}
-      {hasReviewCount ? <span>{countFormatter.format(reviewCount)}</span> : null}
+      {hasReviewCount ? <span>· {countFormatter.format(reviewCount)} отзывов</span> : null}
     </span>
   )
 }
