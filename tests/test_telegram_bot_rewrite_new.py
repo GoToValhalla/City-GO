@@ -9,7 +9,7 @@ from telegram_bot.handlers.catalog import _route_state_from_backend, _should_pus
 from telegram_bot.keyboards.catalog import favorites_list, route_step
 from telegram_bot.quality import is_hours_reliable, is_place_bot_visible, is_technical_osm_title
 from telegram_bot.renderers import place_card_text, places_list_text, route_step_text
-from telegram_bot.schemas import BotPlace
+from telegram_bot.schemas import BotPlace, BotRoute, BotRoutePoint
 from telegram_bot.services.facade import BotFacade
 from telegram_bot.session import get_or_create_session, get_short_id, pop_nav, push_nav, resolve_short_id, toggle_favorite
 
@@ -71,10 +71,7 @@ def test_telegram_route_state_keeps_backend_session_id_new() -> None:
 
 
 def test_route_step_keyboard_has_explicit_skip_new() -> None:
-    point = RouteSessionPoint(place_id=1, ordering_index=0, title="Парк")
-    point.index = 0
-    point.lat = 54.9
-    point.lng = 20.4
+    point = BotRoutePoint(index=0, place_id=1, title="Парк", lat=54.9, lng=20.4)
 
     keyboard = route_step(point, 3, False)
     callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row if button.callback_data]
@@ -85,14 +82,8 @@ def test_route_step_keyboard_has_explicit_skip_new() -> None:
 
 
 def test_route_step_text_explains_visited_and_skipped_new() -> None:
-    point = RouteSessionPoint(place_id=1, ordering_index=1, title="Музей")
-    point.index = 1
-    point.category = "museum"
-    point.short_description = None
-    point.address = "ул. Ленина, 1"
-    route = RouteSession(id=1, route_id=2)
-    route.title = "Маршрут"
-    route.points = [RouteSessionPoint(place_id=1, ordering_index=0, title="Парк"), point]
+    point = BotRoutePoint(index=1, place_id=2, title="Музей", category="museum", address="ул. Ленина, 1")
+    route = BotRoute(id=2, title="Маршрут", points=[BotRoutePoint(index=0, place_id=1, title="Парк"), point])
 
     text = route_step_text(route, point, visited_count=1, skipped_count=1)
 
@@ -246,10 +237,7 @@ def test_route_with_less_than_two_valid_points_is_unavailable_new(db_session, ci
 
 def test_favorites_keyboard_opens_saved_entities_new(db_session) -> None:
     session = get_or_create_session(db_session, 222, "tester")
-    route = RouteSession(id=1, route_id=10)
-    route.id = 10
-    route.title = "Маршрут"
-    route.points = []
+    route = BotRoute(id=10, title="Маршрут")
     place = BotPlace(id=20, title="Парк")
 
     keyboard = favorites_list([route], [place], session)
