@@ -19,6 +19,22 @@ def test_coffee_query_keeps_named_coffee_places_even_with_food_category_new() ->
 
 
 def test_route_draft_blocklist_contains_non_tourist_categories_new() -> None:
-    assert {"bank", "atm", "police", "mvd", "service", "transport", "pharmacy", "hospital"}.issubset(
-        ROUTE_DRAFT_BLOCKED_CATEGORIES
-    )
+    assert {
+        "atm",
+        "bank",
+        "bus_stop",
+        "cemetery",
+        "fuel",
+        "government",
+        "hospital",
+        "industrial",
+        "mvd",
+        "parking",
+        "pharmacy",
+        "police",
+        "service",
+        "services",
+        "stop",
+        "transport",
+        "waste_disposal",
+    }.issubset(ROUTE_DRAFT_BLOCKED_CATEGORIES)
