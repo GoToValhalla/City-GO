@@ -1,55 +1,76 @@
-# City Go
+# City GO
 
-City Go — городской travel/local guide сервис с упором на места, маршруты, планирование прогулок и дальнейший AI-слой рекомендаций.
+City GO — городской travel/local guide: публичный каталог мест, готовые маршруты, ручной route player, админка качества данных, Telegram-бот и автоматический import/enrichment pipeline.
 
-## Что это
+Пилотные сценарии:
 
-Проект объединяет backend, frontend, админку и Telegram-бота для городского гида. Основной пользовательский сценарий — собрать полезный маршрут по городу от выбранной стартовой точки с учётом времени, интересов, бюджета, темпа и качества данных по местам.
+- турист выбирает город, смотрит места и маршруты;
+- пользователь открывает маршрут и проходит его по точкам в вебе;
+- Telegram-бот даёт быстрый доступ к городам, маршрутам, местам, поиску, избранному и лёгкому прохождению маршрута;
+- админ импортирует/обогащает город без CSV-ручного конвейера;
+- quality gates скрывают OSM-мусор, служебные категории и ненадёжные поля из пользовательских сценариев.
 
-Текущая продуктовая цель:
-- строить маршруты в реальном времени;
-- строить маршрут от нужного места: центр города, текущая геолокация, адрес, точка на карте или выбранное место;
-- поддержать планирование маршрутов заранее;
-- дать пользователю понятный маршрут списком и на карте;
-- объяснять, почему маршрут не собрался или получился частичным;
-- подготовить основу для live route editing: заменить, удалить, добавить место, перестроить от текущей точки.
+## Текущий статус
 
-Пилотный город:
-- Зеленоградск, Калининградская область
+В проде и в `main` сейчас есть:
 
-## Текущий стек
+- FastAPI backend + PostgreSQL/PostGIS-ready schema + Alembic migrations.
+- React/Vite frontend с публичными страницами, админкой и route navigation MVP.
+- Telegram-бот на `aiogram 3` с webhook/polling entrypoint.
+- Admin import/enrichment pipeline foundation.
+- Field-level confidence, review queue, photo candidates, route eligibility diagnostics.
+- Docker Compose production deploy через GitHub Actions.
+- CI: backend pytest + frontend lint/tests/build + Allure raw results.
+
+Основной актуальный operational overview: `docs/operations/current_system_overview.md`.
+
+## Стек
 
 - Python 3.11
 - FastAPI
-- PostgreSQL
-- Alembic
 - SQLAlchemy 2.0
-- Pydantic
-- Uvicorn
-- React / Vite
+- Alembic
+- PostgreSQL 16
+- Pydantic v2
+- aiogram 3.x
+- React / Vite / TypeScript
 - Docker Compose
+- GitHub Actions
 
-## Основной маршрутный API
+## Подсистемы
 
-Новая пользовательская сборка маршрутов работает через:
+### Backend API
+
+Ключевые зоны:
+
+- `routers/` — FastAPI routers.
+- `services/` — бизнес-логика, route building, import pipeline, quality gates.
+- `models/` — SQLAlchemy ORM.
+- `schemas/` — Pydantic contracts.
+- `migrations/versions/` — Alembic chain. Guard ожидает один head.
+
+Главные публичные endpoints:
+
+```http
+GET /cities/
+GET /cities/by-slug/{slug}
+GET /places/
+GET /places/{place_id}
+GET /routes/{route_id}
+POST /v1/user-routes/build
+GET /open-now
+GET /nearby
+```
+
+Legacy route generator остаётся, но новый пользовательский flow должен идти через:
 
 ```http
 POST /v1/user-routes/build
 ```
 
-Старый endpoint:
+### Route Building
 
-```http
-POST /routes/generate
-```
-
-объявлен legacy и помечен как deprecated. В ответ добавляется header:
-
-```http
-X-Deprecated: Use POST /v1/user-routes/build instead
-```
-
-Текущая цепочка route building:
+Текущая цепочка:
 
 ```text
 POST /v1/user-routes/build
@@ -58,196 +79,132 @@ POST /v1/user-routes/build
 → RouteEngine
 → InstantRouteStrategy
 → build_dynamic_route
-→ context_merge
 → candidate_retrieval
 → hard_filters
 → scoring
-→ interest_matching
 → adaptive_plan
 → assembly
-→ time_ordering
-→ time_aware
-→ budget_fit
 → quality_gates
-→ finalize
 → UserRouteState
 ```
 
-`RouteEngine` сейчас является безопасным тонким слоем над существующим пайплайном. Он нужен как точка расширения под будущие стратегии:
+`RouteEngine` — точка расширения под будущие стратегии:
 
-- `InstantRouteStrategy` — маршрут сейчас / от выбранной стартовой точки;
-- `PlannedRouteStrategy` — планирование на дату и время;
-- `RecomputeRouteStrategy` — пересборка активного маршрута от текущей позиции.
+- `InstantRouteStrategy` — маршрут сейчас;
+- `PlannedRouteStrategy` — маршрут на дату/время;
+- `RecomputeRouteStrategy` — перестроение активного маршрута.
 
-## Статусы маршрута
+### Route Navigation MVP
 
-`/v1/user-routes/build` возвращает доменный результат, а не только сетевую ошибку.
+Публичная route detail страница теперь использует route player:
 
-| Статус | Значение |
-|---|---|
-| `ready` | Маршрут собран в полезном виде. |
-| `partial_route` | Маршрут собран частично, его можно показать пользователю с предупреждением. |
-| `no_route` | Маршрут не собран, причина должна быть в `partial_reason` и `debug_trace`. |
-| `failed` | Системная или алгоритмическая ошибка качества маршрута. |
+- frontend-only state machine: `not_started`, `active`, `completed`;
+- SVG/HTML схема маршрута с прямыми сегментами;
+- кнопки: `Начать маршрут`, `Я на месте`, `Следующая`, `Завершить`, `Пройти заново`;
+- state persistence: `localStorage` ключ `citygo:route-navigation:{routeId}`;
+- frontend quality gate отбрасывает точки без координат, hidden/unpublished/inactive, `is_route_eligible=false`, service/bank/police/transport/pharmacy/etc.
 
-Ключевые поля ответа:
+Подробнее: `docs/architecture/route_navigation_stage1.md`.
 
-```json
-{
-  "status": "ready | partial_route | no_route | failed",
-  "partial_reason": "not_enough_route_points | time_budget_too_tight | filters_too_strict | interests_not_matched | ...",
-  "total_places": 3,
-  "points": [],
-  "warnings": [],
-  "user_warnings": [],
-  "debug_trace": []
-}
+Следующий технический шаг: MapLibre + GPS + backend route sessions, но текущий MVP уже должен быть usable без GPS.
+
+### Import / Enrichment Pipeline
+
+CSV больше не является основным сценарием. Основной flow:
+
+```text
+Admin → start city pipeline
+→ import_job_steps
+→ source_observations
+→ place_field_confidence
+→ place_photo_candidates
+→ review_queue_items
+→ publication decisions
 ```
 
-## Текущая логика route building
+Admin endpoints:
 
-Маршрут должен стремиться к полезной форме, но target по точкам является soft target, а не жёстким правилом.
+```http
+POST /admin/place-enrichment/pipeline/{city_slug}/run
+GET /admin/place-enrichment/jobs/{job_id}/steps
+GET /admin/place-enrichment/places/{place_id}/confidence
+GET /admin/place-enrichment/review-queue
+POST /admin/place-enrichment/review-queue/{item_id}/resolve
+POST /admin/place-enrichment/photo-candidates/{candidate_id}/approve
+POST /admin/place-enrichment/photo-candidates/{candidate_id}/reject
+POST /admin/place-enrichment/photo-candidates/{candidate_id}/set-primary
+```
 
-| Время | Цель по точкам | Минимум для `ready` |
-|---:|---:|---:|
-| до 60 минут | 2 точки | 2 точки |
-| до 120 минут | 4 точки | 3 точки |
-| до 240 минут | 6 точек | 5 точек |
-| больше 240 минут | до 8 точек | 6 точек |
+Подробнее: `docs/architecture/import_enrichment_pipeline_stage1.md`.
 
-Правила деградации:
-- маршрут из 1 точки не считается полноценным `ready`;
-- короткий маршрут возвращается как `partial_route` с понятным warning, если не проходит soft threshold;
-- при очень tight budget допускается one-point `partial_route` с warning `budget_very_tight`;
-- если интересы не совпали с местами, система должна использовать fallback на близкие категории или нейтральные точки;
-- если radius слишком узкий, candidate retrieval использует расширение радиуса и city-wide fallback;
-- если hard filters удалили всё, debug trace должен показывать причины удаления;
-- frontend отдельно обрабатывает `ready`, `partial_route` и `no_route`.
+### Telegram Bot
 
-## Что уже реализовано
+Код живёт в `telegram_bot/`.
 
-### Инфраструктура
-- поднят FastAPI-проект;
-- подключен PostgreSQL;
-- настроен Alembic для миграций;
-- вынесен конфиг в `core/config.py`;
-- настроены сессии БД и зависимости;
-- Docker Compose запускает backend, frontend, bot и миграции.
+Реализовано:
 
-### Города
-Реализовано API для городов:
-- `GET /cities/`
-- `GET /cities/{city_id}`
-- `GET /cities/by-slug/{slug}`
+- `/start`, выбор города, главное меню;
+- маршруты, карточка маршрута, список точек;
+- route mode внутри Telegram через редактируемые сообщения;
+- места по категориям, карточка места;
+- места рядом через Telegram location;
+- открыто сейчас только с reliable hours;
+- поиск текстом + no-result analytics;
+- избранное;
+- back-stack;
+- short callback ids, чтобы не превышать лимит Telegram 64 байта;
+- soft rate limit;
+- webhook endpoint: `POST /telegram-bot/webhook`;
+- admin analytics: `GET /admin/telegram-bot/analytics`.
 
-Что хранится у города:
-- slug;
-- name;
-- region;
-- country;
-- timezone;
-- center_lat;
-- center_lng;
-- is_active.
+Бот принимает токен из `BOT_TOKEN` или fallback `TELEGRAM_BOT_TOKEN`.
 
-### Категории
-Реализовано API для категорий:
-- `GET /categories/`
-- `GET /categories/{category_id}`
-- `GET /categories/by-code/{code}`
+### Data Quality Gates
 
-Что хранится у категории:
-- code;
-- name;
-- is_active.
+Пользовательские поверхности не должны показывать:
 
-### Места
-Реализован CRUD и публичный каталог мест:
-- `GET /places/`
-- `GET /places/{place_id}`
-- `GET /places/by-slug/{slug}`
-- `POST /places/`
-- `PUT /places/{place_id}`
-- `DELETE /places/{place_id}`
+- `node/way/relation`, `OSM 123`, `Культурное место OSM ...`;
+- service/bank/atm/police/mvd/transport/pharmacy/hospital/military/cemetery/industrial/fuel/parking;
+- low/stale/conflict opening hours в `Открыто сейчас`;
+- generic/placeholder/no-photo images как реальные фото;
+- debug/confidence/source labels.
 
-Поддерживаются фильтры:
-- `city_id`;
-- `city_slug`;
-- `category_id`;
-- комбинированная фильтрация.
+Критичные файлы:
 
-Что хранится у места:
-- city_id;
-- category_id;
-- slug;
-- title;
-- short_description;
-- category;
-- address;
-- lat;
-- lng;
-- price_level;
-- dog_friendly;
-- family_friendly;
-- indoor;
-- outdoor;
-- is_active;
-- route eligibility / visibility flags;
-- quality score / quality tier.
+- `telegram_bot/quality.py`
+- `services/quality_scoring.py`
+- `services/import_pipeline_publication.py`
+- `frontend/src/features/route-navigation/model/qualityGate.ts`
 
-### Data Foundation P1
+## Запуск локально
 
-Добавлены quality scoring и city readiness operations:
-
-- `services/quality_scoring.py` — пересчёт `quality_score`, `quality_tier`, component scores и route eligibility для места.
-- `services/city_readiness/score.py` — пересчёт city readiness и запись `CityQualitySnapshot`.
-- `POST /admin/routes/readiness/{city_slug}/recalculate` — админский пересчёт readiness по городу.
-- `scripts/recalculate_city_readiness.py` — серверный скрипт пересчёта.
-- `docs/data-foundation-p1.md` — полный операционный контракт P1.
-
-Примеры:
+### Backend
 
 ```bash
-python scripts/recalculate_city_readiness.py --city zelenogradsk
-python scripts/recalculate_city_readiness.py --all
-python -m pytest tests/test_data_foundation_quality_readiness.py -q
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+alembic upgrade head
+uvicorn main:app --reload
 ```
 
-## Ближайшие задачи по маршрутам
+### Frontend
 
-- Проверить production deploy после route building fixes.
-- Снять реальный `DEBUG BUILD RESULT` для `/v1/user-routes/build`.
-- Убрать временный hard log после диагностики.
-- Разобрать `debug_trace` реального запроса: retrieval, hard_filters, scoring, assembly, budget_fit, finalize.
-- Расширить `RouteEngine`: добавить `PlannedRouteStrategy` и `RecomputeRouteStrategy` без переписывания текущего instant-пайплайна.
-- Добавить доменные сущности для real-time: `RoutePlan`, `RouteSession`, `Waypoint`, `RouteEvent`.
-- Доработать route planning режим: маршрут не только “сейчас”, но и заранее на дату/время.
-- Доработать real-time режим: старт/пауза/завершение, перестроение от текущей точки, замена следующей точки.
-- Продумать карту и список маршрута: активные точки, закрытые/недоступные точки, описание места во внутреннем фрейме.
+```bash
+cd frontend
+npm ci
+npm run dev
+```
 
-## Запуск через Docker
-
-### Подготовка
-
-Скопируй `.env.example` в `.env` и заполни переменные:
+### Docker production-like
 
 ```bash
 cp .env.example .env
-```
-
-Убедись, что в `.env` указан правильный хост базы данных для Docker:
-
-```env
-DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/city_guide
-```
-
-### Продакшн
-
-Собирает React-приложение, раздаёт статику через nginx, запускает backend и бота.
-
-```bash
 docker compose up --build
 ```
+
+Адреса:
 
 | Сервис | Адрес |
 |---|---|
@@ -255,11 +212,7 @@ docker compose up --build
 | Backend API | http://localhost:8000 |
 | API Docs | http://localhost:8000/docs |
 
-Миграции применяются автоматически при старте.
-
-### Разработка
-
-Backend запускается с `--reload`, фронтенд — через Vite dev server с hot reload.
+### Docker dev
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
@@ -271,19 +224,90 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 | Backend API | http://localhost:8000 |
 | API Docs | http://localhost:8000/docs |
 
-### Полезные команды
+## Проверки перед push
+
+Минимальный targeted набор после backend/frontend изменений:
 
 ```bash
-# Остановить все контейнеры
-docker compose down
-
-# Остановить и удалить данные БД
-docker compose down -v
-
-# Посмотреть логи конкретного сервиса
-docker compose logs -f backend
-docker compose logs -f bot
-
-# Применить миграции вручную
-docker compose run --rm migrate
+.venv/bin/python -m pytest --no-cov -q
+npm --prefix frontend run lint
+npm --prefix frontend run test:ci
+npm --prefix frontend run build
+git diff --check
 ```
+
+Для route navigation:
+
+```bash
+npm --prefix frontend run test -- routeNavigation routeQualityGate
+.venv/bin/python -m pytest --no-cov tests/test_route_detail_navigation_fields_new.py -q
+```
+
+Для import/enrichment pipeline:
+
+```bash
+.venv/bin/python -m pytest --no-cov \
+  tests/test_alembic_single_head_new.py \
+  tests/test_import_pipeline_foundation_new.py \
+  tests/test_import_pipeline_foundation_safety_new.py \
+  tests/test_import_pipeline_api_new.py \
+  tests/test_import_pipeline_review_queue_new.py \
+  tests/test_import_pipeline_photo_safety_new.py -q
+```
+
+Для Telegram bot:
+
+```bash
+.venv/bin/python -m pytest --no-cov \
+  tests/test_telegram_bot_rewrite_new.py \
+  tests/test_telegram_bot_completion_new.py -q
+```
+
+## Deploy
+
+Deploy workflow: `.github/workflows/deploy.yml`.
+
+Запуск:
+
+```bash
+gh workflow run Deploy --ref main
+gh run watch <run_id>
+```
+
+Workflow делает:
+
+1. build backend image;
+2. backend import smoke inside image;
+3. push backend image;
+4. build/push frontend image;
+5. на сервере скачивает актуальный `docker-compose.yml` из `main`;
+6. pull images;
+7. migrations;
+8. production schema guard;
+9. backend health;
+10. frontend health + `/build.json` SHA guard;
+11. restart bot/import-worker;
+12. proxy health.
+
+Production import-smoke внутри уже работающего backend-контейнера намеренно не выполняется: на маленьком сервере это может дать `exit 137` из-за OOM. Import-smoke остаётся на build этапе image.
+
+## Миграции
+
+Правила:
+
+- один Alembic head;
+- при добавлении миграции обновить `tests/test_alembic_single_head_new.py` (`KNOWN_HEAD`, `EXPECTED_COUNT`);
+- новые модели должны быть импортированы в `models/__init__.py` и `migrations/env.py`;
+- production deploy использует `alembic upgrade heads`.
+
+## Документация
+
+Актуальные документы:
+
+- `README.md` — главный вход.
+- `docs/operations/current_system_overview.md` — операционная карта системы.
+- `docs/architecture/import_enrichment_pipeline_stage1.md` — import/enrichment pipeline.
+- `docs/architecture/route_navigation_stage1.md` — route navigation MVP.
+- `docs/data-foundation-p1.md` — Data Foundation P1.
+
+При крупных изменениях нужно обновлять минимум README + соответствующий doc в `docs/architecture` или `docs/operations`.
