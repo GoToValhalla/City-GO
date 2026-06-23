@@ -115,33 +115,56 @@ jobs:
         shell: bash
         run: npm ci
 
-      - name: Run frontend lint, tests and build with report
+      - name: Prepare frontend artifacts
         shell: bash
+        run: mkdir -p ../artifacts/junit ../artifacts/messages
+
+      - name: Frontend lint
+        id: frontend-lint
+        shell: bash
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Frontend tests
+        id: frontend-tests
+        shell: bash
+        continue-on-error: true
+        run: npm run test:ci
+
+      - name: Frontend build
+        id: frontend-build
+        shell: bash
+        continue-on-error: true
+        run: npm run build
+
+      - name: Summarize frontend checks
+        if: always()
+        shell: bash
+        env:
+          LINT_RESULT: ${{ steps.frontend-lint.outcome }}
+          TEST_RESULT: ${{ steps.frontend-tests.outcome }}
+          BUILD_RESULT: ${{ steps.frontend-build.outcome }}
         run: |
           set -euo pipefail
-          mkdir -p ../artifacts/junit ../artifacts/messages
-          set +e
-          npm run lint
-          LINT_EXIT=$?
-          npm run test:ci
-          TEST_EXIT=$?
-          npm run build
-          BUILD_EXIT=$?
-          set -e
-          OVERALL_EXIT=0
-          if [ "$LINT_EXIT" != "0" ] || [ "$TEST_EXIT" != "0" ] || [ "$BUILD_EXIT" != "0" ]; then
-            OVERALL_EXIT=1
+          if [ -f ../artifacts/junit/frontend.xml ]; then
+            python ../scripts/ci_test_summary.py --junit ../artifacts/junit/frontend.xml --output ../artifacts/messages/frontend.txt --job-name "Frontend lint/tests/build" --run-type "Full Autotests" --artifact-hint "frontend-test-artifacts" --exit-code 0
+          else
+            {
+              echo "Frontend lint/tests/build"
+              echo "Vitest JUnit report is unavailable."
+            } > ../artifacts/messages/frontend.txt
           fi
-          python ../scripts/ci_test_summary.py --junit ../artifacts/junit/frontend.xml --output ../artifacts/messages/frontend.txt --job-name "Frontend lint/tests/build" --run-type "Full Autotests" --artifact-hint "frontend-test-artifacts" --exit-code 0
           {
             echo ""
             echo "Stages:"
-            if [ "$LINT_EXIT" = "0" ]; then echo "Lint: PASSED"; else echo "Lint: FAILED"; fi
-            if [ "$TEST_EXIT" = "0" ]; then echo "Vitest: PASSED"; else echo "Vitest: FAILED"; fi
-            if [ "$BUILD_EXIT" = "0" ]; then echo "Build: PASSED"; else echo "Build: FAILED"; fi
+            echo "Lint: ${LINT_RESULT}"
+            echo "Vitest: ${TEST_RESULT}"
+            echo "Build: ${BUILD_RESULT}"
           } >> ../artifacts/messages/frontend.txt
           cat ../artifacts/messages/frontend.txt
-          exit "$OVERALL_EXIT"
+          if [ "${LINT_RESULT}" != "success" ] || [ "${TEST_RESULT}" != "success" ] || [ "${BUILD_RESULT}" != "success" ]; then
+            exit 1
+          fi
 
       - name: Upload frontend test artifacts
         if: always()
