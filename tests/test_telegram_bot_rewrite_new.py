@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from models.place_field_confidence import PlaceFieldConfidence
 from models.route import Route
 from models.route_place import RoutePlace
