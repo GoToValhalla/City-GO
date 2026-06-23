@@ -1,4 +1,6 @@
+from models.city_admin_import_job import CityAdminImportJob
 from models.place_photo_candidate import PlacePhotoCandidate
+from services.import_pipeline_foundation import run_foundation_pipeline
 
 
 def test_import_pipeline_admin_endpoints_new(client, db_session, city_factory, place_factory) -> None:
@@ -13,11 +15,17 @@ def test_import_pipeline_admin_endpoints_new(client, db_session, city_factory, p
     assert run.status_code == 200
     payload = run.json()
     assert payload["city_slug"] == city.slug
-    assert payload["counters"]["found"] == 1
+    assert payload["status"] == "queued"
+    assert payload["counters"] == {}
+
+    job = db_session.query(CityAdminImportJob).filter_by(id=payload["job_id"]).one()
+    assert job.source == "admin_city_import"
+
+    run_foundation_pipeline(db_session, city=city, job=job, actor="qa")
 
     steps = client.get(f"/admin/place-enrichment/jobs/{payload['job_id']}/steps")
     assert steps.status_code == 200
-    assert {item["step_name"] for item in steps.json()} >= {"collect_places", "apply_publication_decisions"}
+    assert {item["step_name"] for item in steps.json()} >= {"collect_places", "enrich_external_sources", "apply_publication_decisions"}
 
     confidence = client.get(f"/admin/place-enrichment/places/{place.id}/confidence")
     assert confidence.status_code == 200
