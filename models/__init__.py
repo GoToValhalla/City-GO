@@ -3,6 +3,8 @@ import models.admin_operation  # noqa: F401
 import models.feature_toggle  # noqa: F401
 import models.product_event  # noqa: F401
 import models.system_log  # noqa: F401
+import models.bot_event  # noqa: F401
+import models.bot_session  # noqa: F401
 import models.category  # noqa: F401
 import models.city  # noqa: F401
 import models.city_start_point  # noqa: F401
