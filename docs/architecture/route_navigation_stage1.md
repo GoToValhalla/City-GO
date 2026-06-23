@@ -1,17 +1,19 @@
 # Route Navigation Stage 1
 
-Stage 1 adds a usable manual route player for public route detail pages and a backend route-session foundation. The current web UI still uses frontend local state, but the backend now has persisted sessions that the next frontend pass can attach to.
+Stage 1 adds a usable route player for public route detail pages and a backend route-session foundation. The current web UI still uses frontend local state, but the backend now has persisted sessions that the next frontend pass can attach to.
 
 ## Scope
 
 Implemented in the public route detail UI:
 
 - Public route detail renders the route navigation player instead of a plain point list.
-- Deterministic SVG/HTML route schematic with numbered points and straight polyline segments.
-- Current point highlighting.
-- Visited point state.
+- Interactive OSM raster-tile map without an extra npm dependency.
+- Route polyline, numbered route markers, current point highlighting, visited point state, and user location marker.
+- Browser geolocation via `navigator.geolocation.watchPosition`.
+- GPS permission/error states and manual fallback when geolocation is denied or unavailable.
+- Distance from the last known user position to the current route point.
 - Manual state machine: `not_started`, `active`, `completed`.
-- Controls: `Начать маршрут`, `Я на месте`, `Следующая`, `Завершить`, `Пройти заново`.
+- Controls: `Начать маршрут`, `Я на месте`, `Следующая`, `Обновить GPS`, `Открыть навигатор`, `Завершить`, `Пройти заново`.
 - Persistence in `localStorage` by route id.
 - Frontend quality gates before points are allowed into navigation.
 - Backend route detail exposes read-only point fields needed by the player.
@@ -27,12 +29,11 @@ Implemented in backend session foundation:
 Not implemented yet:
 
 - Frontend connection to backend route sessions.
-- MapLibre renderer.
-- GPS/current user location.
 - OSRM/walking geometry.
 - Off-route detection.
 - Voice guidance.
 - Offline route package.
+- Dedicated MapLibre/vector-tile renderer. Current implementation uses OSM raster tiles as the browser-native MVP map.
 
 ## Files
 
@@ -43,6 +44,8 @@ frontend/src/features/route-navigation/model/types.ts
 frontend/src/features/route-navigation/model/state.ts
 frontend/src/features/route-navigation/model/storage.ts
 frontend/src/features/route-navigation/model/qualityGate.ts
+frontend/src/features/route-navigation/model/geo.ts
+frontend/src/features/route-navigation/model/useRouteGeolocation.ts
 ```
 
 Frontend widgets:
@@ -185,6 +188,22 @@ Persisted frontend state remains intentionally lightweight until the UI is conne
 
 If stored state is incompatible with the current route points, the frontend should degrade safely instead of blocking the route page.
 
+## Map and Geolocation
+
+The current frontend map uses OSM raster tiles rendered inside the route player. It supports:
+
+- route-fit camera;
+- manual pan;
+- zoom in/out;
+- recenter to route;
+- recenter/request user location;
+- route polyline overlay;
+- route point markers;
+- current user marker with accuracy circle;
+- distance calculation to the active route point through Haversine.
+
+Geolocation is requested only from explicit user actions: starting the route, pressing `Я на карте`, or pressing `Обновить GPS`. If the browser denies or cannot provide GPS, the player remains usable in manual mode.
+
 ## Quality Gate
 
 Frontend and backend session creation both filter navigation points.
@@ -205,7 +224,8 @@ If fewer than two valid points remain, route start is disabled in UI and backend
 - Route page must remain useful even if navigation cannot start.
 - Start button must be disabled with a clear reason when quality gate fails.
 - User can always reset and walk again.
-- The schematic is a temporary renderer; do not add complex map-specific behavior to it. Put map behavior into MapLibre components.
+- The route player must not show a fake schematic when coordinates are available; it should render the map layer, route line, route markers, and GPS state.
+- Geolocation failure must degrade to manual navigation, not block route progress.
 
 ## Verification
 
@@ -218,27 +238,12 @@ npm --prefix frontend run test -- routeNavigation routeQualityGate
 Targeted backend tests:
 
 ```bash
-.venv/bin/python -m pytest --no-cov \
-  tests/test_route_detail_navigation_fields_new.py \
-  tests/test_route_sessions_new.py \
-  tests/test_alembic_single_head_new.py -q
+.venv/bin/python -m pytest --no-cov tests/test_route_detail_navigation_fields_new.py tests/test_route_sessions_new.py -q
 ```
 
-Full frontend guard:
+Frontend build checks:
 
 ```bash
 npm --prefix frontend run lint
-npm --prefix frontend run test:ci
 npm --prefix frontend run build
 ```
-
-## Next Work
-
-- Connect web route player to backend route sessions.
-- Replace SVG renderer internals with MapLibre.
-- Add optional GPS current position.
-- Add user location marker and recenter control.
-- Add route camera modes: overview, follow user, point focus, free pan.
-- Add OSRM/polyline walking geometry with straight-line fallback.
-- Add off-route detection and recovery CTA.
-- Add offline/text-only route fallback.
