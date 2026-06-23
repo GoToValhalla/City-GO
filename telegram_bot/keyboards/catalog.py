@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from models.bot_session import BotSession
 from telegram_bot.callbacks import cb
@@ -124,11 +124,14 @@ def back_to_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))]])
 
 
-def request_location() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📍 Поделиться геолокацией", request_location=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True,
+def request_location() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👀 Что посмотреть", callback_data=cb("p", "cat", "sights", 0))],
+            [InlineKeyboardButton(text="☕ Еда и кофе", callback_data=cb("p", "cat", "food", 0))],
+            [InlineKeyboardButton(text="📍 Все места города", callback_data=cb("p", "cat", "all", 0))],
+            [InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))],
+        ]
     )
 
 
