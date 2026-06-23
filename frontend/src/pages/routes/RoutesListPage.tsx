@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { getRoutesByCity } from '../../api/routes/routes.api'
 import type { Route } from '../../api/routes/routes.api'
 import { AppHeader } from '../../components/ui/AppHeader'
@@ -22,11 +22,13 @@ const filterOptions: Array<{ value: RouteFilterMode; label: string }> = [
 ]
 
 export const RoutesListPage = () => {
+  const navigate = useNavigate()
   const [city, setCity] = useState<CityOption>(getCurrentCity())
   const [routes, setRoutes] = useState<Route[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filterMode, setFilterMode] = useState<RouteFilterMode>('all')
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     const syncCity = () => {
@@ -53,16 +55,12 @@ export const RoutesListPage = () => {
     }
 
     void loadRoutes()
-  }, [city.slug])
+  }, [city.slug, reloadKey])
 
   const filteredRoutes = useMemo(() => {
     if (filterMode === 'all') return routes
     return routes.filter((route) => route.route_mode === filterMode)
   }, [routes, filterMode])
-
-  const retry = () => {
-    setCity(getCurrentCity())
-  }
 
   return (
     <div className="app-screen">
@@ -106,7 +104,7 @@ export const RoutesListPage = () => {
 
         {error && !loading ? (
           <section className="route-state">
-            <ErrorState title="Маршруты не загрузились" description={error} onRetry={retry} />
+            <ErrorState title="Маршруты не загрузились" description={error} onRetry={() => setReloadKey((value) => value + 1)} />
           </section>
         ) : null}
 
@@ -143,7 +141,7 @@ export const RoutesListPage = () => {
               title="Маршруты не найдены"
               description="Попробуйте другой фильтр или соберите маршрут под себя."
               actionLabel="Собрать маршрут"
-              onAction={() => { window.location.href = '/routes/generate' }}
+              onAction={() => navigate('/routes/generate')}
             />
           </section>
         ) : null}
