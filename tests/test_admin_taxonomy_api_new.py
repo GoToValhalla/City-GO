@@ -35,7 +35,7 @@ def test_admin_taxonomy_categories_include_catalog_and_observed(client, db_sessi
     assert categories["viewpoint"]["observed_count"] == 1
     assert categories["transport"]["is_observed"] is True
     assert categories["transport"]["observed_count"] == 1
-    assert categories["coffee"]["label"] == "Кофе"
+    assert categories["coffee"]["label"] == "Кофейня"
 
 
 @allure.epic("Admin Platform")
