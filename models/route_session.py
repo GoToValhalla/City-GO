@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -46,8 +46,8 @@ class RouteSessionPoint(Base):
     place_id: Mapped[int] = mapped_column(ForeignKey("places.id"), nullable=False, index=True)
     ordering_index: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    lat: Mapped[float | None] = mapped_column(nullable=True)
-    lng: Mapped[float | None] = mapped_column(nullable=True)
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lng: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_visited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     is_skipped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     visited_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
