@@ -128,7 +128,7 @@ def place_card(place: BotPlace, session: BotSession) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="🗺 На карте", url=_map_url(place.lat, place.lng))])
     rows.append([InlineKeyboardButton(text=favorite_text, callback_data=favorite_callback)])
     if place.category:
-        rows.append([InlineKeyboardButton(text="🔁 Похожие места", callback_data=cb("p", "cat", place.category, 0))])
+        rows.append([InlineKeyboardButton(text="🔍 Похожие", callback_data=cb("p", "cat", place.category, 0))])
     rows.append([InlineKeyboardButton(text="← Назад", callback_data="back"), InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
