@@ -38,6 +38,7 @@ import models.route  # noqa: F401
 import models.route_build_event  # noqa: F401
 import models.route_draft  # noqa: F401
 import models.route_place  # noqa: F401
+import models.route_session  # noqa: F401
 import models.review_queue_item  # noqa: F401
 import models.source_observation  # noqa: F401
 import models.tag  # noqa: F401
