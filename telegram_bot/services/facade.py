@@ -315,7 +315,15 @@ class BotFacade:
                     lng=place.lng,
                 )
             )
-        return BotRoute(row.id, row.title, row.short_description, row.duration_minutes, row.distance_km, points)
+        return BotRoute(
+            id=row.id,
+            title=row.title,
+            short_description=row.short_description,
+            duration_minutes=row.duration_minutes,
+            distance_km=row.distance_km,
+            points=points,
+            slug=row.slug,
+        )
 
     def _place(self, row: Place, distance_m: int | None = None, hours_override: str | None = None) -> BotPlace:
         confidence = self._field_confidence(row.id, "opening_hours")
@@ -332,6 +340,7 @@ class BotFacade:
             lat=row.lat,
             lng=row.lng,
             distance_m=distance_m,
+            slug=row.slug,
         )
 
     def _field_confidence(self, place_id: int, field_name: str) -> PlaceFieldConfidence | None:
