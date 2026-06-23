@@ -3,42 +3,48 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
 .discovery-stats span,
 .discovery-card-action {
   padding: 8px 12px;
-  color: var(--ink);
-  background: var(--pearl);
-  border: 1px solid var(--line);
-  border-radius: 999px;
+  color: var(--cg-text-main);
+  background: var(--cg-bg-elevated);
+  border: 1px solid var(--cg-border-soft);
+  border-radius: var(--cg-radius-pill);
   font-size: 13px;
   font-weight: 700;
 }
+
 .discovery-card-wrap {
   display: grid;
   gap: 10px;
 }
+
 .discovery-card-action {
   width: fit-content;
-  color: var(--blue);
+  color: var(--cg-primary-hover);
   text-decoration: none;
 }
+
 .nearby-controls {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
 }
+
 .nearby-controls button {
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
-  color: var(--ink);
-  background: var(--canvas);
-  border: 1px solid var(--line);
-  border-radius: 999px;
+  color: var(--cg-text-main);
+  background: var(--cg-bg-card);
+  border: 1px solid var(--cg-border-soft);
+  border-radius: var(--cg-radius-pill);
   cursor: pointer;
   font-weight: 700;
 }
+
 .nearby-controls .is-active {
-  color: var(--blue);
-  background: var(--blue-soft);
-  border-color: rgba(0, 102, 204, .22);
+  color: var(--cg-primary-hover);
+  background: var(--cg-primary-soft);
+  border-color: rgba(124, 77, 255, 0.36);
 }
