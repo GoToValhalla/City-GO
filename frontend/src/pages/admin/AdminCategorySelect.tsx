@@ -13,7 +13,8 @@ type Props = {
 
 const fallbackCategories: AdminTaxonomyCategory[] = [
   'attraction', 'museum', 'park', 'walk', 'coffee', 'food', 'bar', 'beach',
-  'culture', 'viewpoint', 'transport', 'useful', 'health',
+  'shopping_mall', 'pharmacy', 'clinic', 'hospital', 'healthcare', 'bank', 'atm',
+  'transport', 'bus_stop', 'parking', 'police', 'toilets', 'information', 'service',
 ].map((code) => ({
   code,
   label: categoryText(code),
