@@ -13,12 +13,17 @@ export const AdminPipelineEnrichmentPanel = ({ form }: Props) => {
   const [steps, setSteps] = useState<ImportJobStep[]>([])
   const [review, setReview] = useState<ReviewQueueItem[]>([])
   const [reviewLoading, setReviewLoading] = useState(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
+  const [resolvingId, setResolvingId] = useState<number | null>(null)
 
   const loadReview = async () => {
     if (!form.citySlug) return
     setReviewLoading(true)
+    setReviewError(null)
     try {
       setReview(await adminGet<ReviewQueueItem[]>(`/admin/place-enrichment/review-queue?city_slug=${form.citySlug}`))
+    } catch (e) {
+      setReviewError(e instanceof Error ? e.message : 'Не удалось загрузить очередь проверки')
     } finally {
       setReviewLoading(false)
     }
@@ -41,8 +46,16 @@ export const AdminPipelineEnrichmentPanel = ({ form }: Props) => {
   }
 
   const resolveItem = async (id: number) => {
-    await adminPost<ReviewQueueItem>(`/admin/place-enrichment/review-queue/${id}/resolve`, { resolution: 'resolved_in_admin' })
-    await loadReview()
+    setResolvingId(id)
+    setReviewError(null)
+    try {
+      await adminPost<ReviewQueueItem>(`/admin/place-enrichment/review-queue/${id}/resolve`, { resolution: 'resolved_in_admin' })
+      await loadReview()
+    } catch (e) {
+      setReviewError(e instanceof Error ? e.message : 'Не удалось закрыть задачу проверки')
+    } finally {
+      setResolvingId(null)
+    }
   }
 
   return (
@@ -60,7 +73,8 @@ export const AdminPipelineEnrichmentPanel = ({ form }: Props) => {
       {error && <div className="admin-state admin-state-error">{error}</div>}
       {running && <div className="admin-state">Загрузка шагов и счётчиков...</div>}
       {result && <PipelineSummary result={result} steps={steps} />}
-      {reviewLoading ? <div className="admin-state">Загрузка очереди проверки...</div> : <ReviewQueue items={review} onResolve={(id) => void resolveItem(id)} />}
+      {reviewError && <div className="admin-state admin-state-error">{reviewError}</div>}
+      {reviewLoading ? <div className="admin-state">Загрузка очереди проверки...</div> : <ReviewQueue items={review} resolvingId={resolvingId} onResolve={(id) => void resolveItem(id)} />}
     </section>
   )
 }
@@ -75,9 +89,9 @@ const PipelineSummary = ({ result, steps }: { result: PipelineRunResponse; steps
   </div>
 )
 
-const ReviewQueue = ({ items, onResolve }: { items: ReviewQueueItem[]; onResolve: (id: number) => void }) => {
+const ReviewQueue = ({ items, resolvingId, onResolve }: { items: ReviewQueueItem[]; resolvingId: number | null; onResolve: (id: number) => void }) => {
   if (!items.length) return <div className="admin-state">Открытых задач проверки нет</div>
   return <table className="admin-table" style={{ marginTop: 12 }}><thead><tr><th>Место</th><th>Поле</th><th>Причина</th><th /></tr></thead><tbody>
-    {items.map(i => <tr key={i.id}><td>{i.place_id}</td><td>{fieldLabel(i.field_name)}</td><td>{reasonLabel(i.reason)}</td><td><button className="admin-btn admin-btn-sm" onClick={() => onResolve(i.id)}>Закрыть</button></td></tr>)}
+    {items.map(i => <tr key={i.id}><td>{i.place_id}</td><td>{fieldLabel(i.field_name)}</td><td>{reasonLabel(i.reason)}</td><td><button className="admin-btn admin-btn-sm" disabled={resolvingId === i.id} onClick={() => onResolve(i.id)}>{resolvingId === i.id ? 'Закрываем...' : 'Закрыть'}</button></td></tr>)}
   </tbody></table>
 }
