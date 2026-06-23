@@ -409,14 +409,14 @@ async def _handle_place(callback: CallbackQuery, db: Session, session, facade: B
 
 
 async def _handle_nearby(callback: CallbackQuery, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
-    if action == "ask" or not session.last_location:
-        await callback.message.answer(renderers.nearby_request_text(), reply_markup=kb.request_location()) if callback.message else None
-        return
     if not session.selected_city_slug:
         await _show_city_select_callback(callback, facade)
         return
+    if not session.last_location:
+        await callback.message.answer(renderers.nearby_request_text(), reply_markup=kb.request_location()) if callback.message else None
+        return
     location = session.last_location
-    category = parts[0] if parts else "all"
+    category = "all" if action == "ask" else (parts[0] if parts else "all")
     places = facade.nearby_places(session.selected_city_slug, float(location["lat"]), float(location["lng"]), category)
     page = type("PageLike", (), {"items": places, "page": 0, "has_next": False})()
     title = "📍 Рядом с тобой" if category == "all" else f"📍 Рядом: {CATEGORY_TITLES.get(category, category)}"
