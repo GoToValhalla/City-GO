@@ -66,7 +66,7 @@ def _photo_candidate(db: Session, place: Place) -> None:
     add_photo_candidate(db, place_id=place.id, image_url=place.image_url, source_type=source, match_type=match, confidence=0.4 if match != "exact" else 0.8)
 
 
-def _confidence(db: Session, place: Place, job_id: int) -> None:
+def _confidence(db: Session, place: Place, job_id: int | None) -> None:
     fields = {
         "title": place.title,
         "coordinates": [place.lat, place.lng],
@@ -81,7 +81,7 @@ def _confidence(db: Session, place: Place, job_id: int) -> None:
     tuple(_confidence_field(db, place, job_id, field, value) for field, value in fields.items())
 
 
-def _confidence_field(db: Session, place: Place, job_id: int, field: str, value: object) -> None:
+def _confidence_field(db: Session, place: Place, job_id: int | None, field: str, value: object) -> None:
     existing = _field_row(db, place.id, field)
     if existing is not None and existing.source_type in ENRICHMENT_CONFIDENCE_SOURCES and value not in (None, "", [], {}):
         return
