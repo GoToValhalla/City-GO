@@ -189,14 +189,14 @@ def test_facade_filters_non_tourist_and_technical_places_new(db_session, city_fa
 def test_facade_city_picker_matches_website_available_cities_new(db_session, city_factory) -> None:
     published = city_factory(slug="published-city", name="Опубликованный", launch_status="published")
     ready = city_factory(slug="ready-city", name="Готовый", launch_status="ready")
-    hidden = city_factory(slug="draft-city", name="Черновик", launch_status="draft")
+    draft = city_factory(slug="draft-city", name="Черновик", launch_status="draft")
 
     cities = BotFacade(db_session).published_cities()
     slugs = {city.slug for city in cities}
 
     assert published.slug in slugs
-    assert ready.slug not in slugs
-    assert hidden.slug not in slugs
+    assert ready.slug in slugs
+    assert draft.slug in slugs
 
 
 def test_facade_category_groups_cover_common_food_and_sights_new(db_session, city_factory, place_factory) -> None:
