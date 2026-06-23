@@ -1,5 +1,5 @@
 export type AddressPlace = {
-  address: string
+  address: string | null
   category: string
   lat?: number | null
   lng?: number | null
