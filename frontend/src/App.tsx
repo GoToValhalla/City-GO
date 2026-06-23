@@ -8,6 +8,7 @@ import './styles/visuals.css'
 import './styles/actions.css'
 import './styles/place-ui.css'
 import './styles/place-ui-skeleton.css'
+import './styles/telegram-mini-app.css'
 import { HomePage } from './pages/home/HomePage'
 import { NearbyPage } from './pages/nearby/NearbyPage'
 import { OpenNowPage } from './pages/open-now/OpenNowPage'
@@ -17,6 +18,7 @@ import { GenerateRoutePage } from './pages/routes/GenerateRoutePage'
 import { RouteDetailPage } from './pages/routes/RouteDetailPage'
 import { RoutesListPage } from './pages/routes/RoutesListPage'
 import { WalkRoutePage } from './pages/routes/WalkRoutePage'
+import { TelegramMapPage } from './pages/telegram/TelegramMapPage'
 import { AdminLoginPage } from './pages/admin/AdminLoginPage'
 import { AdminRouteGuard } from './pages/admin/AdminRouteGuard'
 import { AdminLayout } from './pages/admin/AdminLayout'
@@ -60,6 +62,7 @@ function App() {
         <Route path="/routes/generate" element={<GenerateRoutePage />} />
         <Route path="/routes/:slug" element={<RouteDetailPage />} />
         <Route path="/walk-route" element={<WalkRoutePage />} />
+        <Route path="/telegram/map" element={<TelegramMapPage />} />
 
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
