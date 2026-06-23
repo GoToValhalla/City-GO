@@ -58,6 +58,16 @@ def list_field_confidence(db: Session, place_id: int) -> list[PlaceFieldConfiden
 
 
 def _get(db: Session, place_id: int, field_name: str) -> PlaceFieldConfidence | None:
+    # Test and batch sessions can disable autoflush. Reuse a matching pending row
+    # before querying the database, otherwise two pipeline steps can insert the
+    # same unique (place_id, field_name) pair in one transaction.
+    for pending in db.new:
+        if (
+            isinstance(pending, PlaceFieldConfidence)
+            and pending.place_id == place_id
+            and pending.field_name == field_name
+        ):
+            return pending
     return (
         db.query(PlaceFieldConfidence)
         .filter(PlaceFieldConfidence.place_id == place_id, PlaceFieldConfidence.field_name == field_name)
