@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:ci": "vitest run --reporter=default --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=5000"
+    "test:ci": "vitest run --reporter=default --pool=forks --fileParallelism=false --testTimeout=10000 --hookTimeout=10000 --teardownTimeout=5000"
   },
   "dependencies": {
     "lucide-react": "^1.0.1",
