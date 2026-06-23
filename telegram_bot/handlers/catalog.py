@@ -6,7 +6,7 @@ from typing import Awaitable, Callable
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
@@ -14,7 +14,7 @@ from telegram_bot import renderers
 from telegram_bot.analytics import log_event
 from telegram_bot.callbacks import parse_callback
 from telegram_bot.keyboards import catalog as kb
-from telegram_bot.schemas import BotCity, BotPlace, BotRoute
+from telegram_bot.schemas import BotPlace, BotRoute
 from telegram_bot.services.facade import BotFacade
 from telegram_bot.session import (
     get_or_create_session,
@@ -47,14 +47,11 @@ async def cmd_help(message: Message) -> None:
 
 @router.message(F.location)
 async def location_message(message: Message) -> None:
-    async def action(db: Session, session, facade: BotFacade) -> None:
+    async def action(db: Session, session, facade: BotFacade, _message: Message) -> None:
         if not message.location:
             await message.answer("Не удалось получить геолокацию.", reply_markup=kb.back_to_menu())
             return
-        session.last_location = {
-            "lat": message.location.latitude,
-            "lng": message.location.longitude,
-        }
+        session.last_location = {"lat": message.location.latitude, "lng": message.location.longitude}
         save_session(db, session)
         if not session.selected_city_slug:
             await _show_city_select_message(message, facade)
@@ -73,7 +70,8 @@ async def location_message(message: Message) -> None:
 @router.message()
 async def text_message(message: Message) -> None:
     text = (message.text or "").strip()
-    async def action(db: Session, session, facade: BotFacade) -> None:
+
+    async def action(db: Session, session, facade: BotFacade, _message: Message) -> None:
         if not text:
             await message.answer("Отправь текстовый запрос или выбери действие в меню.", reply_markup=kb.back_to_menu())
             return
@@ -93,9 +91,10 @@ async def text_message(message: Message) -> None:
             log_event(db, session, "search_no_results", payload={"query": text})
             await message.answer(renderers.no_results_text(text), reply_markup=kb.back_to_menu())
             return
+        one_page = type("PageLike", (), {"items": page.items, "page": page.page, "has_next": False})()
         await message.answer(
             renderers.places_list_text(f"🔎 Поиск: {text}", page.items, page.page),
-            reply_markup=kb.places_page(page, session, "p", "src", text),
+            reply_markup=kb.places_page(one_page, session, "p", "src", "q"),
         )
 
     await _with_session(message, action)
@@ -106,6 +105,7 @@ async def callback_handler(callback: CallbackQuery) -> None:
     if callback.message is None:
         await callback.answer()
         return
+
     async def action(db: Session, session, facade: BotFacade) -> None:
         data = str(callback.data or "")
         parsed = parse_callback(data)
@@ -292,12 +292,6 @@ async def _handle_place(callback: CallbackQuery, db: Session, session, facade: B
         page = facade.places_by_category(session.selected_city_slug, category, page_no)
         title = "☕ Еда и кофе" if category == "food" else "👀 Что посмотреть"
         await _edit_or_answer(callback, renderers.places_list_text(title, page.items, page.page), reply_markup=kb.places_page(page, session, "p", "cat", category))
-        return
-    if action == "src" and len(parts) >= 2:
-        query = parts[0]
-        page_no = _int(parts[1])
-        page = facade.search_places(session.selected_city_slug, query, page_no)
-        await _edit_or_answer(callback, renderers.places_list_text(f"🔎 Поиск: {query}", page.items, page.page), reply_markup=kb.places_page(page, session, "p", "src", query))
         return
     if action == "view" and parts:
         place_id = resolve_short_id(session, parts[0])
