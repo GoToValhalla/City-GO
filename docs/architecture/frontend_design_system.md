@@ -38,7 +38,7 @@
 
 ## Place UI migration
 
-Стили Place UI лежат в `frontend/src/styles/place-ui.css`.
+Стили Place UI лежат в `frontend/src/styles/place-ui.css`. Форма skeleton-карточек для списка мест вынесена в `frontend/src/styles/place-ui-skeleton.css`.
 
 Доменные компоненты мест лежат в `frontend/src/components/places`.
 
