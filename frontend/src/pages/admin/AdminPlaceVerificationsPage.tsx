@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
 import { VERIFY_STATUS_OPTIONS } from './adminPlacesPresets'
 import { AdminCategorySelect } from './AdminCategorySelect'
@@ -9,6 +9,7 @@ import type { AdminCitiesResponse, AdminVerificationQueue, AdminVerificationSumm
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 
 const PAGE_SIZES = [20, 50, 100]
+const DEFAULT_PAGE_SIZE = 50
 
 const verifyActionLabel = (action: string) => action === 'exists' ? 'Подтвердить место' : 'Исключить как не найденное'
 const verifyActionHint = (action: string) => action === 'exists'
@@ -16,54 +17,93 @@ const verifyActionHint = (action: string) => action === 'exists'
   : 'Место помечается как не найденное. Используйте, если объект не удалось подтвердить.'
 const confidenceText = (value: number) => value <= 1 ? `${Math.round(value * 100)}%` : `${Math.round(value)}%`
 
+const pageSizeFromQuery = (value: string | null) => {
+  const parsed = Number(value)
+  return PAGE_SIZES.includes(parsed) ? parsed : DEFAULT_PAGE_SIZE
+}
+
+const offsetFromQuery = (value: string | null) => {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0
+}
+
 export const AdminPlaceVerificationsPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const citySlug = searchParams.get('city') ?? ''
+  const status = searchParams.get('status') ?? ''
+  const category = searchParams.get('category') ?? ''
+  const limit = pageSizeFromQuery(searchParams.get('limit'))
+  const offset = offsetFromQuery(searchParams.get('offset'))
+
   const [tasks, setTasks] = useState<AdminVerificationTask[]>([])
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState<AdminVerificationSummary | null>(null)
   const [cities, setCities] = useState<AdminCitiesResponse['items']>([])
-  const [citySlug, setCitySlug] = useState('')
-  const [status, setStatus] = useState('')
-  const [category, setCategory] = useState('')
-  const [limit, setLimit] = useState(50)
-  const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<number | null>(null)
+  const requestSequence = useRef(0)
 
-  const load = useCallback(() => {
-    setLoading(true)
+  const updateFilters = useCallback((changes: Record<string, string | number | null>) => {
+    const next = new URLSearchParams(searchParams)
+    Object.entries(changes).forEach(([key, value]) => {
+      const normalized = value === null ? '' : String(value)
+      const isDefault = (key === 'limit' && normalized === String(DEFAULT_PAGE_SIZE)) || (key === 'offset' && normalized === '0')
+      if (!normalized || isDefault) next.delete(key)
+      else next.set(key, normalized)
+    })
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
+  const load = useCallback(async (showLoading = true) => {
+    const requestId = ++requestSequence.current
+    if (showLoading) setLoading(true)
     setError(null)
     const q = new URLSearchParams({ limit: String(limit), offset: String(offset) })
     if (citySlug) q.set('city_slug', citySlug)
     if (status) q.set('status', status)
     if (category) q.set('category', category)
-    Promise.all([
-      adminGet<AdminVerificationQueue>(`/admin/place-verifications/queue?${q}`),
-      adminGet<AdminVerificationSummary>('/admin/place-verifications/summary'),
-      adminGet<AdminCitiesResponse>('/admin/cities?limit=100'),
-    ])
-      .then(([queue, s, c]) => {
-        setTasks(queue.items)
-        setTotal(queue.total)
-        setStats(s)
-        setCities(c.items)
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false))
+
+    try {
+      const [queue, summary, cityResponse] = await Promise.all([
+        adminGet<AdminVerificationQueue>(`/admin/place-verifications/queue?${q}`),
+        adminGet<AdminVerificationSummary>('/admin/place-verifications/summary'),
+        adminGet<AdminCitiesResponse>('/admin/cities?limit=100'),
+      ])
+      if (requestId !== requestSequence.current) return
+      setTasks(queue.items)
+      setTotal(queue.total)
+      setStats(summary)
+      setCities(cityResponse.items)
+    } catch (e) {
+      if (requestId === requestSequence.current) {
+        setError(e instanceof Error ? e.message : 'Не удалось загрузить очередь проверки')
+      }
+    } finally {
+      if (requestId === requestSequence.current) setLoading(false)
+    }
   }, [citySlug, status, category, limit, offset])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    void load()
+    return () => { requestSequence.current += 1 }
+  }, [load])
 
   const verify = async (placeId: number, action: string) => {
     const label = verifyActionLabel(action)
     if (!window.confirm(`${label} для места #${placeId}? ${verifyActionHint(action)}`)) return
     setBusy(placeId)
+    setError(null)
     try {
       await adminPost(`/admin/place-verifications/places/${placeId}/verify`, { action })
-      load()
+      setTasks((current) => current.filter((task) => task.place_id !== placeId))
+      setTotal((current) => Math.max(0, current - 1))
+      await load(false)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка')
-    } finally { setBusy(null) }
+      setError(e instanceof Error ? e.message : 'Не удалось сохранить результат проверки')
+    } finally {
+      setBusy(null)
+    }
   }
 
   const page = Math.floor(offset / limit) + 1
@@ -84,16 +124,21 @@ export const AdminPlaceVerificationsPage = () => {
       <section className="admin-filter-card">
         <div className="admin-help-title">Фильтры проверки</div>
         <div className="admin-filters">
-          <select value={citySlug} onChange={(e) => { setCitySlug(e.target.value); setOffset(0) }}>
+          <select aria-label="Город" value={citySlug} onChange={(e) => updateFilters({ city: e.target.value, offset: 0 })}>
             <option value="">Все города</option>
-            {cities.map((c) => <option key={c.id} value={c.slug}>{c.name}</option>)}
+            {cities.map((city) => <option key={city.id} value={city.slug}>{city.name}</option>)}
           </select>
-          <select value={status} onChange={(e) => { setStatus(e.target.value); setOffset(0) }}>
-            {VERIFY_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          <select aria-label="Статус проверки" value={status} onChange={(e) => updateFilters({ status: e.target.value, offset: 0 })}>
+            {VERIFY_STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
-          <AdminCategorySelect value={category} onChange={(value) => { setCategory(value); setOffset(0) }} includeAll />
-          <select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setOffset(0) }}>
-            {PAGE_SIZES.map((n) => <option key={n} value={n}>{n} на страницу</option>)}
+          <AdminCategorySelect
+            value={category}
+            citySlug={citySlug || undefined}
+            onChange={(value) => updateFilters({ category: value, offset: 0 })}
+            includeAll
+          />
+          <select aria-label="Размер страницы" value={limit} onChange={(e) => updateFilters({ limit: Number(e.target.value), offset: 0 })}>
+            {PAGE_SIZES.map((size) => <option key={size} value={size}>{size} на страницу</option>)}
           </select>
         </div>
       </section>
@@ -106,17 +151,17 @@ export const AdminPlaceVerificationsPage = () => {
             <table className="admin-table">
               <thead><tr><th>Место</th><th>Город</th><th>Категория</th><th>Адрес</th><th>Статус</th><th>Уверенность</th><th>Действия</th></tr></thead>
               <tbody>
-                {tasks.map((t) => (
-                  <tr key={t.place_id}>
-                    <td><Link to={`/admin/places/${t.place_id}`}>{t.title}</Link></td>
-                    <td>{t.city_slug ?? '—'}</td>
-                    <td>{categoryText(t.category)}</td>
-                    <td>{t.address ?? '—'}</td>
-                    <td>{verificationStatusText(t.verification_status)}</td>
-                    <td>{confidenceText(t.existence_confidence_score)}</td>
+                {tasks.map((task) => (
+                  <tr key={task.place_id}>
+                    <td><Link to={`/admin/places/${task.place_id}`}>{task.title}</Link></td>
+                    <td>{task.city_slug ?? '—'}</td>
+                    <td>{categoryText(task.category)}</td>
+                    <td>{task.address ?? '—'}</td>
+                    <td>{verificationStatusText(task.verification_status)}</td>
+                    <td>{confidenceText(task.existence_confidence_score)}</td>
                     <td>
-                      <button type="button" disabled={busy === t.place_id} title={verifyActionHint('exists')} onClick={() => verify(t.place_id, 'exists')} className="admin-btn admin-btn-ok admin-btn-sm">Подтвердить место</button>
-                      <button type="button" disabled={busy === t.place_id} title={verifyActionHint('not_found')} onClick={() => verify(t.place_id, 'not_found')} className="admin-btn admin-btn-danger admin-btn-sm">Исключить</button>
+                      <button type="button" disabled={busy === task.place_id} title={verifyActionHint('exists')} onClick={() => verify(task.place_id, 'exists')} className="admin-btn admin-btn-ok admin-btn-sm">Подтвердить место</button>
+                      <button type="button" disabled={busy === task.place_id} title={verifyActionHint('not_found')} onClick={() => verify(task.place_id, 'not_found')} className="admin-btn admin-btn-danger admin-btn-sm">Исключить</button>
                     </td>
                   </tr>
                 ))}
@@ -124,9 +169,9 @@ export const AdminPlaceVerificationsPage = () => {
             </table>
           </div>
           <div className="admin-actions-cell">
-            <button type="button" className="admin-btn admin-btn-sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}>Назад</button>
+            <button type="button" className="admin-btn admin-btn-sm" disabled={offset === 0} onClick={() => updateFilters({ offset: Math.max(0, offset - limit) })}>Назад</button>
             <span className="admin-muted">Стр. {page} / {pages} · всего {total}</span>
-            <button type="button" className="admin-btn admin-btn-sm" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>Вперёд</button>
+            <button type="button" className="admin-btn admin-btn-sm" disabled={offset + limit >= total} onClick={() => updateFilters({ offset: offset + limit })}>Вперёд</button>
           </div>
         </>
       )}
