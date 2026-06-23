@@ -34,6 +34,10 @@ export const RandomRouteDraftEditor = ({ citySlug, features = [] }: Props) => {
     () => getUnsupportedInterestLabels(selected, features),
     [features, selected],
   )
+  const categoryNameByCode = useMemo(
+    () => new Map(categories.map((item) => [item.code, item.name])),
+    [categories],
+  )
 
   useEffect(() => {
     loadCategories().then((items) => {
@@ -78,15 +82,20 @@ export const RandomRouteDraftEditor = ({ citySlug, features = [] }: Props) => {
   const run = async (operation: () => Promise<void>) => {
     setBusy(true)
     setError(null)
-    try { await operation() } catch { setError('Не удалось обновить random route draft.') } finally { setBusy(false) }
+    try { await operation() } catch { setError('Не удалось обновить маршрут. Попробуйте еще раз.') } finally { setBusy(false) }
+  }
+
+  const categoryLabel = (category: string | null | undefined) => {
+    if (!category) return 'место'
+    return categoryNameByCode.get(category) ?? category
   }
 
   return (
     <section className="route-config-tile route-draft-editor">
       <header className="route-draft-head">
         <div>
-          <p className="route-eyebrow">Random Route MVP</p>
-          <h2>Случайный маршрут с быстрым редактированием</h2>
+          <p className="route-eyebrow">Быстрая прогулка</p>
+          <h2>Собрать маршрут с быстрым редактированием</h2>
         </div>
         <button type="button" className="route-primary-btn" disabled={busy} onClick={build}>{busy ? 'Собираем...' : 'Случайный маршрут'}</button>
       </header>
@@ -102,11 +111,11 @@ export const RandomRouteDraftEditor = ({ citySlug, features = [] }: Props) => {
       {error && <p className="route-error-inline">{error}</p>}
       {draft && (
         <div className="route-draft-result">
-          <p><strong>{draft.route_status}</strong> · {draft.total_minutes}/{draft.budget_minutes} мин · mode {draft.category_mode}</p>
-          {draft.warnings.map((item) => <p key={item.code} className="route-warning-inline">{item.code}: {item.message}</p>)}
+          <p><strong>{routeStatusLabel(draft.route_status)}</strong> · {draft.total_minutes}/{draft.budget_minutes} мин</p>
+          {draft.warnings.map((item) => <p key={item.code} className="route-warning-inline">{item.message}</p>)}
           <ol className="route-draft-points">{draft.points.map((point) => (
             <li key={point.id}>
-              <strong>{point.position}. {point.title}</strong><span>{point.category ?? 'без категории'} · {point.visit_minutes} мин</span>
+              <strong>{point.position}. {point.title}</strong><span>{categoryLabel(point.category)} · {point.visit_minutes} мин</span>
               <button type="button" onClick={() => void mutate(removeDraftPoint(draft, point.id))}>Удалить</button>
               <button type="button" onClick={() => setReplacePointId(point.id)}>Заменить</button>
             </li>
@@ -116,12 +125,18 @@ export const RandomRouteDraftEditor = ({ citySlug, features = [] }: Props) => {
             <button type="button" disabled={busy} onClick={() => void findPlaces()}>Найти место</button>
           </div>
           {search.map((item) => <button key={item.place_id} type="button" className="route-search-row" onClick={() => void mutate(replacePointId ? replaceDraftPoint(draft, replacePointId, item.place_id) : addDraftPoint(draft, item.place_id))}>
-              {replacePointId ? 'Заменить на ' : 'Добавить '}{item.title} · {item.category} · {item.fit_reason}
+              {replacePointId ? 'Заменить на ' : 'Добавить '}{item.title} · {categoryLabel(item.category)}
             </button>)}
         </div>
       )}
     </section>
   )
+}
+
+const routeStatusLabel = (status: string) => {
+  if (status === 'full') return 'Маршрут собран'
+  if (status === 'partial') return 'Маршрут собран частично'
+  return 'Маршрут пока не собран'
 }
 
 const toggle = (items: string[], value: string) => items.includes(value) ? items.filter((item) => item !== value) : [...items, value]
