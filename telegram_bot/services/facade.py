@@ -122,7 +122,7 @@ class BotFacade:
             query = query.filter(or_(Place.category.in_(tuple(categories)), Place.canonical_category.in_(tuple(categories))))
         results = []
         for row in query.all():
-            if not is_place_bot_visible(row):
+            if not is_place_bot_visible(row) or row.lat is None or row.lng is None:
                 continue
             distance = haversine_meters(lat, lng, row.lat, row.lng)
             if distance <= 3_000:
@@ -180,7 +180,8 @@ class BotFacade:
         return self.db.query(City).filter(City.slug == slug, City.is_active.is_(True), City.launch_status == "published").first()
 
     def _city(self, row: City) -> BotCity:
-        count = self.db.query(Place).filter(Place.city_id == row.id, Place.is_published.is_(True), Place.is_visible_in_catalog.is_(True)).count()
+        rows = self.db.query(Place).filter(Place.city_id == row.id).all()
+        count = sum(1 for place in rows if is_place_bot_visible(place))
         return BotCity(id=row.id, slug=row.slug, name=row.name, places_count=count)
 
     def _route(self, row: Route) -> BotRoute:
