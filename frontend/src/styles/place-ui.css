@@ -1,3 +1,7 @@
+.cg-button--sm {
+  min-height: 44px;
+}
+
 .cg-status-badge--unknown {
   color: var(--cg-warning);
   background: var(--cg-warning-soft);
