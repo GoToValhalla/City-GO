@@ -19,6 +19,8 @@ from services.place_field_confidence_service import is_protected, upsert_field_c
 from services.place_photo_candidate_service import add_photo_candidate
 from services.review_queue_service import ensure_review_item
 
+ENRICHMENT_CONFIDENCE_SOURCES = {"geoapify", "wikidata", "official_site", "citygo_category_rules"}
+
 
 def run_step(db: Session, *, step: str, city: City, job: CityAdminImportJob, batch: ImportBatch, places: list[Place], counters: dict[str, int]) -> None:
     actions = {
@@ -80,6 +82,9 @@ def _confidence(db: Session, place: Place, job_id: int) -> None:
 
 
 def _confidence_field(db: Session, place: Place, job_id: int, field: str, value: object) -> None:
+    existing = _field_row(db, place.id, field)
+    if existing is not None and existing.source_type in ENRICHMENT_CONFIDENCE_SOURCES and value not in (None, "", [], {}):
+        return
     confidence = _confidence_value(field, value)
     row, changed = upsert_field_confidence(db, place_id=place.id, field_name=field, confidence=confidence, source_type=place.source or "import")
     if changed and row.confidence_level == "low":
