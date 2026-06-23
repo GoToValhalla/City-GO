@@ -111,8 +111,9 @@ describe('AdminPlaceEnrichmentPage', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(exportResult), { status: 200 }))
       .mockResolvedValue(new Response(JSON.stringify(emptyBatches), { status: 200 }))
     renderPage()
-    await waitFor(() => screen.getByText(/сформировать csv/i))
-    fireEvent.click(screen.getByText(/Сформировать CSV для обогащения/i))
+    const exportButton = await screen.findByRole('button', { name: /Сформировать CSV для обогащения/i })
+    await waitFor(() => expect(exportButton).toHaveProperty('disabled', false))
+    fireEvent.click(exportButton)
     await waitFor(() => {
       expect(screen.getByTestId('chatgpt-path-hint')).toBeTruthy()
       expect(screen.getByText(/Путь для ручного сценария/i)).toBeTruthy()
