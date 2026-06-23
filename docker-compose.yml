@@ -140,7 +140,7 @@ services:
       BACKEND_BASE_URL: http://backend:8000
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
     restart: on-failure
     healthcheck:
       test: ["CMD-SHELL", "EFFECTIVE_BOT_TOKEN=\"$${BOT_TOKEN:-$${TELEGRAM_BOT_TOKEN:-}}\"; test -n \"$$EFFECTIVE_BOT_TOKEN\" && curl -sf https://api.telegram.org/bot$$EFFECTIVE_BOT_TOKEN/getMe | grep -q '\"ok\":true' || exit 1"]
