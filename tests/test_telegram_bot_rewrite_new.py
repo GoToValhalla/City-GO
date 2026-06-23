@@ -6,9 +6,9 @@ from models.route_place import RoutePlace
 from models.route_session import RouteSession, RouteSessionPoint
 from telegram_bot.callbacks import cb, parse_callback
 from telegram_bot.handlers.catalog import _route_state_from_backend, _should_push_nav
-from telegram_bot.keyboards.catalog import favorites_list, route_step
+from telegram_bot.keyboards.catalog import favorites_list, request_location, route_step
 from telegram_bot.quality import is_hours_reliable, is_place_bot_visible, is_technical_osm_title
-from telegram_bot.renderers import place_card_text, places_list_text, route_step_text
+from telegram_bot.renderers import nearby_request_text, place_card_text, places_list_text, route_step_text
 from telegram_bot.schemas import BotPlace, BotRoute, BotRoutePoint
 from telegram_bot.services.facade import BotFacade
 from telegram_bot.session import get_or_create_session, get_short_id, pop_nav, push_nav, resolve_short_id, toggle_favorite
@@ -44,6 +44,18 @@ def test_action_callbacks_do_not_pollute_back_stack_new() -> None:
     assert _should_push_nav("r:view:a1B2", parse_callback("r:view:a1B2")) is True
     assert _should_push_nav("p:cat:sights:0", parse_callback("p:cat:sights:0")) is True
     assert _should_push_nav("fav:list", parse_callback("fav:list")) is True
+
+
+def test_nearby_request_uses_inline_fallback_not_broken_location_keyboard_new() -> None:
+    text = nearby_request_text()
+    keyboard = request_location()
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row if button.callback_data]
+
+    assert "скрепку" in text
+    assert "p:cat:sights:0" in callbacks
+    assert "p:cat:food:0" in callbacks
+    assert "p:cat:all:0" in callbacks
+    assert all(getattr(button, "request_location", None) is None for row in keyboard.inline_keyboard for button in row)
 
 
 def test_telegram_route_state_keeps_backend_session_id_new() -> None:
