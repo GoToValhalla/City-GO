@@ -25,6 +25,8 @@ export const AdminRouteEligibilityPage = () => {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [bulkAction, setBulkAction] = useState<string | null>(null)
+  const [bulkError, setBulkError] = useState<string | null>(null)
 
   const offset = useMemo(() => (page - 1) * pageSize, [page, pageSize])
   const total = data?.total ?? 0
@@ -69,11 +71,19 @@ export const AdminRouteEligibilityPage = () => {
 
   const bulk = async (action: string, label: string) => {
     const ids = [...selected]
-    if (!ids.length || !window.confirm(`${label}: ${ids.length} мест?`)) return
+    if (!ids.length || bulkAction || !window.confirm(`${label}: ${ids.length} мест?`)) return
     const params = action === 'disable_route' ? { reason: 'eligibility_dashboard' } : {}
-    await adminPost('/admin/places/bulk/apply', { place_ids: ids, action, params, confirm: true })
-    setSelected(new Set())
-    load()
+    setBulkAction(action)
+    setBulkError(null)
+    try {
+      await adminPost('/admin/places/bulk/apply', { place_ids: ids, action, params, confirm: true })
+      setSelected(new Set())
+      load()
+    } catch (e) {
+      setBulkError(e instanceof Error ? e.message : 'Не удалось выполнить массовое действие')
+    } finally {
+      setBulkAction(null)
+    }
   }
 
   const toggleSelected = (placeId: number) => {
@@ -183,9 +193,24 @@ export const AdminRouteEligibilityPage = () => {
           <span className="admin-bulk-title">Массовые действия</span>
           <span className="admin-muted">Выбрано: {selected.size}</span>
           <span className="admin-muted">Показано: {shownFrom}-{shownTo} из {total}</span>
-          <button type="button" className="admin-btn admin-btn-sm" disabled={!selected.size} onClick={() => void bulk('enable_route', 'Подтвердить для маршрутов')}>Подтвердить для маршрутов</button>
-          <button type="button" className="admin-btn admin-btn-sm" disabled={!selected.size} onClick={() => void bulk('disable_route', 'Исключить из маршрутов')}>Исключить из маршрутов</button>
+          <button
+            type="button"
+            className="admin-btn admin-btn-sm"
+            disabled={!selected.size || Boolean(bulkAction)}
+            onClick={() => void bulk('enable_route', 'Подтвердить для маршрутов')}
+          >
+            {bulkAction === 'enable_route' ? 'Подтверждаем...' : 'Подтвердить для маршрутов'}
+          </button>
+          <button
+            type="button"
+            className="admin-btn admin-btn-sm"
+            disabled={!selected.size || Boolean(bulkAction)}
+            onClick={() => void bulk('disable_route', 'Исключить из маршрутов')}
+          >
+            {bulkAction === 'disable_route' ? 'Исключаем...' : 'Исключить из маршрутов'}
+          </button>
         </div>
+        {bulkError ? <div className="admin-state admin-state-error">{bulkError}</div> : null}
         <p className="admin-bulk-hint">Для массовой публикации сначала включите фильтр “высокое качество” или задайте минимум качества. Действие применяется только к выбранным строкам текущей страницы.</p>
         <div className="admin-bulk-row" aria-label="Пагинация готовности мест">
           <button type="button" className="admin-btn admin-btn-sm" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>Назад</button>
