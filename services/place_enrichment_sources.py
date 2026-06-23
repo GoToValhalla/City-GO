@@ -2,7 +2,7 @@
 
 This module deliberately avoids scraping Yandex/2GIS. It uses sources that are suitable
 for ingestion or source observation workflows: Geoapify when configured, Wikidata, and
-official public pages referenced by the place itself.
+official public pages referenced by the place itself or by trusted provider metadata.
 """
 
 from __future__ import annotations
@@ -11,12 +11,11 @@ import hashlib
 import html
 import json
 import re
-import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy.orm import Session
 
@@ -84,19 +83,45 @@ def enrich_places_from_sources(
 
 def _collect_profiles(place: Place, counters: dict[str, int]) -> list[tuple[ProviderObservation, CandidateProfile]]:
     profiles: list[tuple[ProviderObservation, CandidateProfile]] = []
-    for collector in (_collect_geoapify, _collect_wikidata, _collect_official_site):
-        try:
-            result = collector(place)
-        except Exception:
-            counters["provider_errors"] += 1
-            continue
+    for collector in (_collect_geoapify, _collect_wikidata):
+        result = _safe_collect(lambda: collector(place), counters)
         if result is not None:
             profiles.append(result)
+
+    for url in _official_site_urls(place, profiles):
+        result = _safe_collect(lambda candidate_url=url: _collect_official_site(place, candidate_url), counters)
+        if result is not None:
+            profiles.append(result)
+            break
+
     return profiles
 
 
+def _safe_collect(
+    collector: Callable[[], tuple[ProviderObservation, CandidateProfile] | None],
+    counters: dict[str, int],
+) -> tuple[ProviderObservation, CandidateProfile] | None:
+    try:
+        return collector()
+    except Exception:
+        counters["provider_errors"] += 1
+        return None
+
+
+def _official_site_urls(place: Place, profiles: list[tuple[ProviderObservation, CandidateProfile]]) -> list[str]:
+    urls: list[str] = []
+    for candidate in (_first_url(getattr(place, "website", None), getattr(place, "source_url", None)),):
+        if candidate:
+            urls.append(candidate)
+    for _, profile in profiles:
+        candidate = _first_url(profile.website)
+        if candidate:
+            urls.append(candidate)
+    return list(dict.fromkeys(urls))
+
+
 def _collect_geoapify(place: Place) -> tuple[ProviderObservation, CandidateProfile] | None:
-    api_key = settings.geoapify_api_key.strip()
+    api_key = (settings.geoapify_api_key or "").strip()
     if not api_key or place.lat is None or place.lng is None:
         return None
 
@@ -168,10 +193,7 @@ def _collect_wikidata(place: Place) -> tuple[ProviderObservation, CandidateProfi
     return observation, profile
 
 
-def _collect_official_site(place: Place) -> tuple[ProviderObservation, CandidateProfile] | None:
-    url = _first_url(getattr(place, "website", None), place.source_url)
-    if url is None:
-        return None
+def _collect_official_site(place: Place, url: str) -> tuple[ProviderObservation, CandidateProfile] | None:
     page = _fetch_text(url)
     meta = _extract_html_metadata(page, base_url=url)
     if not any(meta.values()):
@@ -188,7 +210,7 @@ def _collect_official_site(place: Place) -> tuple[ProviderObservation, Candidate
         source_type="official_site",
         source_external_id=url,
         source_url=url,
-        raw_payload=meta,
+        raw_payload={"place_title": place.title, **meta},
         confidence=0.82,
     )
     return observation, profile
@@ -339,6 +361,7 @@ def _apply_description(
         return
     if place.short_description:
         if _normalize_text(place.short_description) != _normalize_text(cleaned):
+            counters["source_conflicts"] += 1
             ensure_review_item(
                 db,
                 city_id=city.id,
@@ -445,14 +468,26 @@ def _best_wikidata_result(data: dict[str, Any], place: Place) -> dict[str, Any] 
     for item in results:
         if not isinstance(item, dict):
             continue
-        score = max(_name_score(place.title, _first_string(item.get("label"))), _name_score(place.title, _first_string(item.get("match", {}).get("text") if isinstance(item.get("match"), dict) else None)))
+        match = item.get("match") if isinstance(item.get("match"), dict) else {}
+        score = max(
+            _name_score(place.title, _first_string(item.get("label"))),
+            _name_score(place.title, _first_string(match.get("text"))),
+        )
         if score >= 0.55:
             scored.append((score, item))
     return sorted(scored, key=lambda item: item[0], reverse=True)[0][1] if scored else None
 
 
 def _fetch_wikidata_entity(entity_id: str) -> dict[str, Any]:
-    params = urllib.parse.urlencode({"action": "wbgetentities", "format": "json", "ids": entity_id, "props": "claims|descriptions|sitelinks", "languages": "ru|en"})
+    params = urllib.parse.urlencode(
+        {
+            "action": "wbgetentities",
+            "format": "json",
+            "ids": entity_id,
+            "props": "claims|descriptions|sitelinks",
+            "languages": "ru|en",
+        }
+    )
     data = _fetch_json(f"https://www.wikidata.org/w/api.php?{params}")
     entity = ((data.get("entities") or {}).get(entity_id) or {}) if isinstance(data, dict) else {}
     descriptions = entity.get("descriptions") if isinstance(entity, dict) else {}
@@ -491,13 +526,23 @@ def _commons_image_url(filename: str | None) -> str | None:
 
 def _extract_html_metadata(page: str, *, base_url: str) -> dict[str, Any]:
     json_ld = _extract_json_ld(page)
-    description = _first_string(_meta_content(page, "description"), _meta_property(page, "og:description"), json_ld.get("description"))
-    image_url = _absolute_url(_first_string(_meta_property(page, "og:image"), json_ld.get("image")), base_url)
+    description = _first_string(
+        _meta_content(page, "description"),
+        _meta_property(page, "og:description"),
+        _json_ld_string(json_ld, "description"),
+    )
+    image_url = _absolute_url(
+        _first_string(_meta_property(page, "og:image"), _json_ld_string(json_ld, "image")),
+        base_url,
+    )
     return {
         "description": description,
         "image_url": image_url,
-        "phone": _first_string(json_ld.get("telephone"), _phone_from_text(page)),
-        "opening_hours": _first_string(json_ld.get("openingHours"), json_ld.get("openingHoursSpecification")),
+        "phone": _first_string(_json_ld_string(json_ld, "telephone"), _phone_from_text(page)),
+        "opening_hours": _first_string(
+            _json_ld_string(json_ld, "openingHours"),
+            _json_ld_opening_hours(json_ld),
+        ),
     }
 
 
@@ -508,11 +553,54 @@ def _extract_json_ld(page: str) -> dict[str, Any]:
             parsed = json.loads(html.unescape(raw.strip()))
         except json.JSONDecodeError:
             continue
-        if isinstance(parsed, list):
-            parsed = next((item for item in parsed if isinstance(item, dict)), {})
-        if isinstance(parsed, dict):
-            return parsed
+        candidate = _pick_json_ld_entity(parsed)
+        if candidate:
+            return candidate
     return {}
+
+
+def _pick_json_ld_entity(parsed: Any) -> dict[str, Any]:
+    if isinstance(parsed, list):
+        for item in parsed:
+            candidate = _pick_json_ld_entity(item)
+            if candidate:
+                return candidate
+    if isinstance(parsed, dict):
+        graph = parsed.get("@graph")
+        if isinstance(graph, list):
+            for item in graph:
+                if isinstance(item, dict) and any(key in item for key in ("telephone", "openingHours", "openingHoursSpecification", "image", "description")):
+                    return item
+        return parsed
+    return {}
+
+
+def _json_ld_string(data: dict[str, Any], key: str) -> str | None:
+    value = data.get(key)
+    if isinstance(value, dict):
+        return _first_string(value.get("url"), value.get("content"), value.get("@id"))
+    if isinstance(value, list):
+        return _first_string(*[_json_ld_string({key: item}, key) if isinstance(item, dict) else item for item in value])
+    return _first_string(value)
+
+
+def _json_ld_opening_hours(data: dict[str, Any]) -> str | None:
+    value = data.get("openingHoursSpecification")
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            days = item.get("dayOfWeek")
+            opens = _first_string(item.get("opens"))
+            closes = _first_string(item.get("closes"))
+            day_text = _first_string(*days) if isinstance(days, list) else _first_string(days)
+            if day_text and opens and closes:
+                parts.append(f"{day_text}: {opens}-{closes}")
+        return "; ".join(parts) if parts else None
+    if isinstance(value, dict):
+        return _json_ld_opening_hours({"openingHoursSpecification": [value]})
+    return None
 
 
 def _meta_content(page: str, name: str) -> str | None:
