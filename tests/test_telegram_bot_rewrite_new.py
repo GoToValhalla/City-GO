@@ -6,8 +6,9 @@ from models.route_place import RoutePlace
 from models.route_session import RouteSession, RouteSessionPoint
 from telegram_bot.callbacks import cb, parse_callback
 from telegram_bot.handlers.catalog import _route_state_from_backend, _should_push_nav
+from telegram_bot.keyboards.catalog import favorites_list, route_step
 from telegram_bot.quality import is_hours_reliable, is_place_bot_visible, is_technical_osm_title
-from telegram_bot.renderers import place_card_text
+from telegram_bot.renderers import place_card_text, places_list_text, route_step_text
 from telegram_bot.schemas import BotPlace
 from telegram_bot.services.facade import BotFacade
 from telegram_bot.session import get_or_create_session, get_short_id, pop_nav, push_nav, resolve_short_id, toggle_favorite
@@ -20,6 +21,7 @@ def test_callback_data_stays_under_telegram_limit_new() -> None:
         cb("r", "view", "a1B2"),
         cb("r", "go", "a1B2"),
         cb("rn", "pt", 12),
+        cb("rn", "skip", 12),
         cb("p", "cat", "sights", 3),
         cb("p", "view", "a1B2"),
         cb("near", "list", "coffee", 2),
@@ -37,6 +39,7 @@ def test_action_callbacks_do_not_pollute_back_stack_new() -> None:
     assert _should_push_nav("fav:add:p:a1B2", parse_callback("fav:add:p:a1B2")) is False
     assert _should_push_nav("fav:del:r:a1B2", parse_callback("fav:del:r:a1B2")) is False
     assert _should_push_nav("rn:visit:0", parse_callback("rn:visit:0")) is False
+    assert _should_push_nav("rn:skip:0", parse_callback("rn:skip:0")) is False
     assert _should_push_nav("rn:pt:1", parse_callback("rn:pt:1")) is False
     assert _should_push_nav("r:view:a1B2", parse_callback("r:view:a1B2")) is True
     assert _should_push_nav("p:cat:sights:0", parse_callback("p:cat:sights:0")) is True
@@ -65,6 +68,36 @@ def test_telegram_route_state_keeps_backend_session_id_new() -> None:
     assert state["current_index"] == 1
     assert state["visited"] == [0]
     assert state["skipped"] == []
+
+
+def test_route_step_keyboard_has_explicit_skip_new() -> None:
+    point = RouteSessionPoint(place_id=1, ordering_index=0, title="Парк")
+    point.index = 0
+    point.lat = 54.9
+    point.lng = 20.4
+
+    keyboard = route_step(point, 3, False)
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row if button.callback_data]
+
+    assert "rn:visit:0" in callbacks
+    assert "rn:skip:0" in callbacks
+    assert "rn:pt:1" in callbacks
+
+
+def test_route_step_text_explains_visited_and_skipped_new() -> None:
+    point = RouteSessionPoint(place_id=1, ordering_index=1, title="Музей")
+    point.index = 1
+    point.category = "museum"
+    point.short_description = None
+    point.address = "ул. Ленина, 1"
+    route = RouteSession(id=1, route_id=2)
+    route.title = "Маршрут"
+    route.points = [RouteSessionPoint(place_id=1, ordering_index=0, title="Парк"), point]
+
+    text = route_step_text(route, point, visited_count=1, skipped_count=1)
+
+    assert "Посещено: 1. Пропущено: 1." in text
+    assert "🏛 Музей" in text
 
 
 def test_technical_osm_titles_are_hidden_new() -> None:
@@ -118,6 +151,19 @@ def test_place_card_does_not_render_debug_fields_or_placeholder_new() -> None:
     assert "Mo-Fr" not in text
 
 
+def test_places_list_explains_category_distance_and_address_new() -> None:
+    text = places_list_text(
+        "📍 Рядом",
+        [BotPlace(id=1, title="Парк", category="park", address="ул. Мира, 1", distance_m=240)],
+        0,
+    )
+
+    assert "🌿 Парк" in text
+    assert "240 м" in text
+    assert "ул. Мира" in text
+    assert "Открой карточку" in text
+
+
 def test_facade_filters_non_tourist_and_technical_places_new(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="bot-city")
     visible = place_factory(city_id=city.id, title="Археопарк", category="park")
@@ -127,6 +173,31 @@ def test_facade_filters_non_tourist_and_technical_places_new(db_session, city_fa
     page = BotFacade(db_session).places_by_category("bot-city", "sights")
 
     assert [item.id for item in page.items] == [visible.id]
+
+
+def test_facade_includes_ready_public_cities_new(db_session, city_factory) -> None:
+    published = city_factory(slug="published-city", name="Опубликованный", launch_status="published")
+    ready = city_factory(slug="ready-city", name="Готовый", launch_status="ready")
+    hidden = city_factory(slug="draft-city", name="Черновик", launch_status="draft")
+
+    cities = BotFacade(db_session).published_cities()
+    slugs = {city.slug for city in cities}
+
+    assert published.slug in slugs
+    assert ready.slug in slugs
+    assert hidden.slug not in slugs
+
+
+def test_facade_category_groups_cover_common_food_and_sights_new(db_session, city_factory, place_factory) -> None:
+    city = city_factory(slug="category-city")
+    restaurant = place_factory(city_id=city.id, title="Ресторан", category="restaurant")
+    monument = place_factory(city_id=city.id, title="Памятник", category="monument")
+
+    food = BotFacade(db_session).places_by_category(city.slug, "food")
+    sights = BotFacade(db_session).places_by_category(city.slug, "sights")
+
+    assert [item.id for item in food.items] == [restaurant.id]
+    assert [item.id for item in sights.items] == [monument.id]
 
 
 def test_facade_finds_city_by_slug_or_name_text_new(db_session, city_factory) -> None:
@@ -171,6 +242,21 @@ def test_route_with_less_than_two_valid_points_is_unavailable_new(db_session, ci
     db_session.commit()
 
     assert BotFacade(db_session).route(route.id) is None
+
+
+def test_favorites_keyboard_opens_saved_entities_new(db_session) -> None:
+    session = get_or_create_session(db_session, 222, "tester")
+    route = RouteSession(id=1, route_id=10)
+    route.id = 10
+    route.title = "Маршрут"
+    route.points = []
+    place = BotPlace(id=20, title="Парк")
+
+    keyboard = favorites_list([route], [place], session)
+    callbacks = [button.callback_data for row in keyboard.inline_keyboard for button in row if button.callback_data]
+
+    assert any(item and item.startswith("r:view:") for item in callbacks)
+    assert any(item and item.startswith("p:view:") for item in callbacks)
 
 
 def test_session_short_ids_and_favorites_new(db_session) -> None:
