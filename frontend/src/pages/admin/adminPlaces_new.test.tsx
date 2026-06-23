@@ -6,9 +6,21 @@ import { AdminPlacesPage } from './AdminPlacesPage'
 import { clearAdminSession } from './adminSession'
 
 const page1 = Array.from({ length: 50 }, (_, i) => ({
-  id: i + 1, slug: `p-${i}`, title: `Place ${i}`, category: 'cafe', address: 'a', city_id: 1,
-  publication_status: 'published', is_published: true, is_visible_in_catalog: true,
-  is_route_eligible: true, verification_status: 'unverified', source: 'osm', confidence: 0.5, status: 'active', short_description: null,
+  id: i + 1,
+  slug: i === 0 ? 'node-123456' : `p-${i}`,
+  title: i === 0 ? 'node 123456' : `Place ${i}`,
+  category: 'cafe',
+  address: 'a',
+  city_id: 1,
+  publication_status: 'published',
+  is_published: true,
+  is_visible_in_catalog: true,
+  is_route_eligible: true,
+  verification_status: 'unverified',
+  source: 'osm',
+  confidence: 0.5,
+  status: 'active',
+  short_description: null,
 }))
 
 const categories = [
@@ -47,7 +59,7 @@ describe('AdminPlacesPage', () => {
       if (url.includes('/admin/places?')) {
         const u = new URL(url, 'http://localhost')
         const offset = Number(u.searchParams.get('offset') || 0)
-        const items = offset === 0 ? page1 : [{ ...page1[0], id: 999, title: 'Place 999' }]
+        const items = offset === 0 ? page1 : [{ ...page1[0], id: 999, title: 'Place 999', slug: 'p-999' }]
         return response({ items, total: 51, limit: 50, offset })
       }
       return response({}, 404)
@@ -66,6 +78,15 @@ describe('AdminPlacesPage', () => {
     render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
     await waitFor(() => expect(screen.getByText('Места (51)')).toBeTruthy())
     expect(screen.getByText('Показано 50 из 51')).toBeTruthy()
+  })
+
+  it('hides technical OSM ids from the places list_new', async () => {
+    render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText('Места (51)')).toBeTruthy())
+
+    expect(screen.getByText('Без названия')).toBeTruthy()
+    expect(screen.queryByText('node 123456')).toBeNull()
+    expect(screen.queryByText('node-123456')).toBeNull()
   })
 
   it('requests category counters for the selected city_new', async () => {
@@ -97,7 +118,7 @@ describe('AdminPlacesPage', () => {
     await waitFor(() => expect(screen.getByText('Места (51)')).toBeTruthy())
     await waitFor(() => expect(screen.getAllByText('Парк (park) · 1').length).toBeGreaterThan(0))
 
-    fireEvent.click(screen.getByLabelText('Выбрать Place 0'))
+    fireEvent.click(screen.getByLabelText('Выбрать место 1'))
     fireEvent.change(screen.getByLabelText('Новая категория'), { target: { value: 'park' } })
     fireEvent.click(screen.getByRole('button', { name: 'Сменить категорию' }))
 
