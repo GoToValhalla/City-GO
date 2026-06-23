@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import type { PlaceDetail } from '../../entities/place/model/types'
 import { Button, CategoryBadge, PlacePhoto, RatingBadge, StatusBadge } from '../ui'
 import {
@@ -24,7 +25,7 @@ type PlaceDetailSheetProps = {
 
 type DetailSectionProps = {
   title: string
-  children: React.ReactNode
+  children: ReactNode
 }
 
 const DESCRIPTION_LIMIT = 260
