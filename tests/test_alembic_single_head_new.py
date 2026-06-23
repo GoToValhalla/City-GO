@@ -1,5 +1,5 @@
 """
-Инвариант Alembic: ровно один head, ровно один base, 42 ревизии.
+Инвариант Alembic: ровно один head, ровно один base, 43 ревизии.
 
 Не требует подключения к БД — проверяет только структуру migrations/versions/.
 
@@ -23,7 +23,7 @@ def _script():
 
 
 class TestAlembicSingleHead(unittest.TestCase):
-    """Структурные инварианты дерева миграций без подключения к БД."""
+    """Структурные инварианты дерева миграций без подключения к ДБ."""
 
     def test_exactly_one_head(self) -> None:
         """Дерево миграций должно иметь ровно один head.
@@ -41,7 +41,7 @@ class TestAlembicSingleHead(unittest.TestCase):
 
     def test_known_head_revision(self) -> None:
         """Фиксирует текущий финальный head."""
-        KNOWN_HEAD = "8c9d0e1f2a3b"
+        KNOWN_HEAD = "9d0e1f2a3b4c"
         heads = _script().get_heads()
         self.assertIn(
             KNOWN_HEAD,
@@ -89,7 +89,7 @@ class TestAlembicSingleHead(unittest.TestCase):
         Падение с другим числом — сигнал к ревью: добавлена или удалена миграция.
         Обновите EXPECTED_COUNT после добавления легитимной ревизии.
         """
-        EXPECTED_COUNT = 42
+        EXPECTED_COUNT = 43
         script = _script()
         total = sum(1 for _ in script.walk_revisions())
         self.assertEqual(
@@ -114,6 +114,8 @@ class TestAlembicSingleHead(unittest.TestCase):
             "cities",
             "routes",
             "route_places",
+            "route_sessions",
+            "route_session_points",
             "route_drafts",
             "route_draft_points",
             "city_start_points",
