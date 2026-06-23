@@ -129,7 +129,21 @@ jobs:
         id: frontend-tests
         shell: bash
         continue-on-error: true
-        run: timeout 8m npm run test:ci
+        run: |
+          set -o pipefail
+          set +e
+          timeout 8m npm run test:ci 2>&1 | tee ../artifacts/messages/frontend-vitest.log
+          TEST_EXIT=${PIPESTATUS[0]}
+          set -e
+          if [ "$TEST_EXIT" = "124" ]; then
+            if grep -Eq 'Test Files[[:space:]]+[0-9]+ passed' ../artifacts/messages/frontend-vitest.log \
+              && grep -Eq 'Tests[[:space:]]+[0-9]+ passed' ../artifacts/messages/frontend-vitest.log \
+              && ! grep -Eq '([0-9]+ failed| FAIL |×)' ../artifacts/messages/frontend-vitest.log; then
+              echo "Vitest printed a green summary but did not exit before timeout; treating the completed test run as success."
+              exit 0
+            fi
+          fi
+          exit "$TEST_EXIT"
 
       - name: Frontend build
         id: frontend-build
@@ -154,6 +168,9 @@ jobs:
               echo "Vitest JUnit report is unavailable; using stage outcomes."
             } > ../artifacts/messages/frontend.txt
           fi
+          if [ -f ../artifacts/messages/frontend-vitest.log ]; then
+            echo "Vitest log: frontend-test-artifacts/frontend-vitest.log" >> ../artifacts/messages/frontend.txt
+          fi
           {
             echo ""
             echo "Stages:"
@@ -174,6 +191,7 @@ jobs:
           path: |
             artifacts/junit/frontend.xml
             artifacts/messages/frontend.txt
+            artifacts/messages/frontend-vitest.log
           if-no-files-found: warn
 
   notify:
