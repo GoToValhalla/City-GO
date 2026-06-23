@@ -33,14 +33,18 @@ import models.city  # noqa: F401
 import models.city_start_point  # noqa: F401
 import models.city_import_scope  # noqa: F401
 import models.import_batch  # noqa: F401
+import models.import_job_step  # noqa: F401
 import models.place_scope_link  # noqa: F401
 import models.place  # noqa: F401
+import models.place_field_confidence  # noqa: F401
 import models.place_image  # noqa: F401
+import models.place_photo_candidate  # noqa: F401
 import models.place_source_presence  # noqa: F401
 import models.place_tag  # noqa: F401
 import models.route  # noqa: F401
 import models.route_place  # noqa: F401
 import models.route_draft  # noqa: F401
+import models.review_queue_item  # noqa: F401
 import models.source_observation  # noqa: F401
 import models.tag  # noqa: F401
 

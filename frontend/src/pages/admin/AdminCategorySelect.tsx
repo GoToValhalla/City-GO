@@ -45,7 +45,7 @@ export const AdminCategorySelect = ({ value, onChange, includeAll = false, ariaL
 
   useEffect(() => {
     let alive = true
-    setFailed(false)
+    void Promise.resolve().then(() => { if (alive) setFailed(false) })
     adminGet<AdminTaxonomyResponse>(taxonomyPath(citySlug))
       .then((payload) => {
         if (alive && payload.categories.length) setItems(payload.categories)

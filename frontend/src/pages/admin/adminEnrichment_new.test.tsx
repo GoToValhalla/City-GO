@@ -7,6 +7,7 @@ import { clearAdminSession } from './adminSession'
 
 const emptyCities = { items: [], total: 0, limit: 50, offset: 0 }
 const emptyBatches = { items: [], total: 0 }
+const cityResponse = { items: [{ id: 1, slug: 'zelenogradsk', name: 'Зеленоградск', country: 'RU', region: null }], total: 1, limit: 50, offset: 0 }
 
 const batchItem = {
   batch_id: 'place_enrichment_zelenogradsk_20260607_183000',
@@ -59,6 +60,7 @@ describe('AdminPlaceEnrichmentPage', () => {
     mockInit()
     renderPage()
     expect(screen.getByText(/Обогащение данных/)).toBeTruthy()
+    expect(screen.getByText(/Автоматическое обогащение/)).toBeTruthy()
   })
 
   it('renders missing_fields checkboxes', async () => {
@@ -95,17 +97,54 @@ describe('AdminPlaceEnrichmentPage', () => {
       created_at: new Date().toISOString(),
     }
     vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(new Response(JSON.stringify({ items: [{ id: 1, slug: 'z', name: 'Z', country: 'RU', region: null }], total: 1, limit: 50, offset: 0 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(cityResponse), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(emptyBatches), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(exportResult), { status: 200 }))
       .mockResolvedValue(new Response(JSON.stringify(emptyBatches), { status: 200 }))
     renderPage()
     await waitFor(() => screen.getByText(/сформировать csv/i))
-    fireEvent.click(screen.getByText(/сформировать csv/i))
+    fireEvent.click(screen.getByText(/Сформировать CSV для обогащения/i))
     await waitFor(() => {
       expect(screen.getByTestId('chatgpt-path-hint')).toBeTruthy()
-      expect(screen.getByText(/Передайте ChatGPT путь/i)).toBeTruthy()
+      expect(screen.getByText(/Путь для ручного сценария/i)).toBeTruthy()
     })
+  })
+
+  it('runs pipeline and renders counters plus review queue', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(cityResponse), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(emptyBatches), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        job_id: 7,
+        city_slug: 'zelenogradsk',
+        status: 'success',
+        counters: { found: 3, enriched: 2, auto_published: 1, limited_published: 1, review_required: 1, rejected: 0, failed: 0 },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 1, job_id: 7, step_name: 'collect_places', status: 'success', counters: {}, error_message: null }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 5, place_id: 10, field_name: 'address', reason: 'low_confidence', severity: 'medium', status: 'open' }]), { status: 200 }))
+
+    renderPage()
+    await waitFor(() => screen.getByText(/Запустить обогащение/i))
+    fireEvent.click(screen.getByText(/Запустить обогащение/i))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Задача #7/)).toBeTruthy()
+      expect(screen.getByText('Найдено')).toBeTruthy()
+      expect(screen.getByText('Низкое доверие')).toBeTruthy()
+    })
+  })
+
+  it('shows pipeline error state', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(cityResponse), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(emptyBatches), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"detail":"boom"}', { status: 500 }))
+
+    renderPage()
+    await waitFor(() => screen.getByText(/Запустить обогащение/i))
+    fireEvent.click(screen.getByText(/Запустить обогащение/i))
+
+    await waitFor(() => expect(screen.getByText(/boom/)).toBeTruthy())
   })
 
   it('import buttons disabled without enriched.csv', async () => {

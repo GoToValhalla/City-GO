@@ -48,4 +48,39 @@ export type ImportApplyResult = {
   errors: string[]
 }
 
+export type PipelineCounters = {
+  found: number
+  enriched: number
+  auto_published: number
+  limited_published: number
+  review_required: number
+  rejected: number
+  failed: number
+}
+
+export type PipelineRunResponse = {
+  job_id: number
+  city_slug: string
+  status: string
+  counters: PipelineCounters
+}
+
+export type ImportJobStep = {
+  id: number
+  job_id: number
+  step_name: string
+  status: string
+  counters: Record<string, unknown> | null
+  error_message: string | null
+}
+
+export type ReviewQueueItem = {
+  id: number
+  place_id: number
+  field_name: string
+  reason: string
+  severity: string
+  status: string
+}
+
 export const QUICK_EXPORT_FIELDS = ['address', 'photo', 'description']

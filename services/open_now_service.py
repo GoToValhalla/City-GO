@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from models.city import City
 from models.place import Place
+from models.place_field_confidence import PlaceFieldConfidence
 from models.place_schedule import PlaceSchedule
 from services.place_card_payload_service import place_card_payload
 from services.place_public_image_attach_service import attach_public_images
@@ -64,6 +65,9 @@ def get_open_now_places(
         if schedule.open_time is None or schedule.close_time is None:
             continue
 
+        if not _opening_hours_trusted(db, place.id):
+            continue
+
         if schedule.open_time <= current_time <= schedule.close_time:
             results.append(
                 {
@@ -74,3 +78,16 @@ def get_open_now_places(
             )
 
     return results
+
+
+def _opening_hours_trusted(db: Session, place_id: int) -> bool:
+    row = (
+        db.query(PlaceFieldConfidence)
+        .filter(PlaceFieldConfidence.place_id == place_id, PlaceFieldConfidence.field_name == "opening_hours")
+        .first()
+    )
+    if row is None:
+        return True
+    if row.confidence_level == "low" or row.freshness_status == "stale":
+        return False
+    return row.conflict_status in {None, "none"}

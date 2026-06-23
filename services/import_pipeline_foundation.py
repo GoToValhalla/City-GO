@@ -1,0 +1,72 @@
+"""Stage 1 automated import/enrichment foundation."""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy.orm import Session
+
+from models.city import City
+from models.city_admin_import_job import CityAdminImportJob
+from models.import_batch import ImportBatch
+from models.place import Place
+from services.import_job_step_service import record_step
+from services.import_pipeline_foundation_steps import run_step
+
+FOUNDATION_STEPS = (
+    "collect_places", "normalize_categories", "backfill_addresses", "generate_ai_descriptions",
+    "fetch_photo_candidates", "calculate_field_confidence", "apply_publication_decisions",
+)
+NON_CRITICAL_STEPS = {"generate_ai_descriptions", "fetch_photo_candidates"}
+
+
+def run_foundation_pipeline(db: Session, *, city: City, job: CityAdminImportJob, actor: str) -> dict[str, int]:
+    counters = _empty_counters()
+    batch = _batch(db, city)
+    places = db.query(Place).filter(Place.city_id == city.id).order_by(Place.id.asc()).all()
+    counters["found"] = len(places)
+    for step in FOUNDATION_STEPS:
+        record_step(db, job_id=job.id, step_name=step, status="started")
+        try:
+            run_step(db, step=step, city=city, job=job, batch=batch, places=places, counters=counters)
+            record_step(db, job_id=job.id, step_name=step, status="success", counters=dict(counters))
+        except Exception as exc:
+            counters["failed"] += 1
+            record_step(db, job_id=job.id, step_name=step, status="failed", counters=dict(counters), error_message=str(exc))
+            if step not in NON_CRITICAL_STEPS:
+                _finish_batch(batch, counters, status="failed")
+                job.status = "failed"
+                job.last_error = str(exc)[:2000]
+                raise
+            job.status = "partial_success"
+    _finish_batch(batch, counters, status="partial_success" if job.status == "partial_success" else "success")
+    _write_job_counters(job, counters)
+    db.commit()
+    return counters
+
+
+def _batch(db: Session, city: City) -> ImportBatch:
+    batch = ImportBatch(city_id=city.id, mode="pipeline", dry_run=False, status="running")
+    db.add(batch)
+    db.flush()
+    return batch
+
+
+def _finish_batch(batch: ImportBatch, counters: dict[str, int], *, status: str) -> None:
+    batch.status = status
+    batch.finished_at = datetime.utcnow()
+    batch.raw_count = counters["found"]
+    batch.normalized_count = counters["found"]
+    batch.published_count = counters["auto_published"] + counters["limited_published"]
+    batch.needs_review_count = counters["review_required"]
+    batch.rejected_count = counters["rejected"]
+    batch.errors_count = counters["failed"]
+    batch.diff_summary = {"pipeline_counters": dict(counters)}
+
+
+def _empty_counters() -> dict[str, int]:
+    return {"found": 0, "enriched": 0, "auto_published": 0, "limited_published": 0, "review_required": 0, "rejected": 0, "failed": 0}
+
+
+def _write_job_counters(job: CityAdminImportJob, counters: dict[str, int]) -> None:
+    job.step_details = {**dict(job.step_details or {}), "pipeline_counters": counters}

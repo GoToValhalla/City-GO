@@ -45,7 +45,7 @@ class TestAlembicSingleHead(unittest.TestCase):
         Если этот тест падает при добавлении новой миграции — это ожидаемо.
         Обновите KNOWN_HEAD на новый head после создания merge-ревизии.
         """
-        KNOWN_HEAD = "6c4a8d1e2f90"
+        KNOWN_HEAD = "7b8c9d0e1f2a"
         heads = _script().get_heads()
         self.assertIn(
             KNOWN_HEAD,
@@ -93,7 +93,7 @@ class TestAlembicSingleHead(unittest.TestCase):
         Падение с другим числом — сигнал к ревью: добавлена или удалена миграция.
         Обновите EXPECTED_COUNT после добавления легитимной ревизии.
         """
-        EXPECTED_COUNT = 40
+        EXPECTED_COUNT = 41
         script = _script()
         total = sum(1 for _ in script.walk_revisions())
         self.assertEqual(
@@ -128,6 +128,10 @@ class TestAlembicSingleHead(unittest.TestCase):
             "user_signals",
             "categories",
             "tags",
+            "import_job_steps",
+            "place_field_confidence",
+            "place_photo_candidates",
+            "review_queue_items",
         }
         actual_tables = set(Base.metadata.tables.keys())
         missing = expected_tables - actual_tables

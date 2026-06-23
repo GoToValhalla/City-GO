@@ -16,7 +16,10 @@ import models.collection_place  # noqa: F401
 import models.country  # noqa: F401
 import models.data_foundation  # noqa: F401
 import models.import_batch  # noqa: F401
+import models.import_job_step  # noqa: F401
 import models.place_image  # noqa: F401
+import models.place_field_confidence  # noqa: F401
+import models.place_photo_candidate  # noqa: F401
 import models.place_verification  # noqa: F401
 import models.place  # noqa: F401
 import models.place_discovery_request  # noqa: F401
@@ -33,6 +36,7 @@ import models.route_draft  # noqa: F401
 import models.route_generation_run  # noqa: F401
 import models.route_generation_candidate  # noqa: F401
 import models.route_place  # noqa: F401
+import models.review_queue_item  # noqa: F401
 import models.source_observation  # noqa: F401
 import models.tag  # noqa: F401
 import models.telegram_user_context  # noqa: F401

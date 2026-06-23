@@ -12,6 +12,12 @@ JUNK_CATEGORIES = ("service", "pharmacy", "hospital", "parking", "atm", "fuel")
 SERVICE_KEYWORDS = ("аптек", "больниц", "парков", "стоянк", "pharmacy", "hospital", "parking")
 
 
+def _search_terms(value: str) -> tuple[str, ...]:
+    text = value.strip()
+    variants = (text, text.casefold(), text.lower(), text.capitalize(), text.title(), text.upper())
+    return tuple(dict.fromkeys(f"%{item}%" for item in variants if item))
+
+
 def apply_place_preset(query: Query, preset: str) -> Query:
     rules = {
         "no_photo": lambda q: q.filter(Place.image_url.is_(None)),
@@ -65,8 +71,11 @@ def apply_place_filters(
     if category:
         query = query.filter(Place.category == category)
     if q:
-        term = f"%{q.strip()}%"
-        query = query.filter(or_(Place.title.ilike(term), Place.slug.ilike(term), Place.address.ilike(term)))
+        clauses = tuple(
+            or_(Place.title.ilike(term), Place.slug.ilike(term), Place.address.ilike(term))
+            for term in _search_terms(q)
+        )
+        query = query.filter(or_(*clauses))
     if has_photo is True:
         query = query.filter(Place.image_url.isnot(None))
     elif has_photo is False:

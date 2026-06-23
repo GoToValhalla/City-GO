@@ -33,7 +33,13 @@ ROUTE_ELIGIBLE_CATEGORIES: frozenset[str] = frozenset({
 # Хранятся в БД, но НЕ в туристическом каталоге; future service/useful слой.
 NON_TOURIST_CATEGORIES: frozenset[str] = frozenset({
     "health",   # аптеки, клиники, больницы
+    "pharmacy",
     "service",  # сервисные точки, мастерские
+    "services",
+    "bus_stop",
+    "stop",
+    "public_transport",
+    "transport",
 })
 
 DYNAMIC_CATEGORIES: frozenset[str] = frozenset({
