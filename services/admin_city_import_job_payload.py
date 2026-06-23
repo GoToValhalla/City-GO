@@ -114,6 +114,20 @@ def normalize_reviewable_import_state(
         db.refresh(job)
         return True
 
+    reported_places = max(int(job.places_found or 0), int(job.places_saved or 0))
+    if reported_places > 0:
+        details = dict(job.step_details or {})
+        details["place_count_mismatch"] = {
+            "actor_id": actor_id,
+            "reason": "import_reported_places_missing_from_database",
+            "reported_places": reported_places,
+            "places_total": 0,
+        }
+        job.step_details = details
+        db.commit()
+        db.refresh(job)
+        return True
+
     details = dict(job.step_details or {})
     details["empty_review_recovery"] = {
         "actor_id": actor_id,
