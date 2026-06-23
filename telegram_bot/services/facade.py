@@ -18,10 +18,15 @@ from telegram_bot.schemas import BotCity, BotPlace, BotRoute, BotRoutePoint, Pag
 from telegram_bot.utils import haversine_meters
 
 DEFAULT_LIMIT = 5
+PUBLIC_CITY_STATUSES = {"published", "auto_published", "limited_published", "ready", "review", "needs_review"}
 CATEGORY_GROUPS = {
-    "sights": {"culture", "museum", "park", "walk", "viewpoint", "beach"},
-    "food": {"food", "coffee", "cafe"},
+    "all": set(),
+    "sights": {"culture", "museum", "park", "walk", "viewpoint", "beach", "attraction", "landmark", "historic", "monument", "art", "architecture"},
+    "food": {"food", "coffee", "cafe", "restaurant", "bar", "bakery", "fast_food", "ice_cream"},
     "coffee": {"coffee", "cafe"},
+    "cafe": {"coffee", "cafe"},
+    "park": {"park", "walk", "viewpoint", "beach"},
+    "museum": {"museum", "culture", "art", "historic"},
 }
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
@@ -33,7 +38,7 @@ class BotFacade:
     def published_cities(self) -> list[BotCity]:
         rows = (
             self.db.query(City)
-            .filter(City.is_active.is_(True), City.launch_status == "published")
+            .filter(City.is_active.is_(True), City.launch_status.in_(PUBLIC_CITY_STATUSES))
             .order_by(City.name.asc())
             .all()
         )
@@ -42,7 +47,11 @@ class BotFacade:
     def city(self, slug: str | None) -> BotCity | None:
         if not slug:
             return None
-        row = self.db.query(City).filter(City.slug == slug, City.is_active.is_(True), City.launch_status == "published").first()
+        row = (
+            self.db.query(City)
+            .filter(City.slug == slug, City.is_active.is_(True), City.launch_status.in_(PUBLIC_CITY_STATUSES))
+            .first()
+        )
         return self._city(row) if row is not None else None
 
     def city_by_text(self, value: str) -> BotCity | None:
@@ -51,7 +60,7 @@ class BotFacade:
             return None
         row = (
             self.db.query(City)
-            .filter(City.is_active.is_(True), City.launch_status == "published")
+            .filter(City.is_active.is_(True), City.launch_status.in_(PUBLIC_CITY_STATUSES))
             .filter(or_(City.slug.ilike(normalized), City.name.ilike(normalized)))
             .first()
         )
@@ -59,7 +68,7 @@ class BotFacade:
             pattern = f"%{normalized}%"
             row = (
                 self.db.query(City)
-                .filter(City.is_active.is_(True), City.launch_status == "published")
+                .filter(City.is_active.is_(True), City.launch_status.in_(PUBLIC_CITY_STATUSES))
                 .filter(or_(City.slug.ilike(pattern), City.name.ilike(pattern)))
                 .order_by(City.name.asc())
                 .first()
@@ -72,7 +81,7 @@ class BotFacade:
             return Page([], page, False)
         rows = (
             self.db.query(Route)
-            .options(joinedload(Route.route_places).joinedload(RoutePlace.place))
+            .options(joinedload(Route.route_places).joinedload(RoutePlace.place).joinedload(Place.category_ref))
             .filter(Route.city_id == city.id, Route.is_active.is_(True))
             .order_by(Route.title.asc())
             .all()
@@ -84,7 +93,7 @@ class BotFacade:
     def route(self, route_id: int) -> BotRoute | None:
         row = (
             self.db.query(Route)
-            .options(joinedload(Route.route_places).joinedload(RoutePlace.place))
+            .options(joinedload(Route.route_places).joinedload(RoutePlace.place).joinedload(Place.category_ref))
             .filter(Route.id == route_id, Route.is_active.is_(True))
             .first()
         )
@@ -97,21 +106,17 @@ class BotFacade:
         city = self._city_row(city_slug)
         if city is None:
             return Page([], page, False)
+        query = self.db.query(Place).options(joinedload(Place.category_ref)).outerjoin(Category, Place.category_id == Category.id).filter(Place.city_id == city.id)
         categories = CATEGORY_GROUPS.get(category_group, {category_group})
-        rows = (
-            self.db.query(Place)
-            .outerjoin(Category, Place.category_id == Category.id)
-            .filter(Place.city_id == city.id)
-            .filter(or_(Place.category.in_(tuple(categories)), Place.canonical_category.in_(tuple(categories)), Category.code.in_(tuple(categories))))
-            .order_by(Place.title.asc())
-            .all()
-        )
+        if categories:
+            query = query.filter(or_(Place.category.in_(tuple(categories)), Place.canonical_category.in_(tuple(categories)), Category.code.in_(tuple(categories))))
+        rows = query.order_by(Place.title.asc()).all()
         valid = [self._place(row) for row in rows if is_place_bot_visible(row)]
         start = page * limit
         return Page(valid[start:start + limit], page, len(valid) > start + limit)
 
     def place(self, place_id: int) -> BotPlace | None:
-        row = self.db.query(Place).filter(Place.id == place_id).first()
+        row = self.db.query(Place).options(joinedload(Place.category_ref)).filter(Place.id == place_id).first()
         if row is None or not is_place_bot_visible(row):
             return None
         return self._place(row)
@@ -124,8 +129,10 @@ class BotFacade:
         pattern = f"%{normalized}%"
         rows = (
             self.db.query(Place)
+            .options(joinedload(Place.category_ref))
+            .outerjoin(Category, Place.category_id == Category.id)
             .filter(Place.city_id == city.id)
-            .filter(or_(Place.title.ilike(pattern), Place.address.ilike(pattern), Place.category.ilike(pattern)))
+            .filter(or_(Place.title.ilike(pattern), Place.address.ilike(pattern), Place.category.ilike(pattern), Place.canonical_category.ilike(pattern), Category.name.ilike(pattern), Category.code.ilike(pattern)))
             .order_by(Place.title.asc())
             .all()
         )
@@ -137,7 +144,7 @@ class BotFacade:
         city = self._city_row(city_slug)
         if city is None:
             return []
-        query = self.db.query(Place).filter(Place.city_id == city.id)
+        query = self.db.query(Place).options(joinedload(Place.category_ref)).filter(Place.city_id == city.id)
         if category and category != "all":
             categories = CATEGORY_GROUPS.get(category, {category})
             query = query.filter(or_(Place.category.in_(tuple(categories)), Place.canonical_category.in_(tuple(categories))))
@@ -159,6 +166,7 @@ class BotFacade:
         weekday = WEEKDAYS[now.weekday()]
         rows = (
             self.db.query(Place)
+            .options(joinedload(Place.category_ref))
             .join(PlaceSchedule, Place.id == PlaceSchedule.place_id)
             .filter(Place.city_id == city.id)
             .filter(PlaceSchedule.weekday == weekday)
@@ -183,7 +191,7 @@ class BotFacade:
     def favorite_places(self, place_ids: list[int]) -> list[BotPlace]:
         if not place_ids:
             return []
-        rows = self.db.query(Place).filter(Place.id.in_(place_ids)).all()
+        rows = self.db.query(Place).options(joinedload(Place.category_ref)).filter(Place.id.in_(place_ids)).all()
         return [self._place(row) for row in rows if is_place_bot_visible(row)]
 
     def favorite_routes(self, route_ids: list[int]) -> list[BotRoute]:
@@ -191,14 +199,18 @@ class BotFacade:
             return []
         rows = (
             self.db.query(Route)
-            .options(joinedload(Route.route_places).joinedload(RoutePlace.place))
+            .options(joinedload(Route.route_places).joinedload(RoutePlace.place).joinedload(Place.category_ref))
             .filter(Route.id.in_(route_ids), Route.is_active.is_(True))
             .all()
         )
         return [route for route in (self._route(row) for row in rows) if len(route.points) >= 2]
 
     def _city_row(self, slug: str) -> City | None:
-        return self.db.query(City).filter(City.slug == slug, City.is_active.is_(True), City.launch_status == "published").first()
+        return (
+            self.db.query(City)
+            .filter(City.slug == slug, City.is_active.is_(True), City.launch_status.in_(PUBLIC_CITY_STATUSES))
+            .first()
+        )
 
     def _city(self, row: City) -> BotCity:
         rows = self.db.query(Place).filter(Place.city_id == row.id).all()
