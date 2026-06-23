@@ -6,7 +6,7 @@ from typing import Awaitable, Callable
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
@@ -53,11 +53,13 @@ CATEGORY_TITLES = {
 
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
+    await _clear_legacy_reply_keyboard(message)
     await _with_session(message, _start_flow)
 
 
 @router.message(Command("menu"))
 async def cmd_menu(message: Message) -> None:
+    await _clear_legacy_reply_keyboard(message)
     await _with_session(message, _show_main_menu_message)
 
 
@@ -552,6 +554,11 @@ def _should_push_nav(data: str, parsed: ParsedCallback) -> bool:
     if parsed.scope == "near" and parsed.action == "ask":
         return True
     return parsed.scope in {"m", "c", "r", "p", "near", "open", "help"}
+
+
+async def _clear_legacy_reply_keyboard(message: Message) -> None:
+    with suppress(Exception):
+        await message.answer("Обновляю меню City GO.", reply_markup=ReplyKeyboardRemove())
 
 
 async def _edit_or_answer(callback: CallbackQuery, text: str, *, reply_markup=None) -> None:
