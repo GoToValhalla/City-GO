@@ -186,7 +186,7 @@ def test_facade_filters_non_tourist_and_technical_places_new(db_session, city_fa
     assert [item.id for item in page.items] == [visible.id]
 
 
-def test_facade_includes_ready_public_cities_new(db_session, city_factory) -> None:
+def test_facade_city_picker_matches_website_available_cities_new(db_session, city_factory) -> None:
     published = city_factory(slug="published-city", name="Опубликованный", launch_status="published")
     ready = city_factory(slug="ready-city", name="Готовый", launch_status="ready")
     hidden = city_factory(slug="draft-city", name="Черновик", launch_status="draft")
@@ -195,7 +195,7 @@ def test_facade_includes_ready_public_cities_new(db_session, city_factory) -> No
     slugs = {city.slug for city in cities}
 
     assert published.slug in slugs
-    assert ready.slug in slugs
+    assert ready.slug not in slugs
     assert hidden.slug not in slugs
 
 
@@ -230,16 +230,16 @@ def test_facade_nearby_skips_far_places_new(db_session, city_factory, place_fact
     assert [item.id for item in places] == [visible.id]
 
 
-def test_published_city_count_uses_bot_quality_filter_new(db_session, city_factory, place_factory) -> None:
+def test_published_city_count_matches_website_available_city_count_new(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="count-city")
     place_factory(city_id=city.id, title="Археопарк", category="park")
-    place_factory(city_id=city.id, title="Банк", category="service")
+    place_factory(city_id=city.id, title="Сервисный центр", category="service")
     place_factory(city_id=city.id, title="Культурное место OSM 15446204", category="culture")
 
     city_card = BotFacade(db_session).city("count-city")
 
     assert city_card is not None
-    assert city_card.places_count == 1
+    assert city_card.places_count == 3
 
 
 def test_route_with_less_than_two_valid_points_is_unavailable_new(db_session, city_factory, place_factory) -> None:
