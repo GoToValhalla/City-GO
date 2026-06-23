@@ -46,7 +46,7 @@ def city_select_text(cities: list[BotCity]) -> str:
     lines = [
         "<b>Выбери город</b>",
         "",
-        f"Доступно: <b>{len(cities)}</b>.",
+        f"Поддерживается городов: <b>{len(cities)}</b>",
     ]
     if hidden_count:
         lines.append(f"На кнопках показаны {visible_count}. Ещё {hidden_count} можно найти поиском.")
