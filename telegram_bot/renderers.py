@@ -55,6 +55,7 @@ def city_select_text(cities: list[BotCity]) -> str:
     lines += [
         "",
         "Нажми город ниже или можно написать название сообщением.",
+        "Например: Астрахань.",
     ]
     return "\n".join(lines)
 
