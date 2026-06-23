@@ -1,264 +1,149 @@
-# Import / Enrichment Pipeline Stage 1
+# Unified Import / Enrichment Pipeline
 
 Last updated: 2026-06-23
 
-Stage 1 replaces the manual CSV-first enrichment flow with an admin-triggered pipeline foundation. CSV export/import remains available only as a legacy fallback for exceptional manual bulk editing.
-
-The pipeline is already merged into `main` and is part of the deployed admin/data-quality surface.
-
-## Goals
-
-The pipeline exists to move city data from raw imported observations to publishable user-facing places without exposing imported trash to tourists.
-
-It must:
-
-- collect and normalize place candidates;
-- preserve raw source observations for audit;
-- calculate field-level confidence;
-- create photo candidates without auto-promoting generic images;
-- create review queue items for problematic fields;
-- apply publication and route eligibility decisions;
-- keep CSV as fallback, not as the main workflow.
-
-It must not:
-
-- overwrite manual/human-verified confidence with automated guesses;
-- write AI placeholder descriptions as high-confidence content;
-- publish service/bank/police/medical/transport categories as tourist route points;
-- promote generic/category/Unsplash fallback photos as exact primary photos;
-- treat low/stale/conflict opening hours as reliable open-now data.
+City GO uses one background pipeline for both collecting missing places and enriching the complete city catalog. The separate synchronous enrichment launch is removed from the main admin flow.
 
 ## Admin Flow
 
-1. Admin opens `Обогащение данных` in the admin UI.
-2. Admin selects a city and starts the automated pipeline.
-3. Backend creates or reuses the city enrichment job and records normalized `import_job_steps`.
-4. Pipeline writes source snapshots, field confidence, photo candidates, publication decisions, and review queue items.
-5. Admin reviews problematic fields/items instead of re-checking the whole city manually.
-6. Approved data becomes available to public catalog, route building, route readiness, and Telegram bot flows through shared quality gates.
+1. Open `Обогащение данных` or the selected city workspace.
+2. Select a city.
+3. Click `Собрать и обогатить`.
+4. Backend creates a queued `admin_city_import` job.
+5. `import-worker` executes the full pipeline outside the HTTP request.
+6. After completion, review conflicts, missing fields and photo candidates.
+7. Publish the city only after readiness and manual review.
 
-## Code Map
-
-Routers:
-
-```text
-routers/admin_import_pipeline.py
-```
-
-Schemas:
-
-```text
-schemas/import_pipeline_foundation.py
-```
-
-Models:
-
-```text
-models/import_job_step.py
-models/source_observation.py
-models/place_field_confidence.py
-models/place_photo_candidate.py
-models/review_queue_item.py
-```
-
-Services:
-
-```text
-services/import_pipeline_foundation.py
-services/import_pipeline_foundation_steps.py
-services/import_pipeline_publication.py
-services/place_field_confidence_service.py
-services/place_photo_candidate_service.py
-services/review_queue_service.py
-services/quality_scoring.py
-```
-
-Frontend:
-
-```text
-frontend/src/pages/admin/AdminPlaceEnrichmentPage.tsx
-frontend/src/pages/admin/AdminPipelineEnrichmentPanel.tsx
-frontend/src/pages/admin/AdminLegacyEnrichmentPanel.tsx
-frontend/src/pages/admin/adminPipelineLabels.ts
-```
-
-Migrations:
-
-```text
-migrations/versions/7b8c9d0e1f2a_add_import_pipeline_foundation.py
-migrations/env.py
-models/__init__.py
-```
-
-## Tables
-
-- `city_admin_import_jobs`: existing city import/enrichment job shell.
-- `import_job_steps`: normalized step history, status, counters, and errors.
-- `source_observations`: source/staging snapshots for imported place payloads.
-- `place_field_confidence`: field-level confidence snapshots.
-- `place_photo_candidates`: candidate photos before exact/manual approval.
-- `review_queue_items`: field/place issues requiring admin review.
-
-## Pipeline Steps
-
-Current normalized steps:
-
-- `collect_places`
-- `normalize_categories`
-- `backfill_addresses`
-- `generate_ai_descriptions`
-- `fetch_photo_candidates`
-- `calculate_field_confidence`
-- `apply_publication_decisions`
-
-`generate_ai_descriptions` and `fetch_photo_candidates` are non-critical in Stage 1. If they fail, the job can finish as `partial_success` and later steps can still run.
-
-Critical source/confidence/publication failures mark the job as `failed`.
-
-## Field Confidence
-
-Confidence is tracked per field, not only per place.
-
-Tracked fields include:
-
-- title;
-- coordinates;
-- address;
-- category;
-- opening hours;
-- photo;
-- description.
-
-Rules:
-
-- manual/human-verified confidence rows are protected from automated overwrites;
-- AI-generated descriptions are capped at medium confidence;
-- AI-generated descriptions do not mutate coordinates, address, hours, phone, website, or publication status;
-- missing/uncertain fields create field-level review items instead of vague place-level tasks.
-
-## Publication Rules
-
-The pipeline writes place visibility flags compatible with the public catalog, route builder, admin route readiness, route navigation, and Telegram bot.
-
-Expected decisions:
-
-| Decision | Meaning |
-|---|---|
-| `published` + route eligible | High-confidence tourist/recreational place. |
-| `published` without route eligibility | Catalog-visible place that should not be used in routes. |
-| `needs_review` | Low-confidence or conflicting data needs manual review. |
-| `archived` | Invalid coordinates, hidden category, spam, or unusable object. |
-
-Non-tourist categories are never route eligible by default:
-
-```text
-service, bank, atm, mvd, police, government, transport,
-hospital, health, medical, pharmacy, military, cemetery,
-industrial, waste_disposal, fuel, parking, car_service
-```
-
-## Photos
-
-Photo safety rules:
-
-- exact primary photo requires exact/manual approval;
-- category fallback photos stay candidates;
-- generic/placeholder/Unsplash-style images must not become exact primary photos automatically;
-- broken photo send/render failures should fall back to text UI, not a gray placeholder.
-
-## Open Now
-
-`Открыто сейчас` must use only reliable opening hours.
-
-Excluded from open-now:
-
-- `confidence_level = low`;
-- `freshness_status = stale`;
-- conflict/conflicting hours;
-- missing confidence for newly evaluated pipeline data.
-
-Unknown legacy places keep compatibility only until evaluated by the pipeline. New pipeline output should prefer explicit confidence state over legacy assumptions.
-
-## API
+API launch:
 
 ```http
 POST /admin/place-enrichment/pipeline/{city_slug}/run
-GET /admin/place-enrichment/jobs/{job_id}/steps
-GET /admin/place-enrichment/places/{place_id}/confidence
-GET /admin/place-enrichment/review-queue
-POST /admin/place-enrichment/review-queue/{item_id}/resolve
-POST /admin/place-enrichment/photo-candidates/{candidate_id}/approve
-POST /admin/place-enrichment/photo-candidates/{candidate_id}/reject
-POST /admin/place-enrichment/photo-candidates/{candidate_id}/set-primary
 ```
 
-## Admin UI Rules
+The response has `status = queued`. Collection is not executed inside the API request.
 
-The admin UI must:
+Compatibility endpoints `/admin/import-jobs/{city_id}/run` and `/admin/import-jobs/{city_id}/enrich` now enqueue the same complete job.
 
-- use Russian user-facing labels;
-- show loading, error, and empty states;
-- make CSV clearly secondary/legacy;
-- show field-level reasons where available;
-- not expose raw debug labels as the primary admin explanation.
+## Complete Pipeline
+
+```text
+Admin: Собрать и обогатить
+→ queue admin_city_import
+→ import-worker
+→ collect enabled OSM import scopes
+→ normalize and upsert places
+→ deduplicate imported entities
+→ backfill missing addresses
+→ collect legacy photo candidates
+→ normalize categories and tags
+→ Geoapify enrichment when GEOAPIFY_API_KEY is configured
+→ Wikidata / Wikimedia enrichment
+→ official website metadata enrichment
+→ field-level confidence
+→ source conflict review queue
+→ photo candidate review queue
+→ publication and route eligibility decisions
+→ quality cleanup
+→ city readiness
+→ ready for manual review
+```
+
+## Collection Versus Enrichment
+
+Collection creates or updates place entities:
+
+- OSM is queried through enabled `city_import_scopes`;
+- existing source IDs and deduplication rules prevent duplicate places;
+- repeated runs are incremental and can discover newly added OSM objects;
+- scope configuration controls which geographic areas are searched.
+
+Enrichment fills missing fields for all places collected for the city:
+
+- address;
+- website;
+- phone;
+- opening hours;
+- short description;
+- atmosphere;
+- inside;
+- best-for profile;
+- photo candidates.
+
+Existing non-empty public values are not silently overwritten. Conflicting candidates are added to `review_queue_items`.
+
+## Sources
+
+- OSM / Overpass: discovery of places inside configured scopes.
+- Geoapify: address, website, phone and opening hours near known coordinates.
+- Wikidata / Wikimedia Commons: factual descriptions, official websites and photo candidates.
+- Official websites: public metadata, JSON-LD, contacts, opening hours and photo candidates.
+- City GO category rules: safe generic detail sections when source-backed details are missing.
+
+Yandex Maps, 2GIS and Google are not scraped into the City GO database without an appropriate API plan or licence.
+
+## Job And Audit Data
+
+- `city_admin_import_jobs`: queue and top-level job state.
+- `import_job_steps`: normalized source-enrichment step history.
+- `source_observations`: raw provider observations and source URLs.
+- `import_batches`: counters for each foundation pass.
+- `place_field_confidence`: confidence and freshness per field.
+- `place_photo_candidates`: photos awaiting approval.
+- `review_queue_items`: missing fields and source conflicts.
+
+The final job details include `unified_pipeline` with collection results, source-enrichment counters and the recalculated readiness score.
+
+## Statuses
+
+- `queued`: waiting for import-worker.
+- `running`: collection or enrichment is running.
+- `success`: full pipeline completed.
+- `partial_success`: places were preserved, but one or more enrichment providers or later steps failed.
+- `failed`: no usable city result was produced.
+- `review_required`: city data exists and requires admin review before publication.
+
+## Safety Rules
+
+- Manual and human-verified confidence is protected.
+- Missing ratings are not replaced with zero.
+- Generic/category photos cannot silently become exact primary photos.
+- Service, bank, police, medical, transport and similar categories are not route eligible.
+- Low, stale or conflicting opening hours are excluded from `Открыто сейчас`.
+- External-provider failure must not delete already collected places.
+
+## Runtime Requirements
+
+Backend environment:
+
+```env
+GEOAPIFY_API_KEY=
+PLACE_ADDRESS_GEOCODER_USER_AGENT=CityGoAddressBackfill/1.0
+```
+
+`GEOAPIFY_API_KEY` is optional. Without it, the pipeline still runs OSM collection, Wikidata/Wikimedia, official-site enrichment and internal quality rules.
+
+Required runtime service:
+
+```text
+import-worker
+```
+
+In Docker Compose it polls queued jobs and processes one city at a time.
 
 ## Verification
 
-Targeted backend checks:
-
 ```bash
 .venv/bin/python -m pytest --no-cov \
-  tests/test_alembic_single_head_new.py \
   tests/test_import_pipeline_foundation_new.py \
   tests/test_import_pipeline_foundation_safety_new.py \
   tests/test_import_pipeline_api_new.py \
-  tests/test_import_pipeline_review_queue_new.py \
-  tests/test_import_pipeline_photo_safety_new.py -q
-```
+  tests/test_place_enrichment_sources.py -q
 
-Frontend checks for admin enrichment UI:
-
-```bash
 npm --prefix frontend run lint
+npm --prefix frontend run test:ci
 npm --prefix frontend run build
-npm --prefix frontend run test -- adminEnrichment_new.test.tsx
 ```
 
-Focused known regression:
+## Current Limitation
 
-```bash
-.venv/bin/python -m pytest --no-cov tests/test_admin_places_searches_title_slug_and_address_new.py -q
-```
-
-General guards:
-
-```bash
-git diff --check
-.venv/bin/python -m py_compile \
-  routers/admin_import_pipeline.py \
-  schemas/import_pipeline_foundation.py \
-  services/import_pipeline_foundation.py
-```
-
-## Boundaries
-
-Stage 1 is deterministic and testable without external provider secrets.
-
-Not included in Stage 1:
-
-- live external AI provider orchestration;
-- live commercial photo provider integration;
-- fully automated publication without review for ambiguous content;
-- bulk city publication bypassing field-level confidence;
-- replacing all legacy import/admin paths at once.
-
-## Downstream Consumers
-
-Pipeline decisions affect:
-
-- public place catalog;
-- route builder candidate retrieval;
-- route readiness/admin diagnostics;
-- route navigation quality gate;
-- Telegram bot place lists, route mode, nearby, open-now, and search;
-- admin analytics and review queue workload.
+New place discovery currently depends on OSM and the configured city scopes. Geoapify and Wikidata enrich/match collected places; they do not yet perform a separate city-wide discovery pass. Regional open-data and tourism-portal collectors can be added as licensed discovery providers without changing the rest of the pipeline.
