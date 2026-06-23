@@ -14,6 +14,7 @@ from models.import_batch import ImportBatch
 from models.place import Place
 from models.source_observation import SourceObservation
 from services.import_pipeline_publication import apply_pipeline_publication
+from services.place_enrichment_sources import enrich_places_from_sources
 from services.place_field_confidence_service import is_protected, upsert_field_confidence
 from services.place_photo_candidate_service import add_photo_candidate
 from services.review_queue_service import ensure_review_item
@@ -24,6 +25,7 @@ def run_step(db: Session, *, step: str, city: City, job: CityAdminImportJob, bat
         "collect_places": lambda: tuple(_observe_place(db, batch, city, place) for place in places),
         "normalize_categories": lambda: None,
         "backfill_addresses": lambda: None,
+        "enrich_external_sources": lambda: enrich_places_from_sources(db, city=city, batch=batch, places=places, job_id=job.id, counters=counters),
         "generate_ai_descriptions": lambda: tuple(_ai_description(db, place, counters) for place in places),
         "fetch_photo_candidates": lambda: tuple(_photo_candidate(db, place) for place in places if place.image_url),
         "calculate_field_confidence": lambda: tuple(_confidence(db, place, job.id) for place in places),
@@ -63,8 +65,17 @@ def _photo_candidate(db: Session, place: Place) -> None:
 
 
 def _confidence(db: Session, place: Place, job_id: int) -> None:
-    fields = {"title": place.title, "coordinates": [place.lat, place.lng], "address": place.address,
-              "category": place.category, "opening_hours": place.opening_hours, "photo": place.image_url}
+    fields = {
+        "title": place.title,
+        "coordinates": [place.lat, place.lng],
+        "address": place.address,
+        "website": getattr(place, "website", None),
+        "phone": getattr(place, "phone", None),
+        "category": place.category,
+        "opening_hours": place.opening_hours,
+        "description": place.short_description,
+        "photo": place.image_url,
+    }
     tuple(_confidence_field(db, place, job_id, field, value) for field, value in fields.items())
 
 
