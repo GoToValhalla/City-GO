@@ -14,6 +14,7 @@ from core.place_taxonomy import PLACE_CATEGORIES
 from models.category import Category
 from models.city import City
 from models.place import Place
+from models.source_observation import SourceObservation
 
 
 def normalize_city_categories(db: Session, *, city_slug: str, apply: bool = True) -> dict[str, object]:
@@ -21,10 +22,17 @@ def normalize_city_categories(db: Session, *, city_slug: str, apply: bool = True
     if city is None:
         raise ValueError(f"Город не найден: {city_slug}")
     places = db.query(Place).filter(Place.city_id == city.id).all()
+    result = normalize_places_categories(db, places=places, apply=apply)
+    if apply and (result["updated"] or result["synced"]):
+        db.commit()
+    return result
+
+
+def normalize_places_categories(db: Session, *, places: list[Place], apply: bool = True) -> dict[str, object]:
     scanned = updated = synced = skipped = unknown = 0
     for place in places:
         scanned += 1
-        canon = normalize_category_code(place.category or place.canonical_category)
+        canon = _category_for_place(db, place)
         if canon is None or canon not in PLACE_CATEGORIES:
             skipped += 1
             unknown += 1
@@ -50,8 +58,6 @@ def normalize_city_categories(db: Session, *, city_slug: str, apply: bool = True
             updated += 1
         else:
             synced += 1
-    if apply and (updated or synced):
-        db.commit()
     return {
         "scanned": scanned,
         "updated": updated,
@@ -60,6 +66,24 @@ def normalize_city_categories(db: Session, *, city_slug: str, apply: bool = True
         "unknown": unknown,
         "legacy_map": LEGACY_TO_CANONICAL,
     }
+
+
+def _category_for_place(db: Session, place: Place) -> str | None:
+    canon = normalize_category_code(place.category or place.canonical_category)
+    if canon != "service" or place.id is None:
+        return canon
+
+    observations = (
+        db.query(SourceObservation.raw_category)
+        .filter(SourceObservation.canonical_place_id == place.id)
+        .order_by(SourceObservation.last_seen_at.desc(), SourceObservation.id.desc())
+        .all()
+    )
+    for (raw_category,) in observations:
+        candidate = normalize_category_code(raw_category)
+        if candidate and candidate != "service" and candidate in PLACE_CATEGORIES:
+            return candidate
+    return canon
 
 
 def _canonical_category(db: Session, code: str, *, apply: bool) -> Category | None:
