@@ -1,5 +1,5 @@
 import type { Place } from '../../entities/place/model/types'
-import { EmptyState, ErrorState, Skeleton } from '../ui'
+import { EmptyState, ErrorState } from '../ui'
 import { PlaceCard } from './PlaceCard'
 
 type PlaceListProps = {
@@ -21,7 +21,17 @@ const VIRTUALIZATION_THRESHOLD = 50
 const classNames = (...values: Array<string | false | null | undefined>) => values.filter(Boolean).join(' ')
 
 const renderSkeletons = (count: number) => (
-  Array.from({ length: count }, (_, index) => <Skeleton key={index} />)
+  Array.from({ length: count }, (_, index) => (
+    <article className="cg-card place-ui-card place-ui-card-skeleton" key={index} aria-label="Загрузка карточки места">
+      <span className="cg-skeleton-photo place-ui-skeleton-thumb" />
+      <span className="place-ui-card__content">
+        <span className="cg-skeleton-line cg-skeleton-line--medium" />
+        <span className="cg-skeleton-line cg-skeleton-line--title" />
+        <span className="cg-skeleton-line cg-skeleton-line--long" />
+        <span className="cg-skeleton-line cg-skeleton-line--short" />
+      </span>
+    </article>
+  ))
 )
 
 export const PlaceList = ({
