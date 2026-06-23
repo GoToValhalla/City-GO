@@ -29,7 +29,7 @@ export const PlaceMapPanel = ({
   userLocation,
 }: PlaceMapPanelProps) => {
   const mappedPlaces = placesWithCoordinates(places)
-  const activePlace = mappedPlaces.find((place) => place.id === activePlaceId) ?? mappedPlaces[0] ?? null
+  const activePlace = activePlaceId ? mappedPlaces.find((place) => place.id === activePlaceId) ?? null : null
   const activeCoordinate = activePlace ? placeCoordinate(activePlace) : null
   const firstCoordinate = mappedPlaces[0] ? placeCoordinate(mappedPlaces[0]) : null
   const center = activeCoordinate ?? userLocation ?? firstCoordinate
@@ -47,13 +47,13 @@ export const PlaceMapPanel = ({
   const widgetUrl = buildYandexWidgetUrl({
     center,
     places: mappedPlaces,
-    activePlaceId: activePlace?.id ?? activePlaceId ?? null,
+    activePlaceId: activePlace?.id ?? null,
     zoom: activePlace ? 15 : 13,
   })
   const externalUrl = buildYandexMapUrl({
     center,
     places: mappedPlaces,
-    activePlaceId: activePlace?.id ?? activePlaceId ?? null,
+    activePlaceId: activePlace?.id ?? null,
     zoom: activePlace ? 16 : 13,
   })
 
