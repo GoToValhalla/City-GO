@@ -88,6 +88,28 @@ def test_facade_filters_non_tourist_and_technical_places_new(db_session, city_fa
     assert [item.id for item in page.items] == [visible.id]
 
 
+def test_facade_nearby_skips_places_without_coordinates_new(db_session, city_factory, place_factory) -> None:
+    city = city_factory(slug="nearby-city")
+    visible = place_factory(city_id=city.id, title="Парк", category="park", lat=54.9611, lng=20.4703)
+    place_factory(city_id=city.id, title="Без координат", category="park", lat=None, lng=None)
+
+    places = BotFacade(db_session).nearby_places("nearby-city", 54.9611, 20.4703)
+
+    assert [item.id for item in places] == [visible.id]
+
+
+def test_published_city_count_uses_bot_quality_filter_new(db_session, city_factory, place_factory) -> None:
+    city = city_factory(slug="count-city")
+    place_factory(city_id=city.id, title="Археопарк", category="park")
+    place_factory(city_id=city.id, title="Банк", category="service")
+    place_factory(city_id=city.id, title="Культурное место OSM 15446204", category="culture")
+
+    city_card = BotFacade(db_session).city("count-city")
+
+    assert city_card is not None
+    assert city_card.places_count == 1
+
+
 def test_route_with_less_than_two_valid_points_is_unavailable_new(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="route-city")
     place = place_factory(city_id=city.id, title="Парк", category="park", is_route_eligible=True)
