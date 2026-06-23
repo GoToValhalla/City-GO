@@ -6,6 +6,8 @@ from telegram_bot.quality import clean_title
 from telegram_bot.schemas import BotCity, BotPlace, BotRoute, BotRoutePoint
 from telegram_bot.utils import compact_text, format_duration, format_km, format_meters
 
+CITY_SELECT_VISIBLE_LIMIT = 5
+
 CATEGORY_LABELS = {
     "culture": ("🏛", "Культура"),
     "museum": ("🏛", "Музей"),
@@ -38,7 +40,23 @@ def start_text() -> str:
 def city_select_text(cities: list[BotCity]) -> str:
     if not cities:
         return "<b>Пока нет доступных городов.</b>\n\nВ админке нет активных городов с публичным статусом."
-    return "<b>Выбери город</b>\n\nПокажу только опубликованный каталог без технических OSM-точек."
+
+    visible_count = min(len(cities), CITY_SELECT_VISIBLE_LIMIT)
+    hidden_count = max(len(cities) - visible_count, 0)
+    lines = [
+        "<b>Выбери город</b>",
+        "",
+        f"Поддерживается городов: <b>{len(cities)}</b>.",
+    ]
+    if hidden_count:
+        lines.append(f"На кнопках показаны {visible_count}. Еще {hidden_count} можно найти поиском.")
+    else:
+        lines.append("Все доступные города показаны кнопками ниже.")
+    lines += [
+        "",
+        "Можно нажать город ниже или написать название сообщением, например: <code>Астрахань</code>.",
+    ]
+    return "\n".join(lines)
 
 
 def main_menu_text(city: BotCity) -> str:
