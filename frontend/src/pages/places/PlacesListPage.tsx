@@ -65,12 +65,9 @@ export const PlacesListPage = () => {
     })
   }, [filters.category, filters.onlyOpen, places, search])
 
-  useEffect(() => {
-    if (activePlaceId && !filteredPlaces.some((place) => place.id === activePlaceId)) {
-      setActivePlaceId(null)
-    }
-  }, [activePlaceId, filteredPlaces])
-
+  const visibleActivePlaceId = activePlaceId && filteredPlaces.some((place) => place.id === activePlaceId)
+    ? activePlaceId
+    : null
   const isSearchActive = search.trim().length > 0
   const shownCount = isSearchActive || filters.category !== ALL_VALUE || filters.onlyOpen ? filteredPlaces.length : places.length
   const effectiveTotal = isSearchActive || filters.category !== ALL_VALUE || filters.onlyOpen ? filteredPlaces.length : total
@@ -133,7 +130,7 @@ export const PlacesListPage = () => {
         <section className="places-map-list-layout">
           <PlaceMapPanel
             places={filteredPlaces}
-            activePlaceId={activePlaceId}
+            activePlaceId={visibleActivePlaceId}
             userLocation={userLocation.coordinates}
             locationLoading={userLocation.status === 'loading'}
             locationError={userLocation.error}
@@ -146,7 +143,7 @@ export const PlacesListPage = () => {
             loading={loading && places.length === 0}
             loadingMore={loadingMore}
             error={error}
-            activePlaceId={activePlaceId}
+            activePlaceId={visibleActivePlaceId}
             onActivePlaceChange={setActivePlaceId}
             onRetry={retry}
             onResetFilters={resetFilters}
