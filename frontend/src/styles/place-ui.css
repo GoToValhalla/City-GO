@@ -1,3 +1,8 @@
+.cg-status-badge--unknown {
+  color: var(--cg-warning);
+  background: var(--cg-warning-soft);
+}
+
 .cg-distance-badge {
   display: inline-flex;
   align-items: center;
@@ -35,6 +40,11 @@
   padding: 12px;
   color: var(--cg-text-main);
   text-decoration: none;
+}
+
+.place-ui-card.is-active {
+  border-color: rgba(124,77,255,0.62);
+  box-shadow: var(--cg-shadow-primary);
 }
 
 .place-ui-card:focus-visible {
@@ -141,8 +151,8 @@
 .place-search__clear {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   color: var(--cg-text-muted);
   background: transparent;
@@ -189,7 +199,7 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 0 14px;
   color: var(--cg-text-muted);
   background: var(--cg-bg-card);
@@ -221,6 +231,7 @@
   display: grid;
   gap: 16px;
   max-height: min(78svh, 620px);
+  overflow-y: auto;
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
   color: var(--cg-text-main);
   background: var(--cg-bg-elevated);
@@ -340,7 +351,7 @@
 
 .place-detail-sheet__read-more {
   width: fit-content;
-  min-height: 34px;
+  min-height: 44px;
   padding: 0;
   color: var(--cg-primary-hover);
   background: transparent;
@@ -385,12 +396,16 @@
   background: linear-gradient(180deg, transparent, var(--cg-bg-card) 22%);
 }
 
+.place-detail-sheet__footer .cg-button {
+  min-height: 44px;
+}
+
 .place-map-pin {
   position: relative;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   color: var(--cg-text-main);
   background: var(--cg-bg-elevated);
   border: 2px solid var(--cg-primary);
