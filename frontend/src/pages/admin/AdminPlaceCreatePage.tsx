@@ -1,142 +1,154 @@
-import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
-import { AdminCategorySelect } from './AdminCategorySelect'
+import { AdminPlaceForm, type AdminPlaceFormValue } from './AdminPlaceForm'
 import type { AdminCitiesResponse } from './adminTypes'
 import { AdminError } from './shared/AdminStates'
-
-const SOURCES = [
-  { value: 'admin_manual', label: 'Ручной ввод' },
-  { value: 'osm', label: 'OSM' },
-  { value: 'import', label: 'Импорт' },
-  { value: 'enrichment', label: 'Обогащение' },
-]
 
 type LookupCandidate = { title?: string; address?: string; lat?: number; lng?: number; source?: string; error?: string }
 type LookupResponse = { candidates: LookupCandidate[]; similar_places: Array<{ id: number; title: string; match_reason: string }> }
 
+const emptyForm = (): AdminPlaceFormValue => ({
+  title: '', category: 'attraction', address: '', lat: '', lng: '', shortDescription: '', imageUrl: '', website: '', phone: '',
+  source: 'admin_manual', sourceUrl: '', atmosphere: '', inside: '', bestFor: '', openingHours: '', visitDuration: '', priceLevel: '',
+  indoor: false, outdoor: false, dogFriendly: false, familyFriendly: false, isActive: true, visibleToUsers: false, searchable: false,
+  routeEnabled: false, routeExclusionReason: '', adminComment: '',
+})
+
+const optionalNumber = (value: string) => value.trim() ? Number(value) : null
+const optionalText = (value: string) => value.trim() || null
+
 export const AdminPlaceCreatePage = () => {
   const nav = useNavigate()
+  const [searchParams] = useSearchParams()
   const [cities, setCities] = useState<AdminCitiesResponse['items']>([])
   const [cityId, setCityId] = useState(0)
   const [query, setQuery] = useState('')
-  const [title, setTitle] = useState('')
-  const [category, setCategory] = useState('attraction')
-  const [source, setSource] = useState('admin_manual')
-  const [address, setAddress] = useState('')
-  const [lat, setLat] = useState('')
-  const [lng, setLng] = useState('')
-  const [advanced, setAdvanced] = useState(false)
+  const [form, setForm] = useState<AdminPlaceFormValue>(emptyForm)
   const [candidates, setCandidates] = useState<LookupCandidate[]>([])
   const [dupes, setDupes] = useState<LookupResponse['similar_places']>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    adminGet<AdminCitiesResponse>('/admin/cities?limit=100').then((r) => {
-      setCities(r.items)
-      if (r.items[0]) setCityId(r.items[0].id)
-    })
-  }, [])
+    adminGet<AdminCitiesResponse>('/admin/cities?limit=100').then((response) => {
+      setCities(response.items)
+      const requested = response.items.find((city) => city.slug === searchParams.get('city'))
+      if (requested ?? response.items[0]) setCityId((requested ?? response.items[0]).id)
+    }).catch((caught: Error) => setError(caught.message))
+  }, [searchParams])
+
+  const city = useMemo(() => cities.find((item) => item.id === cityId), [cities, cityId])
+
+  const selectCandidate = (candidate: LookupCandidate) => {
+    setForm((current) => ({
+      ...current,
+      title: String(candidate.title || query),
+      address: String(candidate.address || ''),
+      lat: candidate.lat === undefined ? current.lat : String(candidate.lat),
+      lng: candidate.lng === undefined ? current.lng : String(candidate.lng),
+      source: candidate.source || current.source,
+    }))
+  }
 
   const search = async () => {
+    if (!cityId || !query.trim()) return
     setBusy(true)
     setError(null)
     try {
-      const res = await adminPost<LookupResponse>('/admin/places/lookup', { city_id: cityId, title: query })
-      setCandidates(res.candidates)
-      setDupes(res.similar_places)
-      const first = res.candidates.find((c) => c.lat && c.lng && !c.error)
-      if (first) {
-        setTitle(String(first.title || query))
-        setAddress(String(first.address || ''))
-        setLat(String(first.lat))
-        setLng(String(first.lng))
-      } else {
-        setTitle(query)
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка поиска')
-    } finally { setBusy(false) }
+      const response = await adminPost<LookupResponse>('/admin/places/lookup', { city_id: cityId, title: query.trim() })
+      setCandidates(response.candidates)
+      setDupes(response.similar_places)
+      const first = response.candidates.find((candidate) => candidate.lat !== undefined && candidate.lng !== undefined && !candidate.error)
+      if (first) selectCandidate(first)
+      else setForm((current) => ({ ...current, title: query.trim() }))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Не удалось найти место')
+    } finally {
+      setBusy(false)
+    }
   }
 
   const create = async () => {
+    const lat = Number(form.lat)
+    const lng = Number(form.lng)
+    if (!form.title.trim()) return setError('Укажите название места')
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return setError('Найдите место или укажите корректные координаты')
+
     setBusy(true)
     setError(null)
     try {
-      const dupeRes = await adminPost<{ items: typeof dupes }>('/admin/places/check-duplicates', {
-        city_id: cityId, title, address: address || null,
-        lat: lat ? Number(lat) : null, lng: lng ? Number(lng) : null,
+      const duplicateResponse = await adminPost<{ items: typeof dupes }>('/admin/places/check-duplicates', {
+        city_id: cityId, title: form.title.trim(), address: optionalText(form.address), lat, lng,
       })
-      setDupes(dupeRes.items)
-      if (dupeRes.items.length && !window.confirm(`Найдено ${dupeRes.items.length} похожих мест. Всё равно создать?`)) return
+      setDupes(duplicateResponse.items)
+      if (duplicateResponse.items.length && !window.confirm(`Найдено похожих мест: ${duplicateResponse.items.length}. Всё равно создать новый черновик?`)) return
+
       const created = await adminPost<{ id: number }>('/admin/places/create-draft', {
-        city_id: cityId, title, category, source, address: address || null,
-        lat: lat ? Number(lat) : null, lng: lng ? Number(lng) : null,
+        city_id: cityId,
+        title: form.title.trim(),
+        category: form.category,
+        source: form.source,
+        source_url: optionalText(form.sourceUrl),
+        address: optionalText(form.address),
+        lat,
+        lng,
+        short_description: optionalText(form.shortDescription),
+        image_url: optionalText(form.imageUrl),
+        website: optionalText(form.website),
+        phone: optionalText(form.phone),
+        atmosphere: optionalText(form.atmosphere),
+        inside: optionalText(form.inside),
+        best_for: optionalText(form.bestFor),
+        opening_hours: form.openingHours.trim() ? { display: form.openingHours.trim(), raw: form.openingHours.trim() } : null,
+        average_visit_duration_minutes: optionalNumber(form.visitDuration),
+        price_level: optionalNumber(form.priceLevel),
+        indoor: form.indoor,
+        outdoor: form.outdoor,
+        dog_friendly: form.dogFriendly,
+        family_friendly: form.familyFriendly,
+        route_enabled: form.routeEnabled,
+        admin_comment: optionalText(form.adminComment),
       })
-      nav(`/admin/places/${created.id}`)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка')
-    } finally { setBusy(false) }
+      nav(`/admin/places/${created.id}`, { replace: true })
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Не удалось создать место')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
     <div>
-      <Link to="/admin/places" className="admin-muted">← К списку</Link>
-      <h2 className="admin-page-title">Создать место</h2>
-      <p className="admin-page-subtitle">Поиск по названию или адресу. Координаты подставляются автоматически.</p>
-      <div className="admin-filters admin-filters-stack">
-        <select value={cityId} onChange={(e) => setCityId(Number(e.target.value))}>
-          {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-        <input placeholder="Название или адрес для поиска *" value={query} onChange={(e) => setQuery(e.target.value)} />
-        <button type="button" className="admin-btn" disabled={busy || !query} onClick={search}>Найти место</button>
+      <Link to={`/admin/places${city?.slug ? `?city=${city.slug}` : ''}`} className="admin-back-link">← К списку мест</Link>
+      <div className="admin-page-header">
+        <div><h2 className="admin-page-title">Новое место</h2><p className="admin-page-subtitle">Сначала найдите объект, затем проверьте и дополните его данные.</p></div>
       </div>
-      {candidates.length > 0 && (
-        <div className="admin-detail-panel">
-          <h3>Найдено</h3>
-          <ul>{candidates.map((c, i) => (
-            <li key={i}>
-              {c.error ? c.error : `${c.title} — ${c.address} (${c.lat}, ${c.lng})`}
-              {!c.error && c.lat && (
-                <button type="button" className="admin-btn admin-btn-sm" onClick={() => {
-                  setTitle(String(c.title || query)); setAddress(String(c.address || ''))
-                  setLat(String(c.lat)); setLng(String(c.lng))
-                }}>Выбрать</button>
-              )}
-            </li>
-          ))}</ul>
+
+      <section className="admin-filter-card">
+        <div className="admin-help-title">1. Найти объект и координаты</div>
+        <div className="admin-search-row">
+          <select aria-label="Город" value={cityId} onChange={(event) => setCityId(Number(event.target.value))}>
+            {cities.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+          <input aria-label="Название или адрес" placeholder="Название или адрес" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') void search() }} />
+          <button type="button" className="admin-btn admin-btn-primary" disabled={busy || !query.trim() || !cityId} onClick={() => void search()}>{busy ? 'Ищем…' : 'Найти'}</button>
         </div>
-      )}
-      <div className="admin-filters admin-filters-stack">
-        <input placeholder="Название *" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <AdminCategorySelect value={category} onChange={setCategory} />
-        <select value={source} onChange={(e) => setSource(e.target.value)}>
-          {SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
-        <input placeholder="Адрес" value={address} onChange={(e) => setAddress(e.target.value)} />
-        <button type="button" className="admin-btn admin-btn-muted" onClick={() => setAdvanced((v) => !v)}>
-          {advanced ? 'Скрыть дополнительно' : 'Дополнительно (координаты)'}
-        </button>
-        {advanced && (
-          <>
-            <input placeholder="Широта" value={lat} onChange={(e) => setLat(e.target.value)} />
-            <input placeholder="Долгота" value={lng} onChange={(e) => setLng(e.target.value)} />
-          </>
-        )}
-        <button type="button" className="admin-btn admin-btn-primary" disabled={busy || !title} onClick={create}>
-          Создать черновик
-        </button>
-      </div>
+        {candidates.length > 0 && <div className="admin-candidate-list">{candidates.map((candidate, index) => (
+          <button key={`${candidate.title}-${index}`} type="button" className="admin-candidate" disabled={Boolean(candidate.error)} onClick={() => selectCandidate(candidate)}>
+            <strong>{candidate.title || 'Без названия'}</strong><span>{candidate.error || candidate.address || 'Адрес не указан'}</span>
+          </button>
+        ))}</div>}
+      </section>
+
+      <div className="admin-help-title">2. Проверить и заполнить карточку</div>
+      <AdminPlaceForm value={form} onChange={setForm} citySlug={city?.slug} disabled={busy} />
       {error && <AdminError message={error} />}
-      {dupes.length > 0 && (
-        <div className="admin-detail-panel">
-          <h3>Похожие места</h3>
-          <ul>{dupes.map((d) => (
-            <li key={d.id}><Link to={`/admin/places/${d.id}`}>{d.title}</Link> — {d.match_reason}</li>
-          ))}</ul>
-        </div>
-      )}
+      {dupes.length > 0 && <section className="admin-warning-panel"><strong>Похожие места</strong>{dupes.map((duplicate) => <Link key={duplicate.id} to={`/admin/places/${duplicate.id}`}>{duplicate.title} · {duplicate.match_reason}</Link>)}</section>}
+      <div className="admin-sticky-actions">
+        <span className="admin-muted">Новое место будет сохранено как черновик и не появится у пользователей автоматически.</span>
+        <button type="button" className="admin-btn admin-btn-primary" disabled={busy || !form.title.trim() || !form.lat || !form.lng} onClick={() => void create()}>{busy ? 'Сохраняем…' : 'Создать черновик'}</button>
+      </div>
     </div>
   )
 }
