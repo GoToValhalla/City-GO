@@ -77,7 +77,7 @@ async def location_message(message: Message) -> None:
         session.last_location = {"lat": message.location.latitude, "lng": message.location.longitude}
         save_session(db, session)
         if not session.selected_city_slug:
-            await _show_city_select_message(message, facade)
+            await _show_city_select_message(message, facade, db=db, session=session)
             return
         places = facade.nearby_places(session.selected_city_slug, message.location.latitude, message.location.longitude)
         log_event(db, session, "nearby_used", payload={"results_count": len(places)})
@@ -105,17 +105,8 @@ async def text_message(message: Message) -> None:
         if lowered in {"помощь", "что умеет бот"}:
             await message.answer(renderers.help_text(), reply_markup=kb.back_to_menu())
             return
-        if not session.selected_city_slug:
-            city = facade.city_by_text(text)
-            if city is not None:
-                session.selected_city_slug = city.slug
-                session.current_flow = "main"
-                session.nav_stack = ["m:main"]
-                save_session(db, session)
-                log_event(db, session, "city_selected", entity_type="city", entity_id=city.slug)
-                await message.answer(renderers.main_menu_text(city), reply_markup=kb.main_menu())
-                return
-            await _show_city_select_message(message, facade)
+        if session.current_flow == "city_select" or not session.selected_city_slug:
+            await _select_city_from_text(db, session, facade, message, text)
             return
         page = facade.search_places(session.selected_city_slug, text)
         log_event(db, session, "search_query", payload={"query": text, "results_count": len(page.items)})
@@ -195,6 +186,8 @@ async def _start_flow(db: Session, session, facade: BotFacade, message: Message)
     cities = facade.published_cities()
     log_event(db, session, "bot_started")
     if not cities:
+        session.current_flow = "city_select"
+        save_session(db, session)
         await message.answer(renderers.city_select_text(cities))
         return
     selected = facade.city(session.selected_city_slug)
@@ -211,6 +204,9 @@ async def _start_flow(db: Session, session, facade: BotFacade, message: Message)
         save_session(db, session)
         await message.answer(renderers.main_menu_text(cities[0]), reply_markup=kb.main_menu())
         return
+    session.current_flow = "city_select"
+    session.nav_stack = ["c:list"]
+    save_session(db, session)
     await message.answer(renderers.start_text())
     await message.answer(renderers.city_select_text(cities), reply_markup=kb.city_list(cities))
 
@@ -218,40 +214,71 @@ async def _start_flow(db: Session, session, facade: BotFacade, message: Message)
 async def _show_main_menu_message(db: Session, session, facade: BotFacade, message: Message) -> None:
     city = facade.city(session.selected_city_slug)
     if city is None:
-        await _show_city_select_message(message, facade)
+        await _show_city_select_message(message, facade, db=db, session=session)
         return
+    session.current_flow = "main"
+    save_session(db, session)
     await message.answer(renderers.main_menu_text(city), reply_markup=kb.main_menu())
 
 
 async def _show_main_menu_callback(callback: CallbackQuery, session, facade: BotFacade) -> None:
     city = facade.city(session.selected_city_slug)
     if city is None:
-        await _show_city_select_callback(callback, facade)
+        await _show_city_select_callback(callback, facade, session=session)
         return
     await _edit_or_answer(callback, renderers.main_menu_text(city), reply_markup=kb.main_menu())
 
 
-async def _show_city_select_message(message: Message, facade: BotFacade) -> None:
+async def _show_city_select_message(message: Message, facade: BotFacade, *, db: Session | None = None, session=None) -> None:
     cities = facade.published_cities()
+    if session is not None:
+        session.current_flow = "city_select"
+        if db is not None:
+            save_session(db, session)
     if not cities:
         await message.answer(renderers.city_select_text(cities))
         return
     await message.answer(renderers.city_select_text(cities), reply_markup=kb.city_list(cities))
 
 
-async def _show_city_select_callback(callback: CallbackQuery, facade: BotFacade) -> None:
+async def _show_city_select_callback(callback: CallbackQuery, facade: BotFacade, *, db: Session | None = None, session=None) -> None:
     cities = facade.published_cities()
+    if session is not None:
+        session.current_flow = "city_select"
+        if db is not None:
+            save_session(db, session)
+    await _clear_legacy_reply_keyboard_from_callback(callback)
     await _edit_or_answer(callback, renderers.city_select_text(cities), reply_markup=kb.city_list(cities) if cities else None)
+
+
+async def _select_city_from_text(db: Session, session, facade: BotFacade, message: Message, text: str) -> None:
+    city = facade.city_by_text(text)
+    if city is not None:
+        session.selected_city_slug = city.slug
+        session.current_flow = "main"
+        session.nav_stack = ["m:main"]
+        save_session(db, session)
+        log_event(db, session, "city_selected", entity_type="city", entity_id=city.slug)
+        await message.answer(renderers.main_menu_text(city), reply_markup=kb.main_menu())
+        return
+
+    cities = facade.published_cities()
+    session.current_flow = "city_select"
+    save_session(db, session)
+    await message.answer(
+        "Город не найден. Напиши название точнее или выбери из списка ниже.\n\n" + renderers.city_select_text(cities),
+        reply_markup=kb.city_list(cities) if cities else None,
+    )
 
 
 async def _handle_city(callback: CallbackQuery, db: Session, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
     if action == "list":
-        await _show_city_select_callback(callback, facade)
+        await _show_city_select_callback(callback, facade, db=db, session=session)
         return
     if action == "set" and parts:
         city = facade.city(parts[0])
         if city is None:
-            await _show_city_select_callback(callback, facade)
+            await _show_city_select_callback(callback, facade, db=db, session=session)
             return
         session.selected_city_slug = city.slug
         session.current_flow = "main"
@@ -260,13 +287,13 @@ async def _handle_city(callback: CallbackQuery, db: Session, session, facade: Bo
         log_event(db, session, "city_selected", entity_type="city", entity_id=city.slug)
         await _edit_or_answer(callback, renderers.main_menu_text(city), reply_markup=kb.main_menu())
         return
-    await _show_city_select_callback(callback, facade)
+    await _show_city_select_callback(callback, facade, db=db, session=session)
 
 
 async def _handle_route(callback: CallbackQuery, db: Session, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
     city = facade.city(session.selected_city_slug)
     if city is None:
-        await _show_city_select_callback(callback, facade)
+        await _show_city_select_callback(callback, facade, db=db, session=session)
         return
     if action == "list":
         page_no = _int(parts[0] if parts else "0")
@@ -380,7 +407,7 @@ async def _handle_route_navigation(callback: CallbackQuery, db: Session, session
 
 async def _handle_place(callback: CallbackQuery, db: Session, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
     if not session.selected_city_slug:
-        await _show_city_select_callback(callback, facade)
+        await _show_city_select_callback(callback, facade, db=db, session=session)
         return
     if action == "cat" and len(parts) >= 2:
         category = parts[0]
@@ -412,7 +439,7 @@ async def _handle_place(callback: CallbackQuery, db: Session, session, facade: B
 
 async def _handle_nearby(callback: CallbackQuery, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
     if not session.selected_city_slug:
-        await _show_city_select_callback(callback, facade)
+        await _show_city_select_callback(callback, facade, session=session)
         return
     if not session.last_location:
         await callback.message.answer(renderers.nearby_request_text(), reply_markup=kb.request_location()) if callback.message else None
@@ -427,7 +454,7 @@ async def _handle_nearby(callback: CallbackQuery, session, facade: BotFacade, ac
 
 async def _handle_open_now(callback: CallbackQuery, db: Session, session, facade: BotFacade, parts: tuple[str, ...]) -> None:
     if not session.selected_city_slug:
-        await _show_city_select_callback(callback, facade)
+        await _show_city_select_callback(callback, facade, db=db, session=session)
         return
     page_no = _int(parts[0] if parts else "0")
     page = facade.open_now(session.selected_city_slug, page_no)
@@ -559,6 +586,13 @@ def _should_push_nav(data: str, parsed: ParsedCallback) -> bool:
 async def _clear_legacy_reply_keyboard(message: Message) -> None:
     with suppress(Exception):
         await message.answer("Обновляю меню City GO.", reply_markup=ReplyKeyboardRemove())
+
+
+async def _clear_legacy_reply_keyboard_from_callback(callback: CallbackQuery) -> None:
+    if callback.message is None:
+        return
+    with suppress(Exception):
+        await callback.message.answer("Убираю старую клавиатуру.", reply_markup=ReplyKeyboardRemove())
 
 
 async def _edit_or_answer(callback: CallbackQuery, text: str, *, reply_markup=None) -> None:
