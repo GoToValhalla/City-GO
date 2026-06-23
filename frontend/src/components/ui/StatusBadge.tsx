@@ -1,4 +1,4 @@
-type PlaceStatus = 'open' | 'closed' | 'unknown' | 'soon'
+export type PlaceStatus = 'open' | 'closed' | 'unknown' | 'soon'
 
 type StatusBadgeProps = {
   status: PlaceStatus
