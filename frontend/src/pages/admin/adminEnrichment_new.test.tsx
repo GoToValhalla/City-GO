@@ -89,6 +89,15 @@ describe('AdminPlaceEnrichmentPage', () => {
     await waitFor(() => expect(screen.getByText(/batch-экспортов пока нет/i)).toBeTruthy())
   })
 
+  it('shows batch loading errors', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(emptyCities), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{"detail":"batch list failed"}', { status: 500 }))
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('batch list failed')).toBeTruthy())
+  })
+
   it('shows ChatGPT path hint after export', async () => {
     const exportResult = {
       export_id: batchItem.batch_id, batch_id: batchItem.batch_id,
