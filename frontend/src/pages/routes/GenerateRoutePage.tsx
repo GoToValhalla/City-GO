@@ -405,7 +405,7 @@ export const GenerateRoutePage = () => {
               <p>Выбери время, настроение и ограничения. City Go покажет точки,
                 адреса, порядок остановок и примерную длительность.</p>
             </div>
-            <RouteHeroPreview />
+            <RouteHeroPreview features={features} />
           </section>
           <section className="route-config-tile">
             <RouteRequestForm
@@ -424,7 +424,7 @@ export const GenerateRoutePage = () => {
               onSubmit={submit}
             />
           </section>
-          <RandomRouteDraftEditor citySlug={city.slug} />
+          <RandomRouteDraftEditor citySlug={city.slug} features={features} />
           {error ? <section className="route-error-tile">{error}</section> : null}
           {routeWarning ? <section className="route-error-tile">{routeWarning}</section> : null}
           {debugInfo ? renderDebugInfo(debugInfo) : null}
