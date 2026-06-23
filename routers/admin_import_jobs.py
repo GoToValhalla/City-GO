@@ -1,4 +1,4 @@
-"""Admin: запуск, повтор, публикация import jobs."""
+"""Admin: запуск, повтор и публикация единых import jobs."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -40,14 +40,14 @@ def start_import_job(
     if not item.get("can_run"):
         raise HTTPException(409, "Запуск недоступен для текущего статуса")
     try:
-        queue_city_import_job(db, city_id=city_id)
+        queue_city_import_job(db, city_id=city_id, actor_id=auth.actor_id)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     db.commit()
     return AdminImportJobActionResponse(
         city_id=city_id,
         status="queued",
-        message="Импорт поставлен в очередь. Его выполнит import-worker, backend не держит тяжелую фоновую задачу.",
+        message="Полный сбор и обогащение поставлены в очередь. Задачу выполнит import-worker.",
     )
 
 
@@ -69,7 +69,7 @@ def retry_import_job(
     return AdminImportJobActionResponse(
         city_id=city_id,
         status="queued",
-        message="Повтор импорта поставлен в очередь.",
+        message="Повтор полного сбора и обогащения поставлен в очередь.",
     )
 
 
@@ -91,7 +91,7 @@ def cancel_import_job_endpoint(
     return AdminImportJobActionResponse(
         city_id=city_id,
         status="cancelled",
-        message="Импорт отменён.",
+        message="Сбор и обогащение отменены.",
     )
 
 
@@ -122,6 +122,7 @@ def enrich_city_job(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> AdminImportJobActionResponse:
+    """Compatibility endpoint: now queues the same complete pipeline as /run."""
     item = get_admin_import_job(db, city_id)
     if item is None:
         raise HTTPException(404, "Город не найден")
@@ -133,7 +134,7 @@ def enrich_city_job(
     return AdminImportJobActionResponse(
         city_id=city_id,
         status="queued",
-        message="Обогащение поставлено в очередь: адреса → фото → категории → качество.",
+        message="Полный сбор и обогащение поставлены в очередь.",
     )
 
 
@@ -144,7 +145,7 @@ def enrich_all_cities_job(
 ) -> AdminImportJobActionResponse:
     city_ids = [row.id for row in db.query(City.id).order_by(City.slug.asc()).all()]
     if not city_ids:
-        raise HTTPException(404, "Города для обогащения не найдены")
+        raise HTTPException(404, "Города для запуска не найдены")
     queued = 0
     skipped_running = 0
     for city_id in city_ids:
@@ -157,5 +158,5 @@ def enrich_all_cities_job(
     return AdminImportJobActionResponse(
         city_id=0,
         status="queued",
-        message=f"Обогащение городов поставлено в очередь: {queued}. Уже выполняются и пропущены: {skipped_running}.",
+        message=f"Полный сбор и обогащение поставлены в очередь для городов: {queued}. Уже выполняются: {skipped_running}.",
     )
