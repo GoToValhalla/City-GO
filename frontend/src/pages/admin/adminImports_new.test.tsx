@@ -15,6 +15,7 @@ const job = {
 describe('AdminImportJobsPage', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
+    vi.stubGlobal('confirm', vi.fn(() => true))
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/admin/import-jobs/1/run') && init?.method === 'POST') {
@@ -37,7 +38,7 @@ describe('AdminImportJobsPage', () => {
   it('shows run button and triggers import_new', async () => {
     render(<MemoryRouter><AdminImportJobsPage /></MemoryRouter>)
     await waitFor(() => expect(screen.getByText('Алматы')).toBeTruthy())
-    fireEvent.click(screen.getByText('Запустить'))
-    await waitFor(() => expect(screen.getByText('Алматы')).toBeTruthy())
+    fireEvent.click(screen.getByText('Собрать и обогатить'))
+    await waitFor(() => expect(screen.getByText('ok')).toBeTruthy())
   })
 })
