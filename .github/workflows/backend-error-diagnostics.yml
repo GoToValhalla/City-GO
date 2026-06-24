@@ -29,7 +29,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Inspect production city activation
+      - name: Inspect production publication state
         shell: bash
         run: |
           set -euo pipefail
@@ -37,5 +37,5 @@ jobs:
             set -euo pipefail
             cd /srv/app
             docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
-              "SELECT id, slug, name, launch_status, is_active, readiness_score, quality_status FROM cities ORDER BY id;"
+              "SELECT c.slug, count(p.id) AS total, count(p.id) FILTER (WHERE p.is_active IS NOT FALSE) AS active, count(p.id) FILTER (WHERE p.is_published IS TRUE) AS published, count(p.id) FILTER (WHERE p.is_visible_in_catalog IS TRUE) AS catalog_visible, count(p.id) FILTER (WHERE p.publication_status = 'needs_review') AS needs_review FROM cities c LEFT JOIN places p ON p.city_id = c.id GROUP BY c.id, c.slug ORDER BY c.slug;"
           REMOTE_EOF
