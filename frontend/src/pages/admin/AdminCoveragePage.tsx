@@ -22,6 +22,8 @@ type CoverageRow = {
 type CoverageResponse = { items: CoverageRow[]; total: number }
 
 const sevClass = (s: string) => `admin-quality admin-quality-${s}`
+const placesLink = (city: string, extra = '') => `/admin/places?city=${encodeURIComponent(city)}${extra}`
+const CountLink = ({ to, value, label }: { to: string; value: number; label: string }) => <Link to={to} title={`Открыть: ${label}`}>{value}</Link>
 
 export const AdminCoveragePage = () => {
   const [params] = useSearchParams()
@@ -44,28 +46,23 @@ export const AdminCoveragePage = () => {
   return (
     <div>
       <h2 className="admin-page-title">Покрытие данных</h2>
-      <p className="admin-page-subtitle">Качество каталога по городам</p>
+      <p className="admin-page-subtitle">Каждое число открывает соответствующий набор мест с сохранённым городом и фильтром.</p>
       <div className="admin-table-wrap">
         <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Город</th><th>Оценка</th><th>Всего</th><th>Опубл.</th>
-              <th>Без фото</th><th>Без адреса</th><th>Без описания</th><th>Действия</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Город</th><th>Оценка</th><th>Всего</th><th>Опубл.</th><th>Без фото</th><th>Без адреса</th><th>Без описания</th><th>Действия</th></tr></thead>
           <tbody>
             {items.map((c) => (
               <tr key={c.city_id} className={highlight === c.city_slug ? 'admin-row-highlight' : ''}>
-                <td><strong>{c.city_name}</strong><div className="admin-muted">{c.city_slug}</div></td>
-                <td><span className={sevClass(c.severity)}>{c.quality_score}%</span></td>
-                <td>{c.places_total}</td>
-                <td>{c.places_published}</td>
-                <td>{c.places_without_photo}</td>
-                <td>{c.places_without_address}</td>
-                <td>{c.places_without_description}</td>
+                <td><Link to={`/admin/cities/${c.city_slug}?tab=quality`}><strong>{c.city_name}</strong></Link><div className="admin-muted">{c.city_slug}</div></td>
+                <td><Link to={`/admin/quality?city_slug=${c.city_slug}`} className={sevClass(c.severity)}>{c.quality_score}%</Link></td>
+                <td><CountLink to={placesLink(c.city_slug)} value={c.places_total} label="все места" /></td>
+                <td><CountLink to={placesLink(c.city_slug, '&publication=published')} value={c.places_published} label="опубликованные места" /></td>
+                <td><CountLink to={placesLink(c.city_slug, '&photo=false')} value={c.places_without_photo} label="места без фото" /></td>
+                <td><CountLink to={placesLink(c.city_slug, '&address=false')} value={c.places_without_address} label="места без адреса" /></td>
+                <td><CountLink to={placesLink(c.city_slug, '&description=false')} value={c.places_without_description} label="места без описания" /></td>
                 <td className="admin-actions-cell">
-                  <Link className="admin-btn admin-btn-sm" to={`/admin/places?city=${c.city_slug}&preset=problematic`}>Проблемные</Link>
-                  <Link className="admin-btn admin-btn-sm" to={`/admin/photos`}>Фото</Link>
+                  <Link className="admin-btn admin-btn-sm" to={placesLink(c.city_slug, '&preset=problematic')}>Проблемные</Link>
+                  <Link className="admin-btn admin-btn-sm" to={`/admin/photos?city=${c.city_slug}`}>Фото</Link>
                   <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${c.city_slug}`}>Обогащение</Link>
                 </td>
               </tr>
