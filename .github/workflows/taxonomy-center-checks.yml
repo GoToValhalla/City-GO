@@ -11,6 +11,7 @@ on:
       - 'migrations/versions/*taxonomy*'
       - 'migrations/versions/*category_flags*'
       - 'frontend/src/pages/admin/AdminTaxonomy*'
+      - 'frontend/eslint.config.js'
       - '.github/workflows/taxonomy-center-checks.yml'
 jobs:
   backend-taxonomy:
@@ -27,7 +28,7 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt && pip install -r requirements-dev.txt
       - run: alembic upgrade head
-      - run: python -m pytest -q tests/test_taxonomy_automation_new.py tests/test_alembic_single_head_new.py
+      - run: python -m pytest -q --no-cov tests/test_taxonomy_automation_new.py tests/test_alembic_single_head_new.py
       - run: alembic downgrade c8a1d4e7f920 && alembic upgrade head
   frontend-taxonomy:
     runs-on: ubuntu-latest
