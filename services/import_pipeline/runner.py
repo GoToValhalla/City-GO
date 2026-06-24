@@ -9,7 +9,6 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from data.scripts.backfill_missing_place_addresses import run as run_address_backfill
-from data.scripts.cleanup_imported_places_quality import run as run_quality_cleanup
 from data.scripts.enrich_place_images import run as run_image_enrich
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
@@ -17,7 +16,7 @@ from models.place import Place
 from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_log import log_import_event
 from services.admin_city_import_runner import run_osm_import_only, summarize_import_results
-from services.category_normalize_service import normalize_city_categories
+from services.category_normalize_service import normalize_places_categories
 from services.city_readiness.score import compute_city_readiness
 from services.import_pipeline.progress import append_step_warning, set_step
 from services.import_pipeline.steps import (
@@ -31,6 +30,7 @@ from services.import_pipeline.steps import (
     STEP_READY_FOR_REVIEW,
     STEP_RUNNING,
 )
+from services.place_import_lifecycle_service import mark_place_for_review
 
 IMAGE_LIMIT = 2000
 ADDRESS_LIMIT = 5000
@@ -46,10 +46,10 @@ def run_enrichment_pipeline(
     notify_completion: bool = True,
 ) -> dict[str, Any]:
     slug = city.slug
+    original_city_state = (city.launch_status, bool(city.is_active))
+    pipeline_started_at = datetime.utcnow()
     job.status = "running"
-    job.started_at = job.started_at or datetime.utcnow()
-    city.launch_status = "importing"
-    city.is_active = False
+    job.started_at = job.started_at or pipeline_started_at
     set_step(job, STEP_RUNNING)
     db.commit()
     results: dict[str, Any] = {}
@@ -66,19 +66,35 @@ def run_enrichment_pipeline(
         job.places_found = int(summary.get("places_found") or 0)
         job.places_saved = int(summary.get("places_saved") or 0)
         places_total = db.query(Place).filter(Place.city_id == city.id).count()
-        set_step(job, STEP_COLLECTING_PLACES, total=places_total, processed=places_total,
-                 successful=int(summary.get("places_saved") or 0))
+        set_step(
+            job,
+            STEP_COLLECTING_PLACES,
+            total=places_total,
+            processed=places_total,
+            successful=int(summary.get("places_saved") or 0),
+            detail={"import_diff": summary},
+        )
         db.commit()
         if summary.get("status") != "success" and places_total <= 0:
             raise RuntimeError(str(summary.get("last_error") or "Ошибка импорта OSM"))
         if summary.get("status") != "success":
-            warnings.append({"step": STEP_COLLECTING_PLACES, "error": str(summary.get("last_error") or "partial import")})
-            append_step_warning(job, STEP_COLLECTING_PLACES, summary.get("last_error") or "partial import")
-        _log_worker_step(db, job=job, city_slug=slug, actor_id=actor_id, step=STEP_COLLECTING_PLACES,
-                         status=str(summary.get("status") or "unknown"), raw_count=job.places_found,
-                         created=job.places_saved, accepted_count=places_total)
+            warning = {"step": STEP_COLLECTING_PLACES, "error": str(summary.get("last_error") or "partial import")}
+            warnings.append(warning)
+            append_step_warning(job, STEP_COLLECTING_PLACES, warning["error"])
+        _log_worker_step(
+            db,
+            job=job,
+            city_slug=slug,
+            actor_id=actor_id,
+            step=STEP_COLLECTING_PLACES,
+            status=str(summary.get("status") or "unknown"),
+            raw_count=job.places_found,
+            created=int(summary.get("created") or 0),
+            updated=int(summary.get("updated") or 0),
+            accepted_count=places_total,
+        )
 
-        addr = _optional_pipeline_step(
+        addresses = _optional_pipeline_step(
             db,
             job=job,
             city_slug=slug,
@@ -87,10 +103,15 @@ def run_enrichment_pipeline(
             warnings=warnings,
             action=lambda: run_address_backfill(["--city", slug, "--limit", str(ADDRESS_LIMIT), "--apply"]),
         )
-        results["addresses"] = addr
-        if isinstance(addr, dict):
-            set_step(job, STEP_FINDING_ADDRESSES, processed=int(addr.get("checked") or 0),
-                     successful=int(addr.get("updated") or 0), failed=int(addr.get("errors") or 0))
+        results["addresses"] = addresses
+        if isinstance(addresses, dict):
+            set_step(
+                job,
+                STEP_FINDING_ADDRESSES,
+                processed=int(addresses.get("checked") or 0),
+                successful=int(addresses.get("updated") or 0),
+                failed=int(addresses.get("errors") or 0),
+            )
             db.commit()
 
         images = _optional_pipeline_step(
@@ -104,153 +125,181 @@ def run_enrichment_pipeline(
         )
         results["images"] = images
         if isinstance(images, dict):
-            set_step(job, STEP_FINDING_IMAGES, processed=int(images.get("scanned_places") or 0),
-                     successful=int(images.get("created") or 0),
-                     failed=int(images.get("failed_image_lookup") or images.get("failed") or 0),
-                     detail={"image_enrichment": {
-                         "scanned_places": int(images.get("scanned_places") or 0),
-                         "created_images": int(images.get("created_images") or images.get("created") or 0),
-                         "failed_image_lookup": int(images.get("failed_image_lookup") or images.get("failed") or 0),
-                     }})
+            set_step(
+                job,
+                STEP_FINDING_IMAGES,
+                processed=int(images.get("scanned_places") or 0),
+                successful=int(images.get("created") or 0),
+                failed=int(images.get("failed_image_lookup") or images.get("failed") or 0),
+                detail={"image_enrichment": images},
+            )
             db.commit()
 
-        set_step(job, STEP_PREPARING_DESCRIPTIONS, detail={"mode": "manual_required",
-            "reason": "Автогенерация описаний не подключена. Используйте экспорт enrichment."})
+        db.expire_all()
+        changed_places = _changed_places(db, city_id=city.id, since=pipeline_started_at)
+        for place in changed_places:
+            mark_place_for_review(place, reason="import_or_enrichment_changed")
         db.commit()
 
-        cats = normalize_city_categories(db, city_slug=slug, apply=True)
-        results["categories"] = cats
-        set_step(job, STEP_CATEGORIES_TAGS, processed=int(cats.get("scanned") or 0),
-                 successful=int(cats.get("updated") or 0), failed=int(cats.get("skipped") or 0),
-                 detail={"mode": "automatic", "category_normalization": cats})
+        set_step(
+            job,
+            STEP_PREPARING_DESCRIPTIONS,
+            detail={"mode": "manual_required", "reason": "Автогенерация описаний не подключена."},
+        )
+        categories = normalize_places_categories(db, places=changed_places, apply=True)
+        results["categories"] = categories
+        set_step(
+            job,
+            STEP_CATEGORIES_TAGS,
+            processed=int(categories.get("scanned") or 0),
+            successful=int(categories.get("updated") or 0),
+            failed=int(categories.get("skipped") or 0),
+            detail={"mode": "changed_places_only", "category_normalization": categories},
+        )
         db.commit()
 
-        set_step(job, STEP_COMPUTING_QUALITY)
-        db.commit()
-        quality = run_quality_cleanup(["--city", slug, "--apply"])
-        results["quality"] = quality
-        db.commit()
+        # Quality V2 and publication decisions run in the foundation pipeline,
+        # which receives exactly these changed place IDs.
+        changed_place_ids = sorted({int(place.id) for place in changed_places})
+        results["changed_place_ids"] = changed_place_ids
+        results["has_changes"] = bool(changed_place_ids)
+        results["quality"] = {"mode": "foundation", "changed_places": len(changed_place_ids)}
+        set_step(job, STEP_COMPUTING_QUALITY, processed=len(changed_place_ids), detail=results["quality"])
 
         set_step(job, STEP_COMPUTING_READINESS)
-        db.commit()
         readiness = compute_city_readiness(db, city_slug=slug) or {}
         results["readiness"] = readiness
         set_step(job, STEP_COMPUTING_READINESS, detail={"readiness_score": readiness.get("readiness_score")})
-        db.commit()
 
         places_total = db.query(Place).filter(Place.city_id == city.id).count()
         if places_total <= 0:
             raise RuntimeError("OSM import finished without places")
-        set_step(job, STEP_READY_FOR_REVIEW, successful=places_total, processed=places_total)
+        set_step(job, STEP_READY_FOR_REVIEW, successful=len(changed_place_ids), processed=len(changed_place_ids))
         job.status = "success_with_warnings" if warnings else "success"
         job.finished_at = datetime.utcnow()
-        city.launch_status = "review_required"
-        city.is_active = False
+        job.step_details = {
+            **dict(job.step_details or {}),
+            "warnings": warnings,
+            "changed_place_ids": changed_place_ids,
+            "has_changes": bool(changed_place_ids),
+            "import_summary": summary,
+        }
+        if changed_place_ids:
+            city.launch_status = "review_required"
+            city.is_active = False
+        else:
+            city.launch_status, city.is_active = original_city_state
         city.last_import_at = job.finished_at
-        if warnings:
-            job.step_details = {**dict(job.step_details or {}), "warnings": warnings}
-        log_import_event(db, event="import_pipeline_finished", city_slug=slug, actor_id=actor_id,
-                         message=f"Pipeline #{job.id} готов к проверке и ручной публикации", details={"job_id": job.id, **results})
+        log_import_event(
+            db,
+            event="import_pipeline_finished",
+            city_slug=slug,
+            actor_id=actor_id,
+            message=(
+                f"Pipeline #{job.id}: {len(changed_place_ids)} мест требуют проверки"
+                if changed_place_ids
+                else f"Pipeline #{job.id}: изменений нет, публикация сохранена"
+            ),
+            details={"job_id": job.id, **results},
+        )
         db.commit()
         db.refresh(job)
         db.refresh(city)
-        alert_details = {
-            "places_total": places_total,
-            "readiness": results.get("readiness"),
-            "warnings": warnings,
-            "status": job.status,
-            "source": job.source,
-        }
+
         if notify_completion:
-            if warnings:
-                send_admin_alert(
-                    title="Import completed with warnings",
-                    message="Импорт завершён, но некоторые необязательные шаги требуют внимания.",
-                    level="warning",
-                    city_slug=slug,
-                    job_id=int(job.id),
-                    details=alert_details,
-                )
-            else:
-                send_admin_alert(
-                    title="Import pipeline finished",
-                    message=f"{city.name} готов к проверке. Мест собрано: {places_total}.",
-                    level="info",
-                    city_slug=slug,
-                    job_id=int(job.id),
-                    details=alert_details,
-                )
+            _notify_completion(
+                city=city,
+                job=job,
+                places_total=places_total,
+                changed_count=len(changed_place_ids),
+                readiness=readiness,
+                warnings=warnings,
+            )
         return results
     except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        db.expire_all()
+        changed_places = _changed_places(db, city_id=city.id, since=pipeline_started_at)
+        changed_place_ids = sorted({int(place.id) for place in changed_places})
+        for place in changed_places:
+            mark_place_for_review(place, reason="partial_import_changed")
         error_text = str(exc)
-        failed_step = job.current_step or "unknown"
         places_total = db.query(Place).filter(Place.city_id == city.id).count()
         job.last_error = error_text[:2000]
         job.finished_at = datetime.utcnow()
-        city.is_active = False
-
+        job.step_details = {
+            **dict(job.step_details or {}),
+            "changed_place_ids": changed_place_ids,
+            "has_changes": bool(changed_place_ids),
+        }
         if places_total > 0:
-            append_step_warning(job, failed_step, exc, extra={"recovered_as": "partial_success"})
-            recovery_detail = {
-                "step": failed_step,
-                "error": error_text[:1000],
-                "places_total": places_total,
-            }
-            set_step(
-                job,
-                STEP_READY_FOR_REVIEW,
-                total=places_total,
-                processed=places_total,
-                successful=places_total,
-                detail={"partial_success_after_error": recovery_detail},
-            )
+            append_step_warning(job, job.current_step or "unknown", exc, extra={"recovered_as": "partial_success"})
             job.status = "partial_success"
-            city.launch_status = "review_required"
-            city.last_import_at = job.finished_at
-            results["partial_success_after_error"] = recovery_detail
-            log_import_event(
-                db,
-                event="import_pipeline_partial_success",
-                city_slug=slug,
-                actor_id=actor_id,
-                level="warning",
-                message=f"Pipeline #{job.id}: места сохранены, требуется ручная проверка после ошибки: {error_text}",
-                details={"job_id": job.id, **recovery_detail},
-            )
-            db.commit()
-            db.refresh(job)
-            db.refresh(city)
-            if notify_completion:
-                send_admin_alert(
-                    title="Import completed with warnings",
-                    message=f"{city.name} переведён на ручную проверку после ошибки.",
-                    level="warning",
-                    city_slug=slug,
-                    job_id=int(job.id),
-                    details={
-                        "status": job.status,
-                        "source": job.source,
-                        "places_total": places_total,
-                        "warnings": [recovery_detail],
-                    },
-                )
-            return results
-
-        job.status = "failed"
-        city.launch_status = "import_failed"
-        set_step(job, "error", detail={"error": error_text})
-        log_import_event(db, event="import_pipeline_failed", city_slug=slug, actor_id=actor_id, level="error",
-                         message=f"Pipeline #{job.id}: {exc}", details={"job_id": job.id})
+            if changed_place_ids:
+                city.launch_status = "review_required"
+                city.is_active = False
+            else:
+                city.launch_status, city.is_active = original_city_state
+        else:
+            job.status = "failed"
+            city.launch_status, city.is_active = original_city_state
+            set_step(job, "error", detail={"error": error_text})
         db.commit()
         send_admin_alert(
-            title="Import pipeline failed",
+            title="Import completed with warnings" if places_total > 0 else "Import pipeline failed",
             message=error_text[:1000],
-            level="error",
+            level="warning" if places_total > 0 else "error",
             city_slug=slug,
             job_id=int(job.id),
-            details={"status": job.status, "source": job.source, "step_details": job.step_details},
+            details={
+                "status": job.status,
+                "source": job.source,
+                "places_total": places_total,
+                "changed_places": len(changed_place_ids),
+            },
         )
-        raise
+        if places_total <= 0:
+            raise
+        return results
+
+
+def _changed_places(db: Session, *, city_id: int, since: datetime) -> list[Place]:
+    return (
+        db.query(Place)
+        .filter(Place.city_id == city_id, Place.updated_at >= since)
+        .order_by(Place.id.asc())
+        .all()
+    )
+
+
+def _notify_completion(
+    *,
+    city: City,
+    job: CityAdminImportJob,
+    places_total: int,
+    changed_count: int,
+    readiness: dict[str, Any],
+    warnings: list[dict[str, object]],
+) -> None:
+    if changed_count:
+        message = f"{city.name}: {changed_count} мест обновлено и отправлено на проверку."
+    else:
+        message = f"{city.name}: изменений нет, публикация сохранена."
+    send_admin_alert(
+        title="Import completed with warnings" if warnings else "Import pipeline finished",
+        message=message,
+        level="warning" if warnings else "info",
+        city_slug=city.slug,
+        job_id=int(job.id),
+        details={
+            "status": job.status,
+            "source": job.source,
+            "places_total": places_total,
+            "changed_places": changed_count,
+            "readiness": readiness,
+            "warnings": warnings,
+        },
+    )
 
 
 def _optional_pipeline_step(
@@ -303,5 +352,11 @@ def _log_worker_step(
 ) -> None:
     payload = {"city_slug": city_slug, "job_id": job.id, "step": step, "status": status, **details}
     print(json.dumps(payload, ensure_ascii=False, default=str))
-    log_import_event(db, event="import_step", city_slug=city_slug, actor_id=actor_id,
-                     message=f"{step}: {status}", details=payload)
+    log_import_event(
+        db,
+        event="import_step",
+        city_slug=city_slug,
+        actor_id=actor_id,
+        message=f"{step}: {status}",
+        details=payload,
+    )
