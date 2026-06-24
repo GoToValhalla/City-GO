@@ -15,7 +15,5 @@ def upgrade()->None:
    if name not in existing:batch.add_column(sa.Column(name,type_,nullable=False,server_default=sa.true() if default else sa.false()))
 
 def downgrade()->None:
- existing={column["name"] for column in sa.inspect(op.get_bind()).get_columns("categories")}
- with op.batch_alter_table("categories") as batch:
-  for name,_,_ in reversed(COLUMNS):
-   if name in existing:batch.drop_column(name)
+ # Эти legacy flags могли существовать до Alembic-истории. Не удаляем потенциально пользовательские данные.
+ pass
