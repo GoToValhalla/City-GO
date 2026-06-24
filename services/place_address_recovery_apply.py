@@ -11,6 +11,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from services.place_address_recovery_row import evaluate_review_row, sample
+from services.place_import_lifecycle_service import mark_place_for_review
 
 
 def apply_from_review(db: Session, csv_path: str | Path) -> dict[str, Any]:
@@ -53,7 +54,10 @@ def _apply_row(db: Session, row: dict[str, str], stats: dict[str, Any]) -> None:
         return
     try:
         place.address = detail
-        place.updated_at = datetime.utcnow()
+        place.address_source = str(row.get("source") or "address_recovery")[:64]
+        place.address_confidence = _float_or_none(row.get("provider_confidence"))
+        place.address_updated_at = datetime.utcnow()
+        mark_place_for_review(place, reason="address_recovered")
         db.add(place)
         db.commit()
         stats["applied"] += 1
@@ -62,6 +66,13 @@ def _apply_row(db: Session, row: dict[str, str], stats: dict[str, Any]) -> None:
         db.rollback()
         stats["errors"] += 1
         sample(stats, "errors", row, str(exc))
+
+
+def _float_or_none(value: object) -> float | None:
+    try:
+        return float(value) if value not in {None, ""} else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _write_result(csv_path: Path, stats: dict[str, Any]) -> str:
