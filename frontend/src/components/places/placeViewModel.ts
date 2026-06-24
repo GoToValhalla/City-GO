@@ -6,9 +6,15 @@ import type { PlaceStatus } from '../ui/StatusBadge'
 
 const CLOSED_STATUSES = new Set(['closed', 'temporarily_closed', 'not_found', 'inactive'])
 const UNKNOWN_STATUSES = new Set(['unknown', 'unverified', 'needs_recheck', 'needs_review'])
+const TECHNICAL_OSM_TITLE = /(?:^|\s)osm[\s:_-]*\d+\s*$/i
+const RAW_SOURCE_TITLE = /^(?:node|way|relation)[\s:_-]*\d+$/i
 
 export const placeTitle = (place: Place): string => {
-  return (place.title || place.name || 'Место').trim()
+  const title = (place.title || place.name || '').trim()
+  if (!title || TECHNICAL_OSM_TITLE.test(title) || RAW_SOURCE_TITLE.test(title)) {
+    return categoryLabel(place.category ?? '')
+  }
+  return title
 }
 
 export const placeDescription = (place: Place): string | null => {
