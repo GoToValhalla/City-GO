@@ -15,8 +15,9 @@ def test_city_import_runs_collection_then_source_enrichment_new(
     db_session.commit()
     calls: list[str] = []
 
-    def fake_collection(db, *, job, city, actor_id, force):
+    def fake_collection(db, *, job, city, actor_id, force, notify_completion=True):
         calls.append("collection")
+        assert notify_completion is False
         return {"import": {"places_saved": 1}}
 
     def fake_source_enrichment(db, *, city, job, actor):
@@ -34,6 +35,7 @@ def test_city_import_runs_collection_then_source_enrichment_new(
     assert result.source == service.SOURCE_FULL_IMPORT
     assert result.step_details["unified_pipeline"]["source_enrichment"]["fields_enriched"] == 2
     assert result.step_details["unified_pipeline"]["readiness_score"] == 80
+    assert result.step_details["unified_pipeline"]["completed"] is True
 
 
 def test_enrichment_queue_alias_uses_full_import_source_new(db_session, city_factory) -> None:
