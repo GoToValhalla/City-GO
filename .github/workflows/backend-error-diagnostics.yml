@@ -64,7 +64,7 @@ jobs:
             echo
             for slug in zelenogradsk khanty-mansiysk rostov-on-don; do
               echo "--- places city=${slug} ---"
-              curl -sS -i --connect-timeout 5 --max-time 20 \
+              curl -sS -L -i --connect-timeout 5 --max-time 20 \
                 "http://localhost:8000/places?city_slug=${slug}&limit=1&offset=0" || true
               echo
             done
@@ -72,6 +72,14 @@ jobs:
             echo "=== PostgreSQL city/place counts ==="
             docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off -c \
               "SELECT c.id, c.slug, c.name, c.launch_status, count(p.id) AS places_count FROM cities c LEFT JOIN places p ON p.city_id = c.id GROUP BY c.id, c.slug, c.name, c.launch_status ORDER BY places_count DESC, c.slug;" || true
+
+            echo "=== feature toggles ==="
+            docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off -c \
+              "SELECT id, scope, coalesce(scope_id, '<global>') AS scope_id, key, value_bool, updated_by, change_reason, updated_at FROM feature_toggles ORDER BY updated_at DESC, id DESC;" || true
+
+            echo "=== recent feature toggle audit ==="
+            docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
+              "SELECT id, actor, action, entity_id, old_value, new_value, reason, created_at FROM admin_audit_logs WHERE entity_type = 'feature_toggle' ORDER BY created_at DESC LIMIT 30;" || true
 
             echo "=== orphan places ==="
             docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off -c \
