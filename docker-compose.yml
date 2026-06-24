@@ -7,11 +7,13 @@ services:
       POSTGRES_DB: city_guide
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d city_guide"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 12
+      start_period: 10s
 
   migrate:
     image: ghcr.io/gotovalhalla/city-go-backend:latest
@@ -39,6 +41,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DB_POOL_SIZE: 2
+      DB_MAX_OVERFLOW: 1
+      DB_POOL_TIMEOUT_SECONDS: 10
     depends_on:
       db:
         condition: service_healthy
@@ -100,6 +105,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DB_POOL_SIZE: 10
+      DB_MAX_OVERFLOW: 10
+      DB_POOL_TIMEOUT_SECONDS: 10
       APP_HOST: 0.0.0.0
       BACKEND_BASE_URL: http://backend:8000
       LOCAL_CACHE_DIR: /app/.cache/city-go
@@ -113,11 +121,11 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/ready || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   import-worker:
     image: ghcr.io/gotovalhalla/city-go-backend:latest
@@ -130,6 +138,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DB_POOL_SIZE: 3
+      DB_MAX_OVERFLOW: 2
+      DB_POOL_TIMEOUT_SECONDS: 10
       LOCAL_CACHE_DIR: /app/.cache/city-go
       IMPORT_WORKER_BATCH_LIMIT: 1
       IMPORT_WORKER_SLEEP_SECONDS: 60
@@ -156,6 +167,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DB_POOL_SIZE: 3
+      DB_MAX_OVERFLOW: 2
+      DB_POOL_TIMEOUT_SECONDS: 10
       BACKEND_BASE_URL: http://backend:8000
     depends_on:
       backend:
