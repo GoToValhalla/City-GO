@@ -12,11 +12,12 @@ from sqlalchemy.orm import Session
 
 from models.city import City
 from models.place import Place
-from services.place_address_geocode import reverse_geocode_candidate
+from services.place_address_geocode import ReverseGeocodeCandidate, reverse_geocode, reverse_geocode_candidate
 from services.place_address_policy import PLACEHOLDER_ADDRESSES, is_real_address, needs_backfill, should_apply_geocode_result
 from services.place_import_lifecycle_service import mark_place_for_review
 
 ADDRESS_MATCH_THRESHOLD = 0.72
+_ORIGINAL_REVERSE_GEOCODE = reverse_geocode
 
 
 def run_backfill(
@@ -83,6 +84,16 @@ def _iter_candidate_places(db: Session, city_slug: str, *, verify_existing: bool
             yield place
 
 
+def _resolve_candidate(place: Place) -> ReverseGeocodeCandidate | None:
+    """Keep the legacy hook available while production uses the provider cascade."""
+    if reverse_geocode is not _ORIGINAL_REVERSE_GEOCODE:
+        address = reverse_geocode(float(place.lat), float(place.lng))
+        if not address:
+            return None
+        return ReverseGeocodeCandidate(address, "nominatim_reverse", 0.75, "street")
+    return reverse_geocode_candidate(float(place.lat), float(place.lng), category=place.category)
+
+
 def _process_place(db: Session, place: Place, stats: dict[str, Any], sleep_seconds: float, apply: bool, verify_existing: bool) -> None:
     has_existing_real_address = is_real_address(place.address)
     if has_existing_real_address and not verify_existing:
@@ -97,7 +108,7 @@ def _process_place(db: Session, place: Place, stats: dict[str, Any], sleep_secon
 
     stats["checked"] += 1
     try:
-        candidate = reverse_geocode_candidate(float(place.lat), float(place.lng), category=place.category)
+        candidate = _resolve_candidate(place)
     except Exception as exc:
         stats["errors"] += 1
         _append_result(stats, place, "error", error=str(exc))
