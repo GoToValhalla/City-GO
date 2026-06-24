@@ -1,0 +1,49 @@
+.taxonomy-page { min-width: 0; }
+.taxonomy-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 16px; scrollbar-width: thin; }
+.taxonomy-tabs .admin-tab { flex: 0 0 auto; min-height: 44px; }
+.taxonomy-toolbar { position: sticky; z-index: 10; top: -24px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; padding: 12px 0; background: var(--admin-bg); }
+.taxonomy-toolbar input, .taxonomy-toolbar select, .taxonomy-card select { min-height: 44px; padding: 9px 11px; border: 1px solid #ccd1db; border-radius: 8px; background: #fff; font: inherit; }
+.taxonomy-toolbar input { flex: 1 1 320px; }
+.taxonomy-table td:first-child strong, .taxonomy-table td:first-child small { display: block; }
+.taxonomy-table td:first-child small { margin-top: 3px; color: var(--admin-muted); }
+.taxonomy-mobile-list { display: none; }
+.taxonomy-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-width: 0; padding: 14px; background: #fff; border: 1px solid var(--admin-border); border-radius: var(--admin-radius); box-shadow: var(--admin-shadow); }
+.taxonomy-card strong, .taxonomy-card span { display: block; overflow-wrap: anywhere; }
+.taxonomy-card span, .taxonomy-card p { color: var(--admin-muted); }
+.taxonomy-card p { margin: 5px 0; }
+.taxonomy-card-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.taxonomy-dialog { display: flex; flex-direction: column; gap: 12px; }
+.taxonomy-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.taxonomy-check { min-height: 44px; display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid var(--admin-border); border-radius: 8px; }
+.taxonomy-check input { width: 20px; height: 20px; accent-color: var(--admin-primary); }
+.taxonomy-split { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(260px, .7fr); gap: 16px; align-items: start; }
+.taxonomy-root-drop { padding: 12px; margin-bottom: 10px; color: var(--admin-muted); text-align: center; border: 1px dashed #aeb4c0; border-radius: 8px; }
+.taxonomy-tree { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 12px; }
+.taxonomy-tree .taxonomy-tree { padding-left: 22px; margin: 6px 0 0; border-left: 2px solid #e4e0ff; }
+.taxonomy-tree-node > button { width: 100%; min-height: 44px; display: flex; justify-content: space-between; gap: 8px; padding: 9px 12px; text-align: left; color: var(--admin-text); background: #fff; border: 1px solid var(--admin-border); border-radius: 8px; cursor: grab; }
+.taxonomy-tree-node > button.dragging { opacity: .45; }
+.taxonomy-tree-node > button span { color: var(--admin-muted); font-size: 12px; }
+.taxonomy-mapping-form { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)) auto; gap: 10px; align-items: end; }
+.taxonomy-rule-list, .taxonomy-conflicts { display: flex; flex-direction: column; gap: 10px; }
+.taxonomy-conflict { align-items: flex-start; border-left: 4px solid #e59a00; }
+.taxonomy-conflict .severity-critical { color: #9c2634; background: #f9dfe3; }
+.taxonomy-examples { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.taxonomy-examples > div { padding: 10px; background: var(--admin-panel-muted); border-radius: 8px; }
+.taxonomy-examples span { display: block; color: var(--admin-muted); font-size: 12px; }
+@media (max-width: 900px) {
+  .taxonomy-table { display: none; }
+  .taxonomy-mobile-list { display: flex; flex-direction: column; gap: 10px; }
+  .taxonomy-split { grid-template-columns: 1fr; }
+  .taxonomy-mapping-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .taxonomy-mapping-form .admin-btn { grid-column: 1 / -1; }
+}
+@media (max-width: 600px) {
+  .taxonomy-toolbar { top: -16px; }
+  .taxonomy-toolbar > * { width: 100%; }
+  .taxonomy-card { align-items: stretch; flex-direction: column; }
+  .taxonomy-card-actions > * { flex: 1 1 100%; min-width: 0; }
+  .taxonomy-mapping-form, .taxonomy-examples { grid-template-columns: 1fr; }
+  .taxonomy-dialog-actions { position: sticky; bottom: 0; padding: 10px 0 max(2px, env(safe-area-inset-bottom)); background: #fff; }
+  .taxonomy-dialog-actions .admin-btn { flex: 1; }
+  .taxonomy-tree .taxonomy-tree { padding-left: 12px; }
+}

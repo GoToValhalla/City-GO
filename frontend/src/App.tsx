@@ -44,65 +44,30 @@ import { AdminRouteDataQualityPage } from './pages/admin/AdminRouteDataQualityPa
 import { AdminAnalyticsPage } from './pages/admin/AdminAnalyticsPage'
 import { AdminQualityPage } from './pages/admin/AdminQualityPage'
 import { AdminSystemHealthPage } from './pages/admin/AdminSystemHealthPage'
+import { AdminTaxonomyPage } from './pages/admin/AdminTaxonomyPage'
 
-function AdminPage({ children }: { children: React.ReactNode }) {
-  return (
-    <AdminRouteGuard>
-      <AdminLayout>{children}</AdminLayout>
-    </AdminRouteGuard>
-  )
-}
+function AdminPage({ children }: { children: React.ReactNode }) { return <AdminRouteGuard><AdminLayout>{children}</AdminLayout></AdminRouteGuard> }
 
 function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/places" element={<PlacesListPage />} />
-        <Route path="/places/:slug" element={<PlaceDetailPage />} />
-        <Route path="/open-now" element={<OpenNowPage />} />
-        <Route path="/nearby" element={<NearbyPage />} />
-        <Route path="/routes" element={<RoutesListPage />} />
-        <Route path="/routes/generate" element={<GenerateRoutePage />} />
-        <Route path="/routes/:slug" element={<RouteDetailPage />} />
-        <Route path="/walk-route" element={<WalkRoutePage />} />
-        <Route path="/telegram/map" element={<TelegramMapPage />} />
-
-        <Route path="/admin/login" element={<AdminLoginPage />} />
-        <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
-        <Route path="/admin/overview" element={<AdminPage><AdminOverviewPage /></AdminPage>} />
-        <Route path="/admin/dashboard" element={<Navigate to="/admin/overview" replace />} />
-        <Route path="/admin/cities" element={<AdminPage><AdminCitiesPage /></AdminPage>} />
-        <Route path="/admin/cities/:slug" element={<AdminPage><AdminCityWorkspacePage /></AdminPage>} />
-        <Route path="/admin/places" element={<AdminPage><AdminPlacesPage /></AdminPage>} />
-        <Route path="/admin/places/new" element={<AdminPage><AdminPlaceCreatePage /></AdminPage>} />
-        <Route path="/admin/places/:id" element={<AdminPage><AdminPlaceDetailPage /></AdminPage>} />
-        <Route path="/admin/photos" element={<AdminPage><AdminPlaceImagesPage /></AdminPage>} />
-        <Route path="/admin/place-images" element={<Navigate to="/admin/photos" replace />} />
-        <Route path="/admin/verification" element={<AdminPage><AdminPlaceVerificationsPage /></AdminPage>} />
-        <Route path="/admin/place-verifications" element={<Navigate to="/admin/verification" replace />} />
-        <Route path="/admin/imports" element={<AdminPage><AdminImportJobsPage /></AdminPage>} />
-        <Route path="/admin/import-jobs" element={<Navigate to="/admin/imports" replace />} />
-        <Route path="/admin/coverage" element={<AdminPage><AdminCoveragePage /></AdminPage>} />
-        <Route path="/admin/quality" element={<AdminPage><AdminQualityPage /></AdminPage>} />
-        <Route path="/admin/routes/eligibility" element={<AdminPage><AdminRouteEligibilityPage /></AdminPage>} />
-        <Route path="/admin/routes/dry-run" element={<AdminPage><AdminRouteDryRunPage /></AdminPage>} />
-        <Route path="/admin/routes/data-quality" element={<AdminPage><AdminRouteDataQualityPage /></AdminPage>} />
-        <Route path="/admin/enrichment" element={<AdminPage><AdminPlaceEnrichmentPage /></AdminPage>} />
-        <Route path="/admin/place-enrichment" element={<Navigate to="/admin/enrichment" replace />} />
-        <Route path="/admin/features" element={<AdminPage><AdminFeatureTogglesPage /></AdminPage>} />
-        <Route path="/admin/metrics" element={<AdminPage><AdminMetricsPage /></AdminPage>} />
-        <Route path="/admin/analytics" element={<AdminPage><AdminAnalyticsPage /></AdminPage>} />
-        <Route path="/admin/system-health" element={<AdminPage><AdminSystemHealthPage /></AdminPage>} />
-        <Route path="/admin/audit" element={<AdminPage><AdminAuditLogPage /></AdminPage>} />
-        <Route path="/admin/system-logs" element={<AdminPage><AdminSystemLogsPage /></AdminPage>} />
-        <Route path="/admin/audit-log" element={<Navigate to="/admin/audit" replace />} />
-        <Route path="/admin/photo-review" element={<Navigate to="/admin/photos" replace />} />
-
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
-  )
+  return <BrowserRouter><Routes>
+    <Route path="/" element={<HomePage />} /><Route path="/places" element={<PlacesListPage />} /><Route path="/places/:slug" element={<PlaceDetailPage />} />
+    <Route path="/open-now" element={<OpenNowPage />} /><Route path="/nearby" element={<NearbyPage />} /><Route path="/routes" element={<RoutesListPage />} />
+    <Route path="/routes/generate" element={<GenerateRoutePage />} /><Route path="/routes/:slug" element={<RouteDetailPage />} /><Route path="/walk-route" element={<WalkRoutePage />} /><Route path="/telegram/map" element={<TelegramMapPage />} />
+    <Route path="/admin/login" element={<AdminLoginPage />} /><Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
+    <Route path="/admin/overview" element={<AdminPage><AdminOverviewPage /></AdminPage>} /><Route path="/admin/dashboard" element={<Navigate to="/admin/overview" replace />} />
+    <Route path="/admin/cities" element={<AdminPage><AdminCitiesPage /></AdminPage>} /><Route path="/admin/cities/:slug" element={<AdminPage><AdminCityWorkspacePage /></AdminPage>} />
+    <Route path="/admin/places" element={<AdminPage><AdminPlacesPage /></AdminPage>} /><Route path="/admin/places/new" element={<AdminPage><AdminPlaceCreatePage /></AdminPage>} /><Route path="/admin/places/:id" element={<AdminPage><AdminPlaceDetailPage /></AdminPage>} />
+    <Route path="/admin/taxonomy" element={<AdminPage><AdminTaxonomyPage /></AdminPage>} /><Route path="/admin/taxonomy/conflicts" element={<Navigate to="/admin/taxonomy?tab=conflicts" replace />} />
+    <Route path="/admin/photos" element={<AdminPage><AdminPlaceImagesPage /></AdminPage>} /><Route path="/admin/place-images" element={<Navigate to="/admin/photos" replace />} />
+    <Route path="/admin/verification" element={<AdminPage><AdminPlaceVerificationsPage /></AdminPage>} /><Route path="/admin/place-verifications" element={<Navigate to="/admin/verification" replace />} />
+    <Route path="/admin/imports" element={<AdminPage><AdminImportJobsPage /></AdminPage>} /><Route path="/admin/import-jobs" element={<Navigate to="/admin/imports" replace />} />
+    <Route path="/admin/coverage" element={<AdminPage><AdminCoveragePage /></AdminPage>} /><Route path="/admin/quality" element={<AdminPage><AdminQualityPage /></AdminPage>} />
+    <Route path="/admin/routes/eligibility" element={<AdminPage><AdminRouteEligibilityPage /></AdminPage>} /><Route path="/admin/routes/dry-run" element={<AdminPage><AdminRouteDryRunPage /></AdminPage>} /><Route path="/admin/routes/data-quality" element={<AdminPage><AdminRouteDataQualityPage /></AdminPage>} />
+    <Route path="/admin/enrichment" element={<AdminPage><AdminPlaceEnrichmentPage /></AdminPage>} /><Route path="/admin/place-enrichment" element={<Navigate to="/admin/enrichment" replace />} />
+    <Route path="/admin/features" element={<AdminPage><AdminFeatureTogglesPage /></AdminPage>} /><Route path="/admin/metrics" element={<AdminPage><AdminMetricsPage /></AdminPage>} /><Route path="/admin/analytics" element={<AdminPage><AdminAnalyticsPage /></AdminPage>} />
+    <Route path="/admin/system-health" element={<AdminPage><AdminSystemHealthPage /></AdminPage>} /><Route path="/admin/audit" element={<AdminPage><AdminAuditLogPage /></AdminPage>} /><Route path="/admin/system-logs" element={<AdminPage><AdminSystemLogsPage /></AdminPage>} />
+    <Route path="/admin/audit-log" element={<Navigate to="/admin/audit" replace />} /><Route path="/admin/photo-review" element={<Navigate to="/admin/photos" replace />} />
+    <Route path="*" element={<Navigate to="/" replace />} />
+  </Routes></BrowserRouter>
 }
-
 export default App

@@ -1,0 +1,48 @@
+name: Taxonomy Center Checks
+on:
+  pull_request:
+    paths:
+      - 'models/category.py'
+      - 'models/taxonomy.py'
+      - 'services/taxonomy_*.py'
+      - 'services/route_policy_service.py'
+      - 'routers/admin_taxonomy.py'
+      - 'schemas/admin_taxonomy.py'
+      - 'migrations/versions/*taxonomy*'
+      - 'migrations/versions/*category_flags*'
+      - 'frontend/src/pages/admin/AdminTaxonomy*'
+      - 'frontend/eslint.config.js'
+      - '.github/workflows/taxonomy-center-checks.yml'
+jobs:
+  backend-taxonomy:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:///./taxonomy_ci.db
+      ADMIN_API_TOKEN: ci-admin-token
+      APP_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt && pip install -r requirements-dev.txt
+      - run: alembic upgrade head
+      - run: python -m pytest -q --no-cov tests/test_taxonomy_automation_new.py tests/test_alembic_single_head_new.py
+      - run: alembic downgrade c8a1d4e7f920 && alembic upgrade head
+  frontend-taxonomy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx vitest run src/pages/admin/AdminTaxonomyPage.test.tsx --reporter=default --no-color
+      - run: npm run build
