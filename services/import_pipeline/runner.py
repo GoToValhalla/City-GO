@@ -43,6 +43,7 @@ def run_enrichment_pipeline(
     city: City,
     actor_id: str,
     force: bool = True,
+    notify_completion: bool = True,
 ) -> dict[str, Any]:
     slug = city.slug
     job.status = "running"
@@ -160,24 +161,25 @@ def run_enrichment_pipeline(
             "status": job.status,
             "source": job.source,
         }
-        if warnings:
-            send_admin_alert(
-                title="Import completed with warnings",
-                message="Import pipeline finished, but one or more optional steps reported warnings.",
-                level="warning",
-                city_slug=slug,
-                job_id=int(job.id),
-                details=alert_details,
-            )
-        else:
-            send_admin_alert(
-                title="Import pipeline finished",
-                message=f"{city.name} готов к проверке. Мест собрано: {places_total}.",
-                level="info",
-                city_slug=slug,
-                job_id=int(job.id),
-                details=alert_details,
-            )
+        if notify_completion:
+            if warnings:
+                send_admin_alert(
+                    title="Import completed with warnings",
+                    message="Импорт завершён, но некоторые необязательные шаги требуют внимания.",
+                    level="warning",
+                    city_slug=slug,
+                    job_id=int(job.id),
+                    details=alert_details,
+                )
+            else:
+                send_admin_alert(
+                    title="Import pipeline finished",
+                    message=f"{city.name} готов к проверке. Мест собрано: {places_total}.",
+                    level="info",
+                    city_slug=slug,
+                    job_id=int(job.id),
+                    details=alert_details,
+                )
         return results
     except Exception as exc:  # noqa: BLE001
         error_text = str(exc)
@@ -218,14 +220,20 @@ def run_enrichment_pipeline(
             db.commit()
             db.refresh(job)
             db.refresh(city)
-            send_admin_alert(
-                title="Import completed with warnings",
-                message=f"{city.name} переведён на ручную проверку после ошибки: {error_text[:700]}",
-                level="warning",
-                city_slug=slug,
-                job_id=int(job.id),
-                details={"status": job.status, "source": job.source, "step_details": job.step_details},
-            )
+            if notify_completion:
+                send_admin_alert(
+                    title="Import completed with warnings",
+                    message=f"{city.name} переведён на ручную проверку после ошибки.",
+                    level="warning",
+                    city_slug=slug,
+                    job_id=int(job.id),
+                    details={
+                        "status": job.status,
+                        "source": job.source,
+                        "places_total": places_total,
+                        "warnings": [recovery_detail],
+                    },
+                )
             return results
 
         job.status = "failed"
