@@ -36,16 +36,21 @@ def test_deploy_repairs_known_alembic_overlap_and_fails_fast_new() -> None:
 def test_deploy_quiesces_database_clients_and_guards_schema_new() -> None:
     deploy = read("scripts/deploy_production_remote.sh")
 
+    cleanup_pos = deploy.index("=== cleanup stale migration containers ===")
     quiesce_pos = deploy.index("=== quiesce database clients before migrations ===")
     migrations_pos = deploy.index("=== migrations ===")
     schema_guard_pos = deploy.index("=== production schema guard ===")
     recreate_backend_pos = deploy.index("=== recreate backend ===")
 
-    assert quiesce_pos < migrations_pos < schema_guard_pos < recreate_backend_pos
+    assert cleanup_pos < quiesce_pos < migrations_pos < schema_guard_pos < recreate_backend_pos
+    assert "label=com.docker.compose.service=migrate" in deploy
+    assert "docker rm -f $STALE_MIGRATE_IDS" in deploy
     assert "docker compose stop -t 30 import-worker bot backend" in deploy
-    assert "timeout --signal=TERM --kill-after=30s 12m" in deploy
+    assert "timeout --signal=TERM --kill-after=30s 5m" in deploy
     assert "timeout --signal=TERM --kill-after=30s 3m" in deploy
     assert "docker compose start backend bot import-worker" in deploy
+    assert "docker system df" not in deploy
+    assert "Docker daemon is not responding within 30 seconds" in deploy
 
 
 def test_local_disk_cache_is_non_authoritative_and_persisted_new() -> None:
