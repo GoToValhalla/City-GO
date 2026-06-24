@@ -26,11 +26,28 @@ FOUNDATION_STEPS = (
 NON_CRITICAL_STEPS = {"enrich_external_sources", "generate_ai_descriptions", "fetch_photo_candidates"}
 
 
-def run_foundation_pipeline(db: Session, *, city: City, job: CityAdminImportJob, actor: str) -> dict[str, int]:
+def run_foundation_pipeline(
+    db: Session,
+    *,
+    city: City,
+    job: CityAdminImportJob,
+    actor: str,
+    place_ids: list[int] | None = None,
+) -> dict[str, int]:
     counters = _empty_counters()
     batch = _batch(db, city)
-    places = db.query(Place).filter(Place.city_id == city.id).order_by(Place.id.asc()).all()
+    query = db.query(Place).filter(Place.city_id == city.id)
+    if place_ids is not None:
+        query = query.filter(Place.id.in_(place_ids)) if place_ids else query.filter(False)
+    places = query.order_by(Place.id.asc()).all()
     counters["found"] = len(places)
+
+    if not places:
+        _finish_batch(batch, counters, status="success")
+        _write_job_counters(job, counters)
+        db.commit()
+        return counters
+
     for step in FOUNDATION_STEPS:
         record_step(db, job_id=job.id, step_name=step, status="started")
         try:
@@ -38,7 +55,14 @@ def run_foundation_pipeline(db: Session, *, city: City, job: CityAdminImportJob,
             record_step(db, job_id=job.id, step_name=step, status="success", counters=dict(counters))
         except Exception as exc:
             counters["failed"] += 1
-            record_step(db, job_id=job.id, step_name=step, status="failed", counters=dict(counters), error_message=str(exc))
+            record_step(
+                db,
+                job_id=job.id,
+                step_name=step,
+                status="failed",
+                counters=dict(counters),
+                error_message=str(exc),
+            )
             if step not in NON_CRITICAL_STEPS:
                 _finish_batch(batch, counters, status="failed")
                 job.status = "failed"
