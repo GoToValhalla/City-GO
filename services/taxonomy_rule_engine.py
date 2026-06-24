@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -13,6 +14,15 @@ from models.taxonomy import TaxonomyDecision, TaxonomyMapping
 
 HIGH_CONFIDENCE = 0.85
 MEDIUM_CONFIDENCE = 0.60
+STRONG_TITLE_ALIASES: dict[str, tuple[str, ...]] = {
+    "pharmacy": (r"\bаптек", r"\bpharmacy\b"),
+    "shopping_mall": (r"\bтрц\b", r"\bтц\b", r"торгов(?:ый|ого) центр", r"shopping mall"),
+    "bank": (r"\bбанк\b", r"\bсбербанк\b", r"\bвтб\b", r"\bальфа-банк\b", r"\bтинькофф\b"),
+    "atm": (r"\bбанкомат\b", r"\batm\b"),
+    "police": (r"\bмвд\b", r"\bомвд\b", r"\bумвд\b", r"\bгибдд\b", r"\bполици", r"отдел МВД"),
+    "hospital": (r"\bбольниц", r"\bгоспитал", r"\bhospital\b"),
+    "clinic": (r"\bполиклиник", r"\bклиник", r"\bмедицинск(?:ий|ого) центр", r"\bclinic\b"),
+}
 
 
 @dataclass(slots=True)
@@ -50,6 +60,10 @@ def classify_place(db: Session, *, source: str | None, source_tags: dict[str, An
     if canonical:
         category = db.query(Category).filter(Category.code == canonical, Category.is_active.is_(True)).first()
         if category: return ClassificationResult(category.id, category.code, 0.75, None, f"Применено legacy-сопоставление {legacy} → {canonical}.", "review")
+    strong = _strong_title_category(db, title=title)
+    if strong:
+        return ClassificationResult(strong.id, strong.code, 0.90, None,
+            f"Категория однозначно определена по названию «{(title or '').strip()}».", "auto_apply")
     heuristic = _heuristic_category(db, title=title, description=description)
     if heuristic: return ClassificationResult(heuristic.id, heuristic.code, 0.55, None, "Категория предложена по названию или описанию.", "review", ["Требуется ручная проверка."])
     return ClassificationResult(None, None, 0.0, None, "Подходящее правило не найдено.", "unknown", ["Место добавлено в очередь конфликтов."])
@@ -80,8 +94,18 @@ def _mapping_matches(mapping: TaxonomyMapping, tags: dict[str, str]) -> bool:
     return tags.get(mapping.source_key.lower()) == mapping.source_value.lower()
 
 
+def _strong_title_category(db: Session, *, title: str | None) -> Category | None:
+    text = (title or "").strip().lower()
+    if not text:
+        return None
+    for code, patterns in STRONG_TITLE_ALIASES.items():
+        if any(re.search(pattern, text, flags=re.I) for pattern in patterns):
+            return db.query(Category).filter(Category.code == code, Category.is_active.is_(True)).first()
+    return None
+
+
 def _heuristic_category(db: Session, *, title: str | None, description: str | None) -> Category | None:
-    text = f"{title or ''} {description or ''}".lower(); aliases = {"pharmacy": ("аптек", "pharmacy"), "shopping_mall": ("торговый центр", "трц", "mall"), "bank": ("банк",), "atm": ("банкомат", "atm"), "museum": ("музей", "museum"), "park": ("парк",), "coffee": ("кофейн", "coffee"), "hospital": ("больниц", "hospital")}
+    text = f"{title or ''} {description or ''}".lower(); aliases = {"pharmacy": ("аптек", "pharmacy"), "shopping_mall": ("торговый центр", "трц", "mall"), "bank": ("банк",), "atm": ("банкомат", "atm"), "police": ("мвд", "полици", "гибдд"), "museum": ("музей", "museum"), "park": ("парк",), "coffee": ("кофейн", "coffee"), "hospital": ("больниц", "hospital"), "clinic": ("поликлиник", "клиник")}
     for code, needles in aliases.items():
         if any(needle in text for needle in needles): return db.query(Category).filter(Category.code == code, Category.is_active.is_(True)).first()
     return None
