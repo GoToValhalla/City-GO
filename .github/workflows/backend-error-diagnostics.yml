@@ -2,10 +2,6 @@ name: Backend Error Diagnostics
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/backend-error-diagnostics.yml
 
 permissions:
   contents: read
@@ -19,70 +15,62 @@ jobs:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - name: Setup SSH key
         shell: bash
         run: |
           set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Restore production city visibility
+      - name: Inspect production database and public catalog
         shell: bash
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash <<'REMOTE_EOF'
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            -i ~/.ssh/deploy_key \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" bash <<'REMOTE_EOF'
             set -euo pipefail
             cd /srv/app
 
-            docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off <<'SQL'
-            BEGIN;
-            CREATE TEMP TABLE restored_cities ON COMMIT DROP AS
-            SELECT c.id, c.slug, c.launch_status AS old_launch_status, c.is_active AS old_is_active
-            FROM cities c
-            WHERE c.is_active IS NOT TRUE
-              AND EXISTS (
-                SELECT 1 FROM places p
-                WHERE p.city_id = c.id
-                  AND p.is_published IS TRUE
-                  AND p.is_visible_in_catalog IS TRUE
-              );
+            echo "=== services ==="
+            docker compose ps
 
-            UPDATE cities c
-            SET launch_status = 'published',
-                is_active = true,
-                updated_at = CURRENT_TIMESTAMP
-            FROM restored_cities r
-            WHERE c.id = r.id;
+            echo "=== city and publication state ==="
+            docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
+              "SELECT c.slug, c.launch_status, c.is_active, count(p.id) AS total_places, count(p.id) FILTER (WHERE p.is_published IS TRUE AND p.is_visible_in_catalog IS TRUE) AS public_places FROM cities c LEFT JOIN places p ON p.city_id = c.id GROUP BY c.id, c.slug, c.launch_status, c.is_active ORDER BY c.slug;"
 
-            INSERT INTO admin_audit_logs (
-              actor, action, entity_type, entity_id, old_value, new_value, reason, created_at
-            )
-            SELECT
-              'production-repair',
-              'restore_city_publication',
-              'city',
-              r.id::text,
-              jsonb_build_object('slug', r.slug, 'launch_status', r.old_launch_status, 'is_active', r.old_is_active),
-              jsonb_build_object('slug', r.slug, 'launch_status', 'published', 'is_active', true),
-              'Восстановление после импорта, который ошибочно деактивировал опубликованный город',
-              CURRENT_TIMESTAMP
-            FROM restored_cities r;
-            COMMIT;
+            echo "=== public cities ==="
+            curl --fail --silent --show-error --max-time 20 \
+              'http://localhost:8000/cities/available?include_draft=true'
+            echo
 
-            SELECT c.slug, c.launch_status, c.is_active,
-                   count(p.id) FILTER (WHERE p.is_published IS TRUE AND p.is_visible_in_catalog IS TRUE) AS public_places
-            FROM cities c
-            LEFT JOIN places p ON p.city_id = c.id
-            GROUP BY c.id, c.slug, c.launch_status, c.is_active
-            ORDER BY c.slug;
-            SQL
-
-            echo "=== available cities after repair ==="
-            response=$(curl --fail --silent --show-error --max-time 20 \
-              'http://localhost:8000/cities/available?include_draft=true')
-            printf '%s\n' "$response"
-            test "$response" != "[]"
+            echo "=== health ==="
+            curl --fail --silent --show-error --max-time 10 http://localhost:8000/health
+            echo
           REMOTE_EOF
+
+      - name: Telegram diagnostics result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            exit 0
+          fi
+          TEXT="🧪 City Go backend diagnostics finished%0AStatus: ${{ job.status }}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
