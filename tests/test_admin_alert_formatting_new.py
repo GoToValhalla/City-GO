@@ -58,5 +58,5 @@ def test_stalled_import_alert_explains_next_action_new():
     assert "City GO: Задача импорта зависла" in text
     assert "Worker не обновлял прогресс дольше порога" in text
     assert "Тип задачи: обогащение данных" in text
-    assert "Что дальше: после деплоя фикса нажать «Повторить»" in text
+    assert "Что дальше: после деплоя исправления нажать «Повторить»" in text
     assert "details:" not in text

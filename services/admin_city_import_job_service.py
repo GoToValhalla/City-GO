@@ -10,6 +10,7 @@ from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.city_import_scope import CityImportScope
 from models.place import Place
+from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_log import log_import_event
 from services.city_readiness.score import compute_city_readiness
 from services.import_pipeline.enrichment_only import run_enrichment_only_pipeline
@@ -114,7 +115,14 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
     )
     db.commit()
     try:
-        legacy_results = run_enrichment_pipeline(db, job=job, city=city, actor_id=actor_id, force=True)
+        legacy_results = run_enrichment_pipeline(
+            db,
+            job=job,
+            city=city,
+            actor_id=actor_id,
+            force=True,
+            notify_completion=False,
+        )
         db.refresh(job)
         db.refresh(city)
         collection_counters = {
@@ -122,23 +130,39 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
             "places_saved": job.places_saved,
             "scopes_succeeded": job.scopes_succeeded,
         }
+        legacy_warnings = list((job.step_details or {}).get("warnings") or [])
+
+        # The first stage may finish with warnings, but the job is not complete
+        # until normalization, quality and publication decisions have run.
+        job.status = "running"
+        job.finished_at = None
+        city.launch_status = "importing"
+        db.commit()
 
         source_counters = run_foundation_pipeline(db, city=city, job=job, actor=actor_id)
         source_status = job.status
-        # Foundation tracks its own item counters; collection counters remain the job summary.
         job.places_found = collection_counters["places_found"]
         job.places_saved = collection_counters["places_saved"]
         job.scopes_succeeded = collection_counters["scopes_succeeded"]
         readiness = compute_city_readiness(db, city_slug=city.slug) or {}
+        foundation_warnings = []
+        if source_status in {"partial_success", "success_with_warnings", "failed"} or int(source_counters.get("failed") or 0) > 0:
+            foundation_warnings.append({
+                "step": "source_enrichment",
+                "error": f"Ошибок этапов обогащения: {int(source_counters.get('failed') or 0)}",
+            })
+        all_warnings = [*legacy_warnings, *foundation_warnings]
         job.step_details = {
             **dict(job.step_details or {}),
+            "warnings": all_warnings,
             "unified_pipeline": {
                 "collection_and_legacy_enrichment": legacy_results,
                 "source_enrichment": source_counters,
                 "readiness_score": readiness.get("readiness_score"),
+                "completed": True,
             },
         }
-        job.status = "partial_success" if source_status in {"partial_success", "success_with_warnings", "failed"} else "success"
+        job.status = "success_with_warnings" if all_warnings else "success"
         job.finished_at = datetime.utcnow()
         city.launch_status = "review_required"
         city.is_active = False
@@ -149,9 +173,32 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
             city_slug=city.slug,
             actor_id=actor_id,
             message=f"Полный сбор и обогащение #{job.id} завершены",
-            details={"job_id": job.id, "source_enrichment": source_counters, "readiness": readiness},
+            details={
+                "job_id": job.id,
+                "source_enrichment": source_counters,
+                "readiness": readiness,
+                "warnings": all_warnings,
+            },
         )
         db.commit()
+        send_admin_alert(
+            title="Import completed with warnings" if all_warnings else "Import pipeline finished",
+            message=(
+                "Полный импорт завершён, но некоторые этапы требуют внимания."
+                if all_warnings
+                else f"{city.name} готов к проверке. Мест собрано: {db.query(Place).filter(Place.city_id == city.id).count()}."
+            ),
+            level="warning" if all_warnings else "info",
+            city_slug=city.slug,
+            job_id=int(job.id),
+            details={
+                "status": job.status,
+                "source": job.source,
+                "places_total": db.query(Place).filter(Place.city_id == city.id).count(),
+                "readiness": readiness,
+                "warnings": all_warnings,
+            },
+        )
     except Exception as exc:  # noqa: BLE001
         db.rollback()
         job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).first()
@@ -165,6 +212,23 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
             city.launch_status = "review_required" if places_total > 0 else "import_failed"
             city.is_active = False
         db.commit()
+        send_admin_alert(
+            title="Import completed with warnings" if places_total > 0 else "Import pipeline failed",
+            message=(
+                "Pipeline прерван после сохранения мест. Требуется повтор или ручная проверка."
+                if places_total > 0
+                else "Импорт завершился ошибкой до сохранения мест."
+            ),
+            level="warning" if places_total > 0 else "error",
+            city_slug=city.slug if city is not None else None,
+            job_id=int(job.id) if job is not None else None,
+            details={
+                "status": job.status if job is not None else "failed",
+                "source": job.source if job is not None else SOURCE_FULL_IMPORT,
+                "places_total": places_total,
+                "warnings": [{"step": "unified_pipeline", "error": str(exc)[:1000]}],
+            },
+        )
     db.refresh(job)
     return job
 

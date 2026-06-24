@@ -1,8 +1,4 @@
-"""Runtime admin alerts for import/enrichment incidents.
-
-This module is intentionally dependency-light: the backend image already has everything
-needed to send a Telegram Bot API request through the standard library.
-"""
+"""Runtime admin alerts for import/enrichment incidents."""
 from __future__ import annotations
 
 import json
@@ -21,6 +17,8 @@ _STATUS_LABELS = {
     "ready": "готово",
     "published": "опубликовано",
     "success": "успешно",
+    "success_with_warnings": "завершено с предупреждениями",
+    "partial_success": "частично завершено",
     "failed": "ошибка",
     "stalled": "зависло",
 }
@@ -33,8 +31,22 @@ _SOURCE_LABELS = {
 _TITLE_LABELS = {
     "Enrichment pipeline finished": "Обогащение завершено",
     "Enrichment pipeline failed": "Ошибка обогащения",
+    "Import pipeline finished": "Импорт завершён",
+    "Import completed with warnings": "Импорт завершён с предупреждениями",
+    "Import pipeline failed": "Ошибка импорта",
     "Import job stalled": "Задача импорта зависла",
     "Import worker job failed": "Ошибка import-worker",
+}
+
+_STEP_LABELS = {
+    "collecting_places": "сбор мест",
+    "finding_addresses": "поиск адресов",
+    "finding_images": "поиск фотографий",
+    "source_enrichment": "обогащение внешними источниками",
+    "enrich_external_sources": "обогащение внешними источниками",
+    "generate_ai_descriptions": "подготовка описаний",
+    "fetch_photo_candidates": "поиск фотографий",
+    "unified_pipeline": "единый pipeline",
 }
 
 
@@ -47,21 +59,15 @@ def send_admin_alert(
     job_id: int | None = None,
     details: dict[str, Any] | None = None,
 ) -> dict[str, object]:
-    """Send a best-effort Telegram alert to the operations chat.
-
-    Missing Telegram settings or Telegram API failures must never break the import
-    worker. The return payload is primarily useful for tests and ad-hoc debugging.
-    """
+    """Send a best-effort Telegram alert without breaking background jobs."""
     token = settings.telegram_bot_token or settings.bot_token
     chat_id = settings.telegram_chat_id
     if not token or not chat_id:
-        reason = "not_configured"
         print(
-            "admin_alert_not_configured: "
-            "set TELEGRAM_CHAT_ID and TELEGRAM_BOT_TOKEN or BOT_TOKEN "
-            f"to receive '{title}' alerts"
+            "admin_alert_not_configured: set TELEGRAM_CHAT_ID and "
+            f"TELEGRAM_BOT_TOKEN or BOT_TOKEN to receive '{title}' alerts"
         )
-        return {"sent": False, "reason": reason}
+        return {"sent": False, "reason": "not_configured"}
 
     text = _format_alert_text(
         title=title,
@@ -72,11 +78,7 @@ def send_admin_alert(
         details=details,
     )
     data = urllib.parse.urlencode(
-        {
-            "chat_id": chat_id,
-            "text": text,
-            "disable_web_page_preview": "true",
-        }
+        {"chat_id": chat_id, "text": text, "disable_web_page_preview": "true"}
     ).encode("utf-8")
     request = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
@@ -84,7 +86,7 @@ def send_admin_alert(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=8) as response:  # noqa: S310 - configured bot API endpoint
+        with urllib.request.urlopen(request, timeout=8) as response:  # noqa: S310
             response.read()
         return {"sent": True}
     except Exception as exc:  # noqa: BLE001
@@ -101,11 +103,7 @@ def _format_alert_text(
     job_id: int | None,
     details: dict[str, Any] | None,
 ) -> str:
-    prefix = {
-        "error": "❌",
-        "warning": "⚠️",
-        "info": "ℹ️",
-    }.get(level, "⚠️")
+    prefix = {"error": "❌", "warning": "⚠️", "info": "ℹ️"}.get(level, "⚠️")
     lines = [f"{prefix} City GO: {_title_label(title)}"]
     human_message = _human_message(title, message)
     if human_message:
@@ -137,11 +135,48 @@ def _human_message(title: str, message: str) -> str:
 def _format_details_summary(title: str, details: dict[str, Any]) -> list[str]:
     if title == "Enrichment pipeline finished":
         return _format_enrichment_finished(details)
+    if title in {"Import pipeline finished", "Import completed with warnings"}:
+        return _format_import_finished(details)
     if title == "Import job stalled":
         return _format_stalled_job(details)
-    if title == "Enrichment pipeline failed":
+    if title in {"Enrichment pipeline failed", "Import pipeline failed"}:
         return _format_failed_job(details)
     return _format_compact_details(details)
+
+
+def _format_import_finished(details: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    status = _status_label(details.get("status"))
+    source = _source_label(details.get("source"))
+    places_total = details.get("places_total")
+    if status:
+        lines.append(f"Статус: {status}")
+    if source:
+        lines.append(f"Тип задачи: {source}")
+    if places_total is not None:
+        lines.append(f"Мест в городе: {places_total}")
+
+    warnings = details.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        lines.append("Предупреждения:")
+        for warning in warnings[:5]:
+            if not isinstance(warning, dict):
+                continue
+            step = str(warning.get("step") or "неизвестный этап")
+            error = str(warning.get("error") or "причина не указана")
+            if len(error) > 240:
+                error = error[:240] + "…"
+            lines.append(f"• {_STEP_LABELS.get(step, step)}: {error}")
+        if len(warnings) > 5:
+            lines.append(f"• Ещё предупреждений: {len(warnings) - 5}")
+        lines.append("Что дальше: открыть задачу импорта и повторить только проблемные шаги.")
+    else:
+        readiness = details.get("readiness") if isinstance(details.get("readiness"), dict) else {}
+        score = readiness.get("readiness_score")
+        if score is not None:
+            lines.append(f"Готовность города: {score}/100")
+        lines.append("Что дальше: проверить качество данных и опубликовать город.")
+    return lines
 
 
 def _format_enrichment_finished(details: dict[str, Any]) -> list[str]:
@@ -175,7 +210,6 @@ def _format_enrichment_finished(details: dict[str, Any]) -> list[str]:
     coverage_text = [f"{label} {_pct(value)}" for label, value in coverage if value is not None]
     if coverage_text:
         lines.append("Покрытие: " + ", ".join(coverage_text))
-
     next_steps = _enrichment_next_steps(components)
     if next_steps:
         lines.append("Что дальше: " + next_steps)
@@ -192,7 +226,7 @@ def _enrichment_next_steps(components: dict[str, Any]) -> str:
         weak.append("добить часы работы")
     if weak:
         return ", ".join(weak) + "."
-    return "посмотреть data quality и публиковать, если все ок."
+    return "посмотреть качество данных и публиковать, если всё в порядке."
 
 
 def _format_stalled_job(details: dict[str, Any]) -> list[str]:
@@ -203,7 +237,7 @@ def _format_stalled_job(details: dict[str, Any]) -> list[str]:
     last_error = details.get("last_error")
     if last_error:
         lines.append(f"Причина: {last_error}")
-    lines.append("Что дальше: после деплоя фикса нажать «Повторить» для этого города.")
+    lines.append("Что дальше: после деплоя исправления нажать «Повторить» для этого города.")
     return lines
 
 
@@ -218,6 +252,9 @@ def _format_failed_job(details: dict[str, Any]) -> list[str]:
     step_details = details.get("step_details")
     if isinstance(step_details, dict) and step_details.get("error"):
         lines.append(f"Ошибка: {step_details['error']}")
+    warnings = details.get("warnings")
+    if isinstance(warnings, list):
+        lines.extend(_format_import_finished({"warnings": warnings})[1:])
     return lines
 
 
