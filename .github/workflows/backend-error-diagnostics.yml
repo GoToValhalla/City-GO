@@ -29,13 +29,60 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Inspect production publication state
+      - name: Restore production city visibility
         shell: bash
         run: |
           set -euo pipefail
           ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash <<'REMOTE_EOF'
             set -euo pipefail
             cd /srv/app
-            docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
-              "SELECT c.slug, count(p.id) AS total, count(p.id) FILTER (WHERE p.is_active IS NOT FALSE) AS active, count(p.id) FILTER (WHERE p.is_published IS TRUE) AS published, count(p.id) FILTER (WHERE p.is_visible_in_catalog IS TRUE) AS catalog_visible, count(p.id) FILTER (WHERE p.publication_status = 'needs_review') AS needs_review FROM cities c LEFT JOIN places p ON p.city_id = c.id GROUP BY c.id, c.slug ORDER BY c.slug;"
+
+            docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off <<'SQL'
+            BEGIN;
+            CREATE TEMP TABLE restored_cities ON COMMIT DROP AS
+            SELECT c.id, c.slug, c.launch_status AS old_launch_status, c.is_active AS old_is_active
+            FROM cities c
+            WHERE c.is_active IS NOT TRUE
+              AND EXISTS (
+                SELECT 1 FROM places p
+                WHERE p.city_id = c.id
+                  AND p.is_published IS TRUE
+                  AND p.is_visible_in_catalog IS TRUE
+              );
+
+            UPDATE cities c
+            SET launch_status = 'published',
+                is_active = true,
+                updated_at = CURRENT_TIMESTAMP
+            FROM restored_cities r
+            WHERE c.id = r.id;
+
+            INSERT INTO admin_audit_logs (
+              actor, action, entity_type, entity_id, old_value, new_value, reason, created_at
+            )
+            SELECT
+              'production-repair',
+              'restore_city_publication',
+              'city',
+              r.id::text,
+              jsonb_build_object('slug', r.slug, 'launch_status', r.old_launch_status, 'is_active', r.old_is_active),
+              jsonb_build_object('slug', r.slug, 'launch_status', 'published', 'is_active', true),
+              'Восстановление после импорта, который ошибочно деактивировал опубликованный город',
+              CURRENT_TIMESTAMP
+            FROM restored_cities r;
+            COMMIT;
+
+            SELECT c.slug, c.launch_status, c.is_active,
+                   count(p.id) FILTER (WHERE p.is_published IS TRUE AND p.is_visible_in_catalog IS TRUE) AS public_places
+            FROM cities c
+            LEFT JOIN places p ON p.city_id = c.id
+            GROUP BY c.id, c.slug, c.launch_status, c.is_active
+            ORDER BY c.slug;
+            SQL
+
+            echo "=== available cities after repair ==="
+            response=$(curl --fail --silent --show-error --max-time 20 \
+              'http://localhost:8000/cities/available?include_draft=true')
+            printf '%s\n' "$response"
+            test "$response" != "[]"
           REMOTE_EOF
