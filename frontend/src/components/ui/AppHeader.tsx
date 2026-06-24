@@ -34,20 +34,30 @@ export const AppHeader = () => {
 
   useEffect(() => {
     const loadCities = async () => {
+      const currentCity = getCurrentCity()
+
       try {
         const availableCities = await getAvailableCities()
-        setCities(availableCities.length > 0 ? availableCities : [DEFAULT_CITY])
 
-        const currentCity = getCurrentCity()
-        const freshCurrentCity = availableCities.find((city) => city.slug === currentCity.slug)
-
-        if (freshCurrentCity) {
-          setSelectedCity(freshCurrentCity)
-          setCurrentCity(freshCurrentCity)
+        if (availableCities.length === 0) {
+          // Не подменяем сохранённый город фальшивым DEFAULT_CITY при временно
+          // пустом ответе API: селектор и экран должны показывать один контекст.
+          setCities([currentCity])
+          setSelectedCity(currentCity)
+          return
         }
+
+        setCities(availableCities)
+
+        const freshCurrentCity = availableCities.find((city) => city.slug === currentCity.slug)
+        const nextCity = freshCurrentCity ?? availableCities[0]
+
+        setSelectedCity(nextCity)
+        setCurrentCity(nextCity)
       } catch (error) {
         console.error(error)
-        setCities([DEFAULT_CITY])
+        setCities([currentCity])
+        setSelectedCity(currentCity)
       }
     }
 
@@ -55,7 +65,7 @@ export const AppHeader = () => {
   }, [])
 
   const handleCityChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const nextCity = cities.find((city) => city.slug === event.target.value) || DEFAULT_CITY
+    const nextCity = cities.find((city) => city.slug === event.target.value) ?? selectedCity
 
     setSelectedCity(nextCity)
     setCurrentCity(nextCity)
