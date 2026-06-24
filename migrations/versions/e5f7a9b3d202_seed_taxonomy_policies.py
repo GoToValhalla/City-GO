@@ -1,10 +1,10 @@
 """seed taxonomy policies
 
 Revision ID: e5f7a9b3d202
-Revises: d4e6f8a2c101
+Revises: d4f6a8b2c150
 """
 from alembic import op
-revision="e5f7a9b3d202";down_revision="d4e6f8a2c101";branch_labels=None;depends_on=None
+revision="e5f7a9b3d202";down_revision="d4f6a8b2c150";branch_labels=None;depends_on=None
 MAPPINGS=(("osm","amenity","pharmacy","pharmacy",300,0.99),("osm","shop","mall","shopping_mall",300,0.99),("osm","amenity","bank","bank",300,0.99),("osm","amenity","atm","atm",300,0.99),("osm","tourism","museum","museum",300,0.99),("osm","leisure","park","park",300,0.98),("osm","amenity","cafe","coffee",200,0.72),("legacy","legacy_category","services","service",100,0.70))
 
 def upgrade()->None:
