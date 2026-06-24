@@ -12,6 +12,8 @@ from models.import_batch import ImportBatch
 from models.place import Place
 from services.import_job_step_service import record_step
 from services.import_pipeline_foundation_steps import run_step
+from services.place_import_lifecycle_service import mark_place_for_review
+from services.review_queue_service import ensure_review_item
 
 FOUNDATION_STEPS = (
     "collect_places",
@@ -21,6 +23,7 @@ FOUNDATION_STEPS = (
     "generate_ai_descriptions",
     "fetch_photo_candidates",
     "calculate_field_confidence",
+    "apply_publication_decisions",
 )
 NON_CRITICAL_STEPS = {"enrich_external_sources", "generate_ai_descriptions", "fetch_photo_candidates"}
 
@@ -40,9 +43,10 @@ def run_foundation_pipeline(
         query = query.filter(Place.id.in_(place_ids)) if place_ids else query.filter(False)
     places = query.order_by(Place.id.asc()).all()
     counters["found"] = len(places)
+    manual_review_required = place_ids is not None
 
     if not places:
-        _finish_batch(batch, counters, status="success")
+        _finish_batch(batch, counters, status="success", manual_review_required=manual_review_required)
         _write_job_counters(job, counters)
         db.commit()
         return counters
@@ -50,7 +54,10 @@ def run_foundation_pipeline(
     for step in FOUNDATION_STEPS:
         record_step(db, job_id=job.id, step_name=step, status="started")
         try:
-            run_step(db, step=step, city=city, job=job, batch=batch, places=places, counters=counters)
+            if step == "apply_publication_decisions" and manual_review_required:
+                _require_manual_review(db, city=city, job=job, places=places, counters=counters)
+            else:
+                run_step(db, step=step, city=city, job=job, batch=batch, places=places, counters=counters)
             record_step(db, job_id=job.id, step_name=step, status="success", counters=dict(counters))
         except Exception as exc:
             counters["failed"] += 1
@@ -63,15 +70,41 @@ def run_foundation_pipeline(
                 error_message=str(exc),
             )
             if step not in NON_CRITICAL_STEPS:
-                _finish_batch(batch, counters, status="failed")
+                _finish_batch(batch, counters, status="failed", manual_review_required=manual_review_required)
                 job.status = "failed"
                 job.last_error = str(exc)[:2000]
                 raise
             job.status = "partial_success"
-    _finish_batch(batch, counters, status="partial_success" if job.status == "partial_success" else "success")
+    _finish_batch(
+        batch,
+        counters,
+        status="partial_success" if job.status == "partial_success" else "success",
+        manual_review_required=manual_review_required,
+    )
     _write_job_counters(job, counters)
     db.commit()
     return counters
+
+
+def _require_manual_review(
+    db: Session,
+    *,
+    city: City,
+    job: CityAdminImportJob,
+    places: list[Place],
+    counters: dict[str, int],
+) -> None:
+    for place in places:
+        mark_place_for_review(place, reason="import_data_changed")
+        ensure_review_item(
+            db,
+            city_id=city.id,
+            place_id=place.id,
+            job_id=job.id,
+            field_name="publication_status",
+            reason="import_data_changed",
+        )
+        counters["review_required"] += 1
 
 
 def _batch(db: Session, city: City) -> ImportBatch:
@@ -81,16 +114,25 @@ def _batch(db: Session, city: City) -> ImportBatch:
     return batch
 
 
-def _finish_batch(batch: ImportBatch, counters: dict[str, int], *, status: str) -> None:
+def _finish_batch(
+    batch: ImportBatch,
+    counters: dict[str, int],
+    *,
+    status: str,
+    manual_review_required: bool,
+) -> None:
     batch.status = status
     batch.finished_at = datetime.utcnow()
     batch.raw_count = counters["found"]
     batch.normalized_count = counters["found"]
-    batch.published_count = 0
-    batch.needs_review_count = counters["found"]
+    batch.published_count = counters["auto_published"] + counters["limited_published"]
+    batch.needs_review_count = counters["review_required"]
     batch.rejected_count = counters["rejected"]
     batch.errors_count = counters["failed"]
-    batch.diff_summary = {"pipeline_counters": dict(counters), "publication_mode": "manual_review_required"}
+    batch.diff_summary = {
+        "pipeline_counters": dict(counters),
+        "publication_mode": "manual_review_required" if manual_review_required else "quality_gate",
+    }
 
 
 def _empty_counters() -> dict[str, int]:
