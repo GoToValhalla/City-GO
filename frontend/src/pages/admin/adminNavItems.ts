@@ -4,6 +4,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { path: '/admin/overview', label: 'Обзор', section: 'main' },
   { path: '/admin/cities', label: 'Города', section: 'main' },
   { path: '/admin/places', label: 'Места', section: 'data' },
+  { path: '/admin/taxonomy', label: 'Таксономия', section: 'data' },
   { path: '/admin/coverage', label: 'Покрытие данных', section: 'data' },
   { path: '/admin/quality', label: 'Качество', section: 'data' },
   { path: '/admin/routes/eligibility', label: 'Маршруты: готовность мест', section: 'routes' },
@@ -22,10 +23,5 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
 ]
 
 export const ADMIN_NAV_SECTION_LABELS: Record<string, string> = {
-  main: 'Главное',
-  data: 'Каталог',
-  routes: 'Маршруты',
-  moderation: 'Проверка',
-  ops: 'Операции',
-  system: 'Система',
+  main: 'Главное', data: 'Каталог', routes: 'Маршруты', moderation: 'Проверка', ops: 'Операции', system: 'Система',
 }
