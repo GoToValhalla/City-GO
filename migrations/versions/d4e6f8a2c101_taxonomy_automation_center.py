@@ -16,6 +16,13 @@ JSON = sa.JSON()
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        # Production deploys must fail with a useful error instead of waiting
+        # indefinitely when a runtime transaction holds a DDL lock.
+        bind.execute(sa.text("SET LOCAL lock_timeout = '30s'"))
+        bind.execute(sa.text("SET LOCAL statement_timeout = '10min'"))
+
     with op.batch_alter_table("categories") as batch:
         batch.add_column(sa.Column("description", sa.Text(), nullable=True))
         batch.add_column(sa.Column("parent_id", sa.Integer(), nullable=True))

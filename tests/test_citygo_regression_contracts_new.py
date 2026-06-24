@@ -14,31 +14,38 @@ def read(path: str) -> str:
 
 def test_deploy_repairs_known_alembic_overlap_and_fails_fast_new() -> None:
     compose = read("docker-compose.yml")
-    deploy = read(".github/workflows/deploy.yml")
+    workflow = read(".github/workflows/deploy.yml")
+    deploy = read("scripts/deploy_production_remote.sh")
 
     assert 'if inspect(engine).has_table("alembic_version")' in compose
     assert '{"9d0e1f2a3b4c", "fb7e3c2a91d4"}.issubset(revisions)' in compose
     assert '"revision": "9d0e1f2a3b4c"' in compose
     assert "alembic upgrade head" in compose
     assert "alembic upgrade heads" not in compose
+    assert "< scripts/deploy_production_remote.sh" in workflow
     assert "docker compose run" in deploy
     assert "migrate </dev/null" in deploy
     assert "docker compose up migrate" not in deploy
     assert "MIGRATE_EXIT=$?" in deploy
     assert "alembic heads" in deploy
     assert "alembic current" in deploy
-    assert "Deploy aborted before runtime restart" in deploy
+    assert "migrations failed or timed out" in deploy
+    assert "restore_runtime" in deploy
 
 
-def test_deploy_retries_schema_guard_before_runtime_restart_new() -> None:
-    deploy = read(".github/workflows/deploy.yml")
+def test_deploy_quiesces_database_clients_and_guards_schema_new() -> None:
+    deploy = read("scripts/deploy_production_remote.sh")
 
+    quiesce_pos = deploy.index("=== quiesce database clients before migrations ===")
+    migrations_pos = deploy.index("=== migrations ===")
     schema_guard_pos = deploy.index("=== production schema guard ===")
-    stop_backend_pos = deploy.index("=== stop backend-side services only")
-    assert schema_guard_pos < stop_backend_pos
-    assert "SCHEMA_GUARD_OK=0" in deploy
-    assert "for attempt in 1 2 3" in deploy
-    assert "production schema guard failed after retries" in deploy
+    recreate_backend_pos = deploy.index("=== recreate backend ===")
+
+    assert quiesce_pos < migrations_pos < schema_guard_pos < recreate_backend_pos
+    assert "docker compose stop -t 30 import-worker bot backend" in deploy
+    assert "timeout --signal=TERM --kill-after=30s 12m" in deploy
+    assert "timeout --signal=TERM --kill-after=30s 3m" in deploy
+    assert "docker compose start backend bot import-worker" in deploy
 
 
 def test_local_disk_cache_is_non_authoritative_and_persisted_new() -> None:
