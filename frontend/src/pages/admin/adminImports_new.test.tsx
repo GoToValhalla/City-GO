@@ -38,7 +38,7 @@ describe('AdminImportJobsPage', () => {
   it('shows run button and triggers import_new', async () => {
     render(<MemoryRouter><AdminImportJobsPage /></MemoryRouter>)
     await waitFor(() => expect(screen.getByText('Алматы')).toBeTruthy())
-    fireEvent.click(screen.getByText('Собрать и обогатить'))
+    fireEvent.click(screen.getByText('Запустить'))
     await waitFor(() => expect(screen.getByText('ok')).toBeTruthy())
   })
 })

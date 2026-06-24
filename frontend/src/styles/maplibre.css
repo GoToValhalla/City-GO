@@ -1,0 +1,26 @@
+.maplibre-map {
+  width: 100%;
+  min-height: 360px;
+  background: #f5f5f7;
+}
+
+.maplibre-map canvas {
+  display: block;
+}
+
+.maplibre-map-error {
+  margin: 8px 12px;
+  color: var(--red);
+  font-size: 14px;
+}
+
+.maplibregl-ctrl-group button {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+@media (max-width: 640px) {
+  .maplibre-map {
+    min-height: 320px;
+  }
+}

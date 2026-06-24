@@ -11,7 +11,7 @@ import { filterPlaces } from '../../features/place-search/model/filterPlaces'
 import { PlacesLoadMoreTrigger } from '../../features/places-list/PlacesLoadMoreTrigger'
 import { usePlacesPagination } from '../../features/places-list/usePlacesPagination'
 import { getCurrentCity, type CityOption } from '../../shared/city/currentCity'
-import { useUserLocation } from '../../shared/location/useUserLocation'
+import { useLocationProvider } from '../../shared/location/useLocationProvider'
 import { categoryLabel } from '../../shared/place/categoryLabels'
 
 const initialFilters: FilterSheetDraft = {
@@ -28,7 +28,7 @@ export const PlacesListPage = () => {
   const [draftFilters, setDraftFilters] = useState<FilterSheetDraft>(initialFilters)
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
   const [activePlaceId, setActivePlaceId] = useState<number | null>(null)
-  const userLocation = useUserLocation()
+  const location = useLocationProvider()
 
   const { places, total, loading, error, hasMore, loadMore, retry } = usePlacesPagination(city.slug)
 
@@ -83,6 +83,7 @@ export const PlacesListPage = () => {
 
   const applyFilters = () => {
     setFilters(draftFilters)
+    setActivePlaceId(null)
     setFilterSheetOpen(false)
   }
 
@@ -90,6 +91,7 @@ export const PlacesListPage = () => {
     const nextFilters = { ...filters, category }
     setFilters(nextFilters)
     setDraftFilters(nextFilters)
+    setActivePlaceId(null)
   }
 
   return (
@@ -119,7 +121,7 @@ export const PlacesListPage = () => {
 
           <SearchBar
             value={search}
-            onChange={setSearch}
+            onChange={(value) => { setSearch(value); setActivePlaceId(null) }}
             placeholder="Поиск мест в городе"
             loading={loading && places.length === 0}
           />
@@ -131,11 +133,17 @@ export const PlacesListPage = () => {
           <PlaceMapPanel
             places={filteredPlaces}
             activePlaceId={visibleActivePlaceId}
-            userLocation={userLocation.coordinates}
-            locationLoading={userLocation.status === 'loading'}
-            locationError={userLocation.error}
+            userLocation={location.snapshot ? {
+              latitude: location.snapshot.coordinates.latitude,
+              longitude: location.snapshot.coordinates.longitude,
+              accuracy: location.snapshot.coordinates.accuracy,
+            } : null}
+            manualPoint={location.snapshot?.source === 'manual_map' ? location.snapshot.coordinates : null}
+            locationLoading={location.status === 'requesting' || location.status === 'initializing'}
+            locationError={location.status === 'granted' || location.status === 'idle' ? null : location.message}
             onActivePlaceChange={setActivePlaceId}
-            onRequestLocation={userLocation.requestLocation}
+            onManualPoint={location.useManualPoint}
+            onRequestLocation={() => void location.request({ scenario: 'places' })}
           />
 
           <PlaceList

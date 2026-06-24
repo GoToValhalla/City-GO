@@ -3,12 +3,14 @@
  * Tests for admin auth: login page, route guard, api client, session.
  * File suffix _new per project convention.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
+import { cleanup, render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AdminLoginPage } from './AdminLoginPage'
 import { AdminRouteGuard } from './AdminRouteGuard'
 import { clearAdminSession, hasAdminSession, saveAdminSession } from './adminSession'
+
+afterEach(() => cleanup())
 
 // ─── Session ─────────────────────────────────────────────────────────────────
 

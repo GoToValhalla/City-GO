@@ -10,6 +10,12 @@ export type NearbyPlace = Place & {
   distance_km: number
 }
 
+export type NearestCitySuggestion = {
+  city_slug: string
+  city_name: string
+  distance_km: number
+}
+
 export const getNearbyPlaces = async (
   lat: number,
   lng: number,
@@ -27,4 +33,14 @@ export const getNearbyPlaces = async (
   }
   const data: NearbyPlace[] = await response.json()
   return normalizePlaces(data)
+}
+
+export const getNearestCitySuggestion = async (
+  lat: number,
+  lng: number,
+): Promise<NearestCitySuggestion | null> => {
+  const params = new URLSearchParams({ lat: String(lat), lng: String(lng) })
+  const response = await fetch(buildApiUrl(`/nearby/nearest-city?${params.toString()}`))
+  if (!response.ok) return null
+  return response.json() as Promise<NearestCitySuggestion | null>
 }

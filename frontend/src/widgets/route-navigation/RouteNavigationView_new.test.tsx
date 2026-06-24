@@ -1,10 +1,22 @@
 /* @vitest-environment jsdom */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RouteDetail } from '../../api/routes/routes.api'
 import { RouteNavigationView } from './RouteNavigationView'
+
+vi.mock('../../shared/map/MapLibreMap', () => ({
+  MapLibreMap: ({ points, routeLine, userLocation }: {
+    points: Array<{ id: number }>
+    routeLine?: boolean
+    userLocation?: object | null
+  }) => <div data-testid="maplibre-map">
+    {routeLine ? <span data-testid="route-polyline" /> : null}
+    {points.map((item) => <span data-testid={`route-marker-${item.id}`} key={item.id} />)}
+    {userLocation ? <span data-testid="route-user-marker" /> : null}
+  </div>,
+}))
 
 const baseRoute = (points: RouteDetail['points']): RouteDetail => ({
   id: 42,
@@ -45,7 +57,11 @@ const renderView = (route: RouteDetail) => render(
 describe('RouteNavigationView', () => {
   const originalGeolocation = navigator.geolocation
 
-  beforeEach(() => window.localStorage.clear())
+  beforeEach(() => {
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+  })
   afterEach(() => {
     cleanup()
     if (originalGeolocation) {
@@ -74,7 +90,7 @@ describe('RouteNavigationView', () => {
     expect(screen.getByTestId('route-point-card-1')).toHaveClass('current')
   })
 
-  it('requests browser geolocation and shows user marker with distance', () => {
+  it('requests browser geolocation and shows user marker with distance', async () => {
     const watchPosition = vi.fn((success: PositionCallback) => {
       success({
         coords: {
@@ -93,14 +109,24 @@ describe('RouteNavigationView', () => {
     const clearWatch = vi.fn()
     Object.defineProperty(navigator, 'geolocation', {
       configurable: true,
-      value: { watchPosition, clearWatch },
+      value: {
+        getCurrentPosition: (success: PositionCallback) => success({
+          coords: {
+            latitude: 54.91, longitude: 20.41, accuracy: 12,
+            altitude: null, altitudeAccuracy: null, heading: null, speed: null,
+          },
+          timestamp: Date.now(),
+        } as GeolocationPosition),
+        watchPosition,
+        clearWatch,
+      },
     })
 
     renderView(baseRoute([point(1, 'Парк'), point(2, 'Площадь')]))
     fireEvent.click(screen.getByRole('button', { name: 'Начать маршрут' }))
 
-    expect(watchPosition).toHaveBeenCalled()
-    expect(screen.getByTestId('route-user-marker')).toBeInTheDocument()
+    await waitFor(() => expect(watchPosition).toHaveBeenCalled())
+    expect(await screen.findByTestId('route-user-marker')).toBeInTheDocument()
     expect(screen.getByTestId('route-gps-status')).toHaveTextContent('До текущей точки')
   })
 

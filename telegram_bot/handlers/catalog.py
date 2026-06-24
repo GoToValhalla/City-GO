@@ -21,8 +21,16 @@ from telegram_bot import renderers
 from telegram_bot.analytics import log_event
 from telegram_bot.callbacks import ParsedCallback, parse_callback
 from telegram_bot.keyboards import catalog as kb
+from telegram_bot.keyboards.main_menu import get_location_request_keyboard
 from telegram_bot.schemas import BotPlace, BotRoute, BotRoutePoint
 from telegram_bot.services.facade import BotFacade
+from telegram_bot.services.pending_location import (
+    clear_temporary_location,
+    consume_pending_intent,
+    get_temporary_location,
+    save_temporary_location,
+    set_pending_intent,
+)
 from telegram_bot.session import (
     get_or_create_session,
     pop_nav,
@@ -74,10 +82,29 @@ async def location_message(message: Message) -> None:
         if not message.location:
             await message.answer("Не удалось получить геолокацию.", reply_markup=kb.back_to_menu())
             return
-        session.last_location = {"lat": message.location.latitude, "lng": message.location.longitude}
+        pending = consume_pending_intent(session)
+        save_temporary_location(session, message.location.latitude, message.location.longitude)
         save_session(db, session)
         if not session.selected_city_slug:
             await _show_city_select_message(message, facade, db=db, session=session)
+            return
+        if pending == "continue_route":
+            pending_state = session.route_session if isinstance(session.route_session, dict) else {}
+            route = facade.route(_int(pending_state.get("pending_route_id"), 0))
+            if route is None:
+                await message.answer("Ожидавший маршрут уже недоступен.", reply_markup=kb.main_menu())
+                return
+            backend_session = start_backend_route_session(db, route.id, user_key=f"tg:{session.telegram_user_id}")
+            session.route_session = _route_state_from_backend(backend_session)
+            save_session(db, session)
+            point = route.points[0]
+            await message.answer(
+                renderers.route_step_text(route, point, 0, None, 0),
+                reply_markup=kb.route_step(point, len(route.points), False),
+            )
+            return
+        if pending == "build_route":
+            await message.answer("Геопозиция получена. Теперь можно построить маршрут.", reply_markup=kb.main_menu())
             return
         places = facade.nearby_places(session.selected_city_slug, message.location.latitude, message.location.longitude)
         log_event(db, session, "nearby_used", payload={"results_count": len(places)})
@@ -86,6 +113,8 @@ async def location_message(message: Message) -> None:
             renderers.places_list_text("📍 Рядом с тобой", places, 0),
             reply_markup=kb.places_page(page, session, "near", "list", "all"),
         )
+        clear_temporary_location(session)
+        save_session(db, session)
 
     await _with_session(message, action)
 
@@ -101,6 +130,14 @@ async def text_message(message: Message) -> None:
         lowered = text.lower()
         if lowered in {"главное меню", "меню"}:
             await _show_main_menu_message(db, session, facade, message)
+            return
+        if lowered == "использовать центр города":
+            session.current_flow = None
+            save_session(db, session)
+            await message.answer("Используем центр выбранного города.", reply_markup=kb.main_menu())
+            return
+        if lowered == "сменить город":
+            await _show_city_select_message(message, facade, db=db, session=session)
             return
         if lowered in {"помощь", "что умеет бот"}:
             await message.answer(renderers.help_text(), reply_markup=kb.back_to_menu())
@@ -331,6 +368,16 @@ async def _handle_route(callback: CallbackQuery, db: Session, session, facade: B
             await _edit_or_answer(callback, renderers.route_points_text(route), reply_markup=kb.route_card(route, session))
             return
         if action == "go":
+            if get_temporary_location(session) is None:
+                set_pending_intent(session, "continue_route")
+                session.route_session = {"pending_route_id": route.id}
+                save_session(db, session)
+                if callback.message:
+                    await callback.message.answer(
+                        "Отправьте геопозицию для старта маршрута или вернитесь к маршруту и используйте ручной режим.",
+                        reply_markup=get_location_request_keyboard(),
+                    )
+                return
             try:
                 backend_session = start_backend_route_session(db, route.id, user_key=f"tg:{session.telegram_user_id}")
             except RouteSessionError:
@@ -466,17 +513,24 @@ async def _handle_nearby(callback: CallbackQuery, db: Session, session, facade: 
         return
     category = "all" if action == "ask" else (parts[0] if parts else "all")
     city = facade.city(session.selected_city_slug)
-    if not session.last_location:
+    location = get_temporary_location(session)
+    if not location:
         center = facade.city_center(session.selected_city_slug)
-        if center is not None and city is not None:
+        if action == "center" and center is not None and city is not None:
             places = facade.nearby_places(session.selected_city_slug, center[0], center[1], category)
             log_event(db, session, "nearby_used", payload={"results_count": len(places), "source": "city_center"})
             page = type("PageLike", (), {"items": places, "page": 0, "has_next": False})()
             await _edit_or_answer(callback, renderers.nearby_city_center_text(city, places), reply_markup=kb.places_page(page, session, "near", "list", category or "all"))
             return
-        await callback.message.answer(renderers.nearby_request_text(), reply_markup=kb.request_location()) if callback.message else None
+        set_pending_intent(session, "nearby")
+        save_session(db, session)
+        if callback.message:
+            await callback.message.answer(
+                "Отправьте геопозицию, выберите центр города или смените город.",
+                reply_markup=get_location_request_keyboard(),
+            )
+        await _edit_or_answer(callback, renderers.nearby_request_text(), reply_markup=kb.request_location())
         return
-    location = session.last_location
     places = facade.nearby_places(session.selected_city_slug, float(location["lat"]), float(location["lng"]), category)
     log_event(db, session, "nearby_used", payload={"results_count": len(places), "source": "user_location"})
     page = type("PageLike", (), {"items": places, "page": 0, "has_next": False})()
@@ -547,8 +601,9 @@ async def _render_route_step(callback: CallbackQuery, session, route: BotRoute, 
     visited = list(route_state.get("visited", [])) if isinstance(route_state, dict) else []
     skipped = list(route_state.get("skipped", [])) if isinstance(route_state, dict) else []
     distance = None
-    if session.last_location and point.lat is not None and point.lng is not None:
-        distance = haversine_meters(float(session.last_location["lat"]), float(session.last_location["lng"]), point.lat, point.lng)
+    location = get_temporary_location(session)
+    if location and point.lat is not None and point.lng is not None:
+        distance = haversine_meters(float(location["lat"]), float(location["lng"]), point.lat, point.lng)
     await _edit_or_answer(
         callback,
         renderers.route_step_text(route, point, len(visited), distance, len(skipped)),

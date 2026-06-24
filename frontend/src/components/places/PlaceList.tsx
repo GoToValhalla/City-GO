@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import type { Place } from '../../entities/place/model/types'
 import { EmptyState, ErrorState } from '../ui'
 import { PlaceCard } from './PlaceCard'
@@ -48,6 +49,12 @@ export const PlaceList = ({
   onSelectCity,
   places,
 }: PlaceListProps) => {
+  const listRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (activePlaceId === null || activePlaceId === undefined) return
+    listRef.current?.querySelector<HTMLElement>(`[data-place-id="${activePlaceId}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [activePlaceId])
   if (noCity) {
     return (
       <EmptyState
@@ -87,20 +94,17 @@ export const PlaceList = ({
 
   return (
     <div
+      ref={listRef}
       className={classNames(
         'place-ui-list',
         places.length > VIRTUALIZATION_THRESHOLD && 'place-ui-list--virtualized',
         className,
       )}
     >
-      {places.map((place) => (
-        <PlaceCard
-          key={place.id}
-          place={place}
-          active={activePlaceId === place.id}
-          onActivate={(selected) => onActivePlaceChange?.(selected.id)}
-        />
-      ))}
+      {places.map((place) => <div data-place-id={place.id} key={place.id}>
+        <PlaceCard place={place} active={activePlaceId === place.id}
+          onActivate={(selected) => onActivePlaceChange?.(selected.id)} />
+      </div>)}
       {loadingMore ? <div className="place-ui-list__more">{renderSkeletons(MORE_SKELETON_COUNT)}</div> : null}
     </div>
   )

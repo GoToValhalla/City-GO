@@ -66,6 +66,7 @@
   gap: 6px;
 }
 
+.route-nav-map-toolbar > button,
 .route-nav-map-controls button,
 .route-nav-location-status button,
 .route-nav-button {
@@ -87,18 +88,12 @@
   border-color: var(--cg-primary);
 }
 
-.route-nav-map svg {
+.route-nav-map .maplibre-map {
   width: 100%;
   min-height: 380px;
   overflow: hidden;
   background: var(--cg-bg-main);
   border-radius: var(--cg-radius-md);
-  cursor: grab;
-  touch-action: none;
-}
-
-.route-nav-map svg:active {
-  cursor: grabbing;
 }
 
 .route-nav-map-bg {

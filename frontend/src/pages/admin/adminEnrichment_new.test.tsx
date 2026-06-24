@@ -78,7 +78,7 @@ describe('AdminPlaceEnrichmentPage', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ items: [batchItem], total: 1 }), { status: 200 }))
     renderPage()
     await waitFor(() => {
-      expect(screen.getByText(batchItem.batch_id)).toBeTruthy()
+      expect(screen.getByRole('button', { name: /Пакет place_en/ })).toBeTruthy()
       expect(screen.getByText('Экспортирован')).toBeTruthy()
     })
   })
@@ -86,7 +86,7 @@ describe('AdminPlaceEnrichmentPage', () => {
   it('shows empty batch state', async () => {
     mockInit()
     renderPage()
-    await waitFor(() => expect(screen.getByText(/batch-экспортов пока нет/i)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Пакетов пока нет/i)).toBeTruthy())
   })
 
   it('shows batch loading errors', async () => {
@@ -139,7 +139,7 @@ describe('AdminPlaceEnrichmentPage', () => {
     fireEvent.click(runButton)
 
     await waitFor(() => expect(screen.getByText(/Задача #7/)).toBeTruthy())
-    const reviewButton = screen.getByRole('button', { name: /Обновить очередь проверки/i })
+    const reviewButton = screen.getByRole('button', { name: /Очередь проверки/i })
     await waitFor(() => expect(reviewButton).toHaveProperty('disabled', false))
     fireEvent.click(reviewButton)
     await waitFor(() => expect(screen.getByText('Низкое доверие')).toBeTruthy())
@@ -174,7 +174,7 @@ describe('AdminPlaceEnrichmentPage', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(emptyCities), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ items: [enriched], total: 1 }), { status: 200 }))
     renderPage()
-    await waitFor(() => expect(screen.getByText('Preview')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Проверить')).toBeTruthy())
   })
 
   it('quick action button exists', async () => {

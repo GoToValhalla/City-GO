@@ -4,7 +4,7 @@
  *
  * Unit-тесты хука пагинации. Используем renderHook из @testing-library/react.
  */
-import { renderHook, waitFor } from '@testing-library/react'
+import { cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { usePlacesPagination } from './usePlacesPagination'
 
@@ -23,7 +23,10 @@ const fakePlace = (id: number) => ({
 })
 
 describe('usePlacesPagination_new', () => {
-  afterEach(() => vi.restoreAllMocks())
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
 
   it('loads first page on mount', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(

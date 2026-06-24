@@ -40,3 +40,7 @@
 3. Product route layer: `POST /v1/user-routes/build`, `POST /v1/user-routes/correct`, `POST /v1/recommendations/route`.
 
 Новая route-разработка использует product route layer. Категорийный допуск централизован в taxonomy route policy.
+# Location and maps
+
+- [Архитектура location/map platform](architecture/location_and_map_platform.md)
+- [Конфигурация, privacy и troubleshooting](location_map_operations.md)

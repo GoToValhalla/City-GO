@@ -246,3 +246,10 @@ Relevant deploy checks:
 ```bash
 python -m py_compile telegram_bot/handlers/catalog.py telegram_bot/services/facade.py telegram_bot/renderers.py telegram_bot/keyboards/catalog.py
 ```
+# Геопозиция
+
+Основной bot flow хранит pending intent (`nearby`, `build_route`,
+`continue_route`) с TTL. Reply-кнопка отправляет native Telegram location.
+Точная позиция имеет отдельный TTL, после Nearby очищается и не включается в
+analytics/log payload. При отсутствии позиции доступны центр выбранного города
+и смена города. Полный контракт: [Location and Map Platform](location_and_map_platform.md).

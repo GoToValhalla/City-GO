@@ -19,11 +19,16 @@ export const RouteNavigationView = ({ route }: Props) => {
   const quality = useMemo(() => evaluateRouteQuality(route.points), [route.points])
   const [state, setState] = useState(() => restoreNavigationState(route.id, quality.validPoints))
   const geolocation = useRouteGeolocation()
+  const stopGeolocation = geolocation.stop
 
   useEffect(() => {
     if (state.status === 'not_started' && state.visitedPointIds.length === 0 && state.currentPointIndex === 0) return
     saveNavigationState(route.id, state)
   }, [route.id, state])
+
+  useEffect(() => {
+    if (state.status !== 'active') stopGeolocation()
+  }, [state.status, stopGeolocation])
 
   const dispatch = (event: RouteNavigationEvent) => {
     const next = routeNavigationReducer(state, event, quality.validPoints)
@@ -34,7 +39,7 @@ export const RouteNavigationView = ({ route }: Props) => {
   const startRoute = () => {
     if (!quality.canStart) return
     dispatch({ type: 'START_ROUTE' })
-    geolocation.requestLocation()
+    void geolocation.requestLocation()
   }
 
   const currentPoint = state.status === 'active' ? quality.validPoints[state.currentPointIndex] : undefined
@@ -53,7 +58,7 @@ export const RouteNavigationView = ({ route }: Props) => {
           userLocation={geolocation.position}
           locationStatus={geolocation.status}
           locationError={geolocation.errorMessage}
-          onRequestLocation={geolocation.requestLocation}
+          onRequestLocation={() => void geolocation.requestLocation()}
         />
         <RouteQualityNotice result={quality} />
       </div>
@@ -66,12 +71,13 @@ export const RouteNavigationView = ({ route }: Props) => {
           distanceToCurrentMeters={distanceToCurrentMeters}
           accuracyMeters={geolocation.position?.accuracy ?? null}
           locationStatus={geolocation.status}
+          locationStale={geolocation.stale}
           onStart={startRoute}
           onVisited={() => dispatch({ type: 'MARK_CURRENT_VISITED' })}
           onNext={() => dispatch({ type: 'GO_NEXT_POINT' })}
           onComplete={() => dispatch({ type: 'COMPLETE_ROUTE' })}
           onReset={() => dispatch({ type: 'RESET_ROUTE' })}
-          onRequestLocation={geolocation.requestLocation}
+          onRequestLocation={() => void geolocation.requestLocation()}
         />
         <div className="route-nav-point-list" data-testid="route-point-list">
           {quality.validPoints.map((point) => (

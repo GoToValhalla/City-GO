@@ -105,3 +105,9 @@ python data/scripts/backfill_missing_place_addresses.py --limit 100 --apply
 - Turn-by-turn навигация
 - Deep-link для открытия нативного приложения карт на мобильных
 - Режим велосипед / транспорт
+# Location lifecycle
+
+Активная навигация использует общий frontend location provider. Browser
+`watchPosition` запускается только после пользовательского старта маршрута и
+очищается при завершении, reset, смене маршрута и unmount. Telegram
+`LocationManager` остаётся one-shot и обновляется кнопкой вручную.

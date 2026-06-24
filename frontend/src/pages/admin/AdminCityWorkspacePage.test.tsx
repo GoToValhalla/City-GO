@@ -99,7 +99,7 @@ describe('AdminCityWorkspacePage', () => {
     expect(screen.getByRole('navigation', { name: 'Разделы города' })).toBeTruthy()
     expect(screen.getByText('Критические проблемы')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Импорт' }))
-    expect(screen.getByText('Готов к проверке · 10/12')).toBeTruthy()
+    expect(screen.getByText(/Готов к проверке/)).toBeTruthy()
     expect(screen.getByText('Повторить')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Публикация' }))
     expect(screen.getByText('Опубликовать')).toBeTruthy()

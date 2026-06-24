@@ -36,3 +36,16 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
         resize_keyboard=True,
         input_field_placeholder="Например: маршрут на 2 часа с кофе",
     )
+
+
+def get_location_request_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Отправить геопозицию", request_location=True)],
+            [KeyboardButton(text="Использовать центр города")],
+            [KeyboardButton(text="Сменить город")],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+        input_field_placeholder="Выберите способ определить старт",
+    )

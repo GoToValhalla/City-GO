@@ -172,6 +172,7 @@ def request_location() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="👀 Смотреть места", callback_data=cb("p", "cat", "sights", 0))],
             [InlineKeyboardButton(text="☕ Еда и кофе", callback_data=cb("p", "cat", "food", 0))],
             [InlineKeyboardButton(text="📍 Все места", callback_data=cb("p", "cat", "all", 0))],
+            [InlineKeyboardButton(text="🏙 Использовать центр города", callback_data=cb("near", "center", "all"))],
             [InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))],
         ]
     )

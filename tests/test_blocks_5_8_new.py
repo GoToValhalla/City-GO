@@ -38,6 +38,6 @@ def test_address_backfill_sets_source_new(db_session, monkeypatch) -> None:
 
     assert stats["updated"] == 1
     assert updated_place is not None
-    assert updated_place.address_source == "nominatim"
+    assert updated_place.address_source == "nominatim_reverse"
     assert updated_place.address_confidence == 0.75
     assert updated_place.address_updated_at is not None

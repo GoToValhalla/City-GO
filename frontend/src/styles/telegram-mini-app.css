@@ -16,13 +16,11 @@
   border-bottom: 1px solid var(--cg-border-soft);
 }
 
-.telegram-map-frame iframe {
+.telegram-map-frame .maplibre-map {
   width: 100%;
   height: 100%;
   min-height: 62vh;
-  border: 0;
   display: block;
-  filter: grayscale(0.12) contrast(1.03) brightness(0.86);
 }
 
 .telegram-map-sheet {
@@ -69,13 +67,16 @@
   color: var(--cg-text-muted);
 }
 
-.telegram-map-link {
+.telegram-map-links {
   grid-column: 1 / -1;
-  text-decoration: none;
+  display: grid;
+  gap: 8px;
 }
 
-.telegram-map-link .cg-button {
+.telegram-map-links a,
+.telegram-map-links .cg-button {
   width: 100%;
+  text-decoration: none;
 }
 
 .telegram-map-back {

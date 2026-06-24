@@ -13,6 +13,7 @@ import { routeMatchesCity } from '../../features/routes/model/routeCityGuard'
 import { AppHeader } from '../../components/ui/AppHeader'
 import { buildApiUrl } from '../../shared/api/http'
 import { getCurrentCity, getCurrentCityCoordinates, type CityOption } from '../../shared/city/currentCity'
+import { useLocationProvider } from '../../shared/location/useLocationProvider'
 import { RouteHeroPreview } from '../../widgets/recommendation-route/RouteHeroPreview'
 import { RouteRequestForm } from '../../widgets/recommendation-route/RouteRequestForm'
 import { RouteResultPanel } from '../../widgets/recommendation-route/RouteResultPanel'
@@ -21,8 +22,6 @@ import { RandomRouteDraftEditor } from '../../widgets/route-draft/RandomRouteDra
 import { initialRouteForm } from './routeInitialForm'
 import './GenerateRoutePage.css'
 import './GenerateRouteControls.css'
-
-const GEO_SESSION_KEY = 'citygo:last-route-geolocation'
 
 type RouteDebugInfo = {
   title: string
@@ -49,22 +48,6 @@ const loadFeatures = async (citySlug: string): Promise<string[]> => {
   if (!response.ok) return []
   const data = await response.json()
   return Array.isArray(data.route_features) ? data.route_features : []
-}
-
-const readStoredGeolocation = (): { lat: string; lng: string } | null => {
-  try {
-    const raw = window.sessionStorage.getItem(GEO_SESSION_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as { lat?: unknown; lng?: unknown }
-    if (typeof parsed.lat !== 'string' || typeof parsed.lng !== 'string') return null
-    return { lat: parsed.lat, lng: parsed.lng }
-  } catch {
-    return null
-  }
-}
-
-const saveStoredGeolocation = (lat: string, lng: string) => {
-  window.sessionStorage.setItem(GEO_SESSION_KEY, JSON.stringify({ lat, lng }))
 }
 
 const routeRenderKey = (route: RecommendationRouteResponse): string => [
@@ -163,6 +146,7 @@ const renderDebugInfo = (debugInfo: RouteDebugInfo) => (
 )
 
 export const GenerateRoutePage = () => {
+  const location = useLocationProvider()
   const [city, setCity] = useState<CityOption>(getCurrentCity())
   const [features, setFeatures] = useState<string[]>([])
   const [form, setForm] = useState(initialRouteForm)
@@ -186,17 +170,16 @@ export const GenerateRoutePage = () => {
 
       try {
         const nextCoordinates = getCurrentCityCoordinates(nextCity.slug)
-        const storedLocation = readStoredGeolocation()
         setError(null)
         setGeoError(null)
         setForm((current) => ({
           ...current,
-          lat: storedLocation?.lat ?? nextCoordinates.lat,
-          lng: storedLocation?.lng ?? nextCoordinates.lng,
-          startSource: storedLocation ? 'current_location' : 'city_center',
+          lat: nextCoordinates.lat,
+          lng: nextCoordinates.lng,
+          startSource: 'city_center',
           interests: filterInterestsForFeatures(current.interests, nextFeatures),
         }))
-        setGeoStatus(storedLocation ? 'Используем сохранённую геолокацию из этой сессии.' : 'Старт маршрута установлен от центра города.')
+        setGeoStatus('Старт маршрута установлен от центра города.')
       } catch (err) {
         console.error(err)
         setError('У выбранного города нет координат центра. Выбери геолокацию или добавь координаты города в БД.')
@@ -239,37 +222,22 @@ export const GenerateRoutePage = () => {
     }
   }
 
-  const useCurrentLocation = () => {
-    if (!window.navigator.geolocation) {
-      setGeoError('Браузер не поддерживает геолокацию.')
+  const useCurrentLocation = async () => {
+    setGeoError(null)
+    setGeoStatus('Определяем местоположение...')
+    const result = await location.request({ scenario: 'route_build' })
+    if (!('coordinates' in result)) {
+      setGeoStatus(null)
+      setGeoError(result.message)
       return
     }
-    setGeoError(null)
-    setGeoStatus('Запрашиваем геолокацию браузера...')
-    window.navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = String(position.coords.latitude)
-        const lng = String(position.coords.longitude)
-        saveStoredGeolocation(lat, lng)
-        setGeoStatus('Геолокация получена. Маршрут стартует от текущего места.')
-        patchForm({
-          lat,
-          lng,
-          startAddress: '',
-          startSource: 'current_location',
-        })
-      },
-      (geoErr) => {
-        console.error(geoErr)
-        setGeoStatus(null)
-        setGeoError('Не удалось получить геолокацию. Проверь разрешение браузера или используй центр города.')
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000,
-      },
-    )
+    patchForm({
+      lat: String(result.coordinates.latitude),
+      lng: String(result.coordinates.longitude),
+      startAddress: '',
+      startSource: 'current_location',
+    })
+    setGeoStatus('Геолокация получена. Маршрут стартует от текущего места.')
   }
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {

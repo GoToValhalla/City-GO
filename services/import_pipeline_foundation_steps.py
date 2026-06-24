@@ -12,7 +12,6 @@ from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.import_batch import ImportBatch
 from models.place import Place
-from models.review_queue_item import ReviewQueueItem
 from models.source_observation import SourceObservation
 from services.category_normalize_service import normalize_places_categories
 from services.import_pipeline_publication import apply_pipeline_publication
@@ -104,12 +103,6 @@ def _ai_description(db: Session, place: Place, job_id: int | None) -> None:
     existing = _field_row(db, place.id, "description")
     if place.short_description or is_protected(existing):
         return
-    review = _open_field_review(db, place.id, "description")
-    if review is not None:
-        review.reason = "description_missing"
-        review.job_id = job_id
-        db.add(review)
-        return
     ensure_review_item(
         db,
         city_id=place.city_id,
@@ -158,23 +151,6 @@ def _field_row(db: Session, place_id: int, field_name: str):
         if isinstance(pending, PlaceFieldConfidence) and pending.place_id == place_id and pending.field_name == field_name:
             return pending
     return db.query(PlaceFieldConfidence).filter_by(place_id=place_id, field_name=field_name).first()
-
-
-def _open_field_review(db: Session, place_id: int, field_name: str) -> ReviewQueueItem | None:
-    for pending in db.new:
-        if (
-            isinstance(pending, ReviewQueueItem)
-            and pending.place_id == place_id
-            and pending.field_name == field_name
-            and pending.status == "open"
-        ):
-            return pending
-    return (
-        db.query(ReviewQueueItem)
-        .filter_by(place_id=place_id, field_name=field_name, status="open")
-        .order_by(ReviewQueueItem.id.asc())
-        .first()
-    )
 
 
 def _confidence_value(field: str, value: object) -> float:

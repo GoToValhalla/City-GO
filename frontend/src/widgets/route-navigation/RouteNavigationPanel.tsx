@@ -1,6 +1,6 @@
 import { formatDistance } from '../../features/route-navigation/model/geo'
-import type { RouteGeolocationStatus } from '../../features/route-navigation/model/useRouteGeolocation'
 import type { NavigationPoint, RouteNavigationState } from '../../features/route-navigation/model/types'
+import type { LocationStatus } from '../../shared/location/types'
 import { RouteProgress } from './RouteProgress'
 
 type Props = {
@@ -10,7 +10,8 @@ type Props = {
   blockMessage: string | null
   distanceToCurrentMeters: number | null
   accuracyMeters: number | null
-  locationStatus: RouteGeolocationStatus
+  locationStatus: LocationStatus
+  locationStale: boolean
   onStart: () => void
   onVisited: () => void
   onNext: () => void
@@ -28,7 +29,9 @@ const navigationUrl = (point: NavigationPoint | undefined): string | null => {
   return `https://www.google.com/maps/dir/?api=1&destination=${point.lat},${point.lng}&travelmode=walking`
 }
 
-const gpsLabel = (status: RouteGeolocationStatus, distance: number | null, accuracy: number | null): string => {
+const gpsLabel = (status: LocationStatus, distance: number | null, accuracy: number | null, stale: boolean): string => {
+  if (stale) return 'Позиция устарела. Обновите геопозицию перед оценкой расстояния.'
+  if (accuracy !== null && accuracy > 100) return 'Точность геопозиции недостаточна. Отметьте точку вручную, когда окажетесь на месте.'
   const formattedDistance = formatDistance(distance)
   const formattedAccuracy = formatDistance(accuracy)
   if (formattedDistance) {
@@ -36,7 +39,7 @@ const gpsLabel = (status: RouteGeolocationStatus, distance: number | null, accur
   }
   if (status === 'requesting') return 'Запрашиваем геолокацию для расчета расстояния.'
   if (status === 'denied') return 'Геолокация запрещена. Можно идти по маршруту вручную.'
-  if (status === 'unsupported') return 'Браузер не поддерживает геолокацию. Доступен ручной режим.'
+  if (status === 'unavailable' || status === 'insecure') return 'Геопозиция недоступна. Доступен ручной режим.'
   return 'Включите геолокацию, чтобы видеть расстояние до точки.'
 }
 
@@ -48,6 +51,7 @@ export const RouteNavigationPanel = ({
   distanceToCurrentMeters,
   accuracyMeters,
   locationStatus,
+  locationStale,
   onStart,
   onVisited,
   onNext,
@@ -76,7 +80,7 @@ export const RouteNavigationPanel = ({
         <h2>{pointTitle(current)}</h2>
         <p>{[current?.category, current?.address].filter(Boolean).join(' · ') || 'Адрес уточняется'}</p>
         <p className="route-nav-gps" data-testid="route-gps-status">
-          {gpsLabel(locationStatus, distanceToCurrentMeters, accuracyMeters)}
+          {gpsLabel(locationStatus, distanceToCurrentMeters, accuracyMeters, locationStale)}
         </p>
         <div className="route-nav-actions">
           <button type="button" onClick={onVisited}>Я на месте</button>
