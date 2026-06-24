@@ -18,7 +18,6 @@ def test_import_warning_alert_lists_failed_steps_in_russian_new() -> None:
             ],
         },
     )
-
     assert "Импорт завершён с предупреждениями" in text
     assert "завершено с предупреждениями" in text
     assert "Мест в городе: 3592" in text
@@ -42,7 +41,6 @@ def test_import_success_alert_has_readiness_and_no_warning_section_new() -> None
             "warnings": [],
         },
     )
-
     assert "Импорт завершён" in text
     assert "Готовность города: 72/100" in text
     assert "Предупреждения:" not in text
@@ -50,8 +48,7 @@ def test_import_success_alert_has_readiness_and_no_warning_section_new() -> None
 
 def test_unified_import_suppresses_intermediate_completion_alert_new() -> None:
     source = open("services/admin_city_import_job_service.py", encoding="utf-8").read()
-
     assert "notify_completion=False" in source
-    assert 'job.status = "running"' in source
-    assert '"completed": True' in source
+    assert "unified_pipeline" in source
+    assert '"completed":True' in source.replace(" ", "")
     assert "unified_import_pipeline_finished" in source
