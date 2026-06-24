@@ -14,6 +14,7 @@ from services.local_persistent_cache import get_cached_json, set_cached_json, st
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 GEOAPIFY_REVERSE_URL = "https://api.geoapify.com/v1/geocode/reverse"
 DEFAULT_USER_AGENT = "CityGoAddressBackfill/1.0"
+CACHE_NAMESPACE = "nominatim_reverse_v1"
 
 
 @dataclass(frozen=True)
@@ -69,7 +70,7 @@ def reverse_geocode_payload(lat: float, lng: float) -> dict[str, Any]:
         "accept-language": "ru",
         "zoom": "18",
     }
-    cache_key = stable_cache_key("nominatim_reverse_v2", params_payload)
+    cache_key = stable_cache_key(CACHE_NAMESPACE, params_payload)
     found, cached = get_cached_json(cache_key)
     if found and isinstance(cached, dict):
         return cached
@@ -152,7 +153,7 @@ def _format_components(
 ) -> tuple[str | None, str, float]:
     location_category = str(category or "").casefold() in {"walk", "park", "beach", "outdoor", "viewpoint", "nature"}
     if road and house:
-        parts = [f"{road}, {house}", locality, city]
+        parts = [f"{road} {house}", locality, city]
         return _join_unique(parts), "building", 0.95
     if road:
         prefix = "Рядом с " if location_category else ""
