@@ -6,39 +6,16 @@ from typing import Any
 from models.place import Place
 
 NON_TOURIST_CATEGORIES = {
-    "service",
-    "services",
-    "bank",
-    "atm",
-    "mvd",
-    "police",
-    "government",
-    "transport",
-    "stop",
-    "bus_stop",
-    "bus_station",
-    "railway_station",
-    "hospital",
-    "health",
-    "medical",
-    "pharmacy",
-    "military",
-    "cemetery",
-    "industrial",
-    "waste_disposal",
-    "fuel",
-    "parking",
-    "car_service",
+    "service", "services", "bank", "atm", "mvd", "police", "government",
+    "transport", "stop", "bus_stop", "bus_station", "railway_station",
+    "hospital", "health", "medical", "pharmacy", "military", "cemetery",
+    "industrial", "waste_disposal", "fuel", "parking", "car_service",
 }
-
 PUBLICATION_STATUSES = {"published", "auto_published", "limited_published"}
-
 _TECHNICAL_TITLE_PATTERNS = (
     re.compile(r"^(node|way|relation)[/:\s-]*\d+$", re.IGNORECASE),
     re.compile(r"^osm[/:\s-]*\d+$", re.IGNORECASE),
-    re.compile(r"^место\s+osm\s+\d+$", re.IGNORECASE),
-    re.compile(r"^культурное\s+место\s+osm\s+\d+$", re.IGNORECASE),
-    re.compile(r"^место\s+для\s+прогулки\s+osm\s+\d+$", re.IGNORECASE),
+    re.compile(r"^.+\s+osm\s+\d+$", re.IGNORECASE),
     re.compile(r"^\d+$"),
 )
 
@@ -48,8 +25,7 @@ def category_code(place: Place | Any) -> str | None:
 
 
 def is_non_tourist_category(category: str | None) -> bool:
-    normalized = (category or "").strip().lower()
-    return normalized in NON_TOURIST_CATEGORIES
+    return (category or "").strip().lower() in NON_TOURIST_CATEGORIES
 
 
 def is_technical_osm_title(title: str | None) -> bool:
