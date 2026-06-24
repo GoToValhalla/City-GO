@@ -1,105 +1,29 @@
 import { useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
 import type { ImportJobStep, PipelineRunResponse, ReviewQueueItem } from './adminEnrichmentTypes'
 import type { useEnrichmentForm } from './adminEnrichmentForm'
 import { counterLabels, fieldLabel, reasonLabel, statusLabel, stepLabel } from './adminPipelineLabels'
 
 type Props = { form: ReturnType<typeof useEnrichmentForm> }
+const counterUrl = (key: string, city: string) => {
+  const base = `/admin/places?city=${encodeURIComponent(city)}`
+  if (key.includes('photo')) return `${base}&photo=false`
+  if (key.includes('address')) return `${base}&address=false`
+  if (key.includes('description')) return `${base}&description=false`
+  if (key.includes('review') || key.includes('conflict')) return `${base}&verification=needs_recheck`
+  if (key.includes('error') || key.includes('failed')) return `/admin/system-logs?city_slug=${encodeURIComponent(city)}&level=error`
+  return base
+}
 
 export const AdminPipelineEnrichmentPanel = ({ form }: Props) => {
-  const [running, setRunning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<PipelineRunResponse | null>(null)
-  const [steps, setSteps] = useState<ImportJobStep[]>([])
-  const [review, setReview] = useState<ReviewQueueItem[]>([])
-  const [reviewLoading, setReviewLoading] = useState(false)
-  const [reviewError, setReviewError] = useState<string | null>(null)
-  const [resolvingId, setResolvingId] = useState<number | null>(null)
-
-  const loadReview = async () => {
-    if (!form.citySlug) return
-    setReviewLoading(true)
-    setReviewError(null)
-    try {
-      setReview(await adminGet<ReviewQueueItem[]>(`/admin/place-enrichment/review-queue?city_slug=${form.citySlug}`))
-    } catch (e) {
-      setReviewError(e instanceof Error ? e.message : 'Не удалось загрузить очередь проверки')
-    } finally {
-      setReviewLoading(false)
-    }
-  }
-
-  const runPipeline = async () => {
-    if (!form.citySlug) return
-    setRunning(true)
-    setError(null)
-    setResult(null)
-    setSteps([])
-    try {
-      const response = await adminPost<PipelineRunResponse>(`/admin/place-enrichment/pipeline/${form.citySlug}/run`)
-      setResult(response)
-      if (response.status !== 'queued') {
-        setSteps(await adminGet<ImportJobStep[]>(`/admin/place-enrichment/jobs/${response.job_id}/steps`))
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка запуска полного сбора')
-    } finally {
-      setRunning(false)
-    }
-  }
-
-  const resolveItem = async (id: number) => {
-    setResolvingId(id)
-    setReviewError(null)
-    try {
-      await adminPost<ReviewQueueItem>(`/admin/place-enrichment/review-queue/${id}/resolve`, { resolution: 'resolved_in_admin' })
-      await loadReview()
-    } catch (e) {
-      setReviewError(e instanceof Error ? e.message : 'Не удалось закрыть задачу проверки')
-    } finally {
-      setResolvingId(null)
-    }
-  }
-
-  return (
-    <section className="admin-detail-panel" style={{ marginBottom: 16 }}>
-      <h3>Сбор и обогащение города</h3>
-      <p>Дособирает места из OSM по настроенным зонам, обновляет записи без дублей, затем ищет адреса, фото, описания, сайты, телефоны и часы работы.</p>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 12 }}>
-        <select value={form.citySlug} onChange={e => form.setCitySlug(e.target.value)} style={{ padding: '7px 11px', borderRadius: 7, border: '1px solid #d1d1d6' }}>
-          {form.cities.map(c => <option key={c.id} value={c.slug}>{c.name}</option>)}
-        </select>
-        <button className="admin-btn admin-btn-primary" disabled={running || !form.citySlug} onClick={() => void runPipeline()}>
-          {running ? 'Ставим задачу в очередь...' : 'Собрать и обогатить'}
-        </button>
-        <button className="admin-btn" disabled={reviewLoading || !form.citySlug} onClick={() => void loadReview()}>
-          {reviewLoading ? 'Загружаем...' : 'Обновить очередь проверки'}
-        </button>
-      </div>
-      {error && <div className="admin-state admin-state-error">{error}</div>}
-      {result && <PipelineSummary result={result} steps={steps} />}
-      {reviewError && <div className="admin-state admin-state-error">{reviewError}</div>}
-      {reviewLoading ? <div className="admin-state">Загрузка очереди проверки...</div> : <ReviewQueue items={review} resolvingId={resolvingId} onResolve={(id) => void resolveItem(id)} />}
-    </section>
-  )
+  const [params, setParams] = useSearchParams(); const [running, setRunning] = useState(false); const [error, setError] = useState<string | null>(null); const [result, setResult] = useState<PipelineRunResponse | null>(null); const [steps, setSteps] = useState<ImportJobStep[]>([]); const [review, setReview] = useState<ReviewQueueItem[]>([]); const [reviewLoading, setReviewLoading] = useState(false); const [reviewError, setReviewError] = useState<string | null>(null); const [resolvingId, setResolvingId] = useState<number | null>(null)
+  const setCity = (value: string) => { form.setCitySlug(value); const next = new URLSearchParams(params); if (value) next.set('city', value); else next.delete('city'); next.delete('job'); setParams(next) }
+  const loadReview = async () => { if (!form.citySlug) return; setReviewLoading(true); setReviewError(null); try { setReview(await adminGet<ReviewQueueItem[]>(`/admin/place-enrichment/review-queue?city_slug=${form.citySlug}`)) } catch (e) { setReviewError(e instanceof Error ? e.message : 'Не удалось загрузить очередь проверки') } finally { setReviewLoading(false) } }
+  const runPipeline = async () => { if (!form.citySlug) return; setRunning(true); setError(null); setResult(null); setSteps([]); try { const response = await adminPost<PipelineRunResponse>(`/admin/place-enrichment/pipeline/${form.citySlug}/run`); setResult(response); const next = new URLSearchParams(params); next.set('city', form.citySlug); next.set('job', String(response.job_id)); setParams(next); if (response.status !== 'queued') setSteps(await adminGet<ImportJobStep[]>(`/admin/place-enrichment/jobs/${response.job_id}/steps`)) } catch (e) { setError(e instanceof Error ? e.message : 'Ошибка запуска полного сбора') } finally { setRunning(false) } }
+  const resolveItem = async (id: number) => { setResolvingId(id); setReviewError(null); try { await adminPost<ReviewQueueItem>(`/admin/place-enrichment/review-queue/${id}/resolve`, { resolution: 'resolved_in_admin' }); await loadReview() } catch (e) { setReviewError(e instanceof Error ? e.message : 'Не удалось закрыть задачу проверки') } finally { setResolvingId(null) } }
+  return <section className="admin-detail-panel" style={{ marginBottom: 16 }}><h3>Сбор и обогащение города</h3><p>Дособирает места, обновляет только изменившиеся записи и сохраняет каждую операцию под job ID.</p><div className="admin-actions-cell"><select value={form.citySlug} onChange={(e) => setCity(e.target.value)}>{form.cities.map((c) => <option key={c.id} value={c.slug}>{c.name}</option>)}</select><button className="admin-btn admin-btn-primary" disabled={running || !form.citySlug} onClick={() => void runPipeline()}>{running ? 'Ставим задачу…' : 'Собрать и обогатить'}</button><button className="admin-btn" disabled={reviewLoading || !form.citySlug} onClick={() => void loadReview()}>{reviewLoading ? 'Загружаем…' : 'Очередь проверки'}</button>{form.citySlug && <Link className="admin-btn" to={`/admin/imports?city=${form.citySlug}`}>История запусков</Link>}</div>{error && <div className="admin-state admin-state-error">{error}</div>}{result && <PipelineSummary result={result} steps={steps} />}{reviewError && <div className="admin-state admin-state-error">{reviewError}</div>}{reviewLoading ? <div className="admin-state">Загрузка очереди проверки…</div> : <ReviewQueue items={review} resolvingId={resolvingId} onResolve={(id) => void resolveItem(id)} />}</section>
 }
 
-const PipelineSummary = ({ result, steps }: { result: PipelineRunResponse; steps: ImportJobStep[] }) => (
-  <div style={{ marginTop: 14 }}>
-    <div className="admin-success-text">Задача #{result.job_id} · {statusLabel(result.status)}</div>
-    {result.message && <div className="admin-state">{result.message}</div>}
-    {Object.keys(result.counters).length > 0 && (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8, marginTop: 10 }}>
-        {Object.entries(result.counters).map(([key, value]) => <div key={key} className="admin-card"><strong>{counterLabels[key] ?? key}</strong><div>{value}</div></div>)}
-      </div>
-    )}
-    {steps.length > 0 && <div style={{ marginTop: 10, fontSize: 13 }}>{steps.map(s => `${stepLabel(s.step_name)}: ${statusLabel(s.status)}`).join(' · ')}</div>}
-  </div>
-)
-
-const ReviewQueue = ({ items, resolvingId, onResolve }: { items: ReviewQueueItem[]; resolvingId: number | null; onResolve: (id: number) => void }) => {
-  if (!items.length) return <div className="admin-state">Открытых задач проверки нет</div>
-  return <table className="admin-table" style={{ marginTop: 12 }}><thead><tr><th>Место</th><th>Поле</th><th>Причина</th><th /></tr></thead><tbody>
-    {items.map(i => <tr key={i.id}><td>{i.place_id}</td><td>{fieldLabel(i.field_name)}</td><td>{reasonLabel(i.reason)}</td><td><button className="admin-btn admin-btn-sm" disabled={resolvingId === i.id} onClick={() => onResolve(i.id)}>{resolvingId === i.id ? 'Закрываем...' : 'Закрыть'}</button></td></tr>)}
-  </tbody></table>
-}
+const PipelineSummary = ({ result, steps }: { result: PipelineRunResponse; steps: ImportJobStep[] }) => <div style={{ marginTop: 14 }}><div className="admin-success-text">Задача #{result.job_id} · {statusLabel(result.status)}</div><div className="admin-actions-cell"><Link className="admin-btn admin-btn-sm" to={`/admin/imports?city=${result.city_slug}&job=${result.job_id}`}>Открыть запуск</Link><Link className="admin-btn admin-btn-sm" to={`/admin/system-logs?city_slug=${result.city_slug}&request_id=${result.job_id}`}>Связанные логи</Link><Link className="admin-btn admin-btn-sm" to={`/admin/audit?entity_type=import_job&entity_id=${result.job_id}`}>История изменений</Link></div>{result.message && <div className="admin-state">{result.message}</div>}{Object.keys(result.counters).length > 0 && <div className="admin-metrics-grid">{Object.entries(result.counters).map(([key, value]) => <Link key={key} className="admin-metric-card" to={counterUrl(key, result.city_slug)}><strong>{counterLabels[key] ?? key}</strong><div className="admin-metric-value">{value}</div><span className="admin-muted">Открыть набор →</span></Link>)}</div>}{steps.length > 0 && <div className="admin-detail-panel"><h4>Шаги операции</h4>{steps.map((step) => <details key={step.id}><summary>{stepLabel(step.step_name)}: {statusLabel(step.status)}</summary>{step.counters && <pre>{JSON.stringify(step.counters, null, 2)}</pre>}{step.error_message && <Link to={`/admin/system-logs?request_id=${result.job_id}&q=${encodeURIComponent(step.error_message)}`}>{step.error_message}</Link>}</details>)}</div>}</div>
+const ReviewQueue = ({ items, resolvingId, onResolve }: { items: ReviewQueueItem[]; resolvingId: number | null; onResolve: (id: number) => void }) => !items.length ? <div className="admin-state">Открытых задач проверки нет</div> : <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Поле</th><th>Причина</th><th>Действия</th></tr></thead><tbody>{items.map((item) => <tr key={item.id}><td><Link to={`/admin/places/${item.place_id}`}>Место #{item.place_id}</Link></td><td>{fieldLabel(item.field_name)}</td><td>{reasonLabel(item.reason)}</td><td><Link className="admin-btn admin-btn-sm" to={`/admin/places/${item.place_id}`}>Проверить данные</Link><button className="admin-btn admin-btn-sm" disabled={resolvingId === item.id} onClick={() => onResolve(item.id)}>{resolvingId === item.id ? 'Закрываем…' : 'Закрыть'}</button></td></tr>)}</tbody></table></div>
