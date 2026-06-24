@@ -1,0 +1,85 @@
+name: Catalog Data Monitor
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '5,15,25,35,45,55 * * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  catalog-data-monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PROD_HOST: ${{ secrets.SSH_HOST }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Validate public catalog data
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${PROD_HOST:-}" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+
+          base_url="http://${PROD_HOST}"
+          cities_file=$(mktemp)
+          places_file=$(mktemp)
+          trap 'rm -f "$cities_file" "$places_file"' EXIT
+
+          curl --fail --silent --show-error --connect-timeout 8 --max-time 25 \
+            "${base_url}/api/cities/available?include_draft=true" > "$cities_file"
+
+          city_count=$(jq 'if type == "array" then length else (.items // [] | length) end' "$cities_file")
+          if [ "$city_count" -lt 1 ]; then
+            echo "Public catalog has no available cities"
+            cat "$cities_file"
+            exit 1
+          fi
+
+          city_slug=$(jq -r 'if type == "array" then .[0].slug else .items[0].slug end' "$cities_file")
+          if [ -z "$city_slug" ] || [ "$city_slug" = "null" ]; then
+            echo "Available city has no slug"
+            exit 1
+          fi
+
+          curl --fail --location --silent --show-error --connect-timeout 8 --max-time 25 \
+            "${base_url}/api/places?city_slug=${city_slug}&limit=1&offset=0" > "$places_file"
+
+          places_total=$(jq -r '.total // 0' "$places_file")
+          if [ "$places_total" -lt 1 ]; then
+            echo "Public catalog city ${city_slug} has no visible places"
+            cat "$places_file"
+            exit 1
+          fi
+
+          echo "catalog_ok cities=${city_count} sample_city=${city_slug} places_total=${places_total}"
+
+      - name: Notify Telegram on semantic failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            exit 0
+          fi
+          TEXT="❌ City Go catalog data is unavailable%0AHTTP может отвечать 200, но список городов или мест пуст.%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
+
+      - name: Notify Telegram on manual recovery check
+        if: success() && github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            exit 0
+          fi
+          TEXT="✅ City Go catalog data is available%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
