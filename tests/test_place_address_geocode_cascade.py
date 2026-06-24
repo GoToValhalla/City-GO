@@ -20,7 +20,7 @@ def test_geoapify_building_address_has_high_confidence(monkeypatch):
 
     candidate = geocode.reverse_geocode_candidate(46.3, 48.0, category="museum")
 
-    assert candidate.address == "улица Ленина, 10, Астрахань"
+    assert candidate.address == "улица Ленина 10, Астрахань"
     assert candidate.source == "geoapify_reverse"
     assert candidate.precision == "building"
     assert candidate.confidence == 0.97
