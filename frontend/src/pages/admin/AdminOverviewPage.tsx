@@ -29,10 +29,11 @@ export const AdminOverviewPage = () => {
       <h3 className="admin-section-title">{title}</h3>
       <div className="admin-action-grid">
         {cards.map((c) => (
-          <Link key={c.code} to={c.link_path} className={`admin-action-card ${severityClass(c.severity)}`}>
+          <Link key={c.code} to={c.link_path} className={`admin-action-card ${severityClass(c.severity)}`} aria-label={`${c.title}: ${c.count}. Открыть выборку`}>
             <div className="admin-action-count">{c.count}</div>
             <div className="admin-action-title">{c.title}</div>
             {c.hint && <div className="admin-action-hint">{c.hint}</div>}
+            <div className="admin-action-hint">Открыть выборку →</div>
           </Link>
         ))}
       </div>
@@ -42,11 +43,11 @@ export const AdminOverviewPage = () => {
   return (
     <div>
       <h2 className="admin-page-title">Обзор</h2>
-      <p className="admin-page-subtitle">Что сейчас требует внимания</p>
+      <p className="admin-page-subtitle">Что сейчас требует внимания. Все показатели открывают соответствующую рабочую выборку.</p>
       {renderSection('Критические задачи', data.critical)}
       {renderSection('Качество данных', data.data_quality)}
       {renderSection('Операции', data.operations)}
-      <p className="admin-muted">Событий в журнале аудита: {data.recent_audit_count}</p>
+      <Link className="admin-btn admin-btn-sm" to="/admin/audit">Событий в журнале аудита: {data.recent_audit_count} →</Link>
     </div>
   )
 }
