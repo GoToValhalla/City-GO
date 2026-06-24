@@ -43,5 +43,6 @@ import models.route_session  # noqa: F401
 import models.review_queue_item  # noqa: F401
 import models.source_observation  # noqa: F401
 import models.tag  # noqa: F401
+import models.taxonomy  # noqa: F401
 import models.telegram_user_context  # noqa: F401
 import models.user_signal  # noqa: F401
