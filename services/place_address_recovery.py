@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from models.place import Place
-from services.place_address_geocode import format_nominatim_address, reverse_geocode_payload
+from services.place_address_geocode import reverse_geocode_candidate
 from services.place_address_recovery_assess import assess_proposed_address
 from services.place_address_recovery_candidates import recovery_candidates
 from services.place_address_recovery_export import build_summary, export_review
@@ -26,43 +26,51 @@ def run_recovery_dry_run(
     city, places = recovery_candidates(db, city_slug, limit, include_generic=include_generic)
     rows: list[dict[str, object]] = []
     errors = 0
-    http_403 = 0
+    provider_counts: dict[str, int] = {}
     for place in places:
-        row, row_errors, row_403 = _recover_row(place, city.name, city.slug)
+        row, row_errors = _recover_row(place, city.name, city.slug)
         rows.append(row)
         errors += row_errors
-        http_403 += row_403
+        provider = str(row.get("source") or "")
+        if provider:
+            provider_counts[provider] = provider_counts.get(provider, 0) + 1
         time.sleep(sleep_seconds)
-    summary = build_summary(city_slug, rows, errors, http_403)
+    summary = build_summary(city_slug, rows, errors, 0)
     files = export_review(city_slug, rows, summary) if export_review_files else {}
-    return {**summary, "mode": "dry_run", "review_files": files, "include_generic": include_generic}
+    return {
+        **summary,
+        "mode": "dry_run",
+        "review_files": files,
+        "include_generic": include_generic,
+        "providers": provider_counts,
+    }
 
 
-def _recover_row(place: Place, city_name: str, city_slug: str) -> tuple[dict[str, object], int, int]:
+def _recover_row(place: Place, city_name: str, city_slug: str) -> tuple[dict[str, object], int]:
     base = _base_row(place)
     if place.lat is None or place.lng is None:
-        return {**base, "skip_reason": "no_coordinates", "comment": "Нет координат"}, 0, 0
+        return {**base, "skip_reason": "no_coordinates", "comment": "Нет координат"}, 0
     try:
-        payload = reverse_geocode_payload(float(place.lat), float(place.lng))
-        proposed = format_nominatim_address(payload)
-        assessment = assess_proposed_address(
-            proposed, place.category, city_name=city_name, city_slug=city_slug,
-        )
+        candidate = reverse_geocode_candidate(float(place.lat), float(place.lng), category=place.category)
+        proposed = candidate.address if candidate else None
+        assessment = assess_proposed_address(proposed, place.category, city_name=city_name, city_slug=city_slug)
         return {
             **base,
             "proposed_address": proposed or "",
-            "source": "nominatim_reverse",
-            "raw_display_name": str(payload.get("display_name") or ""),
+            "source": candidate.source if candidate else "",
+            "provider_confidence": candidate.confidence if candidate else 0,
+            "precision": candidate.precision if candidate else "unknown",
+            "distance_meters": candidate.distance_meters if candidate else None,
+            "raw_display_name": "",
             **assessment,
-        }, 0, 0
+        }, 0
     except Exception as exc:
-        err_text = str(exc)
         return {
             **base,
             "skip_reason": "error",
-            "comment": err_text,
+            "comment": str(exc),
             "confidence": "none",
-        }, 1, 1 if "403" in err_text else 0
+        }, 1
 
 
 def _base_row(place: Place) -> dict[str, object]:
@@ -77,6 +85,9 @@ def _base_row(place: Place) -> dict[str, object]:
         "proposed_address": "",
         "source": "",
         "confidence": "none",
+        "provider_confidence": 0,
+        "precision": "unknown",
+        "distance_meters": None,
         "raw_display_name": "",
         "should_apply": False,
         "skip_reason": "",
