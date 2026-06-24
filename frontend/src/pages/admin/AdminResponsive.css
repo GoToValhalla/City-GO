@@ -21,6 +21,8 @@
   .admin-filters { flex-direction: column; align-items: stretch; }
   .admin-filters > * { width: 100%; }
   .admin-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .admin-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  .admin-tab { flex: 0 0 auto; min-height: 44px; }
   .admin-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

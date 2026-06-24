@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from core.config import settings
@@ -43,6 +45,14 @@ def list_system_logs(
     module: str | None = None,
     city_slug: str | None = None,
     request_id: str | None = None,
+    q: str | None = None,
+    place_id: int | None = None,
+    route_id: str | None = None,
+    actor_id: str | None = None,
+    environment: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    sort: str = "desc",
     limit: int = 100,
     offset: int = 0,
 ) -> tuple[list[SystemLog], int]:
@@ -55,6 +65,22 @@ def list_system_logs(
         query = query.filter(SystemLog.city_slug == city_slug)
     if request_id:
         query = query.filter(SystemLog.request_id == request_id)
+    if q:
+        term = f"%{q.strip()}%"
+        query = query.filter(or_(SystemLog.message.ilike(term), SystemLog.module.ilike(term)))
+    if place_id is not None:
+        query = query.filter(SystemLog.place_id == place_id)
+    if route_id:
+        query = query.filter(SystemLog.route_id == route_id)
+    if actor_id:
+        query = query.filter(SystemLog.actor_id == actor_id)
+    if environment:
+        query = query.filter(SystemLog.environment == environment)
+    if created_from:
+        query = query.filter(SystemLog.created_at >= created_from)
+    if created_to:
+        query = query.filter(SystemLog.created_at <= created_to)
     total = query.count()
-    items = query.order_by(SystemLog.created_at.desc()).offset(offset).limit(limit).all()
+    order = SystemLog.created_at.asc() if sort == "asc" else SystemLog.created_at.desc()
+    items = query.order_by(order).offset(offset).limit(limit).all()
     return items, total

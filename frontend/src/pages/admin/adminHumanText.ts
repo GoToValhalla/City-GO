@@ -37,6 +37,13 @@ const LOG_LEVEL_LABELS: Record<string, string> = {
   critical: 'критично',
 }
 
+const CITY_STATUS_LABELS: Record<string, string> = {
+  draft: 'Черновик',
+  review_required: 'Нужна проверка',
+  published: 'Опубликован',
+  paused: 'Приостановлен',
+}
+
 const BULK_ACTION_LABELS: Record<string, string> = {
   send_review: 'Отправить на проверку',
   enable_route: 'Подтвердить для маршрутов',
@@ -76,6 +83,10 @@ export const entityText = (entity: string | null | undefined) => (
 
 export const logLevelText = (level: string | null | undefined) => (
   level ? LOG_LEVEL_LABELS[level] ?? humanizeCode(level) : '—'
+)
+
+export const cityStatusText = (status: string | null | undefined) => (
+  status ? CITY_STATUS_LABELS[status] ?? humanizeCode(status) : '—'
 )
 
 export const bulkActionText = (action: string) => BULK_ACTION_LABELS[action] ?? humanizeCode(action)

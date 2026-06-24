@@ -41,6 +41,9 @@ import { AdminSystemLogsPage } from './pages/admin/AdminSystemLogsPage'
 import { AdminRouteEligibilityPage } from './pages/admin/AdminRouteEligibilityPage'
 import { AdminRouteDryRunPage } from './pages/admin/AdminRouteDryRunPage'
 import { AdminRouteDataQualityPage } from './pages/admin/AdminRouteDataQualityPage'
+import { AdminAnalyticsPage } from './pages/admin/AdminAnalyticsPage'
+import { AdminQualityPage } from './pages/admin/AdminQualityPage'
+import { AdminSystemHealthPage } from './pages/admin/AdminSystemHealthPage'
 
 function AdminPage({ children }: { children: React.ReactNode }) {
   return (
@@ -81,6 +84,7 @@ function App() {
         <Route path="/admin/imports" element={<AdminPage><AdminImportJobsPage /></AdminPage>} />
         <Route path="/admin/import-jobs" element={<Navigate to="/admin/imports" replace />} />
         <Route path="/admin/coverage" element={<AdminPage><AdminCoveragePage /></AdminPage>} />
+        <Route path="/admin/quality" element={<AdminPage><AdminQualityPage /></AdminPage>} />
         <Route path="/admin/routes/eligibility" element={<AdminPage><AdminRouteEligibilityPage /></AdminPage>} />
         <Route path="/admin/routes/dry-run" element={<AdminPage><AdminRouteDryRunPage /></AdminPage>} />
         <Route path="/admin/routes/data-quality" element={<AdminPage><AdminRouteDataQualityPage /></AdminPage>} />
@@ -88,6 +92,8 @@ function App() {
         <Route path="/admin/place-enrichment" element={<Navigate to="/admin/enrichment" replace />} />
         <Route path="/admin/features" element={<AdminPage><AdminFeatureTogglesPage /></AdminPage>} />
         <Route path="/admin/metrics" element={<AdminPage><AdminMetricsPage /></AdminPage>} />
+        <Route path="/admin/analytics" element={<AdminPage><AdminAnalyticsPage /></AdminPage>} />
+        <Route path="/admin/system-health" element={<AdminPage><AdminSystemHealthPage /></AdminPage>} />
         <Route path="/admin/audit" element={<AdminPage><AdminAuditLogPage /></AdminPage>} />
         <Route path="/admin/system-logs" element={<AdminPage><AdminSystemLogsPage /></AdminPage>} />
         <Route path="/admin/audit-log" element={<Navigate to="/admin/audit" replace />} />

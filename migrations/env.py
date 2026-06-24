@@ -6,6 +6,7 @@ from sqlalchemy import pool
 from alembic import context
 from core.config import settings
 from db.base import Base
+import models.admin_alert  # noqa: F401
 import models.bot_event  # noqa: F401
 import models.bot_session  # noqa: F401
 import models.category  # noqa: F401

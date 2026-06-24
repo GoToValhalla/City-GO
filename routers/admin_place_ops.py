@@ -124,9 +124,16 @@ def put_city_setting(city_slug: str, key: str, body: AdminCityToggleUpdateReques
 def read_system_logs(
     level: str | None = None, module: str | None = None, city_slug: str | None = None,
     request_id: str | None = None, limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
+    q: str | None = None, place_id: int | None = None, route_id: str | None = None,
+    actor_id: str | None = None, environment: str | None = None,
+    sort: str = Query("desc", pattern="^(asc|desc)$"),
     auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db),
 ):
-    items, total = list_system_logs(db, level=level, module=module, city_slug=city_slug, request_id=request_id, limit=limit, offset=offset)
+    items, total = list_system_logs(
+        db, level=level, module=module, city_slug=city_slug, request_id=request_id,
+        q=q, place_id=place_id, route_id=route_id, actor_id=actor_id,
+        environment=environment, sort=sort, limit=limit, offset=offset,
+    )
     return SystemLogListResponse(items=[SystemLogRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)
 
 

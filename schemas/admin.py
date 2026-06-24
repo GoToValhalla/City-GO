@@ -80,6 +80,7 @@ class AdminCityWorkspaceResponse(BaseModel):
     readiness: dict[str, Any]
     import_job: dict[str, Any]
     coverage: dict[str, Any] | None = None
+    operations: dict[str, Any] = Field(default_factory=dict)
 
 class AdminTaxonomyCategoryRead(BaseModel):
     code: str

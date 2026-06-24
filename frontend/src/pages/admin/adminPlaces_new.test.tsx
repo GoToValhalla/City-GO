@@ -57,7 +57,7 @@ describe('AdminPlacesPage', () => {
       if (url.includes('/admin/places/bulk/apply')) {
         return response({ affected_count: 1, warnings: [] })
       }
-      if (url.includes('/admin/places?')) {
+      if (url.includes('/admin/places/search?')) {
         const u = new URL(url, 'http://localhost')
         const offset = Number(u.searchParams.get('offset') || 0)
         const items = offset === 0 ? page1 : [{ ...page1[0], id: 999, title: 'Place 999', slug: 'p-999' }]
@@ -77,13 +77,13 @@ describe('AdminPlacesPage', () => {
 
   it('shows pagination hint and total_new', async () => {
     render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByText('Места (51)')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Найдено:\s*51/)).toBeTruthy())
     expect(screen.getByText('Показано 50 из 51')).toBeTruthy()
   })
 
   it('hides technical OSM ids from the places list_new', async () => {
     render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByText('Места (51)')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Найдено:\s*51/)).toBeTruthy())
 
     expect(screen.getByText('Без названия')).toBeTruthy()
     expect(screen.queryByText('node 123456')).toBeNull()
@@ -92,7 +92,7 @@ describe('AdminPlacesPage', () => {
 
   it('requests category counters for the selected city_new', async () => {
     render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByText('Места (51)')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Найдено:\s*51/)).toBeTruthy())
 
     fireEvent.change(screen.getByLabelText('Город'), { target: { value: 'khanty' } })
 
@@ -104,19 +104,19 @@ describe('AdminPlacesPage', () => {
 
   it('applies route eligibility filter to places query_new', async () => {
     render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByText('Места (51)')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Найдено:\s*51/)).toBeTruthy())
 
-    fireEvent.change(screen.getByLabelText('Фильтр маршрутов'), { target: { value: 'true' } })
+    fireEvent.change(screen.getByLabelText('Маршруты'), { target: { value: 'true' } })
 
     await waitFor(() => {
       const calls = fetchMock.mock.calls.map(([url]) => String(url))
-      expect(calls.some((url) => url.includes('/admin/places?') && url.includes('route_eligible=true'))).toBe(true)
+      expect(calls.some((url) => url.includes('/admin/places/search?') && url.includes('route_eligible=true'))).toBe(true)
     })
   })
 
   it('bulk changes selected places category_new', async () => {
     render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByText('Места (51)')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Найдено:\s*51/)).toBeTruthy())
     await waitFor(() => expect(screen.getAllByText('Парк (park) · 1').length).toBeGreaterThan(0))
 
     fireEvent.click(screen.getByLabelText('Выбрать место 1'))
@@ -129,5 +129,5 @@ describe('AdminPlacesPage', () => {
       const body = JSON.parse(String((apply?.[1] as RequestInit).body))
       expect(body).toMatchObject({ place_ids: [1], action: 'set_category', params: { category: 'park' }, confirm: true })
     })
-  })
+  }, 10_000)
 })

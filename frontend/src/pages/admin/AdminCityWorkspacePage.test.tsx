@@ -1,5 +1,5 @@
 /* @vitest-environment jsdom */
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminCityWorkspacePage } from './AdminCityWorkspacePage'
@@ -56,6 +56,15 @@ const workspacePayload = {
     places_without_photo: 3,
     categories: { museum: 4 },
   },
+  operations: {
+    quality: { no_address: 5, no_photo: 3 },
+    queues: { verification: 4, photos: 3 },
+    routes: { published: 2, total: 3, eligible_places: 20 },
+    critical_issues: 8,
+    active_operations: 7,
+    recent_errors: [],
+    recent_audit: [],
+  },
 }
 
 describe('AdminCityWorkspacePage', () => {
@@ -87,11 +96,12 @@ describe('AdminCityWorkspacePage', () => {
     )
 
     await waitFor(() => expect(screen.getByText('Алматы')).toBeTruthy())
-    expect(screen.getByText('review_required')).toBeTruthy()
-    expect(screen.getByText('81%')).toBeTruthy()
-    expect(screen.getByText(/Найдено\/сохранено: 51\/42/)).toBeTruthy()
-    expect(screen.getByText(/Без адреса: 5, без фото: 3/)).toBeTruthy()
-    expect(screen.getByText('Повторить полный запуск')).toBeTruthy()
+    expect(screen.getByRole('navigation', { name: 'Разделы города' })).toBeTruthy()
+    expect(screen.getByText('Критические проблемы')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Импорт' }))
+    expect(screen.getByText('Готов к проверке · 10/12')).toBeTruthy()
+    expect(screen.getByText('Повторить')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Публикация' }))
     expect(screen.getByText('Опубликовать')).toBeTruthy()
   })
 })

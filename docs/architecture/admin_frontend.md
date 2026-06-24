@@ -1,5 +1,10 @@
 # Admin Frontend — City Go
 
+Операционный слой использует единый `adminApi`, URL-driven filters и backend-driven
+state. City Workspace фиксирует город и ведёт в существующие операционные выборки.
+Общий `AdminConfirmDialog` заменяет browser confirm/prompt. Контракт экранов описан
+в `docs/admin_operational_center.md`.
+
 ## Как открыть
 
 Перейти по адресу `/admin/login` и ввести логин и пароль.

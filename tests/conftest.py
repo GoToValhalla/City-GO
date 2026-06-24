@@ -21,6 +21,7 @@ from tests.test_db_setup import apply_alembic_migrations
 
 # Регистрация всех ORM-таблиц до create_all (FK на import_batches и др.).
 import models.admin_audit_log  # noqa: F401
+import models.admin_alert  # noqa: F401
 import models.admin_operation  # noqa: F401
 import models.feature_toggle  # noqa: F401
 import models.product_event  # noqa: F401

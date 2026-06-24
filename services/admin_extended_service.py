@@ -98,6 +98,8 @@ def get_admin_import_job(db: Session, city_id: int) -> dict[str, object] | None:
 
 
 def get_admin_city_workspace(db: Session, city_slug: str) -> dict[str, object] | None:
+    from services.admin_platform_workspace import workspace_operations
+
     _mark_stalled_imports_before_read(db)
     city = db.query(City).filter(City.slug == city_slug).first()
     if city is None:
@@ -113,6 +115,7 @@ def get_admin_city_workspace(db: Session, city_slug: str) -> dict[str, object] |
         },
         "import_job": _import_job_payload(db, city),
         "coverage": coverage,
+        "operations": workspace_operations(db, city),
     }
 
 

@@ -5,6 +5,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { path: '/admin/cities', label: 'Города', section: 'main' },
   { path: '/admin/places', label: 'Места', section: 'data' },
   { path: '/admin/coverage', label: 'Покрытие данных', section: 'data' },
+  { path: '/admin/quality', label: 'Качество', section: 'data' },
   { path: '/admin/routes/eligibility', label: 'Маршруты: готовность мест', section: 'routes' },
   { path: '/admin/routes/dry-run', label: 'Маршруты: проверка сборки', section: 'routes' },
   { path: '/admin/routes/data-quality', label: 'Маршруты: качество данных', section: 'routes' },
@@ -14,6 +15,8 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { path: '/admin/enrichment', label: 'Обогащение данных', section: 'ops' },
   { path: '/admin/features', label: 'Фичи и настройки', section: 'system' },
   { path: '/admin/metrics', label: 'Метрики', section: 'system' },
+  { path: '/admin/analytics', label: 'Аналитика', section: 'system' },
+  { path: '/admin/system-health', label: 'Состояние системы', section: 'system' },
   { path: '/admin/audit', label: 'Журнал действий', section: 'system' },
   { path: '/admin/system-logs', label: 'Системные логи', section: 'system' },
 ]

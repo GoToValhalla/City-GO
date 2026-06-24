@@ -24,6 +24,7 @@ City GO — городской travel/local guide: публичный катал
 - CI: backend pytest + frontend lint/tests/build + Allure raw results.
 
 Основной актуальный operational overview: `docs/operations/current_system_overview.md`.
+Операционный центр админки: `docs/admin_operational_center.md`.
 
 ## Стек
 

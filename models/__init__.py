@@ -1,4 +1,5 @@
 import models.admin_audit_log  # noqa: F401
+import models.admin_alert  # noqa: F401
 import models.admin_operation  # noqa: F401
 import models.feature_toggle  # noqa: F401
 import models.product_event  # noqa: F401

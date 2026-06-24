@@ -86,6 +86,15 @@ export type AdminCityWorkspaceResponse = {
   readiness: { readiness_score: number; quality_status: string; status: string }
   import_job: AdminImportJob
   coverage: AdminCoverageResponse | null
+  operations?: {
+    quality: Record<string, number>
+    queues: { verification: number; photos: number }
+    routes: { published: number; total: number; eligible_places: number }
+    critical_issues: number
+    active_operations: number
+    recent_errors: Array<{ id: number; level: string; module: string; message: string; created_at: string }>
+    recent_audit: Array<{ id: number; actor: string; action: string; entity_type: string; created_at: string }>
+  }
 }
 
 export type AdminCityImportResponse = {

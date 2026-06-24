@@ -440,6 +440,7 @@ def read_admin_audit_log(
     action: str | None = Query(default=None),
     actor: str | None = Query(default=None),
     entity_id: str | None = Query(default=None),
+    city_slug: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     auth: AdminContext = Depends(admin_required),
@@ -447,6 +448,7 @@ def read_admin_audit_log(
 ) -> AdminAuditLogResponse:
     items, total = get_admin_audit_logs(
         db, entity_type=entity_type, action=action, actor=actor, entity_id=entity_id,
+        city_slug=city_slug,
         limit=limit, offset=offset,
     )
     return AdminAuditLogResponse(items=[AdminAuditLogRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)

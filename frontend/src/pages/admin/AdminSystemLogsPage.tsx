@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { adminGet } from './adminApi'
 import { logLevelText } from './adminHumanText'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
@@ -9,57 +10,45 @@ type Log = {
   request_id: string | null; created_at: string
 }
 
+const KEYS = ['q', 'level', 'module', 'city_slug', 'request_id', 'place_id', 'route_id', 'actor_id', 'environment'] as const
+
 export const AdminSystemLogsPage = () => {
+  const [params, setParams] = useSearchParams()
   const [items, setItems] = useState<Log[]>([])
   const [total, setTotal] = useState(0)
-  const [level, setLevel] = useState('')
-  const [module, setModule] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
+  const offset = Number(params.get('offset') ?? 0)
   const load = useCallback(() => {
-    setLoading(true)
-    const sp = new URLSearchParams({ limit: '100' })
-    if (level) sp.set('level', level)
-    if (module) sp.set('module', module)
-    adminGet<{ items: Log[]; total: number }>(`/admin/system-logs?${sp}`)
-      .then((r) => { setItems(r.items); setTotal(r.total) })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [level, module])
-
+    setLoading(true); setError(null)
+    const query = new URLSearchParams(params)
+    query.set('limit', '50')
+    adminGet<{ items: Log[]; total: number }>(`/admin/system-logs?${query}`)
+      .then((row) => { setItems(row.items); setTotal(row.total) })
+      .catch((e: Error) => setError(e.message)).finally(() => setLoading(false))
+  }, [params])
   useEffect(() => { void Promise.resolve().then(load) }, [load])
-
-  return (
-    <div>
-      <h2 className="admin-page-title">Системные логи ({total})</h2>
-      <p className="admin-page-subtitle">Ошибки и события приложения.</p>
-      <div className="admin-filters admin-filters-stack">
-        <select value={level} onChange={(e) => setLevel(e.target.value)}>
-          <option value="">Все уровни</option>
-          {['info', 'warning', 'error', 'critical'].map((l) => <option key={l} value={l}>{logLevelText(l)}</option>)}
-        </select>
-        <input placeholder="Модуль" value={module} onChange={(e) => setModule(e.target.value)} />
-        <button type="button" className="admin-btn admin-btn-primary" onClick={load}>Применить</button>
-      </div>
-      {error && <AdminError message={error} />}
-      {loading ? <AdminLoading /> : items.length === 0 ? <AdminEmpty message="Записей нет" /> : (
-        <div className="admin-table-wrap">
-          <table className="admin-table admin-table-compact">
-            <thead><tr><th>Дата</th><th>Уровень</th><th>Модуль</th><th>Сообщение</th></tr></thead>
-            <tbody>
-              {items.map((l) => (
-                <tr key={l.id}>
-                  <td>{new Date(l.created_at).toLocaleString('ru-RU')}</td>
-                  <td><span className={`admin-badge pub-${l.level === 'error' || l.level === 'critical' ? 'hidden' : 'published'}`}>{logLevelText(l.level)}</span></td>
-                  <td>{l.module}</td>
-                  <td>{l.message}{l.details && <details className="admin-muted"><summary>Детали</summary><pre style={{ fontSize: 11 }}>{JSON.stringify(l.details, null, 2)}</pre></details>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+  const update = (key: string, value: string) => {
+    const next = new URLSearchParams(params)
+    if (value) next.set(key, value); else next.delete(key)
+    if (key !== 'offset') next.set('offset', '0')
+    setParams(next)
+  }
+  const reset = () => setParams({})
+  return <div>
+    <h2 className="admin-page-title">Системные логи ({total})</h2>
+    <div className="admin-filter-card admin-filter-grid">
+      {KEYS.map((key) => key === 'level'
+        ? <label className="admin-field" key={key}><span>Уровень</span><select value={params.get(key) ?? ''} onChange={(e) => update(key, e.target.value)}><option value="">Все</option>{['info', 'warning', 'error', 'critical'].map((level) => <option key={level} value={level}>{logLevelText(level)}</option>)}</select></label>
+        : <label className="admin-field" key={key}><span>{LABELS[key]}</span><input value={params.get(key) ?? ''} onChange={(e) => update(key, e.target.value)} /></label>)}
+      <button className="admin-btn" type="button" onClick={reset}>Сбросить</button>
     </div>
-  )
+    {error && <AdminError message={error} />}{loading ? <AdminLoading /> : !items.length ? <AdminEmpty message="Записей нет" /> : <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Дата</th><th>Уровень</th><th>Модуль</th><th>Сообщение</th><th>Correlation</th></tr></thead><tbody>{items.map((row) => <tr key={row.id}><td>{new Date(row.created_at).toLocaleString('ru-RU')}</td><td>{logLevelText(row.level)}</td><td>{row.module}</td><td>{row.message}{row.details && <details><summary>Структурированные детали</summary><pre>{JSON.stringify(row.details, null, 2)}</pre></details>}</td><td><button className="admin-btn admin-btn-sm" disabled={!row.request_id} onClick={() => row.request_id && void navigator.clipboard?.writeText(row.request_id)}>{row.request_id ?? '—'}</button></td></tr>)}</tbody></table></div>}
+    <div className="admin-actions-cell"><button className="admin-btn" disabled={offset === 0} onClick={() => update('offset', String(Math.max(0, offset - 50)))}>Назад</button><button className="admin-btn" disabled={offset + items.length >= total} onClick={() => update('offset', String(offset + 50))}>Далее</button></div>
+  </div>
+}
+
+const LABELS: Record<string, string> = {
+  q: 'Поиск', module: 'Модуль', city_slug: 'Город', request_id: 'Request ID',
+  place_id: 'ID места', route_id: 'ID маршрута', actor_id: 'Администратор', environment: 'Окружение',
 }

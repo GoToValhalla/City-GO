@@ -1,5 +1,12 @@
 # City Go — backend: рабочий реестр файлов
 
+Admin operational center:
+
+- `routers/admin_platform.py` — quality, system health, alerts, analytics.
+- `services/admin_platform_*.py` — bounded aggregation без raw event API.
+- `models/admin_alert.py` — persisted alert lifecycle.
+- `services/admin_platform_workspace.py` — расширение city workspace.
+
 Краткий справочник **по пути → слой → роль → зависимости**.  
 Детальный поток сервисов см. `docs/architecture/application_architecture_ru.md` (раздел recommendation pipeline).
 
