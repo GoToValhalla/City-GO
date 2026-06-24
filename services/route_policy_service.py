@@ -8,6 +8,7 @@ ALWAYS=frozenset({"museum","attraction","walk","park","beach","gallery","culture
 CONTEXTUAL=frozenset({"coffee","cafe","food","restaurant","bar","pub","shopping_mall"})
 USEFUL=frozenset({"pharmacy","bank","atm","parking","transport","bus_stop","toilets","information"})
 FORBIDDEN=frozenset({"hospital","police","shelter","service","unknown"})
+KNOWN=ALWAYS|CONTEXTUAL|USEFUL|FORBIDDEN
 @dataclass(frozen=True,slots=True)
 class RoutePolicyDecision:allowed:bool;requires_review:bool;reason:str
 
@@ -16,12 +17,12 @@ def evaluate_category_policy(category:Category|None,*,context:str="tourist_walk"
  if category is None:return evaluate_category_code_policy(fallback_code,context=context)
  if not category.is_active:return RoutePolicyDecision(False,True,"Категория архивирована.")
  policy=category.route_policy or "manual_review"
+ if policy=="manual_review" and category.code in KNOWN:return evaluate_category_code_policy(category.code,context=context)
  if policy=="always_allowed":return RoutePolicyDecision(True,False,"Категория разрешена во всех маршрутах.")
  if policy=="forbidden":return RoutePolicyDecision(False,False,"Категория запрещена политикой маршрутов.")
  if policy=="manual_review":return RoutePolicyDecision(False,True,"Категория требует ручной проверки.")
  if policy=="useful_only":return RoutePolicyDecision(context in {"practical","emergency","accessibility"},False,"Инфраструктура разрешена только в практическом контексте.")
- contexts=set(category.route_contexts or [])
- if not contexts:contexts=_default_contexts(category.code)
+ contexts=set(category.route_contexts or []) or _default_contexts(category.code)
  return RoutePolicyDecision(context in contexts,False,"Контекст разрешён категорией." if context in contexts else "Контекст не разрешён категорией.")
 
 def evaluate_category_code_policy(code:str|None,*,context:str="tourist_walk")->RoutePolicyDecision:
