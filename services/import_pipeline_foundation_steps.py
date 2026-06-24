@@ -15,6 +15,7 @@ from models.place import Place
 from models.source_observation import SourceObservation
 from services.category_normalize_service import normalize_places_categories
 from services.import_pipeline_publication import apply_pipeline_publication
+from services.place_description_draft_service import build_place_description_draft
 from services.place_enrichment_sources import enrich_places_from_sources
 from services.place_field_confidence_service import is_protected, upsert_field_confidence
 from services.place_photo_candidate_service import add_photo_candidate
@@ -39,7 +40,7 @@ def run_step(db: Session, *, step: str, city: City, job: CityAdminImportJob, bat
         "normalize_categories": lambda: _normalize_categories(db, places, counters),
         "backfill_addresses": lambda: None,
         "enrich_external_sources": lambda: _enrich_external_sources(db, city, job, batch, places, counters),
-        "generate_ai_descriptions": lambda: tuple(_ai_description(db, place, job.id) for place in places),
+        "generate_ai_descriptions": lambda: tuple(_description_draft(db, place, job.id) for place in places),
         "fetch_photo_candidates": lambda: tuple(_photo_candidate(db, place) for place in places if place.image_url),
         "calculate_field_confidence": lambda: tuple(_confidence(db, place, job.id) for place in places),
         "apply_publication_decisions": lambda: tuple(apply_pipeline_publication(db, city, job, place, counters) for place in places),
@@ -99,17 +100,40 @@ def _observe_place(db: Session, batch: ImportBatch, city: City, place: Place) ->
     db.add(row)
 
 
-def _ai_description(db: Session, place: Place, job_id: int | None) -> None:
+def _description_draft(db: Session, place: Place, job_id: int | None) -> None:
     existing = _field_row(db, place.id, "description")
     if place.short_description or is_protected(existing):
         return
+    draft = build_place_description_draft(place)
+    if not draft:
+        ensure_review_item(
+            db,
+            city_id=place.city_id,
+            place_id=place.id,
+            job_id=job_id,
+            field_name="description",
+            reason="description_missing",
+        )
+        return
+    place.short_description = draft
+    db.add(place)
+    upsert_field_confidence(
+        db,
+        place_id=place.id,
+        field_name="description",
+        confidence=0.45,
+        source_type="citygo_description_draft",
+        raw_value={"value": draft, "generated": True},
+    )
     ensure_review_item(
         db,
         city_id=place.city_id,
         place_id=place.id,
         job_id=job_id,
         field_name="description",
-        reason="description_missing",
+        reason="generated_description_review",
+        severity="medium",
+        payload={"candidate": draft, "source_type": "citygo_description_draft"},
     )
 
 
