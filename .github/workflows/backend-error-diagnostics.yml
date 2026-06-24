@@ -19,8 +19,6 @@ jobs:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
       - name: Setup SSH key
         shell: bash
@@ -31,44 +29,13 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Inspect production visibility state
+      - name: Inspect production city activation
         shell: bash
         run: |
           set -euo pipefail
-          ssh \
-            -o ConnectTimeout=20 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=2 \
-            -i ~/.ssh/deploy_key \
-            -p "$SSH_PORT" \
-            "$SSH_USER@$SSH_HOST" bash <<'REMOTE_EOF'
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash <<'REMOTE_EOF'
             set -euo pipefail
             cd /srv/app
-
-            echo "=== feature toggles ==="
             docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
-              "SELECT id, scope, coalesce(scope_id, '<global>') AS scope_id, key, value_bool, updated_by, change_reason, updated_at FROM feature_toggles ORDER BY updated_at DESC, id DESC;"
-
-            echo "=== city publication and public-place counts ==="
-            docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
-              "SELECT c.slug, c.launch_status, c.is_active, count(p.id) AS places_total, count(p.id) FILTER (WHERE p.is_visible = true) AS visible_places FROM cities c LEFT JOIN places p ON p.city_id = c.id GROUP BY c.id, c.slug, c.launch_status, c.is_active ORDER BY c.slug;"
-
-            echo "=== public endpoint ==="
-            curl --fail --silent --show-error --max-time 20 \
-              'http://localhost:8000/cities/available?include_draft=true'
-            echo
+              "SELECT id, slug, name, launch_status, is_active, readiness_score, quality_status FROM cities ORDER BY id;"
           REMOTE_EOF
-
-      - name: Telegram diagnostics result
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-            exit 0
-          fi
-          TEXT="🧪 City Go visibility diagnostics finished%0AStatus: ${{ job.status }}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "text=${TEXT}" \
-            -d "disable_web_page_preview=true"
