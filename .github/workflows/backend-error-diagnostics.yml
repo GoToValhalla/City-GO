@@ -2,6 +2,10 @@ name: Backend Error Diagnostics
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/backend-error-diagnostics.yml
 
 permissions:
   contents: read
@@ -36,81 +40,54 @@ jobs:
         run: |
           set -euo pipefail
           REMOTE_ADMIN_API_TOKEN=$(printf '%q' "${ADMIN_API_TOKEN:-}")
-          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            -i ~/.ssh/deploy_key \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" \
             "ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN bash -seu -o pipefail" <<'REMOTE_EOF'
             cd /srv/app
 
             echo "=== compose ps ==="
             docker compose ps || true
+            echo "=== resources ==="
+            free -m || true
+            docker stats --no-stream || true
 
-            echo "=== backend health ==="
+            echo "=== public API ==="
             curl -sS -i --connect-timeout 5 --max-time 15 http://localhost:8000/health || true
-
-            echo "=== frontend proxy health ==="
-            curl -sS -i --connect-timeout 5 --max-time 15 http://localhost/api/health || true
-
-            echo "=== API endpoint probes: direct backend ==="
-            probe_get() {
-              name="$1"
-              path="$2"
-              echo "--- ${name}: ${path} ---"
-              curl -sS -i --connect-timeout 5 --max-time 25 \
-                -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
-                "http://localhost:8000${path}" || true
+            echo
+            curl -sS -i --connect-timeout 5 --max-time 20 \
+              'http://localhost:8000/cities/available?include_draft=true' || true
+            echo
+            for slug in zelenogradsk khanty-mansiysk rostov-on-don; do
+              echo "--- places city=${slug} ---"
+              curl -sS -i --connect-timeout 5 --max-time 20 \
+                "http://localhost:8000/places?city_slug=${slug}&limit=1&offset=0" || true
               echo
-            }
+            done
 
-            probe_post() {
-              name="$1"
-              path="$2"
-              body="$3"
-              echo "--- ${name}: ${path} ---"
-              curl -sS -i --connect-timeout 5 --max-time 35 \
-                -H 'Content-Type: application/json' \
-                -d "$body" \
-                "http://localhost:8000${path}" || true
-              echo
-            }
+            echo "=== PostgreSQL city/place counts ==="
+            docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off -c \
+              "SELECT c.id, c.slug, c.name, c.launch_status, count(p.id) AS places_count FROM cities c LEFT JOIN places p ON p.city_id = c.id GROUP BY c.id, c.slug, c.name, c.launch_status ORDER BY places_count DESC, c.slug;" || true
 
-            probe_get "admin_overview" "/admin/overview"
-            probe_get "admin_metrics" "/admin/metrics/summary"
-            probe_get "admin_coverage" "/admin/coverage/summary?limit=5"
-            probe_get "admin_verification" "/admin/place-verifications/summary"
-            probe_get "admin_route_eligibility" "/admin/routes/eligibility?limit=1"
-            probe_get "admin_route_readiness" "/admin/routes/readiness?limit=10"
+            echo "=== orphan places ==="
+            docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off -c \
+              "SELECT count(*) AS orphan_places FROM places p LEFT JOIN cities c ON c.id = p.city_id WHERE c.id IS NULL;" || true
 
-            ROUTE_BODY='{"lat":40.1792,"lng":44.4991,"start_address":null,"start_source":"city_center","start":{"type":"city_center","lat":40.1792,"lng":44.4991,"address":null},"build_mode":"by_categories","time_budget_minutes":240,"time_of_day":null,"route_time_mode":"flexible","interests":["coffee","food","walk"],"avoided_categories":[],"excluded_place_ids":[],"budget_level":null,"pace_mode":null,"is_visiting":false,"city_id":"yerevan","visit_city_id":null,"visit_days":null,"user_id":"monitor"}'
-            probe_post "route_preview_yerevan" "/v1/user-routes/preview" "$ROUTE_BODY"
-
-            echo "=== backend import smoke ==="
-            docker compose exec -T backend python - <<'PY' || true
-          import main
-          from core.router_setup import include_app_routers
-          print('backend_import_ok')
-          print(main.app.title)
-          print(include_app_routers.__name__)
-          PY
-
-            echo "=== db connectivity ==="
-            docker compose exec -T backend python - <<'PY' || true
-          from sqlalchemy import text
-          from db.session import SessionLocal
-          db = SessionLocal()
-          try:
-              print('db_select_1=', db.execute(text('select 1')).scalar())
-          finally:
-              db.close()
-          PY
+            echo "=== database size and connections ==="
+            docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off -c \
+              "SELECT pg_size_pretty(pg_database_size(current_database())) AS database_size, count(*) AS connections FROM pg_stat_activity WHERE datname = current_database();" || true
 
             echo "=== alembic current/head ==="
             docker compose exec -T backend alembic current || true
             docker compose exec -T backend alembic heads || true
 
-            echo "=== recent backend logs ==="
-            docker compose logs --tail=700 backend || true
-
-            echo "=== extracted backend errors ==="
-            docker compose logs --tail=1200 backend | grep -Ei -A 35 -B 15 'traceback|exception|error|critical|undefinedcolumn|undefinedtable|programmingerror|operationalerror|integrityerror|validationerror' || true
+            echo "=== recent database/backend errors ==="
+            docker compose logs --tail=1600 backend db | grep -Ei -A 35 -B 15 \
+              'traceback|exception|error|critical|undefinedcolumn|undefinedtable|programmingerror|operationalerror|integrityerror|validationerror|sqlalchemy|psycopg|out of memory|oom' || true
           REMOTE_EOF
 
       - name: Telegram diagnostics result
