@@ -21,7 +21,6 @@ FOUNDATION_STEPS = (
     "generate_ai_descriptions",
     "fetch_photo_candidates",
     "calculate_field_confidence",
-    "apply_publication_decisions",
 )
 NON_CRITICAL_STEPS = {"enrich_external_sources", "generate_ai_descriptions", "fetch_photo_candidates"}
 
@@ -87,11 +86,11 @@ def _finish_batch(batch: ImportBatch, counters: dict[str, int], *, status: str) 
     batch.finished_at = datetime.utcnow()
     batch.raw_count = counters["found"]
     batch.normalized_count = counters["found"]
-    batch.published_count = counters["auto_published"] + counters["limited_published"]
-    batch.needs_review_count = counters["review_required"]
+    batch.published_count = 0
+    batch.needs_review_count = counters["found"]
     batch.rejected_count = counters["rejected"]
     batch.errors_count = counters["failed"]
-    batch.diff_summary = {"pipeline_counters": dict(counters)}
+    batch.diff_summary = {"pipeline_counters": dict(counters), "publication_mode": "manual_review_required"}
 
 
 def _empty_counters() -> dict[str, int]:
