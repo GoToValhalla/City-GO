@@ -26,8 +26,7 @@ def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_
  job.status="running";job.started_at=job.started_at or started;set_step(job,STEP_RUNNING);db.commit()
  try:
   set_step(job,STEP_COLLECTING_PLACES);_log(db,job,city.slug,actor_id,STEP_COLLECTING_PLACES,"started");db.commit()
-  summary=summarize_import_results(run_osm_import_only(city.slug,force=force));results["import"]=summary
-  job.scopes_succeeded=int(summary.get("scopes_succeeded") or 0);job.places_found=int(summary.get("places_found") or 0);job.places_saved=int(summary.get("places_saved") or 0)
+  summary=summarize_import_results(run_osm_import_only(city.slug,force=force));results["import"]=summary;job.scopes_succeeded=int(summary.get("scopes_succeeded") or 0);job.places_found=int(summary.get("places_found") or 0);job.places_saved=int(summary.get("places_saved") or 0)
   total=db.query(Place).filter(Place.city_id==city_id).count();set_step(job,STEP_COLLECTING_PLACES,total=total,processed=total,successful=job.places_saved,detail={"import_diff":summary});db.commit()
   if summary.get("status")!="success" and total<=0:raise RuntimeError(str(summary.get("last_error") or "Ошибка импорта OSM"))
   if summary.get("status")!="success":warning={"step":STEP_COLLECTING_PLACES,"error":str(summary.get("last_error") or "partial import")};warnings.append(warning);append_step_warning(job,STEP_COLLECTING_PLACES,warning["error"])
@@ -40,7 +39,7 @@ def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_
   readiness=compute_city_readiness(db,city_slug=city.slug) or {};results["readiness"]=readiness;set_step(job,STEP_COMPUTING_READINESS,detail={"readiness_score":readiness.get("readiness_score")})
   if total<=0:raise RuntimeError("OSM import finished without places")
   set_step(job,STEP_READY_FOR_REVIEW,successful=len(ids),processed=len(ids));job.status="success_with_warnings" if warnings else "success";job.finished_at=datetime.utcnow();job.step_details={**dict(job.step_details or {}),"warnings":warnings,"changed_place_ids":ids,"has_changes":bool(ids),"import_summary":summary}
-  if ids:city.launch_status="review_required";city.is_active=False
+  if ids or original[0]=="importing":city.launch_status="review_required";city.is_active=False
   else:city.launch_status,city.is_active=original
   city.last_import_at=job.finished_at;log_import_event(db,event="import_pipeline_finished",city_slug=city.slug,actor_id=actor_id,message=f"Pipeline #{job.id}: {len(ids)} изменений",details={"job_id":job.id,**results});db.commit()
   if notify_completion:_notify(city,job,total,len(ids),readiness,warnings)
@@ -48,13 +47,14 @@ def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_
  except Exception as exc:
   places=_changed(db,city_id,started);ids=sorted({int(p.id) for p in places})
   for place in places:mark_place_for_review(place,reason="partial_import_changed")
-  total=db.query(Place).filter(Place.city_id==city_id).count();job.last_error=str(exc)[:2000];job.finished_at=datetime.utcnow();job.step_details={**dict(job.step_details or {}),"changed_place_ids":ids,"has_changes":bool(ids)}
+  total=db.query(Place).filter(Place.city_id==city_id).count();detail={"step":job.current_step or "unknown","error":str(exc)[:1000],"places_total":total};results["partial_success_after_error"]=detail;job.last_error=str(exc)[:2000];job.finished_at=datetime.utcnow();job.step_details={**dict(job.step_details or {}),"changed_place_ids":ids,"has_changes":bool(ids),"partial_success_after_error":detail}
   if total>0:
-   job.status="partial_success"
-   if ids:city.launch_status="review_required";city.is_active=False
+   job.status="partial_success";set_step(job,STEP_READY_FOR_REVIEW,total=total,processed=total,successful=total,detail={"partial_success_after_error":detail})
+   if ids or original[0]=="importing":city.launch_status="review_required";city.is_active=False
    else:city.launch_status,city.is_active=original
   else:job.status="failed";city.launch_status,city.is_active=original
   db.commit()
+  if notify_completion:send_admin_alert(title="Import completed with warnings",message=f"{city.name}: pipeline завершён с ошибкой, изменения оставлены на проверке.",level="warning",city_slug=city.slug,job_id=int(job.id),details={"status":job.status,"places_total":total,"changed_places":len(ids),"warnings":[detail]})
   if total<=0:raise
   return results
 
