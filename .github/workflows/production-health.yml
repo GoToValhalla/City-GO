@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: production-health
+  cancel-in-progress: true
+
 jobs:
   health:
     name: Production health check
@@ -18,6 +22,7 @@ jobs:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
@@ -28,6 +33,7 @@ jobs:
           test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
           test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
           test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+          test -n "$ADMIN_API_TOKEN" || (echo "ADMIN_API_TOKEN secret is missing" >&2; exit 1)
 
       - name: Setup SSH key
         shell: bash
@@ -38,61 +44,61 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Check production services
+      - name: Check production services and database
         shell: bash
         run: |
           set -euo pipefail
+          REMOTE_ADMIN_API_TOKEN=$(printf '%q' "$ADMIN_API_TOKEN")
           ssh \
             -o ConnectTimeout=20 \
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=2 \
             -i ~/.ssh/deploy_key \
             -p "$SSH_PORT" \
-            "$SSH_USER@$SSH_HOST" bash <<'EOF'
-            set -euo pipefail
+            "$SSH_USER@$SSH_HOST" \
+            "ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN bash -seu -o pipefail" <<'EOF'
             cd /srv/app
 
             diagnostics() {
               echo "=== failure diagnostics ==="
               free -m || true
+              df -h || true
               docker stats --no-stream || true
               docker compose ps || true
-              docker compose logs --tail=120 backend import-worker frontend || true
+              docker compose logs --tail=200 db backend import-worker frontend || true
+              docker compose exec -T db pg_isready -U postgres -d city_guide || true
+              docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
+                "SELECT pid, state, wait_event_type, wait_event, age(clock_timestamp(), query_start) AS query_age, left(query, 180) AS query FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() ORDER BY query_start NULLS LAST LIMIT 30;" || true
             }
             trap diagnostics ERR
 
-            echo "=== compose ps ==="
-            docker compose ps
-
             echo "=== required container states ==="
-            for service in backend frontend db; do
-              if ! docker compose ps "$service" | grep -q "Up"; then
-                echo "ERROR: $service container is not Up"
-                exit 1
-              fi
+            for service in db backend frontend; do
+              docker compose ps "$service" | grep -q "Up"
             done
 
-            echo "=== backend /health ==="
-            curl --fail --silent --show-error --max-time 10 --retry 2 --retry-delay 2 \
-              http://localhost:8000/health
+            echo "=== PostgreSQL readiness ==="
+            docker compose exec -T db pg_isready -U postgres -d city_guide
 
-            echo "=== frontend / ==="
-            curl --fail --silent --show-error --max-time 10 --retry 2 --retry-delay 2 \
-              http://localhost/ >/dev/null
+            echo "=== backend database readiness ==="
+            curl --fail --silent --show-error --max-time 10 --retry 2 --retry-delay 2 http://localhost:8000/ready
+            echo
 
-            echo "=== frontend /api/health proxy ==="
-            curl --fail --silent --show-error --max-time 10 --retry 2 --retry-delay 2 \
-              http://localhost/api/health
+            echo "=== frontend and readiness proxy ==="
+            curl --fail --silent --show-error --max-time 10 http://localhost/ >/dev/null
+            curl --fail --silent --show-error --max-time 10 http://localhost/api/ready
+            echo
 
-            # Importing main starts a second application process and can exhaust a small
-            # production host. Image-level import smoke belongs to the build workflow.
-            echo "=== alembic current ==="
+            echo "=== critical admin endpoint smoke ==="
+            auth=(-H "Authorization: Bearer ${ADMIN_API_TOKEN}")
+            curl --fail --silent --show-error --max-time 15 "${auth[@]}" 'http://localhost:8000/admin/places?limit=1' >/dev/null
+            curl --fail --silent --show-error --max-time 15 "${auth[@]}" 'http://localhost:8000/admin/taxonomy/categories?limit=1' >/dev/null
+            curl --fail --silent --show-error --max-time 15 "${auth[@]}" 'http://localhost:8000/admin/import-jobs?limit=1' >/dev/null
+
+            echo "=== schema and resources ==="
             docker compose exec -T backend alembic current
-
-            echo "=== production resources ==="
             free -m
             docker stats --no-stream
-
             echo "=== health check OK ==="
           EOF
 
@@ -105,7 +111,7 @@ jobs:
             echo "Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing"
             exit 0
           fi
-          TEXT="❌ City Go production health failed%0AWorkflow: ${GITHUB_WORKFLOW}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          TEXT="❌ City Go production readiness failed%0ADatabase or critical admin API is unavailable.%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "text=${TEXT}" \
@@ -117,10 +123,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-            echo "Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing"
             exit 0
           fi
-          TEXT="✅ City Go production health OK%0AWorkflow: ${GITHUB_WORKFLOW}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          TEXT="✅ City Go production readiness OK%0ADatabase and critical admin endpoints are responding.%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "text=${TEXT}" \
