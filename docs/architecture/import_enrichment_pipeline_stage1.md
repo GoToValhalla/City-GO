@@ -1,149 +1,96 @@
 # Unified Import / Enrichment Pipeline
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
-City GO uses one background pipeline for both collecting missing places and enriching the complete city catalog. The separate synchronous enrichment launch is removed from the main admin flow.
+City GO uses one background pipeline for collecting missing places and enriching the city catalog. Import is diff-driven: unchanged places are not mutated; changed places and cities are moved to manual review.
 
 ## Admin Flow
 
-1. Open `Обогащение данных` or the selected city workspace.
-2. Select a city.
-3. Click `Собрать и обогатить`.
-4. Backend creates a queued `admin_city_import` job.
-5. `import-worker` executes the full pipeline outside the HTTP request.
-6. After completion, review conflicts, missing fields and photo candidates.
-7. Publish the city only after readiness and manual review.
-
-API launch:
-
-```http
-POST /admin/place-enrichment/pipeline/{city_slug}/run
-```
-
-The response has `status = queued`. Collection is not executed inside the API request.
-
-Compatibility endpoints `/admin/import-jobs/{city_id}/run` and `/admin/import-jobs/{city_id}/enrich` now enqueue the same complete job.
+1. Open `Обогащение данных` or the city workspace.
+2. Select a city and click `Собрать и обогатить`.
+3. Backend queues an `admin_city_import` job.
+4. `import-worker` executes collection and enrichment.
+5. Changed places are hidden from public surfaces and added to review.
+6. A published city is unpublished only when real changes were found.
+7. With zero changes, the city publication state remains unchanged.
 
 ## Complete Pipeline
 
 ```text
-Admin: Собрать и обогатить
-→ queue admin_city_import
-→ import-worker
-→ collect enabled OSM import scopes
-→ normalize and upsert places
-→ deduplicate imported entities
-→ backfill missing addresses
-→ collect legacy photo candidates
-→ normalize categories and tags
-→ Geoapify enrichment when GEOAPIFY_API_KEY is configured
-→ Wikidata / Wikimedia enrichment
-→ official website metadata enrichment
-→ field-level confidence
-→ source conflict review queue
-→ photo candidate review queue
-→ publication and route eligibility decisions
-→ quality cleanup
-→ city readiness
-→ ready for manual review
+OSM scopes
+→ source diff
+→ update only changed/new places
+→ reverse-geocode missing addresses
+→ collect photo candidates
+→ normalize taxonomy
+→ external-source enrichment
+→ confidence and conflicts
+→ manual review
+→ readiness
 ```
 
-## Collection Versus Enrichment
+## Address Enrichment
 
-Collection creates or updates place entities:
+Address enrichment uses a legal cached provider cascade:
 
-- OSM is queried through enabled `city_import_scopes`;
-- existing source IDs and deduplication rules prevent duplicate places;
-- repeated runs are incremental and can discover newly added OSM objects;
-- scope configuration controls which geographic areas are searched.
+1. Structured OSM address tags already attached to the source object.
+2. Geoapify Reverse Geocoding when `GEOAPIFY_API_KEY` is configured.
+3. Nominatim as a low-rate fallback.
 
-Enrichment fills missing fields for all places collected for the city:
+The selected candidate stores:
 
-- address;
-- website;
-- phone;
-- opening hours;
-- short description;
-- atmosphere;
-- inside;
-- best-for profile;
-- photo candidates.
+- normalized Russian address;
+- provider in `address_source`;
+- confidence in `address_confidence`;
+- update time in `address_updated_at`;
+- precision (`building`, `street`, or `locality`) in operation output.
 
-Existing non-empty public values are not silently overwritten. Conflicting candidates are added to `review_queue_items`.
+Rules:
 
-## Sources
+- venues require at least street-level data;
+- outdoor objects may use `Рядом с <улица>` or a locality label;
+- city-only results are not presented as exact venue addresses;
+- conflicting existing addresses go to review and are not overwritten;
+- an enriched address moves the place to `needs_review`;
+- all provider responses are cached;
+- provider errors do not erase existing data.
 
-- OSM / Overpass: discovery of places inside configured scopes.
-- Geoapify: address, website, phone and opening hours near known coordinates.
-- Wikidata / Wikimedia Commons: factual descriptions, official websites and photo candidates.
-- Official websites: public metadata, JSON-LD, contacts, opening hours and photo candidates.
-- City GO category rules: safe generic detail sections when source-backed details are missing.
+Geoapify currently provides a free allowance of 3000 credits per day and is the primary practical bulk provider. The public Nominatim service is only a fallback: its policy requires caching and heavily restricts recurring bulk jobs. Yandex free geocoder results cannot be stored in the City GO database. 2GIS requires a demo key or subscription and is not ingested without an explicit licence. DaData and self-hosted Photon/Pelias remain optional future adapters.
 
-Yandex Maps, 2GIS and Google are not scraped into the City GO database without an appropriate API plan or licence.
+## Source Enrichment
 
-## Job And Audit Data
+- OSM / Overpass: place discovery and source tags.
+- Geoapify: reverse geocoding and nearby place details.
+- Wikidata / Wikimedia Commons: factual descriptions and photos.
+- Official websites: JSON-LD, contacts, hours and images.
+- City GO category rules: safe generic detail sections.
 
-- `city_admin_import_jobs`: queue and top-level job state.
-- `import_job_steps`: normalized source-enrichment step history.
-- `source_observations`: raw provider observations and source URLs.
-- `import_batches`: counters for each foundation pass.
-- `place_field_confidence`: confidence and freshness per field.
-- `place_photo_candidates`: photos awaiting approval.
-- `review_queue_items`: missing fields and source conflicts.
+Existing non-empty verified values are not silently overwritten. Conflicts are written to `review_queue_items`.
 
-The final job details include `unified_pipeline` with collection results, source-enrichment counters and the recalculated readiness score.
+## Data Quality
 
-## Statuses
+User surfaces reject:
 
-- `queued`: waiting for import-worker.
-- `running`: collection or enrichment is running.
-- `success`: full pipeline completed.
-- `partial_success`: places were preserved, but one or more enrichment providers or later steps failed.
-- `failed`: no usable city result was produced.
-- `review_required`: city data exists and requires admin review before publication.
+- `node/way/relation` identifiers;
+- every title ending with `OSM <number>`, including `Пляж OSM 1202021911`;
+- placeholder and coordinate-only addresses;
+- infrastructure categories in tourist routes;
+- changed places before confirmation.
 
-## Safety Rules
-
-- Manual and human-verified confidence is protected.
-- Missing ratings are not replaced with zero.
-- Generic/category photos cannot silently become exact primary photos.
-- Service, bank, police, medical, transport and similar categories are not route eligible.
-- Low, stale or conflicting opening hours are excluded from `Открыто сейчас`.
-- External-provider failure must not delete already collected places.
-
-## Runtime Requirements
-
-Backend environment:
+## Runtime
 
 ```env
 GEOAPIFY_API_KEY=
 PLACE_ADDRESS_GEOCODER_USER_AGENT=CityGoAddressBackfill/1.0
 ```
 
-`GEOAPIFY_API_KEY` is optional. Without it, the pipeline still runs OSM collection, Wikidata/Wikimedia, official-site enrichment and internal quality rules.
-
-Required runtime service:
-
-```text
-import-worker
-```
-
-In Docker Compose it polls queued jobs and processes one city at a time.
+Without Geoapify the system still works, but Nominatim must be used slowly and cannot be treated as a high-volume scheduled provider.
 
 ## Verification
 
 ```bash
-.venv/bin/python -m pytest --no-cov \
-  tests/test_import_pipeline_foundation_new.py \
-  tests/test_import_pipeline_foundation_safety_new.py \
-  tests/test_import_pipeline_api_new.py \
-  tests/test_place_enrichment_sources.py -q
-
+python -m pytest -q
 npm --prefix frontend run lint
 npm --prefix frontend run test:ci
 npm --prefix frontend run build
 ```
-
-## Current Limitation
-
-New place discovery currently depends on OSM and the configured city scopes. Geoapify and Wikidata enrich/match collected places; they do not yet perform a separate city-wide discovery pass. Regional open-data and tourism-portal collectors can be added as licensed discovery providers without changing the rest of the pipeline.
