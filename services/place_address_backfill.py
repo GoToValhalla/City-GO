@@ -1,4 +1,4 @@
-"""Локальный backfill и перепроверка адресов мест через reverse geocoding."""
+"""Backfill и перепроверка адресов через каскад reverse geocoding."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 
 from models.city import City
 from models.place import Place
-from services.place_address_policy import PLACEHOLDER_ADDRESSES
-from services.place_address_geocode import reverse_geocode
-from services.place_address_policy import is_real_address, needs_backfill, should_apply_geocode_result
+from services.place_address_geocode import reverse_geocode_candidate
+from services.place_address_policy import PLACEHOLDER_ADDRESSES, is_real_address, needs_backfill, should_apply_geocode_result
+from services.place_import_lifecycle_service import mark_place_for_review
 
 ADDRESS_MATCH_THRESHOLD = 0.72
 
@@ -30,12 +30,7 @@ def run_backfill(
     start_after_id: int = 0,
 ) -> dict[str, Any]:
     stats = _empty_stats(city_slug, apply, verify_existing, start_after_id)
-    for place in _iter_candidate_places(
-        db,
-        city_slug,
-        verify_existing=verify_existing,
-        start_after_id=start_after_id,
-    ):
+    for place in _iter_candidate_places(db, city_slug, verify_existing=verify_existing, start_after_id=start_after_id):
         if stats["checked"] >= limit:
             break
         stats["last_scanned_place_id"] = int(place.id)
@@ -59,6 +54,8 @@ def _empty_stats(city_slug: str, apply: bool, verify_existing: bool, start_after
         "skipped_existing_address": 0,
         "cleared_placeholders": 0,
         "errors": 0,
+        "providers": {},
+        "updated_place_ids": [],
         "results": [],
     }
 
@@ -72,14 +69,7 @@ def _needs_backfill_sql():
     return or_(*clauses)
 
 
-def _iter_candidate_places(
-    db: Session,
-    city_slug: str,
-    *,
-    verify_existing: bool,
-    start_after_id: int = 0,
-    page_size: int = 50,
-):
+def _iter_candidate_places(db: Session, city_slug: str, *, verify_existing: bool, start_after_id: int = 0, page_size: int = 50):
     last_id = int(start_after_id or 0)
     while True:
         query = db.query(Place).join(City).filter(City.slug == city_slug, Place.id > last_id)
@@ -93,14 +83,7 @@ def _iter_candidate_places(
             yield place
 
 
-def _process_place(
-    db: Session,
-    place: Place,
-    stats: dict[str, Any],
-    sleep_seconds: float,
-    apply: bool,
-    verify_existing: bool,
-) -> None:
+def _process_place(db: Session, place: Place, stats: dict[str, Any], sleep_seconds: float, apply: bool, verify_existing: bool) -> None:
     has_existing_real_address = is_real_address(place.address)
     if has_existing_real_address and not verify_existing:
         stats["skipped_existing_address"] += 1
@@ -114,50 +97,60 @@ def _process_place(
 
     stats["checked"] += 1
     try:
-        candidate = reverse_geocode(float(place.lat), float(place.lng))
+        candidate = reverse_geocode_candidate(float(place.lat), float(place.lng), category=place.category)
     except Exception as exc:
         stats["errors"] += 1
         _append_result(stats, place, "error", error=str(exc))
         time.sleep(sleep_seconds)
         return
 
-    if not candidate or not should_apply_geocode_result(candidate, place.category):
+    if candidate is None or not should_apply_geocode_result(candidate.address, place.category):
         stats["skipped_generic_result"] += 1
         if apply and not has_existing_real_address:
             _clear_placeholder(db, place, stats)
-        _append_result(stats, place, "skipped_generic", old_address=place.address, new_address=candidate)
+        _append_result(stats, place, "skipped_generic", old_address=place.address, new_address=candidate.address if candidate else None)
         time.sleep(sleep_seconds)
         return
 
+    providers = stats["providers"]
+    providers[candidate.source] = int(providers.get(candidate.source) or 0) + 1
     old_address = place.address
     if has_existing_real_address:
-        if addresses_match(old_address, candidate):
+        if addresses_match(old_address, candidate.address):
             if apply:
-                _mark_existing_address_verified(db, place)
+                _mark_existing_address_verified(db, place, candidate.source, candidate.confidence)
             stats["verified_existing"] += 1
-            _append_result(stats, place, "verified_existing", old_address=old_address, new_address=candidate)
+            _append_result(stats, place, "verified_existing", old_address=old_address, new_address=candidate.address)
         else:
             if apply:
-                _mark_address_for_review(db, place, candidate)
+                _mark_address_for_review(db, place, candidate.address, candidate.source)
             stats["sent_to_review"] += 1
-            _append_result(stats, place, "sent_to_review", old_address=old_address, new_address=candidate)
+            _append_result(stats, place, "sent_to_review", old_address=old_address, new_address=candidate.address)
         time.sleep(sleep_seconds)
         return
 
     if apply:
-        place.address = candidate
-        place.address_source = "nominatim"
-        place.address_confidence = 0.75
+        place.address = candidate.address
+        place.address_source = candidate.source
+        place.address_confidence = candidate.confidence
         place.address_updated_at = datetime.utcnow()
-        place.updated_at = datetime.utcnow()
+        mark_place_for_review(place, reason="address_enriched")
         db.add(place)
         db.commit()
-        db.expunge(place)
         stats["updated"] += 1
+        stats["updated_place_ids"].append(int(place.id))
     else:
         stats["updated"] += 1
-
-    _append_result(stats, place, "updated" if apply else "dry_run", old_address=old_address, new_address=candidate)
+    _append_result(
+        stats,
+        place,
+        "updated" if apply else "dry_run",
+        old_address=old_address,
+        new_address=candidate.address,
+        source=candidate.source,
+        confidence=candidate.confidence,
+        precision=candidate.precision,
+    )
     time.sleep(sleep_seconds)
 
 
@@ -169,15 +162,13 @@ def addresses_match(current: str | None, candidate: str | None) -> bool:
     score = len(current_tokens & candidate_tokens) / max(len(current_tokens), len(candidate_tokens))
     if score >= ADDRESS_MATCH_THRESHOLD:
         return True
-    current_digits = _digits(current)
-    candidate_digits = _digits(candidate)
-    return bool(current_digits and candidate_digits and current_digits == candidate_digits and (current_tokens & candidate_tokens))
+    return bool(_digits(current) and _digits(candidate) and _digits(current) == _digits(candidate) and (current_tokens & candidate_tokens))
 
 
 def _address_tokens(value: str | None) -> set[str]:
     normalized = str(value or "").casefold().replace("ё", "е")
     normalized = re.sub(r"[,.()\[\]{}:;№#]", " ", normalized)
-    stop_words = {"город", "ул", "улица", "пр", "проспект", "пер", "переулок", "дом", "район", "область"}
+    stop_words = {"город", "ул", "улица", "пр", "проспект", "пер", "переулок", "дом", "район", "область", "рядом", "с"}
     return {token for token in re.split(r"\s+", normalized) if token and len(token) > 1 and token not in stop_words}
 
 
@@ -185,28 +176,22 @@ def _digits(value: str | None) -> set[str]:
     return set(re.findall(r"\d+[а-яa-z]?", str(value or "").casefold()))
 
 
-def _mark_existing_address_verified(db: Session, place: Place) -> None:
-    place.address_source = place.address_source or "nominatim_verified"
-    place.address_confidence = max(float(place.address_confidence or 0), 0.75)
+def _mark_existing_address_verified(db: Session, place: Place, source: str, confidence: float) -> None:
+    place.address_source = place.address_source or f"{source}_verified"
+    place.address_confidence = max(float(place.address_confidence or 0), confidence)
     place.address_updated_at = datetime.utcnow()
-    place.updated_at = datetime.utcnow()
     db.add(place)
     db.commit()
-    db.expunge(place)
 
 
-def _mark_address_for_review(db: Session, place: Place, candidate: str) -> None:
+def _mark_address_for_review(db: Session, place: Place, candidate: str, source: str) -> None:
     place.verification_status = "needs_recheck"
-    place.verification_source = "nominatim"
+    place.verification_source = source
     place.verification_method = "address_conflict"
-    place.verification_comment = (
-        f"Address conflict. Current: {place.address or ''}. Candidate: {candidate or ''}."
-    )[:1000]
+    place.verification_comment = f"Конфликт адреса. Текущий: {place.address or ''}. Кандидат: {candidate or ''}."[:1000]
     place.needs_recheck_at = datetime.utcnow()
-    place.updated_at = datetime.utcnow()
     db.add(place)
     db.commit()
-    db.expunge(place)
 
 
 def _clear_placeholder(db: Session, place: Place, stats: dict[str, Any]) -> None:
@@ -222,7 +207,4 @@ def _clear_placeholder(db: Session, place: Place, stats: dict[str, Any]) -> None
 def _append_result(stats: dict[str, Any], place: Place, status: str, **extra: object) -> None:
     if stats.get("mode") == "apply":
         return
-    results = stats["results"]
-    if not isinstance(results, list):
-        return
-    results.append({"place_id": place.id, "title": place.title, "status": status, **extra})
+    stats["results"].append({"place_id": place.id, "title": place.title, "status": status, **extra})
