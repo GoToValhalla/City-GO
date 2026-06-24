@@ -55,18 +55,25 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
   const visibleDescription = description && shouldCollapseDescription && !expanded
     ? `${description.slice(0, DESCRIPTION_LIMIT).trim()}...`
     : description
+  const hero = (
+    <PlacePhoto
+      imageUrl={imageUrl}
+      title={title}
+      category={place.category}
+      size="hero"
+      fallbackLabel="Фото скоро появятся"
+      closed={status === 'closed'}
+    />
+  )
 
   return (
     <main className="place-detail-sheet">
       <div className="place-detail-sheet__media">
-        <PlacePhoto
-          imageUrl={imageUrl}
-          title={title}
-          category={place.category}
-          size="hero"
-          fallbackLabel="Фото скоро появятся"
-          closed={status === 'closed'}
-        />
+        {imageUrl ? (
+          <a href={imageUrl} target="_blank" rel="noopener noreferrer" aria-label={`Открыть фото: ${title}`}>
+            {hero}
+          </a>
+        ) : hero}
       </div>
 
       <section className="place-detail-sheet__panel">
