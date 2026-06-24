@@ -9,6 +9,45 @@ run_compose() {
   timeout --signal=TERM --kill-after=15s 90s docker compose "$@"
 }
 
+diagnose_runtime() {
+  echo "=== production runtime diagnostics ==="
+  run_compose ps || true
+  run_compose logs --tail=250 db backend import-worker bot || true
+  timeout 30s docker compose exec -T db pg_isready -U postgres -d city_guide </dev/null || true
+  timeout 30s docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -c \
+    "SELECT now() AS checked_at, count(*) AS connections, count(*) FILTER (WHERE state = 'active') AS active, count(*) FILTER (WHERE wait_event IS NOT NULL) AS waiting FROM pg_stat_activity WHERE datname = current_database();" </dev/null || true
+  timeout 30s docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -c \
+    "SELECT pid, usename, application_name, state, wait_event_type, wait_event, age(clock_timestamp(), query_start) AS query_age, left(query, 180) AS query FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() ORDER BY query_start NULLS LAST LIMIT 30;" </dev/null || true
+}
+
+wait_for_database() {
+  local attempts="${1:-30}"
+  for attempt in $(seq 1 "$attempts"); do
+    if timeout 10s docker compose exec -T db pg_isready -U postgres -d city_guide </dev/null >/dev/null 2>&1 \
+      && timeout 15s docker compose run -T --rm --no-deps backend python -c \
+        "from core.readiness import check_database_ready; ok, reason = check_database_ready(); print(reason); raise SystemExit(0 if ok else 1)" </dev/null >/dev/null 2>&1; then
+      echo "Database readiness OK attempt=${attempt}"
+      return 0
+    fi
+    echo "Database not ready attempt=${attempt}/${attempts}"
+    sleep 3
+  done
+  return 1
+}
+
+wait_for_backend_ready() {
+  local attempts="${1:-30}"
+  for attempt in $(seq 1 "$attempts"); do
+    if timeout 15s docker compose exec -T backend curl -sf http://localhost:8000/ready </dev/null >/dev/null 2>&1; then
+      echo "Backend and database readiness OK attempt=${attempt}"
+      return 0
+    fi
+    echo "Backend readiness failed attempt=${attempt}/${attempts}"
+    sleep 3
+  done
+  return 1
+}
+
 mkdir -p /srv/app
 
 echo "=== download compose from ${GH_REPO}@main ==="
@@ -42,9 +81,6 @@ if ! timeout 30s docker info >/dev/null; then
   exit 1
 fi
 
-# A cancelled SSH session does not necessarily stop the remote `docker compose
-# run` process. Remove one-off migration containers left by previous deploys so
-# they cannot keep a PostgreSQL transaction or consume server resources.
 echo "=== cleanup stale migration containers ==="
 STALE_MIGRATE_IDS=$(timeout 30s docker ps -aq --filter label=com.docker.compose.service=migrate || true)
 if [ -n "$STALE_MIGRATE_IDS" ]; then
@@ -79,6 +115,14 @@ if [ "$REGISTRY_OK" != "1" ]; then
   exit 1
 fi
 
+echo "=== ensure PostgreSQL is running before migrations ==="
+run_compose up -d db
+if ! wait_for_database 30; then
+  echo "ERROR: PostgreSQL is not ready before migrations."
+  diagnose_runtime
+  exit 1
+fi
+
 # PostgreSQL ALTER TABLE requires an ACCESS EXCLUSIVE lock. Runtime services are
 # stopped first so open transactions cannot block Alembic indefinitely.
 echo "=== quiesce database clients before migrations ==="
@@ -88,7 +132,7 @@ run_compose ps || true
 restore_runtime() {
   echo "=== restore previous runtime after failed deploy ==="
   run_compose start backend bot import-worker || true
-  run_compose ps || true
+  diagnose_runtime
 }
 
 echo "=== migrations ==="
@@ -119,18 +163,9 @@ fi
 
 echo "=== recreate backend ==="
 run_compose up -d --no-deps --force-recreate --pull never backend
-BACKEND_OK=0
-for attempt in $(seq 1 30); do
-  if timeout 15s docker compose exec -T backend curl -sf http://localhost:8000/health </dev/null >/dev/null 2>&1; then
-    BACKEND_OK=1
-    echo "Backend health OK attempt=${attempt}"
-    break
-  fi
-  echo "Backend not ready attempt=${attempt}/30"
-  sleep 3
-done
-if [ "$BACKEND_OK" != "1" ]; then
-  run_compose logs --tail=300 backend || true
+if ! wait_for_backend_ready 30; then
+  echo "ERROR: backend started without a working database connection."
+  diagnose_runtime
   exit 1
 fi
 
@@ -149,6 +184,7 @@ for attempt in $(seq 1 20); do
   sleep 3
 done
 if [ "$FRONTEND_OK" != "1" ]; then
+  diagnose_runtime
   run_compose logs --tail=240 frontend || true
   exit 1
 fi
@@ -165,11 +201,23 @@ for attempt in $(seq 1 10); do
   sleep 3
 done
 if [ "$BACKGROUND_OK" != "1" ]; then
-  run_compose logs --tail=200 bot import-worker || true
+  diagnose_runtime
   exit 1
 fi
 
-curl -sf --connect-timeout 5 --max-time 10 http://localhost/api/health >/dev/null
+# A worker can exhaust connections or surface a schema problem immediately after
+# startup. Keep deploy red unless readiness remains stable after all clients run.
+echo "=== post-start database stability gate ==="
+for check in 1 2 3; do
+  sleep 5
+  if ! wait_for_backend_ready 5; then
+    echo "ERROR: database readiness degraded after background services started (check ${check}/3)."
+    diagnose_runtime
+    exit 1
+  fi
+done
+
+curl -sf --connect-timeout 5 --max-time 10 http://localhost/api/ready >/dev/null
 curl -sf --connect-timeout 5 --max-time 10 http://localhost/api/version || curl -sf --max-time 10 http://localhost:8000/version
 timeout 60s docker compose exec -T backend alembic current </dev/null || true
 run_compose ps || true
