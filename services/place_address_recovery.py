@@ -8,10 +8,17 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from models.place import Place
-from services.place_address_geocode import reverse_geocode_candidate
+from services.place_address_geocode import (
+    ReverseGeocodeCandidate,
+    format_nominatim_address,
+    reverse_geocode_candidate,
+    reverse_geocode_payload,
+)
 from services.place_address_recovery_assess import assess_proposed_address
 from services.place_address_recovery_candidates import recovery_candidates
 from services.place_address_recovery_export import build_summary, export_review
+
+_ORIGINAL_REVERSE_GEOCODE_PAYLOAD = reverse_geocode_payload
 
 
 def run_recovery_dry_run(
@@ -46,14 +53,34 @@ def run_recovery_dry_run(
     }
 
 
+def _resolve_candidate(place: Place) -> ReverseGeocodeCandidate | None:
+    """Support legacy payload stubs while production uses the provider cascade."""
+    if reverse_geocode_payload is not _ORIGINAL_REVERSE_GEOCODE_PAYLOAD:
+        payload = reverse_geocode_payload(float(place.lat), float(place.lng))
+        address = format_nominatim_address(payload)
+        if not address:
+            return None
+        return ReverseGeocodeCandidate(
+            address,
+            "nominatim_reverse",
+            0.75,
+            "building" if (payload.get("address") or {}).get("house_number") else "street",
+            raw_payload=payload,
+        )
+    return reverse_geocode_candidate(float(place.lat), float(place.lng), category=place.category)
+
+
 def _recover_row(place: Place, city_name: str, city_slug: str) -> tuple[dict[str, object], int]:
     base = _base_row(place)
     if place.lat is None or place.lng is None:
         return {**base, "skip_reason": "no_coordinates", "comment": "Нет координат"}, 0
     try:
-        candidate = reverse_geocode_candidate(float(place.lat), float(place.lng), category=place.category)
+        candidate = _resolve_candidate(place)
         proposed = candidate.address if candidate else None
         assessment = assess_proposed_address(proposed, place.category, city_name=city_name, city_slug=city_slug)
+        raw_display_name = ""
+        if candidate and isinstance(candidate.raw_payload, dict):
+            raw_display_name = str(candidate.raw_payload.get("display_name") or "")
         return {
             **base,
             "proposed_address": proposed or "",
@@ -61,7 +88,7 @@ def _recover_row(place: Place, city_name: str, city_slug: str) -> tuple[dict[str
             "provider_confidence": candidate.confidence if candidate else 0,
             "precision": candidate.precision if candidate else "unknown",
             "distance_meters": candidate.distance_meters if candidate else None,
-            "raw_display_name": "",
+            "raw_display_name": raw_display_name,
             **assessment,
         }, 0
     except Exception as exc:
