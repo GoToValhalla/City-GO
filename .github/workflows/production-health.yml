@@ -42,49 +42,56 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash <<'EOF'
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            -i ~/.ssh/deploy_key \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" bash <<'EOF'
             set -euo pipefail
             cd /srv/app
+
+            diagnostics() {
+              echo "=== failure diagnostics ==="
+              free -m || true
+              docker stats --no-stream || true
+              docker compose ps || true
+              docker compose logs --tail=120 backend import-worker frontend || true
+            }
+            trap diagnostics ERR
 
             echo "=== compose ps ==="
             docker compose ps
 
-            echo "=== backend container state ==="
-            docker compose ps backend | tee /tmp/citygo_backend_ps.txt
-            if ! docker compose ps backend | grep -q "Up"; then
-              echo "ERROR: backend container is not Up"
-              docker compose logs --tail=240 backend || true
-              exit 1
-            fi
-
-            echo "=== frontend container state ==="
-            docker compose ps frontend | tee /tmp/citygo_frontend_ps.txt
-            if ! docker compose ps frontend | grep -q "Up"; then
-              echo "ERROR: frontend container is not Up"
-              docker compose logs --tail=240 frontend || true
-              exit 1
-            fi
+            echo "=== required container states ==="
+            for service in backend frontend db; do
+              if ! docker compose ps "$service" | grep -q "Up"; then
+                echo "ERROR: $service container is not Up"
+                exit 1
+              fi
+            done
 
             echo "=== backend /health ==="
-            curl -sf http://localhost:8000/health
+            curl --fail --silent --show-error --max-time 10 --retry 2 --retry-delay 2 \
+              http://localhost:8000/health
 
             echo "=== frontend / ==="
-            curl -sf http://localhost/ >/dev/null
+            curl --fail --silent --show-error --max-time 10 --retry 2 --retry-delay 2 \
+              http://localhost/ >/dev/null
 
             echo "=== frontend /api/health proxy ==="
-            curl -sf http://localhost/api/health
+            curl --fail --silent --show-error --max-time 10 --retry 2 --retry-delay 2 \
+              http://localhost/api/health
 
-            echo "=== backend import smoke ==="
-            docker compose exec -T backend python - <<'PY'
-          import main
-          from core.router_setup import include_app_routers
-          print('production_backend_import_smoke_ok')
-          print(main.app.title)
-          print(include_app_routers.__name__)
-          PY
-
+            # Importing main starts a second application process and can exhaust a small
+            # production host. Image-level import smoke belongs to the build workflow.
             echo "=== alembic current ==="
-            docker compose exec -T backend alembic current || true
+            docker compose exec -T backend alembic current
+
+            echo "=== production resources ==="
+            free -m
+            docker stats --no-stream
 
             echo "=== health check OK ==="
           EOF
