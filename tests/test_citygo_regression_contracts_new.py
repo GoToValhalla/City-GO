@@ -48,7 +48,7 @@ def test_deploy_quiesces_database_clients_and_guards_schema_new() -> None:
     assert "docker compose stop -t 30 import-worker bot backend" in deploy
     assert "timeout --signal=TERM --kill-after=30s 5m" in deploy
     assert "timeout --signal=TERM --kill-after=30s 3m" in deploy
-    assert "docker compose start backend bot import-worker" in deploy
+    assert "run_compose start backend bot import-worker" in deploy
     assert "docker system df" not in deploy
     assert "Docker daemon is not responding within 30 seconds" in deploy
 
