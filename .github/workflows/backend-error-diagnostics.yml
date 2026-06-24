@@ -13,13 +13,12 @@ permissions:
 jobs:
   backend-error-diagnostics:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     env:
       SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
-      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
     steps:
@@ -27,75 +26,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
-          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
-          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Run backend diagnostics on production server
+      - name: Inspect production visibility state
         shell: bash
         run: |
           set -euo pipefail
-          REMOTE_ADMIN_API_TOKEN=$(printf '%q' "${ADMIN_API_TOKEN:-}")
           ssh \
             -o ConnectTimeout=20 \
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=2 \
             -i ~/.ssh/deploy_key \
             -p "$SSH_PORT" \
-            "$SSH_USER@$SSH_HOST" \
-            "ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN bash -seu -o pipefail" <<'REMOTE_EOF'
+            "$SSH_USER@$SSH_HOST" bash <<'REMOTE_EOF'
+            set -euo pipefail
             cd /srv/app
 
-            echo "=== compose ps ==="
-            docker compose ps || true
-            echo "=== resources ==="
-            free -m || true
-            docker stats --no-stream || true
-
-            echo "=== public API ==="
-            curl -sS -i --connect-timeout 5 --max-time 15 http://localhost:8000/health || true
-            echo
-            curl -sS -i --connect-timeout 5 --max-time 20 \
-              'http://localhost:8000/cities/available?include_draft=true' || true
-            echo
-            for slug in zelenogradsk khanty-mansiysk rostov-on-don; do
-              echo "--- places city=${slug} ---"
-              curl -sS -L -i --connect-timeout 5 --max-time 20 \
-                "http://localhost:8000/places?city_slug=${slug}&limit=1&offset=0" || true
-              echo
-            done
-
-            echo "=== PostgreSQL city/place counts ==="
-            docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off -c \
-              "SELECT c.id, c.slug, c.name, c.launch_status, count(p.id) AS places_count FROM cities c LEFT JOIN places p ON p.city_id = c.id GROUP BY c.id, c.slug, c.name, c.launch_status ORDER BY places_count DESC, c.slug;" || true
-
             echo "=== feature toggles ==="
-            docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off -c \
-              "SELECT id, scope, coalesce(scope_id, '<global>') AS scope_id, key, value_bool, updated_by, change_reason, updated_at FROM feature_toggles ORDER BY updated_at DESC, id DESC;" || true
-
-            echo "=== recent feature toggle audit ==="
             docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
-              "SELECT id, actor, action, entity_id, old_value, new_value, reason, created_at FROM admin_audit_logs WHERE entity_type = 'feature_toggle' ORDER BY created_at DESC LIMIT 30;" || true
+              "SELECT id, scope, coalesce(scope_id, '<global>') AS scope_id, key, value_bool, updated_by, change_reason, updated_at FROM feature_toggles ORDER BY updated_at DESC, id DESC;"
 
-            echo "=== orphan places ==="
-            docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off -c \
-              "SELECT count(*) AS orphan_places FROM places p LEFT JOIN cities c ON c.id = p.city_id WHERE c.id IS NULL;" || true
+            echo "=== city publication and public-place counts ==="
+            docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
+              "SELECT c.slug, c.launch_status, c.is_active, count(p.id) AS places_total, count(p.id) FILTER (WHERE p.is_visible = true) AS visible_places FROM cities c LEFT JOIN places p ON p.city_id = c.id GROUP BY c.id, c.slug, c.launch_status, c.is_active ORDER BY c.slug;"
 
-            echo "=== database size and connections ==="
-            docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -P pager=off -c \
-              "SELECT pg_size_pretty(pg_database_size(current_database())) AS database_size, count(*) AS connections FROM pg_stat_activity WHERE datname = current_database();" || true
-
-            echo "=== alembic current/head ==="
-            docker compose exec -T backend alembic current || true
-            docker compose exec -T backend alembic heads || true
-
-            echo "=== recent database/backend errors ==="
-            docker compose logs --tail=1600 backend db | grep -Ei -A 35 -B 15 \
-              'traceback|exception|error|critical|undefinedcolumn|undefinedtable|programmingerror|operationalerror|integrityerror|validationerror|sqlalchemy|psycopg|out of memory|oom' || true
+            echo "=== public endpoint ==="
+            curl --fail --silent --show-error --max-time 20 \
+              'http://localhost:8000/cities/available?include_draft=true'
+            echo
           REMOTE_EOF
 
       - name: Telegram diagnostics result
@@ -104,10 +65,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-            echo "Telegram notification skipped"
             exit 0
           fi
-          TEXT="🧪 City Go backend diagnostics finished%0AStatus: ${{ job.status }}%0AHost: ${SSH_HOST}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          TEXT="🧪 City Go visibility diagnostics finished%0AStatus: ${{ job.status }}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "text=${TEXT}" \
