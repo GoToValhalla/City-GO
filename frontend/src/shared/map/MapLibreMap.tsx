@@ -48,7 +48,9 @@ export const MapLibreMap = ({
         zoom: first ? 12 : 4, attributionControl: { compact: true },
       })
       mapRef.current = map
-      map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
+      // External map actions occupy the top edge in place screens. Keeping zoom
+      // controls at the bottom-right prevents an invisible link from intercepting them.
+      map.addControl(new NavigationControl({ showCompass: false }), 'bottom-right')
       map.on('error', () => setError('Карта временно недоступна. Список мест продолжает работать.'))
       map.on('load', () => {
         const current = dataRef.current
