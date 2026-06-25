@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet } from './adminApi'
+import { AdminCoverageGapsPage } from './AdminCoverageGapsPage'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 
 type CoverageRow = {
@@ -32,6 +33,10 @@ export const AdminCoveragePage = () => {
   const [error, setError] = useState<string | null>(null)
   const highlight = params.get('city')
 
+  if (params.get('tab') === 'gaps') {
+    return <AdminCoverageGapsPage />
+  }
+
   useEffect(() => {
     adminGet<CoverageResponse>('/admin/coverage/summary?limit=100')
       .then((r) => setItems(r.items))
@@ -45,8 +50,13 @@ export const AdminCoveragePage = () => {
 
   return (
     <div>
-      <h2 className="admin-page-title">Покрытие данных</h2>
-      <p className="admin-page-subtitle">Каждое число открывает соответствующий набор мест с сохранённым городом и фильтром.</p>
+      <div className="admin-page-header">
+        <div>
+          <h2 className="admin-page-title">Покрытие данных</h2>
+          <p className="admin-page-subtitle">Каждое число открывает соответствующий набор мест с сохранённым городом и фильтром.</p>
+        </div>
+        <Link className="admin-btn admin-btn-primary" to="/admin/coverage?tab=gaps">Пропущенные must-have</Link>
+      </div>
       <div className="admin-table-wrap">
         <table className="admin-table">
           <thead><tr><th>Город</th><th>Оценка</th><th>Всего</th><th>Опубл.</th><th>Без фото</th><th>Без адреса</th><th>Без описания</th><th>Действия</th></tr></thead>
@@ -62,6 +72,7 @@ export const AdminCoveragePage = () => {
                 <td><CountLink to={placesLink(c.city_slug, '&description=false')} value={c.places_without_description} label="места без описания" /></td>
                 <td className="admin-actions-cell">
                   <Link className="admin-btn admin-btn-sm" to={placesLink(c.city_slug, '&preset=problematic')}>Проблемные</Link>
+                  <Link className="admin-btn admin-btn-sm" to={`/admin/coverage?tab=gaps&city_slug=${c.city_slug}`}>Must-have</Link>
                   <Link className="admin-btn admin-btn-sm" to={`/admin/photos?city=${c.city_slug}`}>Фото</Link>
                   <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${c.city_slug}`}>Обогащение</Link>
                 </td>
