@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     local_cache_size_limit_bytes: int = 1_073_741_824
     local_cache_shards: int = 8
 
+    # Pedestrian routing provider. The default is a public OSRM foot instance and can be
+    # replaced with a self-hosted compatible endpoint without frontend changes.
+    walking_router_url: str = "https://routing.openstreetmap.de/routed-foot/route/v1/driving"
+    walking_router_timeout_seconds: int = 12
+    walking_router_user_agent: str = "CityGoWalkingRouter/1.0"
+
     # Optional Geoapify key. Если ключ не задан, typed address не геокодится,
     # а маршрут строится от координат, которые пришли от клиента.
     geoapify_api_key: str = ""
