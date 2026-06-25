@@ -62,7 +62,12 @@ touch .env
 
 # Deployment secrets are the source of truth. Always replace existing values so
 # runtime workers do not keep an obsolete Telegram token after secret rotation.
-python - <<'PY'
+HOST_PYTHON="$(command -v python3 || command -v python || true)"
+if [ -z "$HOST_PYTHON" ]; then
+  echo "ERROR: neither python3 nor python is available on the production host. Cannot update /srv/app/.env safely." >&2
+  exit 1
+fi
+"$HOST_PYTHON" - <<'PY'
 import os
 from pathlib import Path
 
