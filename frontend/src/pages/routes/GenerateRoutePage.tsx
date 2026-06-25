@@ -22,6 +22,7 @@ import { RandomRouteDraftEditor } from '../../widgets/route-draft/RandomRouteDra
 import { initialRouteForm } from './routeInitialForm'
 import './GenerateRoutePage.css'
 import './GenerateRouteControls.css'
+import '../../styles/route-refinements.css'
 
 type RouteDebugInfo = {
   title: string
