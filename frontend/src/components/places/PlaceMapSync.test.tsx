@@ -23,7 +23,7 @@ const places = [
 ]
 
 describe('place map synchronization', () => {
-  it('sends marker and manual point selections_new', () => {
+  it('sends marker and manual point selections', () => {
     const select = vi.fn()
     const manual = vi.fn()
     render(<MemoryRouter><PlaceMapPanel places={places} onActivePlaceChange={select} onManualPoint={manual} /></MemoryRouter>)
@@ -33,7 +33,7 @@ describe('place map synchronization', () => {
     expect(manual).toHaveBeenCalledWith({ latitude: 54.9, longitude: 20.4 })
   })
 
-  it('keeps place without coordinates in list_new', () => {
+  it('keeps place without coordinates in list', () => {
     render(<MemoryRouter><PlaceList places={places} /></MemoryRouter>)
     expect(screen.getByText('Без координат')).toBeInTheDocument()
   })
