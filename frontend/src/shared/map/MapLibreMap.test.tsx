@@ -7,6 +7,8 @@ import { loadWalkingRoute } from './walkingRoute.api'
 
 const remove = vi.fn()
 const addControl = vi.fn()
+const fitBounds = vi.fn()
+const easeTo = vi.fn()
 
 vi.mock('./walkingRoute.api', () => ({
   loadWalkingRoute: vi.fn().mockResolvedValue({
@@ -16,18 +18,17 @@ vi.mock('./walkingRoute.api', () => ({
 }))
 
 vi.mock('maplibre-gl', () => {
-  class FakeBounds { extend() { return this } }
   class FakeMap {
     sources = new Map<string, { setData: ReturnType<typeof vi.fn> }>()
     removeHandler?: () => void
     addControl(control: unknown, position?: string) { addControl(control, position) }
     addLayer() {}
     addSource(id: string) { this.sources.set(id, { setData: vi.fn() }) }
-    fitBounds() {}
+    fitBounds(bounds: unknown, options?: unknown) { fitBounds(bounds, options) }
     getSource(id: string) { return this.sources.get(id) }
     getZoom() { return 12 }
     isStyleLoaded() { return true }
-    easeTo() {}
+    easeTo(options?: unknown) { easeTo(options) }
     queryRenderedFeatures() { return [] }
     resize() {}
     getCanvas() { return { style: { cursor: '' } } }
@@ -38,11 +39,18 @@ vi.mock('maplibre-gl', () => {
     once(event: string, handler: () => void) { if (event === 'remove') this.removeHandler = handler }
     remove() { remove(); this.removeHandler?.() }
   }
-  return { LngLatBounds: FakeBounds, Map: FakeMap, NavigationControl: class {} }
+  return { Map: FakeMap, NavigationControl: class {} }
 })
 
 describe('MapLibreMap lifecycle', () => {
-  afterEach(() => { cleanup(); remove.mockClear(); addControl.mockClear(); vi.clearAllMocks() })
+  afterEach(() => {
+    cleanup()
+    remove.mockClear()
+    addControl.mockClear()
+    fitBounds.mockClear()
+    easeTo.mockClear()
+    vi.clearAllMocks()
+  })
 
   it('requests pedestrian geometry, renders controls and removes the map instance', async () => {
     const points = [
@@ -57,5 +65,24 @@ describe('MapLibreMap lifecycle', () => {
 
     view.unmount()
     expect(remove).toHaveBeenCalledOnce()
+  })
+
+  it('refits viewport when places move to another city without remounting map', async () => {
+    const astrakhanPoints = [
+      { id: 1, latitude: 46.3497, longitude: 48.0408, title: 'Астрахань 1' },
+      { id: 2, latitude: 46.3510, longitude: 48.0420, title: 'Астрахань 2' },
+    ]
+    const kutaisiPoints = [
+      { id: 10, latitude: 42.2676, longitude: 42.7180, title: 'Кутаиси 1' },
+      { id: 11, latitude: 42.2710, longitude: 42.7210, title: 'Кутаиси 2' },
+    ]
+
+    const view = render(<MapLibreMap points={astrakhanPoints} />)
+    await waitFor(() => expect(fitBounds).toHaveBeenCalledTimes(1))
+
+    view.rerender(<MapLibreMap points={kutaisiPoints} />)
+
+    await waitFor(() => expect(fitBounds).toHaveBeenCalledTimes(2))
+    expect(remove).not.toHaveBeenCalled()
   })
 })
