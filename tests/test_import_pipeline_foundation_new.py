@@ -71,11 +71,12 @@ def test_ai_description_is_not_mocked_or_high_confidence(db_session, city_factor
 
     run_foundation_pipeline(db_session, city=city, job=_job(db_session, city.id), actor="qa")
     confidence = db_session.query(PlaceFieldConfidence).filter_by(place_id=place.id, field_name="description").first()
-    review = db_session.query(ReviewQueueItem).filter_by(place_id=place.id, field_name="description").one()
+    reviews = db_session.query(ReviewQueueItem).filter_by(place_id=place.id, field_name="description", status="open").all()
 
     assert place.short_description is None
     assert confidence is None or confidence.confidence < 0.8
-    assert review.reason == "low_confidence"
+    assert len(reviews) == 1
+    assert reviews[0].reason == "description_missing"
 
 
 def test_category_fallback_photo_cannot_be_primary(db_session, city_factory, place_factory) -> None:
