@@ -20,10 +20,17 @@ def ensure_review_item(
     severity: str = "medium",
     payload: dict[str, object] | None = None,
 ) -> ReviewQueueItem:
-    item = _pending_item(db, place_id=place_id, field_name=field_name, reason=reason)
+    """Create or update the single active issue for a place field.
+
+    Pipeline stages may discover several symptoms for the same field during one
+    run. Operators should see one actionable queue item, not duplicates created
+    by description generation, confidence calculation and quality validation.
+    """
+    item = _pending_item(db, place_id=place_id, field_name=field_name)
     item = item or (
         db.query(ReviewQueueItem)
-        .filter_by(place_id=place_id, field_name=field_name, reason=reason, status="open")
+        .filter_by(place_id=place_id, field_name=field_name, status="open")
+        .order_by(ReviewQueueItem.id.asc())
         .first()
     )
     if item is None:
@@ -31,9 +38,9 @@ def ensure_review_item(
             city_id=city_id,
             place_id=place_id,
             field_name=field_name,
-            reason=reason,
             status="open",
         )
+    item.reason = reason
     item.job_id = job_id
     item.severity = severity
     item.payload = payload or {}
@@ -67,14 +74,12 @@ def _pending_item(
     *,
     place_id: int,
     field_name: str,
-    reason: str,
 ) -> ReviewQueueItem | None:
     for pending in db.new:
         if (
             isinstance(pending, ReviewQueueItem)
             and pending.place_id == place_id
             and pending.field_name == field_name
-            and pending.reason == reason
             and pending.status in {None, "open"}
         ):
             return pending
