@@ -20,11 +20,13 @@ City GO — городской travel/local guide: публичный катал
 - Telegram-бот на `aiogram 3` с webhook/polling entrypoint.
 - Admin import/enrichment pipeline foundation.
 - Field-level confidence, review queue, photo candidates, route eligibility diagnostics.
+- Data Coverage Assurance foundation: must-have POI registry, coverage gap detection, scope-aware assurance, acceptance verdict and readiness gate.
 - Docker Compose production deploy через GitHub Actions.
 - CI: backend pytest + frontend lint/tests/build + Allure raw results.
 
 Основной актуальный operational overview: `docs/operations/current_system_overview.md`.
 Операционный центр админки: `docs/admin_operational_center.md`.
+Data Coverage Assurance: `docs/architecture/data_coverage_assurance.md`.
 
 ## Стек
 
@@ -143,6 +145,33 @@ POST /admin/place-enrichment/photo-candidates/{candidate_id}/set-primary
 
 Подробнее: `docs/architecture/import_enrichment_pipeline_stage1.md`.
 
+### Data Coverage Assurance
+
+Must-have coverage is a separate readiness layer. A city cannot be considered ready only because the raw import finished.
+
+Core files:
+
+- `models/known_missing_poi.py` — operational registry of expected POI.
+- `data/config/known_missing_poi.json` — versioned seed data.
+- `services/data_coverage_contract.py` — shared statuses, gap reasons, scope aliases and acceptance rules.
+- `services/data_coverage_assurance.py` — scope-aware and source-observation-aware assurance pass.
+- `services/osm_import_taxonomy.py` — global OSM taxonomy mapper.
+- `data/scripts/import_city_osm_v2.py` — coverage-aware import wrapper.
+- `routers/admin_coverage_gaps.py` — admin API.
+- `frontend/src/pages/admin/AdminCoverageGapsPage.tsx` — admin dashboard.
+
+Admin endpoints:
+
+```http
+GET /admin/coverage-gaps
+GET /admin/coverage-gaps/cities/{city_slug}
+POST /admin/coverage-gaps/sync
+POST /admin/coverage-gaps/refresh
+PATCH /admin/coverage-gaps/{gap_id}
+```
+
+Подробнее: `docs/architecture/data_coverage_assurance.md`.
+
 ### Telegram Bot
 
 Код живёт в `telegram_bot/`.
@@ -197,130 +226,3 @@ pip install -r requirements-dev.txt
 alembic upgrade head
 uvicorn main:app --reload
 ```
-
-### Frontend
-
-```bash
-cd frontend
-npm ci
-npm run dev
-```
-
-### Docker production-like
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-Адреса:
-
-| Сервис | Адрес |
-|---|---|
-| Frontend | http://localhost |
-| Backend API | http://localhost:8000 |
-| API Docs | http://localhost:8000/docs |
-
-### Docker dev
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
-```
-
-| Сервис | Адрес |
-|---|---|
-| Frontend | http://localhost:5173 |
-| Backend API | http://localhost:8000 |
-| API Docs | http://localhost:8000/docs |
-
-## Проверки перед push
-
-Минимальный targeted набор после backend/frontend изменений:
-
-```bash
-.venv/bin/python -m pytest --no-cov -q
-npm --prefix frontend run lint
-npm --prefix frontend run test:ci
-npm --prefix frontend run build
-git diff --check
-```
-
-Для route navigation:
-
-```bash
-npm --prefix frontend run test -- routeNavigation routeQualityGate
-.venv/bin/python -m pytest --no-cov \
-  tests/test_route_detail_navigation_fields_new.py \
-  tests/test_route_sessions_new.py \
-  tests/test_alembic_single_head_new.py -q
-```
-
-Для import/enrichment pipeline:
-
-```bash
-.venv/bin/python -m pytest --no-cov \
-  tests/test_alembic_single_head_new.py \
-  tests/test_import_pipeline_foundation_new.py \
-  tests/test_import_pipeline_foundation_safety_new.py \
-  tests/test_import_pipeline_api_new.py \
-  tests/test_import_pipeline_review_queue_new.py \
-  tests/test_import_pipeline_photo_safety_new.py -q
-```
-
-Для Telegram bot:
-
-```bash
-.venv/bin/python -m pytest --no-cov \
-  tests/test_telegram_bot_rewrite_new.py \
-  tests/test_telegram_bot_completion_new.py -q
-```
-
-## Deploy
-
-Deploy workflow: `.github/workflows/deploy.yml`.
-
-Запуск:
-
-```bash
-gh workflow run Deploy --ref main
-gh run watch <run_id>
-```
-
-Workflow делает:
-
-1. build backend image;
-2. backend import smoke inside image;
-3. push backend image;
-4. build/push frontend image;
-5. на сервере скачивает актуальный `docker-compose.yml` из `main`;
-6. pull images;
-7. migrations;
-8. production schema guard;
-9. backend health;
-10. frontend health + `/build.json` SHA guard;
-11. restart bot/import-worker;
-12. proxy health.
-
-Production import-smoke внутри уже работающего backend-контейнера намеренно не выполняется: на маленьком сервере это может дать `exit 137` из-за OOM. Import-smoke остаётся на build этапе image.
-
-## Миграции
-
-Правила:
-
-- один Alembic head;
-- при добавлении миграции обновить `tests/test_alembic_single_head_new.py` (`KNOWN_HEAD`, `EXPECTED_COUNT`);
-- новые модели должны быть импортированы в `models/__init__.py` и `migrations/env.py`;
-- production deploy использует `alembic upgrade heads`.
-
-## Документация
-
-Актуальные документы:
-
-- `README.md` — главный вход.
-- `docs/operations/current_system_overview.md` — операционная карта системы.
-- `docs/architecture/import_enrichment_pipeline_stage1.md` — import/enrichment pipeline.
-- `docs/architecture/route_navigation_stage1.md` — route navigation MVP.
-- `docs/architecture/telegram_bot.md` — Telegram bot.
-- `docs/data-foundation-p1.md` — Data Foundation P1.
-
-При крупных изменениях нужно обновлять минимум README + соответствующий doc в `docs/architecture` или `docs/operations`.
