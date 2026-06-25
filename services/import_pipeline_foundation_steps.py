@@ -21,7 +21,13 @@ from services.place_field_confidence_service import is_protected, upsert_field_c
 from services.place_photo_candidate_service import add_photo_candidate
 from services.review_queue_service import ensure_review_item
 
-ENRICHMENT_CONFIDENCE_SOURCES = {"geoapify", "wikidata", "official_site", "citygo_category_rules"}
+ENRICHMENT_CONFIDENCE_SOURCES = {
+    "geoapify",
+    "wikidata",
+    "official_site",
+    "citygo_category_rules",
+    "citygo_description_draft",
+}
 PROTECTED_PLACE_FIELDS = {
     "address": "address",
     "website": "website",
