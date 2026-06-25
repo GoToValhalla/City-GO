@@ -6,6 +6,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { path: '/admin/places', label: 'Места', section: 'data' },
   { path: '/admin/taxonomy', label: 'Таксономия', section: 'data' },
   { path: '/admin/coverage', label: 'Покрытие данных', section: 'data' },
+  { path: '/admin/coverage-gaps', label: 'Пропущенные must-have', section: 'data' },
   { path: '/admin/quality', label: 'Качество', section: 'data' },
   { path: '/admin/routes/eligibility', label: 'Маршруты: готовность мест', section: 'routes' },
   { path: '/admin/routes/dry-run', label: 'Маршруты: проверка сборки', section: 'routes' },
