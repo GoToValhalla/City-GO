@@ -19,7 +19,7 @@ def _trusted(place, *, source: str = "osm") -> None:
     place.confidence = 0.9
 
 
-def test_pipeline_creates_job_steps_confidence_observations_and_review_items_new(db_session, city_factory, place_factory) -> None:
+def test_pipeline_creates_job_steps_confidence_observations_and_review_items(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="pipeline-city")
     place = place_factory(city_id=city.id, slug="pipeline-park", title="Park", category="park", address=None)
     _trusted(place)
@@ -34,7 +34,7 @@ def test_pipeline_creates_job_steps_confidence_observations_and_review_items_new
     assert db_session.query(ReviewQueueItem).filter_by(place_id=place.id, status="open").count() >= 1
 
 
-def test_repeated_pipeline_run_does_not_duplicate_core_candidates_new(db_session, city_factory, place_factory) -> None:
+def test_repeated_pipeline_run_does_not_duplicate_core_candidates(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="pipeline-repeat")
     place = place_factory(city_id=city.id, slug="repeat-cafe", title="Cafe", category="coffee", address=None)
     place.image_url = "https://example.test/cafe.jpg"
@@ -49,7 +49,7 @@ def test_repeated_pipeline_run_does_not_duplicate_core_candidates_new(db_session
     assert db_session.query(ReviewQueueItem).filter_by(place_id=place.id, field_name="address").count() == 1
 
 
-def test_manual_verified_description_is_not_overwritten_new(db_session, city_factory, place_factory) -> None:
+def test_manual_verified_description_is_not_overwritten(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="pipeline-manual")
     place = place_factory(city_id=city.id, slug="manual-place", title="Manual", category="park")
     _trusted(place)
@@ -64,7 +64,7 @@ def test_manual_verified_description_is_not_overwritten_new(db_session, city_fac
     assert place.short_description is None
 
 
-def test_ai_description_is_not_mocked_or_high_confidence_new(db_session, city_factory, place_factory) -> None:
+def test_ai_description_is_not_mocked_or_high_confidence(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="pipeline-ai")
     place = place_factory(city_id=city.id, slug="ai-place", title="AI Place", category="park")
     _trusted(place)
@@ -75,10 +75,10 @@ def test_ai_description_is_not_mocked_or_high_confidence_new(db_session, city_fa
 
     assert place.short_description is None
     assert confidence is None or confidence.confidence < 0.8
-    assert review.reason == "description_missing"
+    assert review.reason == "low_confidence"
 
 
-def test_category_fallback_photo_cannot_be_primary_new(db_session, city_factory, place_factory) -> None:
+def test_category_fallback_photo_cannot_be_primary(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="pipeline-photo")
     place = place_factory(city_id=city.id, slug="photo-place", title="Photo", category="park")
     place.image_url = "https://example.test/fallback.jpg"
