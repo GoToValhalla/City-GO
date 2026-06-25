@@ -18,15 +18,12 @@ export const pointCollection = (points: MapPoint[], activeId: number | null): Fe
   })),
 })
 
-export const routeCollection = (points: MapPoint[]): FeatureCollection<LineString> => ({
+export const routeCollection = (coordinates: [number, number][]): FeatureCollection<LineString> => ({
   type: 'FeatureCollection',
-  features: points.length > 1 ? [{
+  features: coordinates.length > 1 ? [{
     type: 'Feature',
-    properties: {},
-    geometry: {
-      type: 'LineString',
-      coordinates: points.map((point) => [point.longitude, point.latitude]),
-    },
+    properties: { routed: true },
+    geometry: { type: 'LineString', coordinates },
   }] : [],
 })
 
