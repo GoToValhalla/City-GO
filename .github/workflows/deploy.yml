@@ -107,11 +107,15 @@ jobs:
           SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -euo pipefail
           test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
           test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
           test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+          test -n "$TELEGRAM_BOT_TOKEN" || (echo "TELEGRAM_BOT_TOKEN secret is missing" >&2; exit 1)
+          test -n "$TELEGRAM_CHAT_ID" || (echo "TELEGRAM_CHAT_ID secret is missing" >&2; exit 1)
 
       - name: Setup SSH key
         shell: bash
@@ -162,29 +166,40 @@ jobs:
   notify:
     name: Notify deploy result
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs:
       - build
       - deploy
     if: always()
     steps:
-      - name: Telegram deploy notification
-        continue-on-error: true
+      - name: Checkout notification helper
+        uses: actions/checkout@v4
+
+      - name: Build deploy notification
         shell: bash
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           BUILD_RESULT: ${{ needs.build.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
         run: |
           set -euo pipefail
-          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-            echo "Telegram deploy notification skipped: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID."
-            exit 0
-          fi
-          STATUS="✅ City GO: deploy ok"
+          STATUS="✅ City GO: деплой завершён"
           if [ "$BUILD_RESULT" != "success" ] || [ "$DEPLOY_RESULT" != "success" ]; then
-            STATUS="❌ City GO: deploy failed"
+            STATUS="❌ City GO: деплой завершился ошибкой"
           fi
-          TEXT="${STATUS}%0ARepo: ${{ github.repository }}%0ARun: ${{ github.run_number }}%0ABuild: ${BUILD_RESULT}%0ADeploy: ${DEPLOY_RESULT}%0ASHA: ${{ github.sha }}"
-          curl -fsS --retry 3 --retry-delay 2 \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${TEXT}"
+          cat > /tmp/deploy-notification.txt <<EOF
+          ${STATUS}
+          Репозиторий: ${{ github.repository }}
+          Прогон: #${{ github.run_number }} · попытка ${{ github.run_attempt }}
+          Сборка: ${BUILD_RESULT}
+          Деплой: ${DEPLOY_RESULT}
+          Commit: ${GITHUB_SHA:0:7}
+          Подробнее: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          sed -i 's/^          //' /tmp/deploy-notification.txt
+
+      - name: Send Telegram deploy notification
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/send_telegram_notification.py --text-file /tmp/deploy-notification.txt
