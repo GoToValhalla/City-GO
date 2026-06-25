@@ -8,7 +8,7 @@ import type {
 import { sendRouteFeedback } from '../../api/recommendations/recommendationRoute.api'
 import { Clock, Map, Plus, RefreshCw, Scissors, ShieldCheck, Star } from 'lucide-react'
 import { MapLibreMap } from '../../shared/map/MapLibreMap'
-import type { MapPoint } from '../../shared/map/mapTypes'
+import type { MapPoint, MapRouteState } from '../../shared/map/mapTypes'
 import { RouteCandidateOptions } from './RouteCandidateOptions'
 import { RouteDataNotes } from './RouteDataNotes'
 import { RouteDebugTrace } from './RouteDebugTrace'
@@ -16,6 +16,7 @@ import { RouteInsights } from './RouteInsights'
 import { RoutePointList } from './RoutePointList'
 import { RouteWarnings } from './RouteWarnings'
 import { emptyCopy, emptyTitle, statusLabel } from './routeResultStatusText'
+import { isDebugEnabled } from '../../shared/config/debug'
 
 const QUALITY_LABELS: Record<RouteQualityStatus, string> = {
   good: 'Хороший маршрут',
@@ -42,9 +43,7 @@ const normalizeQualityStatus = (route: RecommendationRouteResponse): RouteQualit
   const direct = route.quality_status
   if (direct === 'good' || direct === 'acceptable' || direct === 'weak' || direct === 'failed') return direct
   const breakdownStatus = route.quality_breakdown?.status
-  if (breakdownStatus === 'good' || breakdownStatus === 'acceptable' || breakdownStatus === 'weak' || breakdownStatus === 'failed') {
-    return breakdownStatus
-  }
+  if (breakdownStatus === 'good' || breakdownStatus === 'acceptable' || breakdownStatus === 'weak' || breakdownStatus === 'failed') return breakdownStatus
   if (route.status === 'no_route' || route.total_places === 0) return 'failed'
   if ((route.quality_score ?? 0) >= 0.75) return 'good'
   if ((route.quality_score ?? 0) >= 0.5) return 'acceptable'
@@ -83,33 +82,41 @@ const nextLegText = (point: RecommendationRoutePoint): string => {
 const RouteMapPreview = ({ points }: { points: RecommendationRoutePoint[] }) => {
   const mapPoints = useMemo(() => toMapPoints(points), [points])
   const [activePointId, setActivePointId] = useState<number | null>(null)
+  const [walkingRoute, setWalkingRoute] = useState<MapRouteState | null>(null)
   const activePoint = mapPoints.find((point) => point.id === activePointId) ?? null
 
   if (mapPoints.length === 0) {
-    return (
-      <div className="route-map-preview route-map-preview-empty">
-        <strong>Карта появится после сборки маршрута</strong>
-        <span>Для визуализации нужны корректные координаты точек.</span>
-      </div>
-    )
+    return <div className="route-map-preview route-map-preview-empty">
+      <strong>Карта появится после сборки маршрута</strong>
+      <span>Для визуализации нужны корректные координаты точек.</span>
+    </div>
   }
 
-  return (
-    <div className="route-map-preview" aria-label="Карта маршрута">
-      <MapLibreMap
-        className="route-map-canvas"
-        points={mapPoints}
-        activePointId={activePointId}
-        routeLine
-        interactiveSelection={false}
-        onPointSelect={setActivePointId}
-      />
-      <div className="route-map-caption" aria-live="polite">
-        <strong>{activePoint ? `${activePoint.order}. ${activePoint.title}` : `${mapPoints.length} точек на маршруте`}</strong>
-        <span>{activePoint ? 'Выбрана точка маршрута.' : 'Нажми на точку, чтобы увидеть её название. Линия показывает порядок посещения.'}</span>
-      </div>
+  return <div className="route-map-preview" aria-label="Карта маршрута">
+    <MapLibreMap className="route-map-canvas" points={mapPoints} activePointId={activePointId}
+      routeLine interactiveSelection={false} onPointSelect={setActivePointId} onRouteStateChange={setWalkingRoute} />
+    <div className="route-map-caption" aria-live="polite">
+      <strong>{activePoint ? `${activePoint.order}. ${activePoint.title}` : `${mapPoints.length} точек на маршруте`}</strong>
+      <span>{activePoint
+        ? 'Выбрана точка маршрута.'
+        : walkingRoute?.status === 'routed'
+          ? `Путь построен по пешеходным улицам: ${formatMeters(walkingRoute.distanceMeters)}.`
+          : 'Строим безопасный пешеходный путь между точками.'}</span>
     </div>
-  )
+    {walkingRoute?.status === 'routed' && walkingRoute.legs.length ? (
+      <div className="route-walking-directions">
+        <h3>Как пройти</h3>
+        {walkingRoute.legs.map((leg) => (
+          <details key={`${leg.from_index}-${leg.to_index}`}>
+            <summary>{leg.from_index + 1} → {leg.to_index + 1} · {formatMeters(leg.distance_meters)} · {Math.max(1, Math.round(leg.duration_seconds / 60))} мин</summary>
+            <ol>{leg.steps.map((step, index) => (
+              <li key={`${leg.from_index}-${index}`}><span>{step.instruction}</span><small>{formatMeters(step.distance_meters)}</small></li>
+            ))}</ol>
+          </details>
+        ))}
+      </div>
+    ) : null}
+  </div>
 }
 
 export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect }: Props) => {
@@ -121,9 +128,7 @@ export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect }: 
   const isPartial = route.status === 'partial_route'
   const isEmpty = route.status === 'no_route' || !hasPoints || qualityStatus === 'failed'
   const walkKm = Math.round((route.total_walk_distance_meters ?? route.estimated_distance * 1000) / 100) / 10
-  const reasons = Object.fromEntries(
-    (route.explanation?.points ?? []).map((point) => [point.place_id, point.reason]),
-  )
+  const reasons = Object.fromEntries((route.explanation?.points ?? []).map((point) => [point.place_id, point.reason]))
 
   const rateRoute = async (rating: number) => {
     try {
@@ -136,50 +141,37 @@ export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect }: 
     }
   }
 
-  return (
-    <section className="route-result-grid">
-      <div className="route-result-tile route-result-summary">
-        <div className="route-result-top">
-          <div>
-            <p className="route-eyebrow">{statusLabel(route.status ?? 'ready')} · {QUALITY_LABELS[qualityStatus]}</p>
-            <h2>{isEmpty ? emptyTitle(route.partial_reason) : summary}</h2>
-          </div>
-          <strong className={`route-grade route-grade-${qualityStatus}`}><ShieldCheck size={18} />{Math.round(quality * 100)}%</strong>
-        </div>
-        <p className={`route-quality-banner route-quality-${qualityStatus}`}>{QUALITY_COPY[qualityStatus]}</p>
-        {isEmpty ? <p className="route-empty-copy">{emptyCopy(route.partial_reason)}</p> : null}
-        {isPartial ? <p className="route-empty-copy">Нашли мало точек, но показываем то, что уже можно пройти.</p> : null}
-        <div className="route-metrics">
-          <span><Map size={16} /> {route.total_places} мест</span>
-          <span><Clock size={16} /> {route.total_estimated_minutes} мин</span>
-          <span>{walkKm} км пешком</span>
-          {route.has_warnings ? <span>{route.warning_count} нюанс.</span> : null}
-        </div>
-        <RouteInsights route={route} />
-        {hasPoints ? <div className="route-correction-bar">
-          <button type="button" disabled={loading} onClick={() => onCorrect('shorten_route')}><Scissors size={16} /> Короче</button>
-          <button type="button" disabled={loading} onClick={() => onCorrect('extend_route')}><Plus size={16} /> Добавить место</button>
-          <button type="button" disabled={loading} onClick={() => onCorrect('rebuild_from_here')}><RefreshCw size={16} /> Перестроить</button>
-        </div> : null}
-        <div className="route-correction-bar" aria-label="Оценка маршрута">
-          {[1, 2, 3, 4, 5].map((rating) => (
-            <button key={rating} type="button" disabled={loading} onClick={() => void rateRoute(rating)}><Star size={16} /> {rating}</button>
-          ))}
-        </div>
-        {ratingStatus ? <p className="route-feedback-status">{ratingStatus}</p> : null}
-        <RouteDataNotes route={route} />
+  return <section className="route-result-grid">
+    <div className="route-result-tile route-result-summary">
+      <div className="route-result-top"><div>
+        <p className="route-eyebrow">{statusLabel(route.status ?? 'ready')} · {QUALITY_LABELS[qualityStatus]}</p>
+        <h2>{isEmpty ? emptyTitle(route.partial_reason) : summary}</h2>
+      </div><strong className={`route-grade route-grade-${qualityStatus}`}><ShieldCheck size={18} />{Math.round(quality * 100)}%</strong></div>
+      <p className={`route-quality-banner route-quality-${qualityStatus}`}>{QUALITY_COPY[qualityStatus]}</p>
+      {isEmpty ? <p className="route-empty-copy">{emptyCopy(route.partial_reason)}</p> : null}
+      {isPartial ? <p className="route-empty-copy">Нашли мало точек, но показываем то, что уже можно пройти.</p> : null}
+      <div className="route-metrics">
+        <span><Map size={16} /> {route.total_places} мест</span><span><Clock size={16} /> {route.total_estimated_minutes} мин</span>
+        <span>{walkKm} км пешком</span>{route.has_warnings ? <span>{route.warning_count} нюанс.</span> : null}
       </div>
-      <RouteWarnings route={route} />
-      {hasPoints ? <div className="route-result-tile"><h2>Карта маршрута</h2><RouteMapPreview points={route.points} /></div> : null}
-      <RouteDebugTrace route={route} />
-      {hasPoints ? <div className="route-result-tile"><h2>Точки маршрута</h2><RoutePointList points={route.points} reasons={reasons} /></div> : null}
-      {hasPoints ? <div className="route-result-tile route-leg-list"><h2>Переходы между точками</h2>{route.points.slice(0, -1).map((point, index) => (
-        <div key={`${point.place_id}-leg`} className="route-leg-row">
-          <span>{index + 1} → {index + 2}</span>
-          <strong>{nextLegText(point)}</strong>
-        </div>
-      ))}</div> : null}
-      <RouteCandidateOptions disabled={loading} options={route.candidate_options} onAdd={onAddCandidate} />
-    </section>
-  )
+      <RouteInsights route={route} />
+      {hasPoints ? <div className="route-correction-bar">
+        <button type="button" disabled={loading} onClick={() => onCorrect('shorten_route')}><Scissors size={16} /> Короче</button>
+        <button type="button" disabled={loading} onClick={() => onCorrect('extend_route')}><Plus size={16} /> Добавить место</button>
+        <button type="button" disabled={loading} onClick={() => onCorrect('rebuild_from_here')}><RefreshCw size={16} /> Перестроить</button>
+      </div> : null}
+      <div className="route-correction-bar" aria-label="Оценка маршрута">{[1, 2, 3, 4, 5].map((rating) => (
+        <button key={rating} type="button" disabled={loading} onClick={() => void rateRoute(rating)}><Star size={16} /> {rating}</button>
+      ))}</div>
+      {ratingStatus ? <p className="route-feedback-status">{ratingStatus}</p> : null}<RouteDataNotes route={route} />
+    </div>
+    <RouteWarnings route={route} />
+    {hasPoints ? <div className="route-result-tile"><h2>Карта маршрута</h2><RouteMapPreview points={route.points} /></div> : null}
+    {isDebugEnabled() ? <RouteDebugTrace route={route} /> : null}
+    {hasPoints ? <div className="route-result-tile"><h2>Точки маршрута</h2><RoutePointList points={route.points} reasons={reasons} /></div> : null}
+    {hasPoints ? <div className="route-result-tile route-leg-list"><h2>Переходы между точками</h2>{route.points.slice(0, -1).map((point, index) => (
+      <div key={`${point.place_id}-leg`} className="route-leg-row"><span>{index + 1} → {index + 2}</span><strong>{nextLegText(point)}</strong></div>
+    ))}</div> : null}
+    <RouteCandidateOptions disabled={loading} options={route.candidate_options} onAdd={onAddCandidate} />
+  </section>
 }
