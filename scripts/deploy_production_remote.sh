@@ -59,19 +59,29 @@ curl -sf --connect-timeout 15 --max-time 60 \
 
 cd /srv/app
 touch .env
-ensure_env() {
-  local key="$1"
-  local value="$2"
-  if ! grep -q "^${key}=." .env 2>/dev/null && [ -n "$value" ]; then
-    printf '%s=%s\n' "$key" "$value" >> .env
-  fi
+
+# Deployment secrets are the source of truth. Always replace existing values so
+# runtime workers do not keep an obsolete Telegram token after secret rotation.
+python - <<'PY'
+import os
+from pathlib import Path
+
+path = Path('.env')
+lines = path.read_text(encoding='utf-8').splitlines()
+updates = {
+    'ADMIN_API_TOKEN': os.environ.get('ADMIN_API_TOKEN', ''),
+    'TELEGRAM_BOT_TOKEN': os.environ.get('TELEGRAM_BOT_TOKEN', ''),
+    'TELEGRAM_CHAT_ID': os.environ.get('TELEGRAM_CHAT_ID', ''),
+    'APP_ENV': 'production',
 }
-ensure_env ADMIN_API_TOKEN "${ADMIN_API_TOKEN:-}"
-ensure_env TELEGRAM_BOT_TOKEN "${TELEGRAM_BOT_TOKEN:-}"
-ensure_env TELEGRAM_CHAT_ID "${TELEGRAM_CHAT_ID:-}"
-if ! grep -q '^APP_ENV=' .env 2>/dev/null; then
-  echo "APP_ENV=production" >> .env
-fi
+for key in ('ADMIN_API_TOKEN', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'):
+    if not updates[key]:
+        raise SystemExit(f'{key} is empty; refusing to deploy with broken runtime notifications')
+filtered = [line for line in lines if not any(line.startswith(f'{key}=') for key in updates)]
+filtered.extend(f'{key}={value}' for key, value in updates.items())
+path.write_text('\n'.join(filtered) + '\n', encoding='utf-8')
+print('Runtime secrets updated: admin token and Telegram credentials are configured')
+PY
 
 timeout 30s docker compose config >/dev/null
 
@@ -123,8 +133,6 @@ if ! wait_for_database 30; then
   exit 1
 fi
 
-# PostgreSQL ALTER TABLE requires an ACCESS EXCLUSIVE lock. Runtime services are
-# stopped first so open transactions cannot block Alembic indefinitely.
 echo "=== quiesce database clients before migrations ==="
 timeout --signal=TERM --kill-after=15s 2m docker compose stop -t 30 import-worker bot backend || true
 run_compose ps || true
@@ -205,8 +213,12 @@ if [ "$BACKGROUND_OK" != "1" ]; then
   exit 1
 fi
 
-# A worker can exhaust connections or surface a schema problem immediately after
-# startup. Keep deploy red unless readiness remains stable after all clients run.
+echo "=== runtime notification configuration gate ==="
+for service in backend import-worker; do
+  timeout 30s docker compose exec -T "$service" python -c \
+    "from core.config import settings; assert settings.telegram_bot_token or settings.bot_token; assert settings.telegram_chat_id; print('telegram_runtime_configured service=${service}')" </dev/null
+done
+
 echo "=== post-start database stability gate ==="
 for check in 1 2 3; do
   sleep 5
