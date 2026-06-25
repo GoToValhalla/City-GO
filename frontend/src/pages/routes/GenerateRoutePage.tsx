@@ -374,7 +374,7 @@ export const GenerateRoutePage = () => {
               <p>Выбери время, настроение и ограничения. City Go покажет точки,
                 адреса, порядок остановок и примерную длительность.</p>
             </div>
-            <RouteHeroPreview features={features} />
+            <RouteHeroPreview cityName={city.name} citySlug={city.slug} />
           </section>
           <section className="route-config-tile">
             <RouteRequestForm
