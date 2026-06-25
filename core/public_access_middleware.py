@@ -9,7 +9,7 @@ from starlette.responses import JSONResponse, Response
 from db.session import SessionLocal
 from services.feature_toggle_guards import assert_web_public
 
-_SKIP_PREFIXES = ("/admin", "/health", "/version", "/docs", "/openapi.json", "/redoc")
+_SKIP_PREFIXES = ("/admin", "/health", "/ready", "/version", "/docs", "/openapi.json", "/redoc", "/place-coverage")
 
 
 async def public_access_middleware(
