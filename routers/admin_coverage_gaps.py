@@ -11,10 +11,10 @@ from services.coverage_gap_service import (
     CRITICAL_POLICIES,
     UNRESOLVED_STATUSES,
     build_coverage_summary,
-    refresh_coverage_statuses,
     sync_known_missing_poi_seed,
 )
 from services.coverage_readiness_gate import apply_coverage_readiness_gate
+from services.data_coverage_assurance import run_data_coverage_assurance
 
 router = APIRouter(prefix="/admin/coverage-gaps", tags=["admin-coverage-gaps"])
 VIRTUAL_STATUS_FILTERS = {"unresolved", "critical"}
@@ -39,6 +39,9 @@ def list_coverage_gaps(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
+    if refresh:
+        run_data_coverage_assurance(db, city_slug=city_slug)
+        db.commit()
     virtual_status = status if status in VIRTUAL_STATUS_FILTERS else None
     payload = build_coverage_summary(
         db,
@@ -48,7 +51,7 @@ def list_coverage_gaps(
         expected_category=expected_category,
         offset=0 if virtual_status else offset,
         limit=300 if virtual_status else limit,
-        refresh=refresh,
+        refresh=False,
     )
     if virtual_status:
         payload = _apply_virtual_status_filter(payload, virtual_status, offset=offset, limit=limit)
@@ -64,7 +67,10 @@ def get_city_coverage_gaps(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    return build_coverage_summary(db, city_slug=city_slug, offset=offset, limit=limit, refresh=refresh)
+    if refresh:
+        run_data_coverage_assurance(db, city_slug=city_slug)
+        db.commit()
+    return build_coverage_summary(db, city_slug=city_slug, offset=offset, limit=limit, refresh=False)
 
 
 @router.post("/sync")
@@ -74,9 +80,10 @@ def sync_coverage_gaps(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     result = sync_known_missing_poi_seed(db, city_slug=city_slug)
+    assurance = run_data_coverage_assurance(db, city_slug=city_slug)
     gate = apply_coverage_readiness_gate(db, city_slug=city_slug)
     db.commit()
-    return {"status": "success", "synced": result, "readiness_gate": gate}
+    return {"status": "success", "synced": result, "assurance": assurance, "readiness_gate": gate}
 
 
 @router.post("/refresh")
@@ -85,7 +92,7 @@ def refresh_coverage_gaps(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    result = refresh_coverage_statuses(db, city_slug=city_slug)
+    result = run_data_coverage_assurance(db, city_slug=city_slug)
     gate = apply_coverage_readiness_gate(db, city_slug=city_slug)
     db.commit()
     return {"status": "success", **result, "readiness_gate": gate}
