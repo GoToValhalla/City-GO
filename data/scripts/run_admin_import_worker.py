@@ -36,7 +36,7 @@ def run_worker_loop(
             result = run_queued_import_jobs(actor_id=actor_id, limit=limit)
             if consecutive_failures:
                 send_admin_alert(
-                    title="Import worker recovered",
+                    title="Import-worker восстановлен",
                     message=f"Import-worker снова работает после {consecutive_failures} ошибок подряд.",
                     level="info",
                     details={"status": "recovered", "previous_failures": consecutive_failures, "queue": result.get("queue")},
@@ -44,10 +44,9 @@ def run_worker_loop(
             consecutive_failures = 0
         except Exception as exc:  # noqa: BLE001
             consecutive_failures += 1
-            # Notify immediately, after the third failure, and then every tenth failure.
             if consecutive_failures in {1, 3} or consecutive_failures % 10 == 0:
                 send_admin_alert(
-                    title="Import worker loop failed",
+                    title="Import worker job failed",
                     message=str(exc)[:1000],
                     level="error",
                     details={"status": "failed", "consecutive_failures": consecutive_failures},
