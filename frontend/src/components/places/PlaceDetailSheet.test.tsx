@@ -3,6 +3,7 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
+import type { PlaceDetail } from '../../entities/place/model/types'
 import { PlaceDetailSheet } from './PlaceDetailSheet'
 
 const place = {
@@ -20,7 +21,7 @@ const place = {
   lng: 48.01,
   website: 'https://example.com',
   phone: null,
-}
+} as PlaceDetail
 
 describe('PlaceDetailSheet', () => {
   it('hides synthetic category copy and keeps verified facts', () => {
