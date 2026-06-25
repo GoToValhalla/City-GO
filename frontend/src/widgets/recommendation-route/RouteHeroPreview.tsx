@@ -1,31 +1,76 @@
-const defaultPreview = [
-  'Кофе в центре',
-  'Прогулка по городу',
-  'Ужин или вечерняя точка',
-]
-
-const seaPreview = [
-  'Кофе в центре',
-  'Прогулка у воды',
-  'Ужин или вечерняя точка',
-]
-
-type Props = {
-  features: string[]
+type CityRouteProfile = {
+  title: string
+  steps: string[]
 }
 
-export const RouteHeroPreview = ({ features }: Props) => {
-  const hasSea = features.includes('sea')
-  const preview = hasSea ? seaPreview : defaultPreview
+const defaultProfile = (cityName: string): CityRouteProfile => ({
+  title: 'Кофе, прогулка, ужин',
+  steps: [
+    `Кофе в ${cityName}`,
+    'Прогулка по центру',
+    'Ужин или вечерняя точка',
+  ],
+})
+
+const cityRouteProfiles: Record<string, CityRouteProfile> = {
+  astrakhan: {
+    title: 'Кофе, Волга, кремль',
+    steps: [
+      'Кофе в историческом центре',
+      'Прогулка у Волги или канала',
+      'Кремль, музей или вечерняя точка',
+    ],
+  },
+  zelenogradsk: {
+    title: 'Море, променад, кофе',
+    steps: [
+      'Променад у моря',
+      'Кофе или десерт рядом',
+      'Спокойная прогулка по городу',
+    ],
+  },
+  kaliningrad: {
+    title: 'Кафедральный, остров, кофе',
+    steps: [
+      'Кофе в центре',
+      'Остров Канта или набережная',
+      'Музей или вечерняя точка',
+    ],
+  },
+  kutaisi: {
+    title: 'Старый город, кофе, вид',
+    steps: [
+      'Кофе в центре',
+      'Историческая точка',
+      'Видовая или вечерняя остановка',
+    ],
+  },
+  yerevan: {
+    title: 'Кофе, каскад, вечер',
+    steps: [
+      'Кофе в центре',
+      'Каскад или музей',
+      'Вечерняя прогулка',
+    ],
+  },
+}
+
+type Props = {
+  cityName: string
+  citySlug: string
+}
+
+export const RouteHeroPreview = ({ cityName, citySlug }: Props) => {
+  const profile = cityRouteProfiles[citySlug] ?? defaultProfile(cityName)
 
   return (
     <aside className="route-photo-preview" aria-label="Пример маршрута">
       <header>
         <span className="route-eyebrow">Пример</span>
-        <strong>{hasSea ? 'Кофе, море, ужин' : 'Кофе, прогулка, ужин'}</strong>
+        <strong>{profile.title}</strong>
       </header>
       <ol className="route-photo-stack">
-        {preview.map((title, index) => (
+        {profile.steps.map((title, index) => (
           <li key={title}>
             <span>{index + 1}</span>
             <strong>{title}</strong>
