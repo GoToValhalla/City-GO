@@ -38,7 +38,7 @@ export const NearbyPage = () => {
         onActivePlaceChange={setActivePlaceId} onManualPoint={nearby.selectManual}
         locationError={nearby.location.status === 'insecure' ? nearby.location.message : null} />
       <NearbyResults error={nearby.error} loading={nearby.loading} places={nearby.places}
-        activePlaceId={activePlaceId} onActivePlaceChange={setActivePlaceId} />
+        activePlaceId={activePlaceId} onActivePlaceChange={setActivePlaceId} onRetry={nearby.reload} />
     </section>
   </div></div>
 }
