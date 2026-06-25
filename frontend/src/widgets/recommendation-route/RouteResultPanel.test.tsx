@@ -5,6 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RouteResultPanel } from './RouteResultPanel'
 import type { RecommendationRouteResponse } from '../../api/recommendations/recommendationRoute.types'
 
+vi.mock('../../shared/map/MapLibreMap', () => ({
+  MapLibreMap: ({ points, routeLine }: { points: unknown[]; routeLine?: boolean }) => (
+    <div data-testid="route-map" data-points={points.length} data-route-line={String(Boolean(routeLine))} />
+  ),
+}))
+
 const route: RecommendationRouteResponse = {
   route_id: 'r1',
   status: 'ready',
@@ -46,7 +52,7 @@ const route: RecommendationRouteResponse = {
 describe('RouteResultPanel', () => {
   afterEach(() => cleanup())
 
-  it('renders route summary, warnings and correction actions', () => {
+  it('renders route summary, warnings, map and correction actions', () => {
     render(<RouteResultPanel route={route} loading={false} onAddCandidate={vi.fn()} onCorrect={vi.fn()} />)
     expect(screen.getByRole('heading', { name: 'Прогулка у моря' })).toBeInTheDocument()
     expect(screen.getByText('83%')).toBeInTheDocument()
@@ -56,6 +62,8 @@ describe('RouteResultPanel', () => {
       'src',
       'https://example.com/public-route-photo.jpg',
     )
+    expect(screen.getByTestId('route-map')).toHaveAttribute('data-points', '1')
+    expect(screen.getByTestId('route-map')).toHaveAttribute('data-route-line', 'true')
     expect(screen.getByRole('button', { name: /Добавить место/ })).toBeInTheDocument()
   })
 
@@ -65,5 +73,6 @@ describe('RouteResultPanel', () => {
     expect(screen.getByText(/Маршрут не найден/)).toBeInTheDocument()
     expect(screen.getByText('Не удалось собрать маршрут')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Добавить место/ })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('route-map')).not.toBeInTheDocument()
   })
 })
