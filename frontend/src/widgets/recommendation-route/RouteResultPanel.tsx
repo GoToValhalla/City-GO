@@ -7,6 +7,8 @@ import type {
 } from '../../api/recommendations/recommendationRoute.types'
 import { sendRouteFeedback } from '../../api/recommendations/recommendationRoute.api'
 import { Clock, Map, Plus, RefreshCw, Scissors, ShieldCheck, Star } from 'lucide-react'
+import { MapLibreMap } from '../../shared/map/MapLibreMap'
+import type { MapPoint } from '../../shared/map/mapTypes'
 import { RouteCandidateOptions } from './RouteCandidateOptions'
 import { RouteDataNotes } from './RouteDataNotes'
 import { RouteDebugTrace } from './RouteDebugTrace'
@@ -36,8 +38,6 @@ type Props = {
   onCorrect: (action: UserRouteCorrectionAction) => void
 }
 
-type MapPoint = RecommendationRoutePoint & { x: number; y: number }
-
 const normalizeQualityStatus = (route: RecommendationRouteResponse): RouteQualityStatus => {
   const direct = route.quality_status
   if (direct === 'good' || direct === 'acceptable' || direct === 'weak' || direct === 'failed') return direct
@@ -51,27 +51,21 @@ const normalizeQualityStatus = (route: RecommendationRouteResponse): RouteQualit
   return 'weak'
 }
 
-const normalizePointsForMap = (points: RecommendationRoutePoint[]): MapPoint[] => {
-  const valid = points.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
-  if (valid.length === 0) return []
-
-  const minLat = Math.min(...valid.map((point) => point.lat))
-  const maxLat = Math.max(...valid.map((point) => point.lat))
-  const minLng = Math.min(...valid.map((point) => point.lng))
-  const maxLng = Math.max(...valid.map((point) => point.lng))
-  const latSpan = Math.max(maxLat - minLat, 0.00001)
-  const lngSpan = Math.max(maxLng - minLng, 0.00001)
-
-  return valid.map((point) => ({
-    ...point,
-    x: 8 + ((point.lng - minLng) / lngSpan) * 84,
-    y: 92 - ((point.lat - minLat) / latSpan) * 84,
-  }))
-}
-
-const routePath = (points: MapPoint[]): string => points
-  .map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`)
-  .join(' ')
+const toMapPoints = (points: RecommendationRoutePoint[]): MapPoint[] => points.flatMap((point, index) => {
+  const latitude = Number(point.lat)
+  const longitude = Number(point.lng)
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return []
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180 || (latitude === 0 && longitude === 0)) return []
+  const parsedId = Number(point.place_id)
+  return [{
+    id: Number.isFinite(parsedId) ? parsedId : index + 1,
+    latitude,
+    longitude,
+    title: point.title?.trim() || `Точка ${index + 1}`,
+    category: point.category,
+    order: index + 1,
+  }]
+})
 
 const formatMeters = (meters?: number | null): string => {
   if (!meters || meters <= 0) return 'дистанция уточняется'
@@ -87,38 +81,32 @@ const nextLegText = (point: RecommendationRoutePoint): string => {
 }
 
 const RouteMapPreview = ({ points }: { points: RecommendationRoutePoint[] }) => {
-  const mapPoints = useMemo(() => normalizePointsForMap(points), [points])
-  const path = routePath(mapPoints)
+  const mapPoints = useMemo(() => toMapPoints(points), [points])
+  const [activePointId, setActivePointId] = useState<number | null>(null)
+  const activePoint = mapPoints.find((point) => point.id === activePointId) ?? null
 
   if (mapPoints.length === 0) {
     return (
       <div className="route-map-preview route-map-preview-empty">
         <strong>Карта появится после сборки маршрута</strong>
-        <span>Для визуализации нужны координаты точек.</span>
+        <span>Для визуализации нужны корректные координаты точек.</span>
       </div>
     )
   }
 
   return (
     <div className="route-map-preview" aria-label="Карта маршрута">
-      <svg viewBox="0 0 100 100" role="img" aria-label="Линия маршрута и точки">
-        <defs>
-          <pattern id="route-grid" width="10" height="10" patternUnits="userSpaceOnUse">
-            <path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,.12)" strokeWidth=".4" />
-          </pattern>
-        </defs>
-        <rect width="100" height="100" rx="4" fill="url(#route-grid)" />
-        {mapPoints.length > 1 ? <path d={path} className="route-map-line" /> : null}
-        {mapPoints.map((point, index) => (
-          <g key={`${point.place_id}-${index}`} transform={`translate(${point.x} ${point.y})`}>
-            <circle r="4.6" className="route-map-marker" />
-            <text textAnchor="middle" dominantBaseline="central" className="route-map-marker-text">{index + 1}</text>
-          </g>
-        ))}
-      </svg>
-      <div className="route-map-caption">
-        <strong>{mapPoints.length} точек на маршруте</strong>
-        <span>Линия показывает порядок прохождения. Точный путь можно открыть в навигаторе из карточки точки.</span>
+      <MapLibreMap
+        className="route-map-canvas"
+        points={mapPoints}
+        activePointId={activePointId}
+        routeLine
+        interactiveSelection={false}
+        onPointSelect={setActivePointId}
+      />
+      <div className="route-map-caption" aria-live="polite">
+        <strong>{activePoint ? `${activePoint.order}. ${activePoint.title}` : `${mapPoints.length} точек на маршруте`}</strong>
+        <span>{activePoint ? 'Выбрана точка маршрута.' : 'Нажми на точку, чтобы увидеть её название. Линия показывает порядок посещения.'}</span>
       </div>
     </div>
   )
