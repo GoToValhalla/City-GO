@@ -16,6 +16,7 @@ from services.coverage_gap_service import CRITICAL_POLICIES, MATCHED_STATUSES, r
 from services.data_coverage_contract import (
     BLOCKING_GAP_REASONS,
     MIN_MUST_HAVE_COVERAGE_RATIO,
+    UNRESOLVED_STATUSES,
     gap_reason_is_explained,
     scope_aliases,
 )
@@ -64,9 +65,36 @@ def run_data_coverage_assurance(db: Session, *, city_slug: str | None = None) ->
     return {
         **base_result,
         "changed_by_assurance": changed_by_assurance,
+        "summary": build_summary(rows),
         "acceptance": build_acceptance(rows),
         "weekly_check": build_weekly_report(rows),
         "recommended_actions": build_recommended_actions(rows),
+    }
+
+
+def build_summary(rows: Iterable[KnownMissingPoi]) -> dict[str, Any]:
+    """Builds post-assurance summary, not the stale pre-assurance refresh summary."""
+
+    row_list = list(rows)
+    by_status = Counter(row.status for row in row_list)
+    by_gap_reason = Counter(row.gap_reason or "none" for row in row_list)
+    by_category = Counter(row.expected_category for row in row_list)
+    by_scope = Counter(row.expected_scope for row in row_list)
+    critical = [row for row in row_list if row.expected_route_policy in CRITICAL_POLICIES]
+    matched_critical = [row for row in critical if row.status in MATCHED_STATUSES]
+    blocking_critical = [row for row in critical if row.gap_reason in BLOCKING_GAP_REASONS]
+
+    return {
+        "total": len(row_list),
+        "matched": by_status.get("matched", 0),
+        "unresolved": sum(1 for row in row_list if row.status in UNRESOLVED_STATUSES),
+        "critical_unresolved": len(critical) - len(matched_critical),
+        "blocking_critical": len(blocking_critical),
+        "must_have_coverage_ratio": round(len(matched_critical) / len(critical), 4) if critical else 1.0,
+        "by_status": dict(by_status),
+        "by_gap_reason": dict(by_gap_reason),
+        "by_expected_category": dict(by_category),
+        "by_expected_scope": dict(by_scope),
     }
 
 
