@@ -9,5 +9,6 @@ This page documents the first implementation layer:
 - `services/coverage_gap_service.py` syncs seeds and matches them to current places.
 - `routers/admin_coverage_gaps.py` exposes admin endpoints.
 - `frontend/src/pages/admin/AdminCoverageGapsPage.tsx` shows the admin dashboard.
+- `services/osm_import_taxonomy.py` is the shared OSM tag mapper.
 
 The first regression city is Kutaisi, but the mechanism is global.
