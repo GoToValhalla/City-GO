@@ -11,7 +11,9 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Literal
+
+ExpectedResponse = Literal["any", "html", "json"]
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,7 @@ class CheckSpec:
     path: str
     auth: str = "public"
     body: str | None = None
+    expected: ExpectedResponse = "json"
 
 
 @dataclass(frozen=True)
@@ -58,10 +61,44 @@ def _short_body(body: str, limit: int = 500) -> str:
     return compact[:limit] + ("…" if len(compact) > limit else "")
 
 
+def _looks_like_html(result: CheckResult | None) -> bool:
+    if result is None:
+        return False
+    content_type = result.content_type.lower()
+    body = (result.body or "").lstrip().lower()
+    return "text/html" in content_type or body.startswith("<!doctype html") or body.startswith("<html")
+
+
+def _looks_like_citygo_spa(result: CheckResult | None) -> bool:
+    if not _looks_like_html(result):
+        return False
+    body = (result.body or "").lower()
+    return "<title>city go</title>" in body or "/assets/index-" in body
+
+
+def _response_excerpt(result: CheckResult) -> str:
+    if _looks_like_citygo_spa(result):
+        return "HTML frontend index.html City GO вместо JSON API. Полный HTML скрыт из уведомления."
+    if _looks_like_html(result):
+        return "HTML-страница вместо JSON API. Полный HTML скрыт из уведомления."
+    return _short_body(result.body)
+
+
 def _url_for(base_url: str, path: str) -> str:
     if path.startswith(":"):
         return f"{base_url}{path}"
     return f"{base_url}{path}"
+
+
+def _semantic_error(spec: CheckSpec, *, body: str, content_type: str) -> str | None:
+    normalized_type = content_type.lower()
+    normalized_body = body.lstrip().lower()
+    is_html = "text/html" in normalized_type or normalized_body.startswith("<!doctype html") or normalized_body.startswith("<html")
+    if spec.expected == "json" and is_html:
+        return "ожидали JSON API, но получили frontend HTML"
+    if spec.expected == "html" and not is_html:
+        return "ожидали HTML frontend, но ответ не похож на HTML"
+    return None
 
 
 def run_check(spec: CheckSpec, *, base_url: str, admin_token: str) -> CheckResult:
@@ -89,13 +126,15 @@ def run_check(spec: CheckSpec, *, base_url: str, admin_token: str) -> CheckResul
     try:
         with urllib.request.urlopen(request, timeout=35) as response:  # noqa: S310 - production monitor URL from secrets
             body = response.read().decode("utf-8", errors="replace")
+            content_type = response.headers.get("content-type", "")
             return CheckResult(
                 spec=spec,
                 url=url,
                 status=int(response.status),
                 elapsed_ms=int((time.monotonic() - started) * 1000),
                 body=body,
-                content_type=response.headers.get("content-type", ""),
+                content_type=content_type,
+                error=_semantic_error(spec, body=body, content_type=content_type),
             )
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
@@ -146,7 +185,7 @@ def default_checks() -> list[CheckSpec]:
         ensure_ascii=False,
     )
     return [
-        CheckSpec("frontend", "Главная страница frontend", "GET", "/"),
+        CheckSpec("frontend", "Главная страница frontend", "GET", "/", expected="html"),
         CheckSpec("api_health_proxy", "Health через nginx /api", "GET", "/api/health"),
         CheckSpec("backend_health_direct", "Health backend напрямую", "GET", ":8000/health"),
         CheckSpec("admin_overview_proxy", "Админка: обзор", "GET", "/api/admin/overview", "admin"),
@@ -176,6 +215,10 @@ def _status_text(result: CheckResult) -> str:
 
 
 def _probable_reason(result: CheckResult) -> str:
+    if _looks_like_citygo_spa(result):
+        return "API-запрос попал в frontend SPA. Частые причины: неверный URL, redirect без /api, trailing slash или nginx proxy не совпадает с backend route."
+    if _looks_like_html(result) and result.spec.expected == "json":
+        return "API-запрос вернул HTML вместо JSON. Нужно проверить routing/proxy/redirect, а не только backend logs."
     if result.status is None:
         return "нет соединения с endpoint, таймаут, закрытый порт или сервис не слушает запрос."
     if result.status == 401 or result.status == 403:
@@ -188,10 +231,12 @@ def _probable_reason(result: CheckResult) -> str:
         return "ошибка backend, базы данных или тяжёлого запроса; нужны backend logs и проверка /ready."
     if result.status >= 400:
         return "запрос отвергнут приложением или прокси; проверить параметры и права доступа."
-    return "неизвестно."
+    return "семантическая проверка ответа не совпала с ожиданием monitor."
 
 
 def _recommended_action(result: CheckResult) -> str:
+    if _looks_like_html(result) and result.spec.expected == "json":
+        return "проверить точный API path, trailing slash, nginx location /api/ и redirect FastAPI; для API monitor endpoint должен возвращать JSON, не index.html."
     if result.status is None:
         return "проверить доступность порта, nginx, backend-контейнер и сетевые таймауты."
     if result.status in {401, 403}:
@@ -217,7 +262,7 @@ def failure_report(*, host: str, results: list[CheckResult]) -> str:
     failed = [item for item in results if not item.ok]
     lines = [
         "❌ CITY GO · API MONITOR",
-        "Статус: найдены ошибки HTTP 4xx/5xx или сетевые сбои",
+        "Статус: API не прошёл production-проверку",
         f"Хост: {host}",
         f"Итог: {len(results) - len(failed)}/{len(results)} проверок успешно, {len(failed)} упало",
         "",
@@ -229,10 +274,11 @@ def failure_report(*, host: str, results: list[CheckResult]) -> str:
                 f"{index}. {item.spec.label}",
                 f"   Запрос: {item.spec.method} {_endpoint_path(item.url)}",
                 f"   Факт: {_status_text(item)} за {item.elapsed_ms} мс",
-                f"   Техническая ошибка: {item.error or 'HTTP status >= 400'}",
+                f"   Content-Type: {item.content_type or 'не указан'}",
+                f"   Техническая причина: {item.error or 'HTTP status >= 400'}",
                 f"   Вероятная причина: {_probable_reason(item)}",
                 f"   Что делать: {_recommended_action(item)}",
-                f"   Ответ: {_short_body(item.body)}",
+                f"   Ответ: {_response_excerpt(item)}",
             ]
         )
     if len(failed) > 6:
@@ -245,7 +291,7 @@ def failure_report(*, host: str, results: list[CheckResult]) -> str:
     lines.extend(
         [
             "",
-            "Следующий шаг: открыть GitHub run и backend logs за время прогона. При 500 сначала проверить /ready, PostgreSQL connections и последние миграции.",
+            "Следующий шаг: открыть GitHub run и логи соответствующего слоя. При HTML вместо JSON сначала проверять routing/nginx/redirect, при 500 — backend logs и /ready.",
             f"GitHub Actions: {_run_url()}",
         ]
     )
