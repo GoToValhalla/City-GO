@@ -1,3 +1,5 @@
+import type { WalkingRouteLeg } from './walkingRoute.api'
+
 export type MapPoint = {
   id: number
   latitude: number
@@ -18,4 +20,13 @@ export type MapUserLocation = {
 export type MapManualPoint = {
   latitude: number
   longitude: number
+}
+
+export type MapRouteState = {
+  status: 'idle' | 'loading' | 'routed' | 'unavailable'
+  geometry: [number, number][]
+  distanceMeters: number | null
+  durationSeconds: number | null
+  legs: WalkingRouteLeg[]
+  warning: string | null
 }
