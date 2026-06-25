@@ -7,16 +7,10 @@ from contextlib import contextmanager
 from typing import Iterator
 
 import allure
+import pytest
 
 
-def scenario(
-    title: str,
-    *,
-    epic: str,
-    feature: str,
-    story: str,
-    severity: str = allure.severity_level.NORMAL,
-):
+def scenario(title: str, *, epic: str, feature: str, story: str, severity: str = allure.severity_level.NORMAL):
     """Apply the complete product hierarchy to a functional test."""
     def decorate(function):
         function = allure.title(title)(function)
@@ -24,8 +18,7 @@ def scenario(
         function = allure.feature(feature)(function)
         function = allure.story(story)(function)
         function = allure.severity(severity)(function)
-        return function
-
+        return pytest.mark.allure_scenario(function)
     return decorate
 
 
@@ -49,8 +42,4 @@ def then(text: str) -> Iterator[None]:
 
 def attach_json(name: str, payload: object) -> None:
     """Attach structured diagnostics without leaking Python repr noise."""
-    allure.attach(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=str),
-        name=name,
-        attachment_type=allure.attachment_type.JSON,
-    )
+    allure.attach(json.dumps(payload, ensure_ascii=False, indent=2, default=str), name=name, attachment_type=allure.attachment_type.JSON)
