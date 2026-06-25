@@ -32,7 +32,7 @@ type Payload = {
   filters?: Record<string, string | null>
 }
 
-const statusOptions = ['', 'missing', 'matched', 'needs_review', 'source_absent', 'out_of_scope', 'tag_unsupported', 'rejected_policy', 'duplicate']
+const statusOptions = ['', 'unresolved', 'critical', 'missing', 'matched', 'needs_review', 'source_absent', 'out_of_scope', 'tag_unsupported', 'rejected_policy', 'duplicate']
 const reasonOptions = ['', 'outside_bbox', 'unsupported_tag', 'source_absent', 'hidden_by_policy', 'missing_name', 'missing_coordinates', 'duplicate_candidate', 'not_imported_scope', 'not_visible_in_catalog', 'not_route_eligible']
 const categoryOptions = ['', 'culture', 'food', 'walk', 'park', 'museum', 'viewpoint', 'cafe']
 
@@ -123,7 +123,7 @@ export const AdminCoverageGapsPage = () => {
     <div className="admin-page-header">
       <div>
         <h2 className="admin-page-title">Пропущенные must-have места</h2>
-        <p className="admin-page-subtitle">Сверка важных мест с каталогом, импортом и source observations. Каждая метрика и строка ведёт к конкретному набору.</p>
+        <p className="admin-page-subtitle">Сверка важных мест с каталогом, импортом и source observations. Метрики открывают точный отфильтрованный набор.</p>
       </div>
       <button className="admin-btn admin-btn-primary" type="button" disabled={refreshing} onClick={() => void refresh()}>{refreshing ? 'Сверяем...' : 'Сверить сейчас'}</button>
     </div>
@@ -131,8 +131,8 @@ export const AdminCoverageGapsPage = () => {
     <div className="admin-metrics-grid admin-metrics-small">
       {metricLink('Всего', data.summary.total, params, { status: '', gap_reason: '', expected_category: '' })}
       {metricLink('Найдено', data.summary.matched, params, { status: 'matched' })}
-      {metricLink('Не закрыто', data.summary.unresolved, params, { status: '', gap_reason: '' })}
-      {metricLink('Критично', data.summary.critical_unresolved, params, { status: '', gap_reason: '' })}
+      {metricLink('Не закрыто', data.summary.unresolved, params, { status: 'unresolved', gap_reason: '' })}
+      {metricLink('Критично', data.summary.critical_unresolved, params, { status: 'critical', gap_reason: '' })}
     </div>
 
     <div className="admin-card admin-filter-panel">
