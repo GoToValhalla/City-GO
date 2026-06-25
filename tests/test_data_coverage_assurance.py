@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from data.scripts.import_city_osm_v2 import COVERAGE_AWARE_PROFILE_FILTERS
 from services.coverage_gap_service import load_known_poi_seed
-from services.data_coverage_assurance import build_acceptance
+from services.data_coverage_assurance import build_acceptance, build_summary
 from services.data_coverage_contract import gap_reason_blocks_publication, scope_aliases
 from services.osm_import_taxonomy import category_from_osm_tags, unsupported_tag_reason
 
@@ -14,6 +14,8 @@ def _row(status: str, gap_reason: str | None = None, policy: str = 'must_have'):
 
     return SimpleNamespace(
         city=SimpleNamespace(slug='kutaisi'),
+        expected_category='culture',
+        expected_scope='urban_core',
         expected_route_policy=policy,
         status=status,
         gap_reason=gap_reason,
@@ -117,6 +119,21 @@ def test_acceptance_allows_city_when_critical_coverage_is_matched() -> None:
     assert verdict['accepted'] is True
     assert verdict['coverage_ratio'] == 1.0
     assert verdict['reasons'] == []
+
+
+def test_summary_uses_post_assurance_rows() -> None:
+    summary = build_summary([
+        _row('matched'),
+        _row('out_of_scope', 'not_imported_scope'),
+        _row('needs_review', 'not_route_eligible'),
+    ])
+
+    assert summary['total'] == 3
+    assert summary['matched'] == 1
+    assert summary['critical_unresolved'] == 2
+    assert summary['blocking_critical'] == 2
+    assert summary['must_have_coverage_ratio'] == 0.3333
+    assert summary['by_gap_reason']['not_route_eligible'] == 1
 
 
 def test_blocking_gap_reason_contract() -> None:
