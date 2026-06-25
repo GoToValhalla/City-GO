@@ -1,0 +1,99 @@
+name: Operations Notifications
+
+on:
+  workflow_run:
+    workflows:
+      - API Error Monitor
+      - Admin Smoke
+      - Backend Error Diagnostics
+      - City Import
+      - Data Enrichment
+      - Prod DB Repair
+      - Production Docker Cleanup
+      - Production Health
+      - Recover Frontend
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  notify:
+    name: Notify operational workflow result
+    if: github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout notification helper
+        uses: actions/checkout@v4
+
+      - name: Decide notification policy
+        id: policy
+        shell: bash
+        env:
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          set -euo pipefail
+          # Frequent health/smoke successes stay silent. Their failures always notify.
+          if [ "$RUN_CONCLUSION" = "success" ]; then
+            case "$RUN_NAME" in
+              "API Error Monitor"|"Admin Smoke"|"Backend Error Diagnostics"|"Production Health")
+                echo "send=false" >> "$GITHUB_OUTPUT"
+                exit 0
+                ;;
+            esac
+          fi
+          echo "send=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build operational notification
+        if: steps.policy.outputs.send == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          STATUS="✅ завершён успешно"
+          if [ "$RUN_CONCLUSION" != "success" ]; then
+            STATUS="❌ завершился со статусом ${RUN_CONCLUSION}"
+          fi
+          JOBS=$(curl -fsS --retry 2 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+            | jq -r '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "• " + .name + ": " + (.conclusion // .status)' \
+            | head -n 10 || true)
+          if [ -z "$JOBS" ]; then
+            JOBS="• Ошибок отдельных jobs не зафиксировано"
+          fi
+          cat > /tmp/operations-notification.txt <<EOF
+          City GO · ${RUN_NAME}
+          ${STATUS}
+          Прогон: #${RUN_NUMBER} · попытка ${RUN_ATTEMPT}
+          Ветка: ${RUN_BRANCH}
+          Commit: ${RUN_SHA:0:7}
+
+          Jobs:
+          ${JOBS}
+
+          Подробнее: ${RUN_URL}
+          EOF
+          sed -i 's/^          //' /tmp/operations-notification.txt
+
+      - name: Send Telegram operational notification
+        if: steps.policy.outputs.send == 'true'
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/send_telegram_notification.py --text-file /tmp/operations-notification.txt
