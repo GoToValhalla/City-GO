@@ -1,0 +1,223 @@
+.route-map-preview {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--cg-bg-elevated);
+}
+
+.route-map-canvas,
+.route-draft-map {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--cg-radius-lg);
+}
+
+.route-map-canvas .maplibre-map {
+  min-height: 420px;
+}
+
+.route-map-caption {
+  margin: 0 12px 12px;
+}
+
+.route-map-preview-empty {
+  min-height: 240px;
+  padding: 24px;
+}
+
+.route-draft-controls select,
+.route-draft-search select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  color: var(--cg-text-main);
+  background: var(--cg-bg-elevated);
+  border: 1px solid var(--cg-border-soft);
+  border-radius: var(--cg-radius-sm);
+}
+
+.route-draft-map-block,
+.route-draft-search-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  background: var(--cg-bg-elevated);
+  border: 1px solid var(--cg-border-soft);
+  border-radius: var(--cg-radius-lg);
+}
+
+.route-draft-map-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.route-draft-map-heading svg {
+  color: var(--cg-primary-hover);
+}
+
+.route-draft-map .maplibre-map {
+  min-height: 380px;
+}
+
+.route-draft-points {
+  padding: 0;
+  list-style: none;
+}
+
+.route-draft-points li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 12px;
+  background: var(--cg-bg-elevated);
+  border: 1px solid var(--cg-border-soft);
+  border-radius: var(--cg-radius-md);
+}
+
+.route-draft-points li.is-active {
+  border-color: var(--cg-primary);
+  box-shadow: inset 3px 0 0 var(--cg-primary);
+}
+
+.route-draft-points li > a {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: var(--cg-text-main);
+  text-decoration: none;
+}
+
+.route-draft-points li > a strong,
+.route-draft-points li > a span {
+  overflow-wrap: anywhere;
+}
+
+.route-draft-point-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.route-draft-point-actions button,
+.route-search-cancel,
+.route-draft-search button {
+  min-height: 44px;
+}
+
+.route-draft-search-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.route-draft-search-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.route-draft-search-head span,
+.route-search-row span,
+.route-search-row small,
+.route-search-message {
+  color: var(--cg-text-muted);
+}
+
+.route-search-cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  color: var(--cg-text-main);
+  background: transparent;
+  border: 1px solid var(--cg-border-soft);
+  border-radius: var(--cg-radius-sm);
+}
+
+.route-draft-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.route-draft-search button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.route-draft-search button:disabled,
+.route-draft-point-actions button:disabled,
+.route-search-row:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.route-search-results {
+  display: grid;
+  gap: 8px;
+}
+
+.route-search-row {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  min-height: 64px;
+  text-align: left;
+}
+
+.route-search-row small {
+  color: var(--cg-primary-hover);
+}
+
+.route-search-message {
+  margin: 0;
+  line-height: 1.4;
+}
+
+@media (max-width: 760px) {
+  .route-map-canvas .maplibre-map,
+  .route-draft-map .maplibre-map {
+    min-height: 300px;
+  }
+
+  .route-draft-points li,
+  .route-draft-search,
+  .route-draft-search-head {
+    grid-template-columns: 1fr;
+  }
+
+  .route-draft-search-head {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .route-draft-point-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .route-draft-point-actions button,
+  .route-search-cancel,
+  .route-draft-search button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 390px) {
+  .route-map-canvas .maplibre-map,
+  .route-draft-map .maplibre-map {
+    min-height: 260px;
+  }
+
+  .route-draft-map-block,
+  .route-draft-search-panel {
+    padding: 10px;
+  }
+}
