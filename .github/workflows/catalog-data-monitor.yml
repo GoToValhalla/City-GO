@@ -36,11 +36,14 @@ jobs:
           set -euo pipefail
           if [ ! -s "$NOTIFICATION_FILE" ]; then
             printf '%s\n' \
-              '❌ City GO · Каталог не проверен' \
+              '❌ CITY GO · CATALOG DATA MONITOR' \
+              'Статус: мониторинг не смог сформировать основной отчёт' \
               "Хост: ${PROD_HOST:-не указан}" \
-              'Проблема: monitor script завершился раньше, чем записал отчёт.' \
-              'Что делать: открыть лог шага Validate public catalog data.' \
-              "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              'Где упало: шаг Validate public catalog data' \
+              'Факт: файл отчёта пустой или не создан' \
+              'Что это значит: скрипт мониторинга завершился до проверки городов и мест; это отдельная проблема мониторинга, а не доказательство исправности каталога.' \
+              'Что делать: открыть лог шага Validate public catalog data и проверить Python exception, secrets и доступность host.' \
+              "GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
               > "$NOTIFICATION_FILE"
           fi
           python scripts/send_telegram_notification.py --text-file "$NOTIFICATION_FILE" --allow-missing
