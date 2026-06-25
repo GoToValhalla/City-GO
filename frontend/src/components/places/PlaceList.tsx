@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react'
 import type { Place } from '../../entities/place/model/types'
 import { EmptyState, ErrorState } from '../ui'
 import { PlaceCard } from './PlaceCard'
@@ -49,12 +48,6 @@ export const PlaceList = ({
   onSelectCity,
   places,
 }: PlaceListProps) => {
-  const listRef = useRef<HTMLDivElement | null>(null)
-  useEffect(() => {
-    if (activePlaceId === null || activePlaceId === undefined) return
-    listRef.current?.querySelector<HTMLElement>(`[data-place-id="${activePlaceId}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [activePlaceId])
   if (noCity) {
     return (
       <EmptyState
@@ -94,7 +87,6 @@ export const PlaceList = ({
 
   return (
     <div
-      ref={listRef}
       className={classNames(
         'place-ui-list',
         places.length > VIRTUALIZATION_THRESHOLD && 'place-ui-list--virtualized',
