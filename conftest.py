@@ -1,4 +1,4 @@
-"""Repository-wide pytest hooks for readable Allure metadata."""
+"""Repository-wide pytest hooks for readable Allure reports."""
 
 from __future__ import annotations
 
@@ -10,49 +10,49 @@ import pytest
 
 try:
     import allure
-except ImportError:  # pragma: no cover - Allure is optional for local minimal runs.
+except ImportError:  # pragma: no cover
     allure = None
 
 
-def _feature_from_path(path: Path) -> str:
-    """Map a test file to the product area an operator can act on."""
+def _hierarchy_from_path(path: Path) -> tuple[str, str]:
     text = path.as_posix().lower()
     name = path.name.lower()
     if "import" in text or "enrichment" in text or "source_" in text:
-        return "Импорт и обогащение"
-    if "route" in text or "recommendation" in text or "candidate_retrieval" in text:
-        return "Маршруты"
-    if "admin" in text:
-        return "Админка"
+        return "Платформа данных", "Импорт и обогащение"
     if "taxonomy" in text or "category" in text:
-        return "Категории и taxonomy"
-    if "place" in text or "seed" in text:
-        return "Места и данные"
-    if "city" in text:
-        return "Города"
-    if "verification" in text or "review_queue" in text:
-        return "Проверка данных"
+        return "Платформа данных", "Категории и taxonomy"
+    if "verification" in text or "review_queue" in text or "quality" in text:
+        return "Платформа данных", "Качество и проверка данных"
+    if "route" in text or "recommendation" in text or "candidate_retrieval" in text:
+        return "Маршруты", "Построение и прохождение маршрута"
+    if "admin" in text:
+        return "Операционный центр", "Админка"
+    if "place" in text or "seed" in text or "nearby" in text or "open_now" in text:
+        return "Каталог мест", "Поиск и карточки мест"
+    if "city" in text or "destination" in text:
+        return "Территории", "Города и регионы"
+    if "telegram" in text:
+        return "Каналы", "Telegram"
     if "user" in text or "profile" in text or "signals" in text:
-        return "Пользователи и персонализация"
+        return "Пользователи", "Профили и персонализация"
     if "model" in text or "models" in text:
-        return "Модели данных"
+        return "Платформа данных", "Модели данных"
     if "readiness" in name or "health" in name or "deploy" in name or "ci_" in name:
-        return "Инфраструктура и CI"
-    return "Backend"
+        return "Платформа", "Инфраструктура и CI"
+    return "Платформа", "Backend"
 
 
 def _human_test_name(name: str) -> str:
-    """Turn technical pytest names into readable Allure titles."""
     value = re.sub(r"^test_", "", name)
     value = re.sub(r"_new$", "", value)
     value = value.replace("_", " ").strip()
     return value[:1].upper() + value[1:] if value else name
 
 
-def _severity_for_item(item: pytest.Item, feature: str) -> str:
+def _severity_for_item(item: pytest.Item, epic: str) -> str:
     if item.get_closest_marker("critical") is not None:
         return "critical"
-    if feature in {"Маршруты", "Админка", "Инфраструктура и CI", "Импорт и обогащение"}:
+    if epic in {"Маршруты", "Операционный центр", "Платформа данных"}:
         return "critical"
     if item.get_closest_marker("integration") is not None:
         return "normal"
@@ -69,35 +69,41 @@ def _run_type_for_item(item: pytest.Item) -> str:
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item: pytest.Item) -> None:
-    """Populate a stable product hierarchy and actionable metadata."""
     if allure is None:
         return
-
     path = Path(str(item.fspath))
-    feature = _feature_from_path(path)
+    epic, feature = _hierarchy_from_path(path)
     run_type = _run_type_for_item(item)
-    severity = _severity_for_item(item, feature)
     markers = sorted(marker.name for marker in item.iter_markers())
-    title = _human_test_name(item.name)
+    explicit_title = getattr(item.obj, "__allure_display_name__", None)
 
-    allure.dynamic.title(title)
-    allure.dynamic.description(
-        f"Продуктовая область: {feature}\n\n"
-        f"Технический тест: `{item.nodeid}`\n\n"
-        "При падении смотрите exception, шаг теста и вложенные stdout/stderr."
-    )
-    allure.dynamic.epic("City GO")
+    if not explicit_title:
+        allure.dynamic.title(_human_test_name(item.name))
+    allure.dynamic.epic(epic)
     allure.dynamic.feature(feature)
-    allure.dynamic.story(title)
-    allure.dynamic.parent_suite("City GO")
+    allure.dynamic.parent_suite(epic)
     allure.dynamic.suite(feature)
     allure.dynamic.sub_suite(path.stem.removesuffix("_new").replace("test_", "").replace("_", " "))
-    allure.dynamic.severity(severity)
+    allure.dynamic.severity(_severity_for_item(item, epic))
     allure.dynamic.tag(run_type)
-    allure.dynamic.tag(feature.lower().replace(" ", "_"))
     for marker in markers:
         allure.dynamic.tag(marker)
-
     allure.dynamic.label("test_file", path.as_posix())
     allure.dynamic.label("node_id", item.nodeid)
     allure.dynamic.parameter("run_type", run_type, excluded=True)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo):
+    outcome = yield
+    report = outcome.get_result()
+    if allure is None or report.passed:
+        return
+    phase_labels = {"setup": "Подготовка окружения", "call": "Выполнение сценария", "teardown": "Очистка окружения"}
+    phase = phase_labels.get(report.when, report.when)
+    allure.dynamic.label("failed_phase", phase)
+    allure.attach(
+        f"Тест: {item.nodeid}\nФаза: {phase}\n\n{report.longreprtext}",
+        name=f"Падение на фазе: {phase}",
+        attachment_type=allure.attachment_type.TEXT,
+    )
