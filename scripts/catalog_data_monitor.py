@@ -62,8 +62,6 @@ def _looks_like_citygo_spa(result: HttpResult | None) -> bool:
 def _response_excerpt(result: HttpResult) -> str:
     if _looks_like_citygo_spa(result):
         return "HTML frontend index.html City GO вместо JSON API. Полный HTML скрыт из уведомления."
-    if _looks_like_html(result):
-        return "HTML-страница вместо JSON API. Полный HTML скрыт из уведомления."
     return _short_body(result.body)
 
 
@@ -77,6 +75,12 @@ def _status_text(result: HttpResult) -> str:
     if result.status is None:
         return "нет ответа"
     return f"HTTP {result.status}"
+
+
+def _status_code_text(result: HttpResult) -> str:
+    if result.status is None:
+        return "нет ответа"
+    return str(result.status)
 
 
 def http_get(url: str, *, timeout: int = 25) -> HttpResult:
@@ -171,19 +175,30 @@ def _technical_error(result: HttpResult | None) -> str:
     return "семантическая проверка данных не прошла"
 
 
-def failure_report(*, host: str, result: HttpResult | None, problem: str, meaning: str, action: str) -> str:
+def failure_report(
+    *,
+    host: str,
+    result: HttpResult | None,
+    problem: str,
+    meaning: str,
+    action: str,
+    title: str | None = None,
+) -> str:
     lines = [
-        "❌ CITY GO · CATALOG DATA MONITOR",
+        "❌ City GO · Каталог недоступен",
         "Статус: публичный каталог не прошёл проверку",
         "Сценарий: пользователь открывает город и список мест",
         f"Хост: {host}",
         f"Проблема: {problem}",
     ]
+    if title:
+        lines.append(f"Код проверки: {title}")
     if result is not None:
         lines.extend(
             [
-                f"Запрос: {result.method} {_endpoint(result.url)}",
-                f"Факт: {_status_text(result)} за {result.elapsed_ms} мс",
+                f"Endpoint: {result.method} {_endpoint(result.url)}",
+                f"HTTP: {_status_code_text(result)}",
+                f"Время: {result.elapsed_ms} мс",
                 f"Content-Type: {result.content_type or 'не указан'}",
                 f"Техническая причина: {_technical_error(result)}",
                 f"Ответ: {_response_excerpt(result)}",
