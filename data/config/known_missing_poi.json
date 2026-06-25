@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "cities": [
+    {
+      "city": "kutaisi",
+      "items": [
+        {"slug": "bagrati-cathedral", "name_en": "Bagrati Cathedral", "name_ru": "Храм Баграта", "lat": 42.2778, "lng": 42.7044, "coordinate_precision": "approximate", "expected_category": "culture", "expected_scope": "urban_core", "expected_route_policy": "must_have", "significance": "unesco", "source": "manual_seed", "status": "missing"},
+        {"slug": "motsameta-monastery", "name_en": "Motsameta Monastery", "name_ru": "Монастырь святых Давида и Константина", "lat": 42.2919, "lng": 42.7599, "coordinate_precision": "approximate", "expected_category": "culture", "expected_scope": "heritage_ring", "expected_route_policy": "day_trip", "significance": "regional", "source": "manual_seed", "status": "missing"},
+        {"slug": "gelati-monastery", "name_en": "Gelati Monastery", "name_ru": "Гелатский монастырь", "lat": 42.2946, "lng": 42.7684, "coordinate_precision": "approximate", "expected_category": "culture", "expected_scope": "heritage_ring", "expected_route_policy": "day_trip", "significance": "unesco", "source": "manual_seed", "status": "missing"},
+        {"slug": "sanapiro", "name_en": "Sanapiro", "name_ru": "Sanapiro", "lat": 42.2673, "lng": 42.7058, "coordinate_precision": "rough", "expected_category": "food", "expected_scope": "food_wider_center", "expected_route_policy": "optional", "significance": "local", "source": "manual_seed", "status": "missing"},
+        {"slug": "kebaby-bikentiya", "name_en": "Kebaby Bikentiya", "name_ru": "Kebaby Bikentiya", "lat": 42.2675, "lng": 42.7043, "coordinate_precision": "rough", "expected_category": "food", "expected_scope": "food_wider_center", "expected_route_policy": "optional", "significance": "local_iconic", "source": "manual_seed", "status": "missing"},
+        {"slug": "kutaisi-amusement-park", "name_en": "Kutaisi Amusement Park", "name_ru": "Парк аттракционов", "lat": 42.2764, "lng": 42.7035, "coordinate_precision": "rough", "expected_category": "park", "expected_scope": "urban_core", "expected_route_policy": "optional", "significance": "local", "source": "manual_seed", "status": "missing"},
+        {"slug": "sataplia-cave", "name_en": "Sataplia Cave", "name_ru": "Пещера Сатаплия", "lat": 42.3125, "lng": 42.6738, "coordinate_precision": "approximate", "expected_category": "walk", "expected_scope": "nature_daytrip", "expected_route_policy": "day_trip", "significance": "regional", "source": "manual_seed", "status": "missing"}
+      ]
+    }
+  ]
+}
