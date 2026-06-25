@@ -52,12 +52,16 @@ export const PlaceMapPanel = ({
     <div className="place-map-panel__toolbar" aria-label="Действия с картой">
       {onRequestLocation ? <Button variant="secondary" size="sm" leftIcon={<LocateFixed size={16} />}
         loading={locationLoading} onClick={onRequestLocation}>Где я</Button> : null}
-      <a href={yandexMapLink(center)} target="_blank" rel="noreferrer" className="place-map-panel__external">
-        <Button variant="ghost" size="sm" rightIcon={<ExternalLink size={15} />}>Яндекс Карты</Button>
-      </a>
-      <a href={twoGisMapLink(center)} target="_blank" rel="noreferrer" className="place-map-panel__external">
-        <Button variant="ghost" size="sm" rightIcon={<ExternalLink size={15} />}>2ГИС</Button>
-      </a>
+      <div className="place-map-panel__external-group">
+        <a href={yandexMapLink(center)} target="_blank" rel="noreferrer"
+          className="cg-button cg-button--ghost cg-button--sm place-map-panel__external">
+          <span>Яндекс Карты</span><ExternalLink size={15} aria-hidden="true" />
+        </a>
+        <a href={twoGisMapLink(center)} target="_blank" rel="noreferrer"
+          className="cg-button cg-button--ghost cg-button--sm place-map-panel__external">
+          <span>2ГИС</span><ExternalLink size={15} aria-hidden="true" />
+        </a>
+      </div>
     </div>
     {locationError ? <p className="place-map-panel__error">{locationError}</p> : null}
     {manualPoint ? <p className="place-map-panel__manual">Выбрана точка на карте</p> : null}
