@@ -14,185 +14,42 @@ jobs:
     timeout-minutes: 10
     env:
       PROD_HOST: ${{ secrets.SSH_HOST }}
-      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
-      SSH_USER: ${{ secrets.SSH_USER }}
-      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      NOTIFICATION_FILE: /tmp/api-error-monitor-notification.txt
     steps:
-      - name: Check API and collect diagnostics
+      - name: Checkout monitor scripts
+        uses: actions/checkout@v4
+
+      - name: Check API endpoints
         shell: bash
         run: |
-          set -u
-          test -n "${PROD_HOST:-}" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          set -euo pipefail
+          python scripts/api_error_monitor.py \
+            --host "$PROD_HOST" \
+            --admin-token "${ADMIN_API_TOKEN:-}" \
+            --notification-file "$NOTIFICATION_FILE"
 
-          BASE_URL="http://${PROD_HOST}"
-          FAILED=0
-          REPORT=""
-
-          encode_body() {
-            head -c 6000 "$1" | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g'
-          }
-
-          append_report() {
-            REPORT+="$1"
-          }
-
-          check_get() {
-            local name="$1"
-            local path="$2"
-            local auth="$3"
-            local tmp
-            tmp=$(mktemp)
-
-            if [ "$auth" = "admin" ]; then
-              if [ -z "${ADMIN_API_TOKEN:-}" ]; then
-                echo "ERROR: ADMIN_API_TOKEN secret is missing" >&2
-                FAILED=1
-                append_report "❌ ${name} ${path} -> missing ADMIN_API_TOKEN%0A"
-                rm -f "$tmp"
-                return 0
-              fi
-              STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' --connect-timeout 8 --max-time 25 \
-                -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
-                "${BASE_URL}${path}" 2>&1 || echo "000")
-            else
-              STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' --connect-timeout 8 --max-time 25 \
-                "${BASE_URL}${path}" 2>&1 || echo "000")
-            fi
-
-            BODY=$(encode_body "$tmp")
-            rm -f "$tmp"
-
-            echo "${name} ${path} -> ${STATUS}"
-            if [ "$STATUS" = "000" ] || [ "${STATUS##*$'\n'}" -ge 400 ] 2>/dev/null; then
-              FAILED=1
-              append_report "❌ ${name} ${path} -> HTTP ${STATUS}%0A${BODY}%0A%0A"
-            fi
-            return 0
-          }
-
-          check_post_json() {
-            local name="$1"
-            local path="$2"
-            local body="$3"
-            local tmp
-            tmp=$(mktemp)
-
-            STATUS=$(curl -sS -o "$tmp" -w '%{http_code}' --connect-timeout 8 --max-time 35 \
-              -H 'Content-Type: application/json' \
-              -d "$body" \
-              "${BASE_URL}${path}" 2>&1 || echo "000")
-
-            BODY=$(encode_body "$tmp")
-            rm -f "$tmp"
-
-            echo "${name} ${path} -> ${STATUS}"
-            if [ "$STATUS" = "000" ] || [ "${STATUS##*$'\n'}" -ge 400 ] 2>/dev/null; then
-              FAILED=1
-              append_report "❌ ${name} ${path} -> HTTP ${STATUS}%0A${BODY}%0A%0A"
-            fi
-            return 0
-          }
-
-          collect_backend_logs() {
-            echo "=== collect backend diagnostics ==="
-            if [ -z "${SSH_PRIVATE_KEY_B64:-}" ] || [ -z "${SSH_USER:-}" ] || [ -z "${PROD_HOST:-}" ]; then
-              echo "SSH diagnostics skipped: SSH secrets missing"
-              append_report "%0A⚠️ SSH diagnostics skipped: SSH secrets missing%0A"
-              return 0
-            fi
-
-            mkdir -p ~/.ssh
-            printf '%s' "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key 2>/tmp/key_decode.err
-            if [ ! -s ~/.ssh/deploy_key ]; then
-              printf '%s\n' "$SSH_PRIVATE_KEY_B64" > ~/.ssh/deploy_key
-            fi
-            chmod 600 ~/.ssh/deploy_key
-            ssh-keyscan -p "${SSH_PORT:-22}" "$PROD_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-
-            DIAG=$(ssh \
-              -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null \
-              -o ConnectTimeout=8 \
-              -i ~/.ssh/deploy_key \
-              -p "${SSH_PORT:-22}" \
-              "$SSH_USER@$PROD_HOST" bash <<'REMOTE_EOF' 2>&1
-              cd /srv/app || exit 0
-              echo "=== compose ps ==="
-              docker compose ps || true
-              echo "=== backend error grep ==="
-              docker compose logs --tail=1800 backend | grep -Ei -A 70 -B 30 'traceback|exception|error|critical|undefinedcolumn|undefinedtable|programmingerror|operationalerror|integrityerror|validationerror|sqlalchemy|psycopg' || true
-              echo "=== backend logs tail ==="
-              docker compose logs --tail=320 backend || true
-          REMOTE_EOF
-            )
-            SSH_EXIT=$?
-            echo "SSH diagnostics exit=${SSH_EXIT}"
-            echo "$DIAG"
-            ENCODED_DIAG=$(printf '%s' "$DIAG" | head -c 12000 | tr '\n' ' ' | sed 's/%/%25/g; s/&/%26/g; s/</\&lt;/g; s/>/\&gt;/g')
-            append_report "%0A🧪 Backend diagnostics:%0A${ENCODED_DIAG}%0A"
-            return 0
-          }
-
-          check_get "frontend" "/" "public"
-          check_get "api_health_proxy" "/api/health" "public"
-          check_get "backend_health_direct" ":8000/health" "public"
-
-          check_get "admin_overview_proxy" "/api/admin/overview" "admin"
-          check_get "admin_metrics_proxy" "/api/admin/metrics/summary" "admin"
-          check_get "admin_coverage_proxy" "/api/admin/coverage/summary?limit=5" "admin"
-          check_get "admin_verification_proxy" "/api/admin/place-verifications/summary" "admin"
-          check_get "admin_route_eligibility_proxy" "/api/admin/routes/eligibility?limit=1" "admin"
-          check_get "admin_route_readiness_proxy" "/api/admin/routes/readiness?limit=10" "admin"
-
-          check_get "admin_overview_backend" ":8000/admin/overview" "admin"
-          check_get "admin_coverage_backend" ":8000/admin/coverage/summary?limit=5" "admin"
-          check_get "admin_route_readiness_backend" ":8000/admin/routes/readiness?limit=10" "admin"
-
-          ROUTE_BODY='{"lat":40.1792,"lng":44.4991,"start_address":null,"start_source":"city_center","start":{"type":"city_center","lat":40.1792,"lng":44.4991,"address":null},"build_mode":"by_categories","time_budget_minutes":240,"time_of_day":null,"route_time_mode":"flexible","interests":["coffee","food","walk"],"avoided_categories":[],"excluded_place_ids":[],"budget_level":null,"pace_mode":null,"is_visiting":false,"city_id":"yerevan","visit_city_id":null,"visit_days":null,"user_id":"monitor"}'
-          check_post_json "route_preview_yerevan_proxy" "/api/v1/user-routes/preview" "$ROUTE_BODY"
-          check_post_json "route_preview_yerevan_backend" ":8000/v1/user-routes/preview" "$ROUTE_BODY"
-
-          if [ "$FAILED" != "0" ]; then
-            echo "API monitor failed"
-            collect_backend_logs
-            echo "$REPORT"
-            {
-              echo "REPORT<<EOF"
-              echo "$REPORT"
-              echo "EOF"
-            } >> "$GITHUB_ENV"
-            exit 1
-          fi
-
-      - name: Telegram alert on API 4xx/5xx
+      - name: Telegram alert on API failure
         if: failure()
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-            echo "Telegram notification skipped"
-            exit 0
+          if [ ! -s "$NOTIFICATION_FILE" ]; then
+            printf '%s\n' \
+              '❌ City GO · API monitor упал без отчёта' \
+              "Хост: ${PROD_HOST:-не указан}" \
+              'Проблема: monitor script завершился раньше, чем записал отчёт.' \
+              'Что делать: открыть лог шага Check API endpoints.' \
+              "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              > "$NOTIFICATION_FILE"
           fi
-          TEXT="❌ City Go API monitor detected HTTP 4xx/5xx%0AHost: ${PROD_HOST}%0A${REPORT:-No report captured}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "text=${TEXT}" \
-            -d "disable_web_page_preview=true"
+          python scripts/send_telegram_notification.py --text-file "$NOTIFICATION_FILE" --allow-missing
 
       - name: Telegram OK on manual run
         if: success() && github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-            echo "Telegram notification skipped"
-            exit 0
-          fi
-          TEXT="✅ City Go API monitor OK%0AHost: ${PROD_HOST}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            -d "text=${TEXT}" \
-            -d "disable_web_page_preview=true"
+          python scripts/send_telegram_notification.py --text-file "$NOTIFICATION_FILE" --allow-missing
