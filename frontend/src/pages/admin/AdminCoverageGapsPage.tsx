@@ -65,16 +65,18 @@ export const AdminCoverageGapsPage = () => {
     return api.toString()
   }, [params])
 
-  const load = useCallback(() => {
+  const load = useCallback((refresh = true) => {
+    const api = new URLSearchParams(query)
+    api.set('refresh', refresh ? 'true' : 'false')
     setLoading(true)
     setError(null)
-    adminGet<Payload>(`/admin/coverage-gaps?${query}`)
+    adminGet<Payload>(`/admin/coverage-gaps?${api.toString()}`)
       .then(setData)
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false))
   }, [query])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(true) }, [load])
 
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params)
@@ -90,7 +92,7 @@ export const AdminCoverageGapsPage = () => {
     try {
       const city = params.get('city_slug')
       await adminPost(`/admin/coverage-gaps/refresh${city ? `?city_slug=${encodeURIComponent(city)}` : ''}`)
-      load()
+      load(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -107,7 +109,9 @@ export const AdminCoverageGapsPage = () => {
         gap_reason: gap_reason ?? null,
         review_notes: `Admin action from Coverage Gaps UI: ${status}${gap_reason ? ` / ${gap_reason}` : ''}`,
       })
-      load()
+      // После ручного действия не запускаем повторную авто-сверку, иначе только что выставленный
+      // редакторский статус может быть сразу перезаписан источниками.
+      load(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
