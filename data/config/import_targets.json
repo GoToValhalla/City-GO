@@ -37,11 +37,39 @@
           "bbox": {"south": 42.2300, "west": 42.6400, "north": 42.3000, "east": 42.7600}
         },
         {
+          "code": "heritage_ne_ring",
+          "profile": "tourist_core",
+          "enabled": true,
+          "refresh_interval_hours": 168,
+          "bbox": {"south": 42.2500, "west": 42.6800, "north": 42.3150, "east": 42.8000}
+        },
+        {
+          "code": "sataplia_tourist",
+          "profile": "tourist_core",
+          "enabled": true,
+          "refresh_interval_hours": 168,
+          "bbox": {"south": 42.3000, "west": 42.6500, "north": 42.3800, "east": 42.7600}
+        },
+        {
+          "code": "sataplia_nature",
+          "profile": "nature_walk",
+          "enabled": true,
+          "refresh_interval_hours": 168,
+          "bbox": {"south": 42.3000, "west": 42.6500, "north": 42.3800, "east": 42.7600}
+        },
+        {
           "code": "food_area",
           "profile": "food_and_coffee",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 42.2450, "west": 42.6750, "north": 42.2850, "east": 42.7350}
+        },
+        {
+          "code": "food_wider_center",
+          "profile": "food_and_coffee",
+          "enabled": true,
+          "refresh_interval_hours": 168,
+          "bbox": {"south": 42.2350, "west": 42.6550, "north": 42.2950, "east": 42.7550}
         },
         {
           "code": "useful_services",
