@@ -7,9 +7,7 @@ const readStored = (): boolean | null => {
     const value = window.localStorage.getItem(STORAGE_KEY)
     if (value === null) return null
     return value === '1'
-  } catch {
-    return null
-  }
+  } catch { return null }
 }
 
 const store = (enabled: boolean): void => {
@@ -17,9 +15,12 @@ const store = (enabled: boolean): void => {
 }
 
 export const syncDebugQueryFlag = (): void => {
-  const value = new URLSearchParams(window.location.search).get('debug')
-  if (value === '1') store(true)
-  if (value === '0') store(false)
+  const url = new URL(window.location.href)
+  const value = url.searchParams.get('debug')
+  if (value !== '1' && value !== '0') return
+  store(value === '1')
+  url.searchParams.delete('debug')
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
 }
 
 export const setDebugEnabled = (enabled: boolean): void => store(enabled)
