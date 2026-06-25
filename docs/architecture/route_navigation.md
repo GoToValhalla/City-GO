@@ -2,9 +2,45 @@
 
 ## Цель
 
-Каждая точка маршрута должна быть пригодна для навигации даже при отсутствии точного адреса.
+Каждая точка маршрута должна быть пригодна для навигации, а линия на карте должна показывать реальный пешеходный путь по улицам и проходам, а не прямые отрезки между координатами.
 
----
+## Пешеходная геометрия
+
+Frontend отправляет упорядоченные координаты в:
+
+```http
+POST /routes/walking-geometry
+```
+
+Backend `services/walking_route_service.py` запрашивает OSRM-compatible pedestrian router и возвращает:
+
+- GeoJSON geometry в порядке `[longitude, latitude]`;
+- общую дистанцию и длительность;
+- переходы между остановками;
+- русские пошаговые инструкции;
+- статус `routed` или `unavailable`.
+
+Настройки:
+
+```env
+WALKING_ROUTER_URL=https://routing.openstreetmap.de/routed-foot/route/v1/driving
+WALKING_ROUTER_TIMEOUT_SECONDS=12
+WALKING_ROUTER_USER_AGENT=CityGoWalkingRouter/1.0
+```
+
+Провайдер можно заменить собственным OSRM foot instance без изменения frontend. Запросы одинаковых наборов координат кэшируются в процессе backend.
+
+### Безопасная деградация
+
+Если pedestrian router недоступен, карта показывает маркеры, но не рисует прямую линию. Это обязательное правило: ложная линия через здания, воду или закрытую территорию опаснее отсутствующей линии.
+
+## Как пользователь понимает, куда идти
+
+1. На карте показан путь по пешеходному графу.
+2. Под картой отображаются фактическая дистанция и время.
+3. Блок «Как пройти» разбит по переходам между точками и содержит манёвры.
+4. Нажатие на маркер показывает выбранную остановку.
+5. При недоступности routing API пользователь видит понятное предупреждение без ложного маршрута.
 
 ## Навигационные поля в route response
 
@@ -12,102 +48,41 @@
 
 | Поле | Тип | Описание |
 |------|-----|----------|
-| `display_location` | `string` | Адрес или `"Адрес уточняется · открыть на карте"` |
-| `has_address` | `bool` | `true` если адрес реальный |
+| `display_location` | `string` | Адрес или `Адрес уточняется · открыть на карте` |
+| `has_address` | `bool` | Есть ли подтверждённый адрес |
 | `navigation_url_google` | `string` | Google Maps URL |
 | `navigation_url_yandex` | `string` | Яндекс Карты URL |
 | `navigation_url_osm` | `string` | OpenStreetMap URL |
-| `estimated_distance_meters` | `int \| null` | Примерная дистанция пешком, вычисленная из `estimated_walk_minutes` |
-| `estimated_walk_minutes` | `int \| null` | Время пешком до точки от предыдущей (уже существовало) |
+| `estimated_distance_meters` | `int \| null` | Предварительная оценка до запроса routing API |
+| `estimated_walk_minutes` | `int \| null` | Предварительная оценка времени перехода |
 
----
-
-## Как пользователь понимает куда идти
-
-1. `display_location` — всегда непустой: либо реальный адрес, либо fallback-текст.
-2. Три кнопки навигации: Google Maps, Яндекс Карты, OSM — всегда доступны если точка в маршруте.
-3. Если адреса нет — текст `display_location` выводится серым цветом (`route-address-muted`).
-4. Маршрут **не блокируется** из-за отсутствия адреса.
-
----
+Предварительные метрики route engine используются для подбора точек. После построения карты пользовательские метрики берутся из pedestrian router.
 
 ## Fallback без адреса
 
-```
-address пустой/плейсхолдер/generic для заведения → display_location = "Адрес уточняется · открыть на карте"
-                     has_address = false
-                     navigation URLs рабочие (используют lat/lng)
-```
-
-Плейсхолдеры, которые не считаются реальным адресом:
-`"адрес уточняется"`, `"адрес не указан"`, `"нет адреса"`, `"unknown"`, `"-"`
-
----
-
-## Navigation URL-шаблоны
-
-| Провайдер | URL-шаблон |
-|-----------|------------|
-| Google Maps | `https://www.google.com/maps/search/?api=1&query={lat},{lng}` |
-| Яндекс Карты | `https://yandex.com/maps/?pt={lng},{lat}&z=17&l=map` |
-| OpenStreetMap | `https://www.openstreetmap.org/?mlat={lat}&mlon={lng}#map=17/{lat}/{lng}` |
-
-Реализация: `services/route_navigation_service.py`
-
----
-
-## Estimated distance: не turn-by-turn
-
-Дистанция рассчитывается через haversine с городской поправкой:
-
-```python
-# route_geometry.py
-WALK_METERS_PER_MIN = 75.0   # средняя скорость пешехода
-URBAN_FACTOR = 1.25           # городская поправка
-distance_meters = estimated_walk_minutes * 75 / 1.25
+```text
+address пустой/плейсхолдер → display_location = Адрес уточняется · открыть на карте
+                           → has_address = false
+                           → navigation URLs используют lat/lng
 ```
 
-Поле называется `estimated_distance_meters` — это явное указание на приблизительность.
-**Turn-by-turn navigation не реализован.**
+## Debug lifecycle
 
----
+Debug UI выключен по умолчанию и не должен включаться после деплоя.
+
+- `VITE_DEBUG_PANEL=false` — production default.
+- `?debug=1` — однократно включает debug и сохраняет выбор в localStorage.
+- `?debug=0` — выключает debug.
+- Кнопка «Выключить» полностью удаляет панель; плавающая кнопка не остаётся.
+- Route debug trace отображается только при включённом debug.
 
 ## Telegram
 
-Telegram-бот добавляет к каждой точке маршрута адрес или координаты и HTML-ссылку на Google Maps:
+Telegram-бот сохраняет ссылки на внешние карты для резервного открытия конкретной точки. Встроенная Web App карта использует тот же endpoint пешеходной геометрии.
 
-```
-1. Пушкинский парк · 📍 ул. Пушкина, 10 · 🗺 Google Maps · 09:00-09:30 · 30 мин · 5 мин пешком
-```
+## Следующие улучшения
 
----
-
-## Address Backfill
-
-```bash
-# dry-run — показывает что будет обновлено
-python data/scripts/backfill_missing_place_addresses.py --city zelenogradsk --limit 50
-
-# применить изменения
-python data/scripts/backfill_missing_place_addresses.py --city zelenogradsk --limit 50 --apply
-
-# все города
-python data/scripts/backfill_missing_place_addresses.py --limit 100 --apply
-```
-
-Скрипт **не перезаписывает реальный адрес**: `_needs_address()` пропускает место если у него непустой и не-плейсхолдерный адрес.
-
----
-
-## Будущие задачи (out of scope)
-
-- Полноценный routing API (OSRM / Valhalla / GraphHopper) для маршрута по дорогам
-- Turn-by-turn навигация
-- Deep-link для открытия нативного приложения карт на мобильных
-- Режим велосипед / транспорт
-# Location lifecycle
-
-Активная навигация использует общий frontend location provider. Browser
-`watchPosition` запускается только после пользовательского старта маршрута и
-очищается при завершении, reset, смене маршрута и unmount. Telegram
-`LocationManager` остаётся one-shot и обновляется кнопкой вручную.
+- собственный OSRM/Valhalla instance для гарантированного SLA;
+- перерасчёт порядка точек по матрице реальных walking distances;
+- голосовые подсказки и отклонение от маршрута;
+- режимы велосипед и общественный транспорт.
