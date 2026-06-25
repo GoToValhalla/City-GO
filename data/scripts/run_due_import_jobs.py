@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from data.scripts.backfill_missing_place_addresses import run as run_address_backfill
 from data.scripts.cleanup_imported_places_quality import run as run_quality_cleanup
 from data.scripts.enrich_place_images import run as run_image_enrichment
-from data.scripts.import_city_osm import run as run_osm_import
+from data.scripts.import_city_osm_v2 import run as run_osm_import
 from db.session import SessionLocal
 from data.scripts.import_cron_config import (
     DEFAULT_TARGET_FILE,
