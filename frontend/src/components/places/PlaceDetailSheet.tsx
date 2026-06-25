@@ -1,3 +1,4 @@
+import { ArrowLeft, Clock3, Globe2, MapPin, Phone, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
@@ -23,21 +24,37 @@ type PlaceDetailSheetProps = {
   onAddToRoute?: () => void
 }
 
-type DetailSectionProps = {
-  title: string
+type FactRowProps = {
+  icon: ReactNode
+  label: string
   children: ReactNode
 }
 
-const DESCRIPTION_LIMIT = 260
+const DESCRIPTION_LIMIT = 320
+const TEMPLATE_DETAILS = new Set([
+  'еда и отдых',
+  'зал, меню и возможность сделать паузу',
+  'кофе, перекус или спокойная остановка в маршруте',
+  'культура и история',
+  'экспозиции, архитектурные детали или исторический контекст',
+  'первое знакомство с городом и неспешная прогулка',
+  'прогулка на свежем воздухе',
+  'открытое пространство и точки для остановки',
+  'прогулка, фото и спокойный маршрут',
+])
 
-const DetailSection = ({ children, title }: DetailSectionProps) => {
-  return (
-    <section className="place-detail-section">
-      <strong className="place-detail-section__title">{title}</strong>
-      <div className="place-detail-section__body">{children}</div>
-    </section>
-  )
+const meaningfulDetail = (value: string | null): string | null => {
+  if (!value) return null
+  const normalized = value.trim().toLowerCase().replace(/[.!]+$/, '')
+  return TEMPLATE_DETAILS.has(normalized) ? null : value.trim()
 }
+
+const FactRow = ({ children, icon, label }: FactRowProps) => (
+  <div className="place-detail-fact">
+    <span className="place-detail-fact__icon" aria-hidden="true">{icon}</span>
+    <div><span className="place-detail-fact__label">{label}</span><div className="place-detail-fact__value">{children}</div></div>
+  </div>
+)
 
 export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps) => {
   const [expanded, setExpanded] = useState(false)
@@ -48,9 +65,13 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
   const imageUrl = gallery[0] ?? placeImageUrl(place)
   const address = placeAddressLabel(place)
   const hours = placeHoursLabel(place)
-  const atmosphere = listText(place.atmosphere) ?? placeTagLabels(place).join(', ')
-  const inside = listText(place.inside)
-  const bestFor = listText(place.best_for) ?? placeFeatureLabels(place).join(', ')
+  const atmosphere = meaningfulDetail(listText(place.atmosphere))
+  const inside = meaningfulDetail(listText(place.inside))
+  const bestFor = meaningfulDetail(listText(place.best_for))
+  const featureLabels = [...placeTagLabels(place), ...placeFeatureLabels(place)]
+    .filter((value, index, list) => Boolean(value) && list.indexOf(value) === index)
+    .slice(0, 6)
+  const descriptionPending = !description || description.length < 80
   const shouldCollapseDescription = Boolean(description && description.length > DESCRIPTION_LIMIT)
   const visibleDescription = description && shouldCollapseDescription && !expanded
     ? `${description.slice(0, DESCRIPTION_LIMIT).trim()}...`
@@ -67,7 +88,7 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
   )
 
   return (
-    <main className="place-detail-sheet">
+    <main className="place-detail-sheet place-detail-sheet--refined">
       <div className="place-detail-sheet__media">
         {imageUrl ? (
           <a href={imageUrl} target="_blank" rel="noopener noreferrer" aria-label={`Открыть фото: ${title}`}>
@@ -77,7 +98,7 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
       </div>
 
       <section className="place-detail-sheet__panel">
-        <Link className="place-detail-sheet__back" to="/places">Все места</Link>
+        <Link className="place-detail-sheet__back" to="/places"><ArrowLeft size={17} /> Места</Link>
 
         <div className="place-detail-sheet__badges">
           <CategoryBadge category={place.category} />
@@ -87,32 +108,35 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
 
         <h1 className="place-detail-sheet__title">{title}</h1>
 
-        {visibleDescription ? (
-          <div className="place-detail-sheet__description">
-            <p className={expanded ? undefined : 'cg-clamp-3'}>{visibleDescription}</p>
-            {shouldCollapseDescription ? (
-              <button className="place-detail-sheet__read-more" type="button" onClick={() => setExpanded((value) => !value)}>
-                {expanded ? 'Свернуть' : 'Читать дальше'}
-              </button>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="place-detail-sheet__description">
+          {visibleDescription ? <p>{visibleDescription}</p> : null}
+          {descriptionPending ? <p className="place-detail-sheet__pending">Подробное описание дополняется. Ниже показаны только подтверждённые данные карточки.</p> : null}
+          {shouldCollapseDescription ? (
+            <button className="place-detail-sheet__read-more" type="button" onClick={() => setExpanded((value) => !value)}>
+              {expanded ? 'Свернуть' : 'Читать дальше'}
+            </button>
+          ) : null}
+        </div>
 
-        {atmosphere ? <DetailSection title="Атмосфера">{atmosphere}</DetailSection> : null}
-        {inside ? <DetailSection title="Что внутри">{inside}</DetailSection> : null}
-        {bestFor ? <DetailSection title="Кому подойдёт">{bestFor}</DetailSection> : null}
-        {address ? <DetailSection title="Адрес">{address}</DetailSection> : null}
-        {hours ? <DetailSection title="Часы работы">{hours}</DetailSection> : null}
-        {place.phone || place.website ? (
-          <DetailSection title="Контакты">
-            {place.phone ? <div>{place.phone}</div> : null}
-            {place.website ? <a href={place.website} target="_blank" rel="noopener noreferrer">Открыть сайт</a> : null}
-          </DetailSection>
-        ) : null}
+        {featureLabels.length ? <div className="place-detail-features">{featureLabels.map((feature) => <span key={feature}>{feature}</span>)}</div> : null}
+
+        <section className="place-detail-facts" aria-label="Основная информация">
+          {address ? <FactRow icon={<MapPin size={18} />} label="Адрес">{address}</FactRow> : null}
+          {hours ? <FactRow icon={<Clock3 size={18} />} label="Часы работы">{hours}</FactRow> : null}
+          {place.phone ? <FactRow icon={<Phone size={18} />} label="Телефон"><a href={`tel:${place.phone}`}>{place.phone}</a></FactRow> : null}
+          {place.website ? <FactRow icon={<Globe2 size={18} />} label="Сайт"><a href={place.website} target="_blank" rel="noopener noreferrer">Открыть сайт</a></FactRow> : null}
+        </section>
+
+        {atmosphere || inside || bestFor ? <section className="place-detail-editorial" aria-label="Дополнительная информация">
+          <h2><Sparkles size={18} /> Об этом месте</h2>
+          {atmosphere ? <p><strong>Атмосфера:</strong> {atmosphere}</p> : null}
+          {inside ? <p><strong>Особенности:</strong> {inside}</p> : null}
+          {bestFor ? <p><strong>Подойдёт для:</strong> {bestFor}</p> : null}
+        </section> : null}
 
         <footer className="place-detail-sheet__footer">
           <Link className="cg-button cg-button--primary cg-button--lg" to="/routes/generate">Построить маршрут</Link>
-          <Button variant="secondary" size="lg" onClick={onAddToRoute} disabled={!onAddToRoute}>Добавить в маршрут</Button>
+          {onAddToRoute ? <Button variant="secondary" size="lg" onClick={onAddToRoute}>Добавить в маршрут</Button> : null}
           {place.phone ? <a className="cg-button cg-button--ghost cg-button--lg" href={`tel:${place.phone}`}>Позвонить</a> : null}
           {place.website ? <a className="cg-button cg-button--ghost cg-button--lg" href={place.website} target="_blank" rel="noopener noreferrer">Сайт</a> : null}
         </footer>
