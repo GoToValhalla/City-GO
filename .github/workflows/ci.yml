@@ -63,22 +63,29 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/junit artifacts/allure-results/backend artifacts/messages
+          printf 'Environment=GitHub Actions\nBranch=%s\nCommit=%s\nPython=3.11\nDatabase=SQLite\n' \
+            "${GITHUB_REF_NAME}" "${GITHUB_SHA}" > artifacts/allure-results/backend/environment.properties
+          printf '{"name":"GitHub Actions","type":"github","url":"%s/%s/actions/runs/%s","buildOrder":%s,"buildName":"Full Autotests #%s","buildUrl":"%s/%s/actions/runs/%s"}\n' \
+            "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_NUMBER}" "${GITHUB_RUN_NUMBER}" \
+            "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" > artifacts/allure-results/backend/executor.json
           set +e
           python -m pytest -q --no-cov --junitxml=artifacts/junit/backend.xml --alluredir=artifacts/allure-results/backend
           TEST_EXIT=$?
           set -e
-          python scripts/ci_test_summary.py --junit artifacts/junit/backend.xml --output artifacts/messages/backend.txt --job-name "Backend full regression" --run-type "Full Autotests" --artifact-hint "backend-test-artifacts" --exit-code "$TEST_EXIT"
+          python scripts/ci_test_summary.py --junit artifacts/junit/backend.xml --output artifacts/messages/backend.txt \
+            --job-name "Backend full regression" --run-type "Full Autotests" \
+            --artifact-hint "backend-test-artifacts/allure-report/backend/index.html" --exit-code "$TEST_EXIT"
           exit "$TEST_EXIT"
 
-      - name: Generate Allure HTML report if available
+      - name: Generate readable Allure HTML report
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          if command -v allure >/dev/null 2>&1; then
-            allure generate artifacts/allure-results/backend -o artifacts/allure-report/backend --clean || echo "WARN: Allure HTML generation failed"
-          else
-            echo "Allure CLI is not installed; raw allure-results will be uploaded."
+          if [ -d artifacts/allure-results/backend ]; then
+            npx --yes allure-commandline@2.32.0 generate artifacts/allure-results/backend \
+              -o artifacts/allure-report/backend --clean \
+              || echo "WARN: Allure HTML generation failed; raw results remain available"
           fi
 
       - name: Upload backend test artifacts
@@ -161,11 +168,16 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f ../artifacts/junit/frontend.xml ]; then
-            python ../scripts/ci_test_summary.py --junit ../artifacts/junit/frontend.xml --output ../artifacts/messages/frontend.txt --job-name "Frontend lint/tests/build" --run-type "Full Autotests" --artifact-hint "frontend-test-artifacts" --exit-code 0
+            TEST_EXIT=0
+            [ "${TEST_RESULT}" = "success" ] || TEST_EXIT=1
+            python ../scripts/ci_test_summary.py --junit ../artifacts/junit/frontend.xml \
+              --output ../artifacts/messages/frontend.txt --job-name "Frontend lint/tests/build" \
+              --run-type "Full Autotests" --artifact-hint "frontend-test-artifacts/frontend.xml" --exit-code "${TEST_EXIT}" || true
           else
             {
-              echo "Frontend lint/tests/build"
-              echo "Vitest JUnit report is unavailable; using stage outcomes."
+              echo "❌ Frontend lint/tests/build: JUnit report was not created"
+              echo "Причина: Vitest завершился до формирования структурированного отчёта."
+              echo "Действие: открыть frontend-vitest.log и проверить первое необработанное исключение."
             } > ../artifacts/messages/frontend.txt
           fi
           if [ -f ../artifacts/messages/frontend-vitest.log ]; then
@@ -208,7 +220,7 @@ jobs:
         with:
           path: downloaded-artifacts
 
-      - name: Build notification summary
+      - name: Build notification summaries
         id: build-summary
         shell: bash
         env:
@@ -218,14 +230,8 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/messages
           if [ "${BACKEND_RESULT}" = "cancelled" ] && [ "${FRONTEND_RESULT}" = "cancelled" ]; then
-            {
-              echo "City GO Full Autotests: отменен"
-              echo "Причина: запущен более свежий прогон для этой ветки, старый прогон остановлен автоматически."
-              echo "Действие не требуется: смотреть следующий прогон."
-              echo ""
-              echo "Commit: ${GITHUB_SHA}"
-              echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            } > artifacts/messages/telegram-ci.txt
+            printf 'City GO Full Autotests: отменен\nПричина: запущен более свежий прогон.\nRun: %s/%s/actions/runs/%s\n' \
+              "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" > artifacts/messages/telegram-ci.txt
             echo "skip_telegram=true" >> "$GITHUB_OUTPUT"
             cat artifacts/messages/telegram-ci.txt >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -233,30 +239,25 @@ jobs:
 
           BACKEND_SUMMARY=$(find downloaded-artifacts -name backend.txt -print -quit 2>/dev/null || true)
           FRONTEND_SUMMARY=$(find downloaded-artifacts -name frontend.txt -print -quit 2>/dev/null || true)
-          {
-            echo "City GO Full Autotests"
-            echo "Backend: ${BACKEND_RESULT}"
-            if [ -n "${BACKEND_SUMMARY}" ]; then
-              cat "${BACKEND_SUMMARY}"
-            elif [ "${BACKEND_RESULT}" = "cancelled" ]; then
-              echo "Backend tests were cancelled before summary was created."
-            else
-              echo "Backend summary is unavailable; open the run logs."
-            fi
-            echo ""
-            echo "Frontend: ${FRONTEND_RESULT}"
-            if [ -n "${FRONTEND_SUMMARY}" ]; then
-              cat "${FRONTEND_SUMMARY}"
-            elif [ "${FRONTEND_RESULT}" = "cancelled" ]; then
-              echo "Frontend checks were cancelled before summary was created."
-            else
-              echo "Frontend summary is unavailable; open the run logs."
-            fi
-            echo ""
-            echo "Commit: ${GITHUB_SHA}"
-            echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          } > artifacts/messages/telegram-ci.txt
-          cat artifacts/messages/telegram-ci.txt >> "$GITHUB_STEP_SUMMARY"
+          for target in backend frontend; do
+            result_var="${target^^}_RESULT"
+            summary_var="${target^^}_SUMMARY"
+            result="${!result_var}"
+            summary="${!summary_var}"
+            {
+              echo "City GO Full Autotests · ${target}"
+              echo "Status: ${result}"
+              if [ -n "${summary}" ]; then
+                cat "${summary}"
+              elif [ "${result}" = "cancelled" ]; then
+                echo "Проверка отменена более свежим прогоном."
+              else
+                echo "Структурированный отчёт не найден. Откройте job logs."
+              fi
+              echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            } > "artifacts/messages/telegram-${target}.txt"
+          done
+          cat artifacts/messages/telegram-backend.txt artifacts/messages/telegram-frontend.txt >> "$GITHUB_STEP_SUMMARY"
 
       - name: Telegram full autotests notification
         if: steps.build-summary.outputs.skip_telegram != 'true'
@@ -271,7 +272,10 @@ jobs:
             echo "Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing"
             exit 0
           fi
-          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -d "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text@artifacts/messages/telegram-ci.txt" \
-            -d "disable_web_page_preview=true"
+          for report in artifacts/messages/telegram-backend.txt artifacts/messages/telegram-frontend.txt; do
+            [ -f "${report}" ] || continue
+            curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -d "chat_id=${TELEGRAM_CHAT_ID}" \
+              --data-urlencode "text@${report}" \
+              -d "disable_web_page_preview=true"
+          done
