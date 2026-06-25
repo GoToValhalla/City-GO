@@ -4,6 +4,8 @@
 
 - `/admin/cities/:citySlug?tab=...` — workspace города с десятью вкладками.
 - `/admin/quality` — live quality summary.
+- `/admin/coverage` — покрытие данных по городам.
+- `/admin/coverage?tab=gaps` — Data Coverage Assurance: must-have POI gaps, причины и действия.
 - `/admin/system-health` — сервисы, очереди и persisted alert lifecycle.
 - `/admin/analytics` — агрегаты product events и route build events.
 - `/admin/system-logs` — correlation filters и bounded pagination.
@@ -24,6 +26,7 @@
 8. `request_id` открывает всю correlation chain в системных логах.
 9. Инцидент открывает логи по module, request ID и городу.
 10. Внешний источник фото или обогащения хранится как отдельная безопасная ссылка.
+11. Must-have coverage metric открывает `/admin/coverage?tab=gaps` с сохранённым городом, статусом и причиной.
 
 Рекомендуемые URL:
 
@@ -33,6 +36,8 @@
 /admin/photos?city=<slug>&source=<provider>
 /admin/imports?city=<slug>&job=<job_id>
 /admin/enrichment?city=<slug>&batch=<batch_id>
+/admin/coverage?tab=gaps&city_slug=<slug>&status=critical
+/admin/coverage?tab=gaps&city_slug=<slug>&gap_reason=not_route_eligible
 /admin/system-logs?request_id=<request_id>
 /admin/audit?entity_type=<type>&entity_id=<id>
 ```
@@ -47,8 +52,25 @@
 - `POST /admin/system-health/alerts/{log_id}`
 - `GET /admin/analytics`
 - `GET /admin/cities/by-slug/{slug}/workspace`
+- `GET /admin/coverage-gaps`
+- `GET /admin/coverage-gaps/cities/{city_slug}`
+- `POST /admin/coverage-gaps/sync`
+- `POST /admin/coverage-gaps/refresh`
+- `PATCH /admin/coverage-gaps/{gap_id}`
 
 Все endpoints используют `admin_required`. Старые поля workspace сохранены; поле `operations` добавлено совместимо.
+
+## Data Coverage Assurance Contract
+
+Город нельзя считать готовым только по факту завершённого импорта. Must-have POI должны быть:
+
+1. найдены и сопоставлены с `places`; или
+2. иметь понятную причину отсутствия; и
+3. не иметь blocking gap reason для critical policy.
+
+Основные причины: `outside_bbox`, `unsupported_tag`, `source_absent`, `hidden_by_policy`, `missing_name`, `missing_coordinates`, `duplicate_candidate`, `not_imported_scope`, `not_visible_in_catalog`, `not_route_eligible`.
+
+Админка должна показывать не просто список дыр, а следующий операционный шаг: расширить scope, расширить taxonomy, опубликовать найденное место, включить route eligibility, смержить дубль или добавить место вручную.
 
 ## Action State Contract
 
@@ -96,3 +118,5 @@ Health center использует реальные jobs, queues, logs и route 
 - Worker heartbeat registry с отдельными SLO.
 - Audit `city_id` column вместо JSON fallback.
 - Унифицированный table-to-card renderer для legacy admin tables.
+- Scheduled weekly Data Coverage Assurance job.
+- Admin actions for direct scope expansion and manual POI creation from gap rows.
