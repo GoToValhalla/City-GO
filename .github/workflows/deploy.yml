@@ -182,19 +182,44 @@ jobs:
           DEPLOY_RESULT: ${{ needs.deploy.result }}
         run: |
           set -euo pipefail
-          STATUS="✅ City GO: деплой завершён"
-          if [ "$BUILD_RESULT" != "success" ] || [ "$DEPLOY_RESULT" != "success" ]; then
-            STATUS="❌ City GO: деплой завершился ошибкой"
-          fi
-          cat > /tmp/deploy-notification.txt <<EOF
-          ${STATUS}
-          Репозиторий: ${{ github.repository }}
+          if [ "$BUILD_RESULT" = "success" ] && [ "$DEPLOY_RESULT" = "success" ]; then
+            cat > /tmp/deploy-notification.txt <<EOF
+          ✅ CITY GO · PRODUCTION DEPLOY
+          Статус: прод обновлён
           Прогон: #${{ github.run_number }} · попытка ${{ github.run_attempt }}
-          Сборка: ${BUILD_RESULT}
-          Деплой: ${DEPLOY_RESULT}
           Commit: ${GITHUB_SHA:0:7}
-          Подробнее: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          Сборка образов: ✅ success
+          Деплой на сервер: ✅ success
+          Проверить: /build.json должен содержать ${GITHUB_SHA:0:7}
+          GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
+          elif [ "$BUILD_RESULT" != "success" ]; then
+            cat > /tmp/deploy-notification.txt <<EOF
+          ❌ CITY GO · PRODUCTION DEPLOY
+          Статус: прод не обновлён
+          Прогон: #${{ github.run_number }} · попытка ${{ github.run_attempt }}
+          Commit: ${GITHUB_SHA:0:7}
+          Сломанный этап: сборка production-образов
+          Сборка образов: ❌ ${BUILD_RESULT}
+          Деплой на сервер: ⏭ ${DEPLOY_RESULT}
+          Вероятная зона: Docker build, backend image smoke, frontend TypeScript/Vite build или push в GHCR.
+          Что делать: открыть job "Build production images" и смотреть первый красный step.
+          GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          else
+            cat > /tmp/deploy-notification.txt <<EOF
+          ❌ CITY GO · PRODUCTION DEPLOY
+          Статус: prod image собран, но сервер не обновлён
+          Прогон: #${{ github.run_number }} · попытка ${{ github.run_attempt }}
+          Commit: ${GITHUB_SHA:0:7}
+          Сломанный этап: деплой на production-сервер
+          Сборка образов: ✅ ${BUILD_RESULT}
+          Деплой на сервер: ❌ ${DEPLOY_RESULT}
+          Вероятная зона: SSH, docker compose pull/up, PostgreSQL readiness, миграции, schema guard, frontend SHA gate или background services.
+          Что делать: открыть job "Deploy production" → step "Deploy" и смотреть последнюю строку перед error/timeout.
+          GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+          fi
           sed -i 's/^          //' /tmp/deploy-notification.txt
 
       - name: Send Telegram deploy notification
