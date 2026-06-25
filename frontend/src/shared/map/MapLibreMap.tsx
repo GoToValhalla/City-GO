@@ -14,9 +14,16 @@ type Props = {
   routeLine?: boolean
   interactiveSelection?: boolean
   onPointSelect?: (id: number) => void
+  onClusterSelect?: (ids: number[]) => void
   onManualPoint?: (point: MapManualPoint) => void
   onRouteStateChange?: (state: MapRouteState) => void
   className?: string
+}
+
+type ClusterLeaf = {
+  properties?: {
+    id?: unknown
+  } | null
 }
 
 const EMPTY_ROUTE: MapRouteState = {
@@ -36,9 +43,13 @@ const cssColor = (property: string, fallback: string): string => {
   return value || fallback
 }
 
+const clusterLeafIds = (leaves: ClusterLeaf[]): number[] => Array.from(new Set(leaves
+  .map((leaf) => Number(leaf.properties?.id))
+  .filter((id) => Number.isFinite(id))))
+
 export const MapLibreMap = ({
   activePointId = null, className, interactiveSelection = true, manualPoint = null,
-  onManualPoint, onPointSelect, onRouteStateChange, points, routeLine = false, userLocation = null,
+  onClusterSelect, onManualPoint, onPointSelect, onRouteStateChange, points, routeLine = false, userLocation = null,
 }: Props) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapInstance | null>(null)
@@ -49,9 +60,9 @@ export const MapLibreMap = ({
     [points],
   )
   const dataRef = useRef({ activePointId, manualPoint, points, routeState, userLocation })
-  const callbacksRef = useRef({ interactiveSelection, onManualPoint, onPointSelect, onRouteStateChange })
+  const callbacksRef = useRef({ interactiveSelection, onClusterSelect, onManualPoint, onPointSelect, onRouteStateChange })
   dataRef.current = { activePointId, manualPoint, points, routeState, userLocation }
-  callbacksRef.current = { interactiveSelection, onManualPoint, onPointSelect, onRouteStateChange }
+  callbacksRef.current = { interactiveSelection, onClusterSelect, onManualPoint, onPointSelect, onRouteStateChange }
 
   useEffect(() => {
     const currentPoints = dataRef.current.points
@@ -115,6 +126,10 @@ export const MapLibreMap = ({
         const coordinates = feature?.geometry.type === 'Point' ? feature.geometry.coordinates : null
         const placesSource = source(map, 'places')
         if (!Number.isFinite(clusterId) || !placesSource || !coordinates) return
+        void placesSource.getClusterLeaves(clusterId, 60, 0).then((leaves) => {
+          const ids = clusterLeafIds(leaves as ClusterLeaf[])
+          if (ids.length > 0) callbacksRef.current.onClusterSelect?.(ids)
+        })
         void placesSource.getClusterExpansionZoom(clusterId).then((zoom) => {
           map.easeTo({ center: [Number(coordinates[0]), Number(coordinates[1])], zoom: Math.min(zoom, 16) })
         })
