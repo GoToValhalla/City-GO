@@ -33,16 +33,20 @@ export const AdminCoveragePage = () => {
   const [error, setError] = useState<string | null>(null)
   const highlight = params.get('city')
 
-  if (params.get('tab') === 'gaps') {
-    return <AdminCoverageGapsPage />
-  }
-
   useEffect(() => {
+    if (params.get('tab') === 'gaps') {
+      setLoading(false)
+      return
+    }
     adminGet<CoverageResponse>('/admin/coverage/summary?limit=100')
       .then((r) => setItems(r.items))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [])
+  }, [params])
+
+  if (params.get('tab') === 'gaps') {
+    return <AdminCoverageGapsPage />
+  }
 
   if (loading) return <AdminLoading />
   if (error) return <AdminError message={error} />
