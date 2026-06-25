@@ -5,26 +5,47 @@ run_docker() {
   timeout --signal=TERM --kill-after=15s 90s docker "$@"
 }
 
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE_MODE="plugin"
+  echo "Docker Compose command: docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_MODE="standalone"
+  echo "Docker Compose command: docker-compose"
+else
+  echo "ERROR: neither 'docker compose' nor 'docker-compose' is available on the production host." >&2
+  exit 127
+fi
+
+run_compose_timeout() {
+  local duration="$1"
+  shift
+  if [ "$COMPOSE_MODE" = "plugin" ]; then
+    timeout --signal=TERM --kill-after=30s "$duration" docker compose "$@"
+  else
+    timeout --signal=TERM --kill-after=30s "$duration" docker-compose "$@"
+  fi
+}
+
 run_compose() {
-  timeout --signal=TERM --kill-after=15s 90s docker compose "$@"
+  run_compose_timeout 90s "$@"
 }
 
 diagnose_runtime() {
   echo "=== production runtime diagnostics ==="
   run_compose ps || true
   run_compose logs --tail=250 db backend import-worker bot || true
-  timeout 30s docker compose exec -T db pg_isready -U postgres -d city_guide </dev/null || true
-  timeout 30s docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -c \
+  run_compose_timeout 30s exec -T db pg_isready -U postgres -d city_guide </dev/null || true
+  run_compose_timeout 30s exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -c \
     "SELECT now() AS checked_at, count(*) AS connections, count(*) FILTER (WHERE state = 'active') AS active, count(*) FILTER (WHERE wait_event IS NOT NULL) AS waiting FROM pg_stat_activity WHERE datname = current_database();" </dev/null || true
-  timeout 30s docker compose exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -c \
+  run_compose_timeout 30s exec -T db psql -U postgres -d city_guide -v ON_ERROR_STOP=1 -c \
     "SELECT pid, usename, application_name, state, wait_event_type, wait_event, age(clock_timestamp(), query_start) AS query_age, left(query, 180) AS query FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() ORDER BY query_start NULLS LAST LIMIT 30;" </dev/null || true
 }
 
 wait_for_database() {
   local attempts="${1:-30}"
   for attempt in $(seq 1 "$attempts"); do
-    if timeout 10s docker compose exec -T db pg_isready -U postgres -d city_guide </dev/null >/dev/null 2>&1 \
-      && timeout 15s docker compose run -T --rm --no-deps backend python -c \
+    if run_compose_timeout 10s exec -T db pg_isready -U postgres -d city_guide </dev/null >/dev/null 2>&1 \
+      && run_compose_timeout 15s run -T --rm --no-deps backend python -c \
         "from core.readiness import check_database_ready; ok, reason = check_database_ready(); print(reason); raise SystemExit(0 if ok else 1)" </dev/null >/dev/null 2>&1; then
       echo "Database readiness OK attempt=${attempt}"
       return 0
@@ -38,7 +59,7 @@ wait_for_database() {
 wait_for_backend_ready() {
   local attempts="${1:-30}"
   for attempt in $(seq 1 "$attempts"); do
-    if timeout 15s docker compose exec -T backend curl -sf http://localhost:8000/ready </dev/null >/dev/null 2>&1; then
+    if run_compose_timeout 15s exec -T backend curl -sf http://localhost:8000/ready </dev/null >/dev/null 2>&1; then
       echo "Backend and database readiness OK attempt=${attempt}"
       return 0
     fi
@@ -88,7 +109,7 @@ path.write_text('\n'.join(filtered) + '\n', encoding='utf-8')
 print('Runtime secrets updated: admin token and Telegram credentials are configured')
 PY
 
-timeout 30s docker compose config >/dev/null
+run_compose_timeout 30s config >/dev/null
 
 echo "=== docker daemon preflight ==="
 if ! timeout 30s docker info >/dev/null; then
@@ -117,7 +138,7 @@ echo "=== docker login and pull fresh images ==="
 REGISTRY_OK=0
 for attempt in 1 2 3; do
   if echo "${GH_TOKEN}" | timeout 60s docker login ghcr.io -u "${GH_ACTOR}" --password-stdin \
-    && timeout --signal=TERM --kill-after=30s 8m docker compose pull; then
+    && run_compose_timeout 8m pull; then
     REGISTRY_OK=1
     break
   fi
@@ -139,7 +160,7 @@ if ! wait_for_database 30; then
 fi
 
 echo "=== quiesce database clients before migrations ==="
-timeout --signal=TERM --kill-after=15s 2m docker compose stop -t 30 import-worker bot backend || true
+run_compose_timeout 2m stop -t 30 import-worker bot backend || true
 run_compose ps || true
 
 restore_runtime() {
@@ -151,21 +172,21 @@ restore_runtime() {
 echo "=== migrations ==="
 run_compose rm -sf migrate || true
 set +e
-timeout --signal=TERM --kill-after=30s 5m docker compose run -T --rm migrate </dev/null
+run_compose_timeout 5m run -T --rm migrate </dev/null
 MIGRATE_EXIT=$?
 set -e
 run_compose logs --tail=200 migrate || true
 if [ "$MIGRATE_EXIT" != "0" ]; then
   echo "ERROR: migrations failed or timed out (exit code ${MIGRATE_EXIT})."
-  timeout 90s docker compose run -T --rm --no-deps backend alembic heads </dev/null || true
-  timeout 90s docker compose run -T --rm --no-deps backend alembic current </dev/null || true
+  run_compose_timeout 90s run -T --rm --no-deps backend alembic heads </dev/null || true
+  run_compose_timeout 90s run -T --rm --no-deps backend alembic current </dev/null || true
   restore_runtime
   exit 1
 fi
 
 echo "=== production schema guard ==="
 set +e
-timeout --signal=TERM --kill-after=30s 3m docker compose run -T --rm --no-deps backend python scripts/prod_schema_guard.py </dev/null
+run_compose_timeout 3m run -T --rm --no-deps backend python scripts/prod_schema_guard.py </dev/null
 SCHEMA_EXIT=$?
 set -e
 if [ "$SCHEMA_EXIT" != "0" ]; then
@@ -220,7 +241,7 @@ fi
 
 echo "=== runtime notification configuration gate ==="
 for service in backend import-worker; do
-  timeout 30s docker compose exec -T "$service" python -c \
+  run_compose_timeout 30s exec -T "$service" python -c \
     "from core.config import settings; assert settings.telegram_bot_token or settings.bot_token; assert settings.telegram_chat_id; print('telegram_runtime_configured service=${service}')" </dev/null
 done
 
@@ -236,6 +257,6 @@ done
 
 curl -sf --connect-timeout 5 --max-time 10 http://localhost/api/ready >/dev/null
 curl -sf --connect-timeout 5 --max-time 10 http://localhost/api/version || curl -sf --max-time 10 http://localhost:8000/version
-timeout 60s docker compose exec -T backend alembic current </dev/null || true
+run_compose_timeout 60s exec -T backend alembic current </dev/null || true
 run_compose ps || true
 echo "Deploy done: $(date)"
