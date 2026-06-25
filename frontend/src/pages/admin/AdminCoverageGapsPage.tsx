@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPatch, adminPost } from './adminApi'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
+import './AdminCoverageGaps.css'
 
 type Row = {
   id: number
