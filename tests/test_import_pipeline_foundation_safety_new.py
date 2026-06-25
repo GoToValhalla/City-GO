@@ -22,7 +22,7 @@ def _trusted(place) -> None:
     place.confidence = 0.9
 
 
-def test_pharmacies_and_services_are_not_route_eligible_new(db_session, city_factory, place_factory) -> None:
+def test_pharmacies_and_services_are_not_route_eligible(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="pipeline-service")
     health = place_factory(city_id=city.id, slug="health", title="Health", category="health")
     pharmacy = place_factory(city_id=city.id, slug="pharmacy", title="Pharmacy", category="pharmacy")
@@ -40,7 +40,8 @@ def test_pharmacies_and_services_are_not_route_eligible_new(db_session, city_fac
     assert stop.is_route_eligible is False
     assert pharmacy.publication_status == "needs_review"
 
-def test_invalid_coordinates_are_archived_new(db_session, city_factory, place_factory) -> None:
+
+def test_invalid_coordinates_are_archived(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="pipeline-invalid-coords")
     place = place_factory(city_id=city.id, slug="bad-coords", title="Bad", category="park", lat=0.0, lng=0.0)
     _trusted(place)
@@ -52,7 +53,7 @@ def test_invalid_coordinates_are_archived_new(db_session, city_factory, place_fa
     assert place.is_route_eligible is False
 
 
-def test_low_conflict_stale_opening_hours_are_not_open_now_new(db_session, city_factory, place_factory) -> None:
+def test_low_conflict_stale_opening_hours_are_not_open_now(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="pipeline-open-now", timezone="UTC")
     place = place_factory(city_id=city.id, slug="open-place", title="Open", category="coffee")
     weekday = get_weekday_code(datetime.now(ZoneInfo("UTC")))
@@ -65,7 +66,7 @@ def test_low_conflict_stale_opening_hours_are_not_open_now_new(db_session, city_
     assert get_open_now_places(db_session, city.slug) == []
 
 
-def test_failed_non_critical_step_marks_partial_success_new(db_session, city_factory, place_factory, monkeypatch) -> None:
+def test_failed_non_critical_step_marks_partial_success(db_session, city_factory, place_factory, monkeypatch) -> None:
     city = city_factory(slug="pipeline-partial")
     place = place_factory(city_id=city.id, slug="partial-place", title="Partial", category="park")
     _trusted(place)
@@ -73,7 +74,7 @@ def test_failed_non_critical_step_marks_partial_success_new(db_session, city_fac
     def _boom(*_args, **_kwargs):
         raise RuntimeError("ai worker down")
 
-    monkeypatch.setattr("services.import_pipeline_foundation_steps._ai_description", _boom)
+    monkeypatch.setattr("services.import_pipeline_foundation_steps._description_draft", _boom)
     job = _job(db_session, city.id)
     counters = run_foundation_pipeline(db_session, city=city, job=job, actor="qa")
 
@@ -82,7 +83,7 @@ def test_failed_non_critical_step_marks_partial_success_new(db_session, city_fac
     assert job.step_details["pipeline_counters"]["failed"] == 1
 
 
-def test_critical_step_failure_marks_job_failed_new(db_session, city_factory, place_factory, monkeypatch) -> None:
+def test_critical_step_failure_marks_job_failed(db_session, city_factory, place_factory, monkeypatch) -> None:
     city = city_factory(slug="pipeline-critical")
     place = place_factory(city_id=city.id, slug="critical-place", title="Critical", category="park")
     _trusted(place)
