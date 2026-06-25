@@ -13,6 +13,8 @@ try:
 except ImportError:  # pragma: no cover
     allure = None
 
+FUNCTIONAL_MARKERS = {"integration", "api", "critical", "smoke"}
+
 
 def _hierarchy_from_path(path: Path) -> tuple[str, str]:
     text = path.as_posix().lower()
@@ -97,6 +99,32 @@ def _set_metadata(item: pytest.Item) -> None:
     allure.dynamic.label("test_file", path.as_posix())
     allure.dynamic.label("node_id", item.nodeid)
     allure.dynamic.parameter("run_type", run_type, excluded=True)
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    """Write a measurable migration report for functional Allure scenarios."""
+    functional: list[pytest.Item] = []
+    explicit: list[pytest.Item] = []
+    for item in session.items:
+        markers = {marker.name for marker in item.iter_markers()}
+        if markers & FUNCTIONAL_MARKERS:
+            functional.append(item)
+            if "allure_scenario" in markers:
+                explicit.append(item)
+    missing = [item.nodeid for item in functional if item not in explicit]
+    output = Path("artifacts/messages/allure-coverage.txt")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    rate = (len(explicit) / len(functional) * 100) if functional else 100.0
+    lines = [
+        "Allure functional scenario coverage",
+        f"Functional tests: {len(functional)}",
+        f"Explicit Russian scenarios: {len(explicit)}",
+        f"Coverage: {rate:.1f}%",
+        "",
+        "Missing explicit scenario metadata and Given/When/Then:",
+        *[f"- {nodeid}" for nodeid in missing],
+    ]
+    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
