@@ -14,7 +14,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-from scripts.ci_test_summary import _failure_details, format_duration
+try:
+    from scripts.ci_test_summary import _failure_details, format_duration
+except ModuleNotFoundError:  # Running as python scripts/ci_total_summary.py.
+    from ci_test_summary import _failure_details, format_duration
 
 
 @dataclass
