@@ -40,8 +40,8 @@ def test_known_poi_seed_has_required_quality_fields() -> None:
         assert item["status"] in ALLOWED_STATUSES
 
 
-def test_coverage_summary_explains_scope_status_without_mutation(db) -> None:
-    result = build_coverage_summary(db, city_slug="kutaisi")
+def test_coverage_summary_explains_scope_status_without_mutation() -> None:
+    result = build_coverage_summary(None, city_slug="kutaisi")  # type: ignore[arg-type]
 
     assert result["total"] == 7
     assert result["summary"]["total"] == 7
