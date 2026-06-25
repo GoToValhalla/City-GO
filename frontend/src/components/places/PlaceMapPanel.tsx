@@ -14,7 +14,7 @@ type Props = {
   manualPoint?: MapManualPoint | null
   locationLoading?: boolean
   locationError?: string | null
-  onActivePlaceChange?: (placeId: number) => void
+  onActivePlaceChange?: (placeId: number | null) => void
   onManualPoint?: (point: MapManualPoint) => void
   onRequestLocation?: () => void
   className?: string
@@ -45,10 +45,10 @@ export const PlaceMapPanel = ({
     </section>
   )
 
-  return <section className={classNames('place-map-panel', className)} aria-label="Карта мест">
+  return <section className={classNames('place-map-panel', active && 'place-map-panel--preview-open', className)} aria-label="Карта мест">
     <MapLibreMap className="place-map-panel__frame" points={points}
       activePointId={activePlaceId} userLocation={userLocation} manualPoint={manualPoint}
-      onPointSelect={onActivePlaceChange} onManualPoint={onManualPoint} />
+      onPointSelect={(placeId) => onActivePlaceChange?.(placeId)} onManualPoint={onManualPoint} />
     <div className="place-map-panel__toolbar" aria-label="Действия с картой">
       {onRequestLocation ? <Button variant="secondary" size="sm" leftIcon={<LocateFixed size={16} />}
         loading={locationLoading} onClick={onRequestLocation}>Где я</Button> : null}
@@ -65,6 +65,6 @@ export const PlaceMapPanel = ({
     </div>
     {locationError ? <p className="place-map-panel__error">{locationError}</p> : null}
     {manualPoint ? <p className="place-map-panel__manual">Выбрана точка на карте</p> : null}
-    {active ? <div className="place-map-panel__bottom"><PlaceMapBottomCard place={active} /></div> : null}
+    {active ? <div className="place-map-panel__bottom"><PlaceMapBottomCard place={active} onClose={() => onActivePlaceChange?.(null)} /></div> : null}
   </section>
 }
