@@ -1,7 +1,14 @@
 /* @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { RandomRouteDraftEditor } from './RandomRouteDraftEditor'
+
+vi.mock('../../shared/map/MapLibreMap', () => ({
+  MapLibreMap: ({ points, routeLine }: { points: unknown[]; routeLine?: boolean }) => (
+    <div data-testid="random-route-map" data-points={points.length} data-route-line={String(Boolean(routeLine))} />
+  ),
+}))
 
 const draft = {
   draft_id: 10,
@@ -15,7 +22,7 @@ const draft = {
   category_summary: { requested: ['cafe'], matched: { cafe: 1 }, neutral_added: 1, missing: [] },
   points: [
     { id: 1, place_id: 101, position: 1, title: 'Кофейня', slug: 'coffee', category: 'cafe', lat: 1, lng: 2, visit_minutes: 25, open_status: 'unknown', user_locked: false, inserted_by_user: false, replacement_of_place_id: null, walk_minutes_from_prev: null, walk_minutes_to_next: 5 },
-    { id: 2, place_id: 102, position: 2, title: 'Парк', slug: 'park', category: 'park', lat: 1, lng: 2, visit_minutes: 30, open_status: 'unknown', user_locked: false, inserted_by_user: false, replacement_of_place_id: null, walk_minutes_from_prev: 5, walk_minutes_to_next: null },
+    { id: 2, place_id: 102, position: 2, title: 'Парк', slug: 'park', category: 'park', lat: 1.1, lng: 2.1, visit_minutes: 30, open_status: 'unknown', user_locked: false, inserted_by_user: false, replacement_of_place_id: null, walk_minutes_from_prev: 5, walk_minutes_to_next: null },
   ],
 }
 
@@ -37,20 +44,19 @@ describe('RandomRouteDraftEditor', () => {
     vi.unstubAllGlobals()
   })
 
-  it('builds balanced random draft and edits points_new', async () => {
-    render(<RandomRouteDraftEditor citySlug="zelenogradsk" />)
+  it('builds a mapped draft and only searches by a selected category', async () => {
+    render(<MemoryRouter><RandomRouteDraftEditor citySlug="zelenogradsk" /></MemoryRouter>)
     await waitFor(() => expect(screen.getByText('Кофе')).toBeTruthy())
     fireEvent.click(screen.getByText('Кофе'))
     fireEvent.click(screen.getByText('Случайный маршрут'))
     await waitFor(() => expect(screen.getByText(/Маршрут собран частично/)).toBeTruthy())
-    expect(screen.queryByText(/Random Route MVP/)).toBeFalsy()
-    expect(screen.queryByText(/mode balanced|RANDOM_FALLBACK_USED|category_match|name_or_quality_match|partial/)).toBeFalsy()
-    expect(JSON.parse(String((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[1][1]?.body)).category_mode).toBe('balanced')
-    fireEvent.click(screen.getAllByText('Удалить')[0])
-    await waitFor(() => expect(screen.queryByText('Кофейня')).toBeFalsy())
-    await waitFor(() => expect((screen.getByText('Найти место') as HTMLButtonElement).disabled).toBe(false))
-    fireEvent.click(screen.getByText('Найти место'))
-    await waitFor(() => expect(screen.getByText(/Новая кофейня/)).toBeTruthy())
+    expect(screen.getByTestId('random-route-map')).toHaveAttribute('data-points', '2')
+    expect(screen.getByTestId('random-route-map')).toHaveAttribute('data-route-line', 'true')
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.getByRole('button', { name: /Показать места/ })).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Категория места'), { target: { value: 'cafe' } })
+    fireEvent.click(screen.getByRole('button', { name: /Показать места/ }))
+    await waitFor(() => expect(screen.getByText('Новая кофейня')).toBeTruthy())
     expect(screen.queryByText(/category_match|name_or_quality_match/)).toBeFalsy()
   })
 })
