@@ -8,7 +8,7 @@ export type RouteFeature = 'sea'
 export const interestOptions: InterestOption[] = [
   { value: 'coffee', label: 'Кофе' },
   { value: 'food', label: 'Еда' },
-  { value: 'sea', label: 'Море' },
+  { value: 'sea', label: 'Вода' },
   { value: 'walk', label: 'Прогулка' },
   { value: 'quiet', label: 'Тихо' },
   { value: 'museum', label: 'Музеи' },
