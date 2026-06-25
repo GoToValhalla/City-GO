@@ -38,11 +38,14 @@ jobs:
           set -euo pipefail
           if [ ! -s "$NOTIFICATION_FILE" ]; then
             printf '%s\n' \
-              '❌ City GO · API monitor упал без отчёта' \
+              '❌ CITY GO · API MONITOR' \
+              'Статус: мониторинг не смог сформировать основной отчёт' \
               "Хост: ${PROD_HOST:-не указан}" \
-              'Проблема: monitor script завершился раньше, чем записал отчёт.' \
-              'Что делать: открыть лог шага Check API endpoints.' \
-              "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              'Где упало: шаг Check API endpoints' \
+              'Факт: файл отчёта пустой или не создан' \
+              'Что это значит: скрипт мониторинга завершился до записи результата; это отдельная проблема мониторинга, а не доказательство исправности API.' \
+              'Что делать: открыть лог шага Check API endpoints и проверить Python exception, secrets и доступность host.' \
+              "GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
               > "$NOTIFICATION_FILE"
           fi
           python scripts/send_telegram_notification.py --text-file "$NOTIFICATION_FILE" --allow-missing
