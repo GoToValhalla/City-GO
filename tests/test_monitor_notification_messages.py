@@ -1,3 +1,4 @@
+import scripts.catalog_data_monitor as catalog_monitor
 from scripts.api_error_monitor import CheckResult, CheckSpec, failure_report as api_failure_report
 from scripts.catalog_data_monitor import HttpResult, failure_report as catalog_failure_report
 
@@ -39,6 +40,33 @@ def test_api_monitor_failure_message_is_actionable(monkeypatch) -> None:
     assert "detected HTTP 4xx/5xx" not in text
 
 
+def test_api_monitor_html_instead_of_json_is_reported_as_routing_issue(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "GoToValhalla/City-GO")
+    monkeypatch.setenv("GITHUB_RUN_ID", "321")
+
+    failed = CheckResult(
+        spec=CheckSpec("places", "Каталог: места", "GET", "/api/places/"),
+        url="http://2.27.4.31/api/places/",
+        status=200,
+        elapsed_ms=614,
+        body='<!doctype html><html lang="ru"><head><title>City GO</title></head></html>',
+        content_type="text/html",
+        error="ожидали JSON API, но получили frontend HTML",
+    )
+
+    text = api_failure_report(host="2.27.4.31", results=[failed])
+
+    assert "Статус: API не прошёл production-проверку" in text
+    assert "Факт: HTTP 200 за 614 мс" in text
+    assert "ожидали JSON API, но получили frontend HTML" in text
+    assert "API-запрос попал в frontend SPA" in text
+    assert "routing/nginx/redirect" in text
+    assert "HTML frontend index.html City GO вместо JSON API" in text
+    assert "<!doctype html>" not in text
+    assert "visibility" not in text.lower()
+
+
 def test_catalog_monitor_empty_city_message_explains_semantic_failure(monkeypatch) -> None:
     monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
     monkeypatch.setenv("GITHUB_REPOSITORY", "GoToValhalla/City-GO")
@@ -66,9 +94,72 @@ def test_catalog_monitor_empty_city_message_explains_semantic_failure(monkeypatc
     assert "Проблема: API вернул 0 доступных городов" in text
     assert "Запрос: GET /api/cities/available?include_draft=true" in text
     assert "Факт: HTTP 200 за 180 мс" in text
-    assert "Техническая ошибка: семантическая проверка данных не прошла" in text
+    assert "Техническая причина: семантическая проверка данных не прошла" in text
     assert "Что это значит: HTTP 200 не означает рабочий каталог" in text
     assert "Что делать: проверить cities.is_active" in text
     assert "GitHub Actions: https://github.com/GoToValhalla/City-GO/actions/runs/456" in text
     assert "HTTP может отвечать 200, но список городов или мест пуст" not in text
     assert "catalog data is unavailable" not in text
+
+
+def test_catalog_monitor_html_places_response_is_not_reported_as_database_issue(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "GoToValhalla/City-GO")
+    monkeypatch.setenv("GITHUB_RUN_ID", "789")
+
+    result = HttpResult(
+        method="GET",
+        url="http://2.27.4.31/api/places/?city_slug=arkhangelsk&limit=1&offset=0",
+        status=200,
+        elapsed_ms=614,
+        body='<!doctype html><html lang="ru"><head><title>City GO</title></head></html>',
+        content_type="text/html",
+    )
+
+    text = catalog_failure_report(
+        host="2.27.4.31",
+        result=result,
+        problem="список мест для города arkhangelsk вернул frontend HTML вместо JSON",
+        meaning="запрос не дошёл до нужного backend API или был перенаправлен на SPA. Это проблема routing/URL/trailing slash/nginx, а не доказательство пустой БД.",
+        action="проверить API URL, trailing slash, nginx location /api/ и redirect FastAPI.",
+    )
+
+    assert "Проблема: список мест для города arkhangelsk вернул frontend HTML вместо JSON" in text
+    assert "Техническая причина: ожидали JSON API, но получили frontend index.html" in text
+    assert "Это проблема routing/URL/trailing slash/nginx" in text
+    assert "не доказательство пустой БД" in text
+    assert "HTML frontend index.html City GO вместо JSON API" in text
+    assert "<!doctype html>" not in text
+    assert "visibility-фильтров" not in text
+
+
+def test_catalog_monitor_uses_trailing_slash_for_places_api(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def fake_http_get(url: str, *, timeout: int = 25) -> HttpResult:
+        calls.append(url)
+        if "/api/cities/available" in url:
+            return HttpResult(
+                method="GET",
+                url=url,
+                status=200,
+                elapsed_ms=20,
+                body='{"items":[{"slug":"arkhangelsk"}]}',
+                content_type="application/json",
+            )
+        return HttpResult(
+            method="GET",
+            url=url,
+            status=200,
+            elapsed_ms=30,
+            body='{"items":[{"id":1}],"total":1}',
+            content_type="application/json",
+        )
+
+    monkeypatch.setattr(catalog_monitor, "http_get", fake_http_get)
+
+    exit_code, text = catalog_monitor.run_monitor("2.27.4.31")
+
+    assert exit_code == 0
+    assert "публичный каталог доступен" in text
+    assert calls[1] == "http://2.27.4.31/api/places/?city_slug=arkhangelsk&limit=1&offset=0"
