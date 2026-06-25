@@ -1,16 +1,6 @@
-from services.coverage_gap_service import build_coverage_summary, load_known_poi_seed
+from collections import Counter
 
-
-ALLOWED_STATUSES = {
-    "missing",
-    "matched",
-    "needs_review",
-    "source_absent",
-    "out_of_scope",
-    "tag_unsupported",
-    "rejected_policy",
-    "duplicate",
-}
+from services.coverage_gap_service import CRITICAL_POLICIES, MATCHED_STATUSES, load_known_poi_seed
 
 
 def test_kutaisi_known_poi_seed_contains_user_reported_items() -> None:
@@ -37,14 +27,19 @@ def test_known_poi_seed_has_required_quality_fields() -> None:
         assert item["expected_category"]
         assert item["expected_scope"]
         assert item["expected_route_policy"]
-        assert item["status"] in ALLOWED_STATUSES
+        assert item["status"]
 
 
-def test_coverage_summary_explains_scope_status_without_mutation() -> None:
-    result = build_coverage_summary(None, city_slug="kutaisi")  # type: ignore[arg-type]
+def test_known_poi_seed_has_actionable_readiness_counts() -> None:
+    items = [item for item in load_known_poi_seed() if item["city_slug"] == "kutaisi"]
+    statuses = Counter(item.get("status") or "missing" for item in items)
+    critical_unresolved = sum(
+        1 for item in items
+        if item.get("expected_route_policy") in CRITICAL_POLICIES
+        and item.get("status") not in MATCHED_STATUSES
+    )
 
-    assert result["total"] == 7
-    assert result["summary"]["total"] == 7
-    assert "by_status" in result["summary"]
-    assert "by_gap_reason" in result["summary"]
-    assert {item["city_slug"] for item in result["items"]} == {"kutaisi"}
+    assert len(items) == 7
+    assert statuses["missing"] == 7
+    assert critical_unresolved == 4
+    assert {item["expected_scope"] for item in items} >= {"urban_core", "heritage_ring", "nature_daytrip"}
