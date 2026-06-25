@@ -1,3 +1,5 @@
+import { getCurrentCity } from '../../shared/city/currentCity'
+
 type CityRouteProfile = {
   title: string
   steps: string[]
@@ -56,12 +58,16 @@ const cityRouteProfiles: Record<string, CityRouteProfile> = {
 }
 
 type Props = {
-  cityName: string
-  citySlug: string
+  cityName?: string
+  citySlug?: string
+  features?: string[]
 }
 
 export const RouteHeroPreview = ({ cityName, citySlug }: Props) => {
-  const profile = cityRouteProfiles[citySlug] ?? defaultProfile(cityName)
+  const currentCity = getCurrentCity()
+  const effectiveSlug = citySlug ?? currentCity.slug
+  const effectiveName = cityName ?? currentCity.name
+  const profile = cityRouteProfiles[effectiveSlug] ?? defaultProfile(effectiveName)
 
   return (
     <aside className="route-photo-preview" aria-label="Пример маршрута">
