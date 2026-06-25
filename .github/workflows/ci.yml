@@ -167,6 +167,20 @@ jobs:
           BUILD_RESULT: ${{ steps.frontend-build.outcome }}
         run: |
           set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          Path('../artifacts/messages/frontend-stages.json').write_text(
+              json.dumps({
+                  'lint': os.environ['LINT_RESULT'],
+                  'tests': os.environ['TEST_RESULT'],
+                  'build': os.environ['BUILD_RESULT'],
+              }),
+              encoding='utf-8',
+          )
+          PY
           if [ -f ../artifacts/junit/frontend.xml ]; then
             TEST_EXIT=0
             [ "${TEST_RESULT}" = "success" ] || TEST_EXIT=1
@@ -180,16 +194,6 @@ jobs:
               echo "Действие: открыть frontend-vitest.log и проверить первое необработанное исключение."
             } > ../artifacts/messages/frontend.txt
           fi
-          if [ -f ../artifacts/messages/frontend-vitest.log ]; then
-            echo "Vitest log: frontend-test-artifacts/frontend-vitest.log" >> ../artifacts/messages/frontend.txt
-          fi
-          {
-            echo ""
-            echo "Stages:"
-            echo "Lint: ${LINT_RESULT}"
-            echo "Vitest: ${TEST_RESULT}"
-            echo "Build: ${BUILD_RESULT}"
-          } >> ../artifacts/messages/frontend.txt
           cat ../artifacts/messages/frontend.txt
           if [ "${LINT_RESULT}" != "success" ] || [ "${TEST_RESULT}" != "success" ] || [ "${BUILD_RESULT}" != "success" ]; then
             exit 1
@@ -204,6 +208,7 @@ jobs:
             artifacts/junit/frontend.xml
             artifacts/messages/frontend.txt
             artifacts/messages/frontend-vitest.log
+            artifacts/messages/frontend-stages.json
           if-no-files-found: warn
 
   notify:
@@ -214,13 +219,16 @@ jobs:
       - frontend-tests
     if: always()
     steps:
+      - name: Checkout report generator
+        uses: actions/checkout@v4
+
       - name: Download test artifacts
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
           path: downloaded-artifacts
 
-      - name: Build notification summaries
+      - name: Build total autotest report
         id: build-summary
         shell: bash
         env:
@@ -230,34 +238,42 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/messages
           if [ "${BACKEND_RESULT}" = "cancelled" ] && [ "${FRONTEND_RESULT}" = "cancelled" ]; then
-            printf 'City GO Full Autotests: отменен\nПричина: запущен более свежий прогон.\nRun: %s/%s/actions/runs/%s\n' \
+            printf 'City GO · полный прогон отменён\nПричина: запущен более свежий прогон.\nПодробнее: %s/%s/actions/runs/%s\n' \
               "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" > artifacts/messages/telegram-ci.txt
             echo "skip_telegram=true" >> "$GITHUB_OUTPUT"
             cat artifacts/messages/telegram-ci.txt >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          BACKEND_SUMMARY=$(find downloaded-artifacts -name backend.txt -print -quit 2>/dev/null || true)
-          FRONTEND_SUMMARY=$(find downloaded-artifacts -name frontend.txt -print -quit 2>/dev/null || true)
-          for target in backend frontend; do
-            result_var="${target^^}_RESULT"
-            summary_var="${target^^}_SUMMARY"
-            result="${!result_var}"
-            summary="${!summary_var}"
-            {
-              echo "City GO Full Autotests · ${target}"
-              echo "Status: ${result}"
-              if [ -n "${summary}" ]; then
-                cat "${summary}"
-              elif [ "${result}" = "cancelled" ]; then
-                echo "Проверка отменена более свежим прогоном."
-              else
-                echo "Структурированный отчёт не найден. Откройте job logs."
-              fi
-              echo "Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-            } > "artifacts/messages/telegram-${target}.txt"
-          done
-          cat artifacts/messages/telegram-backend.txt artifacts/messages/telegram-frontend.txt >> "$GITHUB_STEP_SUMMARY"
+          BACKEND_JUNIT=$(find downloaded-artifacts -name backend.xml -print -quit 2>/dev/null || true)
+          FRONTEND_JUNIT=$(find downloaded-artifacts -name frontend.xml -print -quit 2>/dev/null || true)
+          BACKEND_ALLURE=$(find downloaded-artifacts -type d -path '*/allure-results/backend' -print -quit 2>/dev/null || true)
+          FRONTEND_STAGES=$(find downloaded-artifacts -name frontend-stages.json -print -quit 2>/dev/null || true)
+
+          ARGS=(
+            --backend-status "${BACKEND_RESULT}"
+            --frontend-status "${FRONTEND_RESULT}"
+            --output artifacts/messages/telegram-ci.txt
+          )
+          [ -z "${BACKEND_JUNIT}" ] || ARGS+=(--backend-junit "${BACKEND_JUNIT}")
+          [ -z "${FRONTEND_JUNIT}" ] || ARGS+=(--frontend-junit "${FRONTEND_JUNIT}")
+          [ -z "${BACKEND_ALLURE}" ] || ARGS+=(--backend-allure-dir "${BACKEND_ALLURE}")
+          [ -z "${FRONTEND_STAGES}" ] || ARGS+=(--frontend-stages "${FRONTEND_STAGES}")
+
+          python scripts/ci_total_summary.py "${ARGS[@]}"
+          {
+            echo '```text'
+            cat artifacts/messages/telegram-ci.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload total report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: total-autotest-report
+          path: artifacts/messages/telegram-ci.txt
+          if-no-files-found: warn
 
       - name: Telegram full autotests notification
         if: steps.build-summary.outputs.skip_telegram != 'true'
@@ -272,10 +288,7 @@ jobs:
             echo "Telegram notification skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing"
             exit 0
           fi
-          for report in artifacts/messages/telegram-backend.txt artifacts/messages/telegram-frontend.txt; do
-            [ -f "${report}" ] || continue
-            curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-              -d "chat_id=${TELEGRAM_CHAT_ID}" \
-              --data-urlencode "text@${report}" \
-              -d "disable_web_page_preview=true"
-          done
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text@artifacts/messages/telegram-ci.txt" \
+            -d "disable_web_page_preview=true"
