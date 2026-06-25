@@ -51,7 +51,7 @@ def _run_url() -> str:
     return f"{server}/{repo}/actions/runs/{run_id}"
 
 
-def _short_body(body: str, limit: int = 700) -> str:
+def _short_body(body: str, limit: int = 500) -> str:
     compact = " ".join((body or "").replace("\r", " ").split())
     if not compact:
         return "пустой ответ"
@@ -169,69 +169,100 @@ def _endpoint_path(url: str) -> str:
     return path + (f"?{parsed.query}" if parsed.query else "")
 
 
+def _status_text(result: CheckResult) -> str:
+    if result.status is None:
+        return "нет ответа"
+    return f"HTTP {result.status}"
+
+
 def _probable_reason(result: CheckResult) -> str:
     if result.status is None:
-        return "нет соединения, таймаут, DNS/порт недоступен или сервис не слушает endpoint."
+        return "нет соединения с endpoint, таймаут, закрытый порт или сервис не слушает запрос."
     if result.status == 401 or result.status == 403:
-        return "ошибка авторизации: проверь ADMIN_API_TOKEN и защиту admin endpoint."
+        return "ошибка авторизации: ADMIN_API_TOKEN не совпадает с production или endpoint защищён другим способом."
     if result.status == 404:
-        return "endpoint отсутствует или nginx/backend маршрутизируют запрос не туда."
+        return "endpoint отсутствует, nginx проксирует не туда или backend-роут не подключён."
     if result.status == 422:
-        return "контракт запроса не совпал с backend-валидацией."
+        return "контракт monitor-запроса не совпадает с backend-валидацией."
     if result.status >= 500:
-        return "ошибка backend или базы данных; нужны backend logs за время прогона."
+        return "ошибка backend, базы данных или тяжёлого запроса; нужны backend logs и проверка /ready."
     if result.status >= 400:
-        return "HTTP 4xx: запрос отвергнут приложением или прокси."
+        return "запрос отвергнут приложением или прокси; проверить параметры и права доступа."
     return "неизвестно."
+
+
+def _recommended_action(result: CheckResult) -> str:
+    if result.status is None:
+        return "проверить доступность порта, nginx, backend-контейнер и сетевые таймауты."
+    if result.status in {401, 403}:
+        return "сверить ADMIN_API_TOKEN в GitHub Secrets и production .env, затем перезапустить deploy."
+    if result.status == 404:
+        return "проверить nginx location, router registration и актуальность URL в monitor."
+    if result.status == 422:
+        return "обновить payload monitor-запроса или backend-схему, чтобы контракт совпадал."
+    if result.status >= 500:
+        return "открыть backend logs за время прогона, проверить PostgreSQL readiness, долгие запросы и последние миграции."
+    return "открыть лог workflow и ответ endpoint."
+
+
+def _ok_summary(results: list[CheckResult]) -> list[str]:
+    ok = [item for item in results if item.ok]
+    slow = sorted(ok, key=lambda item: item.elapsed_ms, reverse=True)[:3]
+    if not slow:
+        return []
+    return [f"• {item.spec.label}: HTTP {item.status}, {item.elapsed_ms} мс" for item in slow]
 
 
 def failure_report(*, host: str, results: list[CheckResult]) -> str:
     failed = [item for item in results if not item.ok]
     lines = [
-        "❌ City GO · API monitor нашёл ошибки",
+        "❌ CITY GO · API MONITOR",
+        "Статус: найдены ошибки HTTP 4xx/5xx или сетевые сбои",
         f"Хост: {host}",
-        f"Проверок всего: {len(results)}",
-        f"Успешно: {len(results) - len(failed)}",
-        f"Упало: {len(failed)}",
+        f"Итог: {len(results) - len(failed)}/{len(results)} проверок успешно, {len(failed)} упало",
         "",
-        "Проблемные проверки:",
+        "Сломанные проверки:",
     ]
     for index, item in enumerate(failed[:6], start=1):
         lines.extend(
             [
                 f"{index}. {item.spec.label}",
-                f"   Endpoint: {item.spec.method} {_endpoint_path(item.url)}",
-                f"   HTTP: {item.status if item.status is not None else 'нет ответа'}",
-                f"   Время ответа: {item.elapsed_ms} мс",
-                f"   Ошибка: {item.error or 'HTTP status >= 400'}",
-                f"   Причина: {_probable_reason(item)}",
+                f"   Запрос: {item.spec.method} {_endpoint_path(item.url)}",
+                f"   Факт: {_status_text(item)} за {item.elapsed_ms} мс",
+                f"   Техническая ошибка: {item.error or 'HTTP status >= 400'}",
+                f"   Вероятная причина: {_probable_reason(item)}",
+                f"   Что делать: {_recommended_action(item)}",
                 f"   Ответ: {_short_body(item.body)}",
             ]
         )
     if len(failed) > 6:
         lines.append(f"Ещё упавших проверок: {len(failed) - 6}")
+
+    ok_summary = _ok_summary(results)
+    if ok_summary:
+        lines.extend(["", "Самые медленные успешные проверки:", *ok_summary])
+
     lines.extend(
         [
             "",
-            "Что делать: открыть Run, затем backend logs за время прогона; если есть 500/БД — проверить /ready, соединения PostgreSQL и последние миграции.",
-            f"Run: {_run_url()}",
+            "Следующий шаг: открыть GitHub run и backend logs за время прогона. При 500 сначала проверить /ready, PostgreSQL connections и последние миграции.",
+            f"GitHub Actions: {_run_url()}",
         ]
     )
     return "\n".join(lines)
 
 
 def success_report(*, host: str, results: list[CheckResult]) -> str:
-    slow = sorted([item for item in results if item.elapsed_ms > 1000], key=lambda item: item.elapsed_ms, reverse=True)[:3]
     lines = [
-        "✅ City GO · API monitor OK",
+        "✅ CITY GO · API MONITOR",
+        "Статус: все API-проверки прошли",
         f"Хост: {host}",
-        f"Проверок: {len(results)}",
+        f"Итог: {len(results)}/{len(results)} проверок успешно",
     ]
+    slow = _ok_summary(results)
     if slow:
-        lines.append("Медленные проверки:")
-        for item in slow:
-            lines.append(f"• {item.spec.label}: {item.elapsed_ms} мс")
-    lines.append(f"Run: {_run_url()}")
+        lines.extend(["Медленные успешные проверки:", *slow])
+    lines.append(f"GitHub Actions: {_run_url()}")
     return "\n".join(lines)
 
 
@@ -253,8 +284,11 @@ def main() -> int:
 
     if not args.host.strip():
         args.notification_file.write_text(
-            "❌ City GO · API monitor не выполнен\nПроблема: GitHub secret SSH_HOST/PROD_HOST пустой.\nЧто делать: заполнить secret SSH_HOST и повторить workflow.\n"
-            f"Run: {_run_url()}\n",
+            "❌ CITY GO · API MONITOR\n"
+            "Статус: проверка не запущена\n"
+            "Проблема: GitHub secret SSH_HOST/PROD_HOST пустой.\n"
+            "Что делать: заполнить secret SSH_HOST и повторить workflow.\n"
+            f"GitHub Actions: {_run_url()}\n",
             encoding="utf-8",
         )
         return 1
