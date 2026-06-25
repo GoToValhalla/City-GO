@@ -139,9 +139,10 @@ export const MapLibreMap = ({
       })
       map.on('click', 'place-clusters', (event) => {
         const feature = event.features?.[0]
+        const geometry = feature?.geometry
         const clusterId = Number(feature?.properties?.cluster_id)
-        const coordinates = feature?.geometry.type === 'Point'
-          ? [Number(feature.geometry.coordinates[0]), Number(feature.geometry.coordinates[1])] as [number, number]
+        const coordinates: [number, number] | null = geometry?.type === 'Point'
+          ? [Number(geometry.coordinates[0]), Number(geometry.coordinates[1])]
           : null
         const placesSource = source<ClusterSource>(map, 'places')
         if (!Number.isFinite(clusterId) || !placesSource || !coordinates) return
