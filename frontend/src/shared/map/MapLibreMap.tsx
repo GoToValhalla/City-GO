@@ -25,6 +25,11 @@ const boundsCoordinates = (points: MapPoint[], user?: MapUserLocation | null): [
   ...(user ? [[user.longitude, user.latitude] as [number, number]] : []),
 ]
 
+const cssColor = (property: string, fallback: string): string => {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(property).trim()
+  return value || fallback
+}
+
 export const MapLibreMap = ({
   activePointId = null, className, interactiveSelection = true, manualPoint = null,
   onManualPoint, onPointSelect, points, routeLine = false, userLocation = null,
@@ -48,8 +53,6 @@ export const MapLibreMap = ({
         zoom: first ? 12 : 4, attributionControl: { compact: true },
       })
       mapRef.current = map
-      // External map actions occupy the top edge in place screens. Keeping zoom
-      // controls at the bottom-right prevents an invisible link from intercepting them.
       map.addControl(new NavigationControl({ showCompass: false }), 'bottom-right')
       map.on('error', () => setError('Карта временно недоступна. Список мест продолжает работать.'))
       map.on('load', () => {
@@ -57,9 +60,24 @@ export const MapLibreMap = ({
         map.addSource('places', { type: 'geojson', data: pointCollection(current.points, current.activePointId), cluster: true, clusterRadius: 48 })
         map.addSource('route', { type: 'geojson', data: routeCollection(current.routeLine ? current.points : []) })
         map.addSource('locations', { type: 'geojson', data: locationCollection(current.userLocation, current.manualPoint) })
-        addMapLayers(map)
+        addMapLayers(map, {
+          primary: cssColor('--cg-primary', '#7C4DFF'),
+          closed: cssColor('--cg-closed', '#EF4444'),
+          muted: cssColor('--cg-text-soft', '#6F778A'),
+          text: cssColor('--cg-text-main', '#F5F7FA'),
+        })
         const coords = boundsCoordinates(current.points, current.userLocation)
-        if (coords.length > 1) map.fitBounds(coords.reduce((box, item) => box.extend(item), new LngLatBounds(coords[0], coords[0])), { padding: 54, maxZoom: 16 })
+        if (coords.length > 1) map.fitBounds(coords.reduce((box, item) => box.extend(item), new LngLatBounds(coords[0], coords[0])), { padding: 54, maxZoom: 15 })
+      })
+      map.on('click', 'place-clusters', (event) => {
+        const feature = event.features?.[0]
+        const clusterId = Number(feature?.properties?.cluster_id)
+        const coordinates = feature?.geometry.type === 'Point' ? feature.geometry.coordinates : null
+        const placesSource = source(map, 'places')
+        if (!Number.isFinite(clusterId) || !placesSource || !coordinates) return
+        void placesSource.getClusterExpansionZoom(clusterId).then((zoom) => {
+          map.easeTo({ center: [Number(coordinates[0]), Number(coordinates[1])], zoom: Math.min(zoom, 16) })
+        })
       })
       map.on('click', 'place-points', (event) => {
         const id = Number(event.features?.[0]?.properties?.id)
@@ -67,11 +85,15 @@ export const MapLibreMap = ({
       })
       map.on('click', (event: MapMouseEvent) => {
         const callbacks = callbacksRef.current
-        const hits = map.queryRenderedFeatures(event.point, { layers: ['place-points'] })
+        const hits = map.queryRenderedFeatures(event.point, { layers: ['place-points', 'place-clusters'] })
         if (callbacks.interactiveSelection && callbacks.onManualPoint && hits.length === 0) {
           callbacks.onManualPoint({ latitude: event.lngLat.lat, longitude: event.lngLat.lng })
         }
       })
+      for (const layer of ['place-points', 'place-clusters']) {
+        map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer' })
+        map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = '' })
+      }
       const resize = () => map.resize()
       window.addEventListener('citygo:map-resize', resize)
       map.once('remove', () => window.removeEventListener('citygo:map-resize', resize))
@@ -90,7 +112,7 @@ export const MapLibreMap = ({
     source(map, 'route')?.setData(routeCollection(routeLine ? points : []))
     source(map, 'locations')?.setData(locationCollection(userLocation, manualPoint))
     const active = points.find((point) => point.id === activePointId)
-    if (active) map.easeTo({ center: [active.longitude, active.latitude], zoom: Math.max(map.getZoom(), 15) })
+    if (active) map.easeTo({ center: [active.longitude, active.latitude], zoom: Math.max(map.getZoom(), 14) })
   }, [activePointId, manualPoint, points, routeLine, userLocation])
 
   return <div className={className}><div className="maplibre-map" ref={containerRef} data-testid="maplibre-map" />{error ? <p className="maplibre-map-error">{error}</p> : null}</div>
