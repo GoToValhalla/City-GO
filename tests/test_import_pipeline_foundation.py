@@ -58,17 +58,19 @@ def test_manual_verified_description_is_not_overwritten(db_session, city_factory
     assert place.short_description is None
 
 
-def test_ai_description_is_not_mocked_or_high_confidence(db_session, city_factory, place_factory) -> None:
-    city = city_factory(slug="pipeline-ai")
-    place = place_factory(city_id=city.id, slug="ai-place", title="AI Place", category="park")
+def test_generated_description_is_reviewable_and_not_high_confidence(db_session, city_factory, place_factory) -> None:
+    city = city_factory(slug="pipeline-description-draft")
+    place = place_factory(city_id=city.id, slug="description-draft-place", title="Городской парк", category="park")
     _trusted(place)
     run_foundation_pipeline(db_session, city=city, job=_job(db_session, city.id), actor="qa")
-    confidence = db_session.query(PlaceFieldConfidence).filter_by(place_id=place.id, field_name="description").first()
+    confidence = db_session.query(PlaceFieldConfidence).filter_by(place_id=place.id, field_name="description").one()
     reviews = db_session.query(ReviewQueueItem).filter_by(place_id=place.id, field_name="description", status="open").all()
-    assert place.short_description is None
-    assert confidence is None or confidence.confidence < 0.8
+    assert place.short_description
+    assert "Городской парк" in place.short_description
+    assert confidence.confidence < 0.8
+    assert confidence.source_type == "citygo_description_draft"
     assert len(reviews) == 1
-    assert reviews[0].reason == "description_missing"
+    assert reviews[0].reason == "generated_description_review"
 
 
 def test_category_fallback_photo_cannot_be_primary(db_session, city_factory, place_factory) -> None:
