@@ -42,11 +42,21 @@ def _hierarchy_from_path(path: Path) -> tuple[str, str]:
     return "Платформа", "Backend"
 
 
-def _human_test_name(name: str) -> str:
+def _human_test_name(name: str, feature: str) -> str:
     value = re.sub(r"^test_", "", name)
     value = re.sub(r"_new$", "", value)
-    value = value.replace("_", " ").strip()
-    return value[:1].upper() + value[1:] if value else name
+    replacements = {
+        "creates": "создаёт", "create": "создание", "updates": "обновляет", "update": "обновление",
+        "deletes": "удаляет", "delete": "удаление", "returns": "возвращает", "rejects": "отклоняет",
+        "allows": "разрешает", "blocks": "блокирует", "keeps": "сохраняет", "uses": "использует",
+        "when": "когда", "without": "без", "with": "с", "missing": "отсутствует", "invalid": "невалидный",
+        "valid": "валидный", "empty": "пустой", "failed": "ошибка", "success": "успех", "is": "",
+        "not": "не", "and": "и", "or": "или", "for": "для", "from": "из", "to": "в",
+    }
+    words = [replacements.get(word, word) for word in value.split("_")]
+    readable = " ".join(word for word in words if word).strip()
+    readable = readable[:1].upper() + readable[1:] if readable else "технический сценарий"
+    return f"{feature}: {readable}"
 
 
 def _severity_for_item(item: pytest.Item, epic: str) -> str:
@@ -67,18 +77,14 @@ def _run_type_for_item(item: pytest.Item) -> str:
     return os.getenv("CITY_GO_TEST_RUN_TYPE", "regression")
 
 
-@pytest.hookimpl(tryfirst=True)
-def pytest_runtest_setup(item: pytest.Item) -> None:
-    if allure is None:
-        return
+def _set_metadata(item: pytest.Item) -> None:
     path = Path(str(item.fspath))
     epic, feature = _hierarchy_from_path(path)
     run_type = _run_type_for_item(item)
     markers = sorted(marker.name for marker in item.iter_markers())
     explicit_title = getattr(item.obj, "__allure_display_name__", None)
-
     if not explicit_title:
-        allure.dynamic.title(_human_test_name(item.name))
+        allure.dynamic.title(_human_test_name(item.name, feature))
     allure.dynamic.epic(epic)
     allure.dynamic.feature(feature)
     allure.dynamic.parent_suite(epic)
@@ -93,17 +99,45 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     allure.dynamic.parameter("run_type", run_type, excluded=True)
 
 
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_setup(item: pytest.Item):
+    if allure is None:
+        yield
+        return
+    _set_metadata(item)
+    with allure.step("Подготовка тестового окружения"):
+        yield
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_call(item: pytest.Item):
+    if allure is None:
+        yield
+        return
+    with allure.step("Выполнение проверки"):
+        yield
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_teardown(item: pytest.Item):
+    if allure is None:
+        yield
+        return
+    with allure.step("Очистка тестового окружения"):
+        yield
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo):
     outcome = yield
     report = outcome.get_result()
     if allure is None or report.passed:
         return
-    phase_labels = {"setup": "Подготовка окружения", "call": "Выполнение сценария", "teardown": "Очистка окружения"}
+    phase_labels = {"setup": "Подготовка тестового окружения", "call": "Выполнение проверки", "teardown": "Очистка тестового окружения"}
     phase = phase_labels.get(report.when, report.when)
     allure.dynamic.label("failed_phase", phase)
     allure.attach(
         f"Тест: {item.nodeid}\nФаза: {phase}\n\n{report.longreprtext}",
-        name=f"Падение на фазе: {phase}",
+        name=f"Падение на шаге: {phase}",
         attachment_type=allure.attachment_type.TEXT,
     )
