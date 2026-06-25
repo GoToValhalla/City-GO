@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
+import { MapPinned, Search, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { addDraftPoint, createRandomDraft, loadCategories, removeDraftPoint, replaceDraftPoint, searchDraftPlaces } from '../../api/routes/routeDraft.api'
 import type { CategoryOption, RouteDraft, RouteDraftSearchItem } from '../../api/routes/routeDraft.types'
+import { MapLibreMap } from '../../shared/map/MapLibreMap'
+import type { MapPoint } from '../../shared/map/mapTypes'
 import {
   filterCategoryOptionsForFeatures,
   filterInterestsForFeatures,
@@ -16,14 +20,31 @@ type Props = {
 const EMPTY_FEATURES: string[] = []
 const fallbackCategories = interestOptions.map((item) => ({ code: item.value, name: item.label }))
 
+const validDraftMapPoints = (draft: RouteDraft): MapPoint[] => draft.points.flatMap((point) => {
+  const latitude = Number(point.lat)
+  const longitude = Number(point.lng)
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return []
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180 || (latitude === 0 && longitude === 0)) return []
+  return [{
+    id: point.place_id,
+    latitude,
+    longitude,
+    title: point.title,
+    category: point.category,
+    order: point.position,
+  }]
+})
+
 export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: Props) => {
   const [categories, setCategories] = useState<CategoryOption[]>(fallbackCategories)
   const [selected, setSelected] = useState<string[]>([])
   const [budget, setBudget] = useState(120)
   const [draft, setDraft] = useState<RouteDraft | null>(null)
-  const [query, setQuery] = useState('кофе')
+  const [searchCategory, setSearchCategory] = useState('')
   const [search, setSearch] = useState<RouteDraftSearchItem[]>([])
   const [replacePointId, setReplacePointId] = useState<number | null>(null)
+  const [activeMapPointId, setActiveMapPointId] = useState<number | null>(null)
+  const [searchMessage, setSearchMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -39,6 +60,8 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: 
     () => new Map(categories.map((item) => [item.code, item.name])),
     [categories],
   )
+  const mapPoints = useMemo(() => draft ? validDraftMapPoints(draft) : [], [draft])
+  const replacementPoint = draft?.points.find((point) => point.id === replacePointId) ?? null
 
   useEffect(() => {
     loadCategories().then((items) => {
@@ -51,32 +74,55 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: 
     setDraft(null)
     setSearch([])
     setReplacePointId(null)
+    setActiveMapPointId(null)
+    setSearchCategory('')
+    setSearchMessage(null)
   }, [citySlug, features])
 
   const build = async () => {
+    if (!Number.isInteger(budget) || budget < 30 || budget > 480) {
+      setError('Продолжительность должна быть от 30 до 480 минут.')
+      return
+    }
     const supportedSelected = filterInterestsForFeatures(selected, features)
     await run(async () => {
-      setDraft(await createRandomDraft({
+      const nextDraft = await createRandomDraft({
         city_slug: citySlug,
         budget_minutes: budget,
         selected_category_slugs: supportedSelected,
         category_mode: supportedSelected.length ? 'balanced' : 'none',
-      }))
+      })
+      setDraft(nextDraft)
       setSelected(supportedSelected)
       setSearch([])
+      setSearchMessage(null)
+      setActiveMapPointId(nextDraft.points[0]?.place_id ?? null)
     })
   }
 
   const findPlaces = async () => {
     if (!draft) return
-    await run(async () => setSearch(await searchDraftPlaces(draft, query)))
+    const category = visibleCategories.find((item) => item.code === searchCategory)
+    if (!category) {
+      setSearch([])
+      setSearchMessage('Сначала выберите категорию места.')
+      return
+    }
+    await run(async () => {
+      const items = await searchDraftPlaces(draft, category.name)
+      setSearch(items.filter((item) => !draft.points.some((point) => point.place_id === item.place_id)))
+      setSearchMessage(items.length ? null : 'Подходящих мест этой категории не найдено.')
+    })
   }
 
   const mutate = async (operation: Promise<RouteDraft>) => {
     await run(async () => {
-      setDraft(await operation)
+      const nextDraft = await operation
+      setDraft(nextDraft)
       setSearch([])
       setReplacePointId(null)
+      setSearchMessage(null)
+      setActiveMapPointId(nextDraft.points[0]?.place_id ?? null)
     })
   }
 
@@ -87,8 +133,14 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: 
   }
 
   const categoryLabel = (category: string | null | undefined) => {
-    if (!category) return 'место'
-    return categoryNameByCode.get(category) ?? category
+    if (!category) return 'Место'
+    return categoryNameByCode.get(category) ?? 'Место'
+  }
+
+  const beginReplacement = (pointId: number) => {
+    setReplacePointId(pointId)
+    setSearch([])
+    setSearchMessage('Выберите категорию и подходящее место для замены.')
   }
 
   return (
@@ -101,7 +153,11 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: 
         <button type="button" className="route-primary-btn" disabled={busy} onClick={build}>{busy ? 'Собираем...' : 'Случайный маршрут'}</button>
       </header>
       <div className="route-draft-controls">
-        <label>Минуты <input value={budget} type="number" min={30} max={480} onChange={(event) => setBudget(Number(event.target.value))} /></label>
+        <label>Продолжительность
+          <select value={budget} onChange={(event) => setBudget(Number(event.target.value))}>
+            {[60, 90, 120, 180, 240].map((minutes) => <option key={minutes} value={minutes}>{minutes} минут</option>)}
+          </select>
+        </label>
         {unsupportedSelectedLabels.length ? (
           <p className="route-start-note">Скрыты неподходящие для города темы: {unsupportedSelectedLabels.join(', ')}.</p>
         ) : null}
@@ -114,20 +170,53 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: 
         <div className="route-draft-result">
           <p><strong>{routeStatusLabel(draft.route_status)}</strong> · {draft.total_minutes}/{draft.budget_minutes} мин</p>
           {draft.warnings.map((item) => <p key={item.code} className="route-warning-inline">{item.message}</p>)}
+          {mapPoints.length ? (
+            <div className="route-draft-map-block">
+              <div className="route-draft-map-heading"><MapPinned size={18} /><strong>Маршрут на карте</strong></div>
+              <MapLibreMap
+                className="route-draft-map"
+                points={mapPoints}
+                activePointId={activeMapPointId}
+                routeLine
+                interactiveSelection={false}
+                onPointSelect={setActiveMapPointId}
+              />
+            </div>
+          ) : <p className="route-warning-inline">У точек нет корректных координат, поэтому карта пока недоступна.</p>}
           <ol className="route-draft-points">{draft.points.map((point) => (
-            <li key={point.id}>
-              <strong>{point.position}. {point.title}</strong><span>{categoryLabel(point.category)} · {point.visit_minutes} мин</span>
-              <button type="button" onClick={() => void mutate(removeDraftPoint(draft, point.id))}>Удалить</button>
-              <button type="button" onClick={() => setReplacePointId(point.id)}>Заменить</button>
+            <li key={point.id} className={point.place_id === activeMapPointId ? 'is-active' : undefined}>
+              <Link to={`/places/${point.slug}`} onClick={() => setActiveMapPointId(point.place_id)}>
+                <strong>{point.position}. {point.title}</strong>
+                <span>{categoryLabel(point.category)} · {point.visit_minutes} мин</span>
+              </Link>
+              <div className="route-draft-point-actions">
+                <button type="button" disabled={busy} onClick={() => beginReplacement(point.id)}>Заменить</button>
+                <button type="button" disabled={busy} onClick={() => void mutate(removeDraftPoint(draft, point.id))}>Удалить</button>
+              </div>
             </li>
           ))}</ol>
-          <div className="route-draft-search">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="кофе, парк, музей" />
-            <button type="button" disabled={busy} onClick={() => void findPlaces()}>Найти место</button>
+          <div className="route-draft-search-panel">
+            <div className="route-draft-search-head">
+              <div>
+                <strong>{replacementPoint ? `Замена: ${replacementPoint.title}` : 'Добавить место'}</strong>
+                <span>Можно выбрать только существующее место из каталога.</span>
+              </div>
+              {replacementPoint ? <button type="button" className="route-search-cancel" onClick={() => { setReplacePointId(null); setSearch([]); setSearchMessage(null) }}><X size={18} /> Отмена</button> : null}
+            </div>
+            <div className="route-draft-search">
+              <select aria-label="Категория места" value={searchCategory} onChange={(event) => { setSearchCategory(event.target.value); setSearch([]); setSearchMessage(null) }}>
+                <option value="">Выберите категорию</option>
+                {visibleCategories.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+              </select>
+              <button type="button" disabled={busy || !searchCategory} onClick={() => void findPlaces()}><Search size={17} /> Показать места</button>
+            </div>
+            {searchMessage ? <p className="route-search-message">{searchMessage}</p> : null}
+            <div className="route-search-results">{search.map((item) => <button key={item.place_id} type="button" className="route-search-row" disabled={busy} onClick={() => void mutate(replacePointId ? replaceDraftPoint(draft, replacePointId, item.place_id) : addDraftPoint(draft, item.place_id))}>
+              <strong>{item.title}</strong>
+              <span>{categoryLabel(item.category)}{item.address ? ` · ${item.address}` : ''}</span>
+              <small>{replacePointId ? 'Заменить текущую точку' : 'Добавить в конец маршрута'}</small>
+            </button>)}</div>
           </div>
-          {search.map((item) => <button key={item.place_id} type="button" className="route-search-row" onClick={() => void mutate(replacePointId ? replaceDraftPoint(draft, replacePointId, item.place_id) : addDraftPoint(draft, item.place_id))}>
-              {replacePointId ? 'Заменить на ' : 'Добавить '}{item.title} · {categoryLabel(item.category)}
-            </button>)}
         </div>
       )}
     </section>
