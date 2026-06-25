@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -38,11 +37,23 @@ def _run_url() -> str:
     return f"{server}/{repo}/actions/runs/{run_id}"
 
 
-def _short_body(body: str, limit: int = 700) -> str:
+def _short_body(body: str, limit: int = 500) -> str:
     compact = " ".join((body or "").replace("\r", " ").split())
     if not compact:
         return "пустой ответ"
     return compact[:limit] + ("…" if len(compact) > limit else "")
+
+
+def _endpoint(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    path = parsed.path or "/"
+    return path + (f"?{parsed.query}" if parsed.query else "")
+
+
+def _status_text(result: HttpResult) -> str:
+    if result.status is None:
+        return "нет ответа"
+    return f"HTTP {result.status}"
 
 
 def http_get(url: str, *, timeout: int = 25) -> HttpResult:
@@ -117,23 +128,33 @@ def _first_city_slug(payload: Any) -> str | None:
     return None
 
 
-def failure_report(*, title: str, host: str, result: HttpResult | None, problem: str, meaning: str, action: str) -> str:
+def _technical_error(result: HttpResult | None) -> str:
+    if result is None:
+        return "проверка остановилась до HTTP-запроса"
+    if result.error:
+        return result.error
+    if result.status is None:
+        return "нет HTTP-ответа"
+    if result.status >= 400:
+        return f"HTTP {result.status}"
+    return "семантическая проверка данных не прошла"
+
+
+def failure_report(*, host: str, result: HttpResult | None, problem: str, meaning: str, action: str) -> str:
     lines = [
-        "❌ City GO · Каталог недоступен",
-        "Проверка: публичный список городов и мест",
+        "❌ CITY GO · CATALOG DATA MONITOR",
+        "Статус: публичный каталог недоступен или пустой",
+        "Сценарий: пользователь открывает город и список мест",
         f"Хост: {host}",
         f"Проблема: {problem}",
     ]
     if result is not None:
-        path = urllib.parse.urlsplit(result.url).path
-        query = urllib.parse.urlsplit(result.url).query
-        endpoint = path + (f"?{query}" if query else "")
         lines.extend(
             [
-                f"Endpoint: {result.method} {endpoint}",
-                f"HTTP: {result.status if result.status is not None else 'нет ответа'}",
-                f"Время ответа: {result.elapsed_ms} мс",
+                f"Запрос: {result.method} {_endpoint(result.url)}",
+                f"Факт: {_status_text(result)} за {result.elapsed_ms} мс",
                 f"Content-Type: {result.content_type or 'не указан'}",
+                f"Техническая ошибка: {_technical_error(result)}",
                 f"Ответ: {_short_body(result.body)}",
             ]
         )
@@ -141,7 +162,7 @@ def failure_report(*, title: str, host: str, result: HttpResult | None, problem:
         [
             f"Что это значит: {meaning}",
             f"Что делать: {action}",
-            f"Run: {_run_url()}",
+            f"GitHub Actions: {_run_url()}",
         ]
     )
     return "\n".join(lines)
@@ -150,12 +171,13 @@ def failure_report(*, title: str, host: str, result: HttpResult | None, problem:
 def success_report(*, host: str, city_count: int, city_slug: str, places_total: int) -> str:
     return "\n".join(
         [
-            "✅ City GO · Каталог доступен",
+            "✅ CITY GO · CATALOG DATA MONITOR",
+            "Статус: публичный каталог доступен",
             f"Хост: {host}",
             f"Городов в выдаче: {city_count}",
             f"Проверенный город: {city_slug}",
             f"Мест в каталоге: {places_total}",
-            f"Run: {_run_url()}",
+            f"GitHub Actions: {_run_url()}",
         ]
     )
 
@@ -166,29 +188,26 @@ def run_monitor(host: str) -> tuple[int, str]:
     cities_payload, cities_error = parse_json(cities)
     if cities_error:
         return 1, failure_report(
-            title="catalog_cities_failed",
             host=host,
             result=cities,
             problem=f"не удалось получить список городов: {cities_error}",
-            meaning="публичный каталог не может выбрать город; пользователь увидит пустой список или зависание.",
-            action="проверить backend, nginx proxy и /api/cities/available; открыть логи backend за время прогона.",
+            meaning="публичная витрина не может выбрать город; пользователь увидит пустой селектор или зависание.",
+            action="проверить backend/nginx для /api/cities/available, затем открыть backend logs за время прогона.",
         )
 
     city_count = _items_count(cities_payload)
     if city_count < 1:
         return 1, failure_report(
-            title="catalog_cities_empty",
             host=host,
             result=cities,
             problem="API вернул 0 доступных городов",
-            meaning="HTTP может быть 200, но витрина фактически пустая; часто причина в статусах городов или feature flags.",
-            action="проверить is_active/launch_status городов и флаги видимости web_app_enabled/city_visible_to_users.",
+            meaning="HTTP 200 не означает рабочий каталог: витрина фактически пустая. Частая причина — все города inactive/review_required или выключены feature flags.",
+            action="проверить cities.is_active, launch_status, web_app_enabled, city_visible_to_users и последние импорты/миграции.",
         )
 
     city_slug = _first_city_slug(cities_payload)
     if not city_slug:
         return 1, failure_report(
-            title="catalog_city_slug_missing",
             host=host,
             result=cities,
             problem="первый город в ответе не содержит slug",
@@ -201,11 +220,10 @@ def run_monitor(host: str) -> tuple[int, str]:
     places_payload, places_error = parse_json(places)
     if places_error:
         return 1, failure_report(
-            title="catalog_places_failed",
             host=host,
             result=places,
             problem=f"не удалось получить места для города {city_slug}: {places_error}",
-            meaning="город есть, но каталог мест не открывается; вероятна ошибка запроса к БД или API places.",
+            meaning="город есть, но список мест не открывается; вероятна ошибка API places, БД или visibility-фильтров.",
             action="открыть backend logs по /api/places и проверить public visibility мест выбранного города.",
         )
 
@@ -217,12 +235,11 @@ def run_monitor(host: str) -> tuple[int, str]:
             places_total = 0
     if places_total < 1:
         return 1, failure_report(
-            title="catalog_places_empty",
             host=host,
             result=places,
             problem=f"город {city_slug} есть, но видимых мест 0",
-            meaning="frontend покажет пустой каталог; чаще всего места скрыты, сняты с публикации или не проходят route/catalog visibility.",
-            action="проверить статусы мест, visible_in_catalog, city_id, review_required и последние импорты по этому городу.",
+            meaning="frontend покажет пустой каталог; чаще всего места скрыты, сняты с публикации или не проходят catalog visibility.",
+            action="проверить статусы places, visible_in_catalog, city_id, review_required и последние импорты по этому городу.",
         )
 
     return 0, success_report(host=host, city_count=city_count, city_slug=city_slug, places_total=places_total)
@@ -236,8 +253,11 @@ def main() -> int:
 
     if not args.host.strip():
         args.notification_file.write_text(
-            "❌ City GO · Каталог не проверен\nПроблема: GitHub secret SSH_HOST/PROD_HOST пустой.\nЧто делать: заполнить secret SSH_HOST и повторить workflow.\n"
-            f"Run: {_run_url()}\n",
+            "❌ CITY GO · CATALOG DATA MONITOR\n"
+            "Статус: проверка не запущена\n"
+            "Проблема: GitHub secret SSH_HOST/PROD_HOST пустой.\n"
+            "Что делать: заполнить secret SSH_HOST и повторить workflow.\n"
+            f"GitHub Actions: {_run_url()}\n",
             encoding="utf-8",
         )
         return 1
