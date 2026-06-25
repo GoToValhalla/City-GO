@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -5,9 +7,16 @@ from sqlalchemy.orm import Session
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
 from services.coverage_gap_admin_actions import coverage_gap_row_payload, update_coverage_gap_status
-from services.coverage_gap_service import build_coverage_summary, refresh_coverage_statuses, sync_known_missing_poi_seed
+from services.coverage_gap_service import (
+    CRITICAL_POLICIES,
+    UNRESOLVED_STATUSES,
+    build_coverage_summary,
+    refresh_coverage_statuses,
+    sync_known_missing_poi_seed,
+)
 
 router = APIRouter(prefix="/admin/coverage-gaps", tags=["admin-coverage-gaps"])
+VIRTUAL_STATUS_FILTERS = {"unresolved", "critical"}
 
 
 class CoverageGapUpdateRequest(BaseModel):
@@ -29,16 +38,20 @@ def list_coverage_gaps(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    return build_coverage_summary(
+    virtual_status = status if status in VIRTUAL_STATUS_FILTERS else None
+    payload = build_coverage_summary(
         db,
         city_slug=city_slug,
-        status=status,
+        status=None if virtual_status else status,
         gap_reason=gap_reason,
         expected_category=expected_category,
-        offset=offset,
-        limit=limit,
+        offset=0 if virtual_status else offset,
+        limit=300 if virtual_status else limit,
         refresh=refresh,
     )
+    if virtual_status:
+        payload = _apply_virtual_status_filter(payload, virtual_status, offset=offset, limit=limit)
+    return payload
 
 
 @router.get("/cities/{city_slug}")
@@ -99,3 +112,29 @@ def patch_coverage_gap(
     db.commit()
     db.refresh(row)
     return {"status": "success", "item": coverage_gap_row_payload(row)}
+
+
+def _apply_virtual_status_filter(payload: dict[str, Any], status: str, *, offset: int, limit: int) -> dict[str, Any]:
+    """Applies UI helper filters that are not persisted as real row statuses."""
+
+    rows = [item for item in payload.get("items", []) if isinstance(item, dict)]
+    if status == "unresolved":
+        rows = [item for item in rows if item.get("status") in UNRESOLVED_STATUSES]
+    elif status == "critical":
+        rows = [
+            item for item in rows
+            if item.get("expected_route_policy") in CRITICAL_POLICIES
+            and item.get("status") in UNRESOLVED_STATUSES
+        ]
+    else:
+        return payload
+
+    paged = rows[offset: offset + limit]
+    return {
+        **payload,
+        "items": paged,
+        "total": len(rows),
+        "offset": offset,
+        "limit": limit,
+        "filters": {**dict(payload.get("filters") or {}), "status": status},
+    }
