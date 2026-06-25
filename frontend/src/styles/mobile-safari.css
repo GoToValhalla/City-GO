@@ -1,0 +1,194 @@
+/* Cross-page constraints for narrow and dynamically sized Safari viewports. */
+
+.app-container > main,
+.home-shell,
+.place-detail-sheet,
+.place-detail-sheet--refined,
+.route-page,
+.route-result-grid,
+.places-page-section,
+.places-list-panel,
+.place-ui-list,
+.place-map-panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.cg-button,
+.cg-badge,
+.cg-status-badge,
+.cg-category-badge,
+.cg-rating-badge,
+.filter-chip {
+  max-width: 100%;
+}
+
+.place-ui-card__title,
+.place-ui-card__description,
+.place-detail-sheet__title,
+.place-detail-fact__value,
+.route-card__title,
+.route-card__description {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.place-detail-sheet--refined,
+.place-detail-sheet--refined .place-detail-sheet__media,
+.place-detail-sheet--refined .place-detail-sheet__panel,
+.place-detail-sheet--refined .cg-place-photo--hero {
+  max-width: 100%;
+}
+
+.place-detail-sheet--refined .cg-place-photo--hero img {
+  width: 100%;
+  max-width: 100%;
+}
+
+.place-detail-sheet__footer {
+  max-width: 100%;
+  padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
+}
+
+.maplibre-map,
+.route-map-canvas,
+.route-draft-map,
+.place-map-panel {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+@supports (-webkit-touch-callout: none) {
+  html,
+  body,
+  #root,
+  .app-screen {
+    min-height: -webkit-fill-available;
+  }
+
+  button,
+  a,
+  select,
+  input,
+  textarea {
+    touch-action: manipulation;
+  }
+}
+
+@media (max-width: 520px) {
+  .place-detail-sheet--refined {
+    overflow: hidden;
+    border-radius: var(--cg-radius-xl) var(--cg-radius-xl) 0 0;
+  }
+
+  .place-detail-sheet--refined .place-detail-sheet__media {
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .place-detail-sheet--refined .cg-place-photo--hero {
+    width: 100%;
+    min-height: 0;
+    aspect-ratio: 16 / 10;
+  }
+
+  .place-detail-sheet--refined .place-detail-sheet__panel {
+    width: 100%;
+    margin-top: 0;
+    padding: 16px 14px;
+    border-right: 0;
+    border-left: 0;
+  }
+
+  .place-detail-sheet--refined .place-detail-sheet__title {
+    font-size: 24px;
+    line-height: 30px;
+  }
+
+  .place-detail-sheet--refined .place-detail-sheet__description {
+    font-size: 14px;
+    line-height: 21px;
+  }
+
+  .place-detail-sheet--refined .place-detail-sheet__footer {
+    bottom: env(safe-area-inset-bottom, 0px);
+    gap: 8px;
+    width: 100%;
+    padding-top: 10px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .place-detail-sheet__footer .cg-button {
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+    padding-inline: 14px;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .place-ui-card {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .cg-badge,
+  .cg-status-badge,
+  .cg-category-badge,
+  .cg-rating-badge {
+    white-space: normal;
+  }
+
+  .filter-chips {
+    width: 100%;
+    max-width: 100%;
+    padding-bottom: 10px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .filter-chip {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .route-result-grid,
+  .route-result-tile,
+  .route-config-tile,
+  .route-hero-tile {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 360px) {
+  .place-ui-card {
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .place-ui-card .cg-place-photo--thumb {
+    width: 68px;
+    height: 76px;
+  }
+
+  .place-detail-sheet--refined .place-detail-sheet__panel {
+    padding-inline: 12px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .place-detail-sheet--refined .cg-place-photo--hero {
+    aspect-ratio: 21 / 9;
+  }
+
+  .place-detail-sheet__footer {
+    position: relative;
+    bottom: auto;
+  }
+}
