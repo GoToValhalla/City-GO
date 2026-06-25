@@ -14,6 +14,7 @@ from services.coverage_gap_service import (
     refresh_coverage_statuses,
     sync_known_missing_poi_seed,
 )
+from services.coverage_readiness_gate import apply_coverage_readiness_gate
 
 router = APIRouter(prefix="/admin/coverage-gaps", tags=["admin-coverage-gaps"])
 VIRTUAL_STATUS_FILTERS = {"unresolved", "critical"}
@@ -73,8 +74,9 @@ def sync_coverage_gaps(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     result = sync_known_missing_poi_seed(db, city_slug=city_slug)
+    gate = apply_coverage_readiness_gate(db, city_slug=city_slug)
     db.commit()
-    return {"status": "success", "synced": result}
+    return {"status": "success", "synced": result, "readiness_gate": gate}
 
 
 @router.post("/refresh")
@@ -84,8 +86,9 @@ def refresh_coverage_gaps(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     result = refresh_coverage_statuses(db, city_slug=city_slug)
+    gate = apply_coverage_readiness_gate(db, city_slug=city_slug)
     db.commit()
-    return {"status": "success", **result}
+    return {"status": "success", **result, "readiness_gate": gate}
 
 
 @router.patch("/{gap_id}")
@@ -109,9 +112,10 @@ def patch_coverage_gap(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if row is None:
         raise HTTPException(status_code=404, detail="Coverage gap not found")
+    gate = apply_coverage_readiness_gate(db, city_slug=row.city.slug if row.city else None)
     db.commit()
     db.refresh(row)
-    return {"status": "success", "item": coverage_gap_row_payload(row)}
+    return {"status": "success", "item": coverage_gap_row_payload(row), "readiness_gate": gate}
 
 
 def _apply_virtual_status_filter(payload: dict[str, Any], status: str, *, offset: int, limit: int) -> dict[str, Any]:
