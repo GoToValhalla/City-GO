@@ -44,6 +44,29 @@ def _short_body(body: str, limit: int = 500) -> str:
     return compact[:limit] + ("…" if len(compact) > limit else "")
 
 
+def _looks_like_html(result: HttpResult | None) -> bool:
+    if result is None:
+        return False
+    content_type = result.content_type.lower()
+    body = (result.body or "").lstrip().lower()
+    return "text/html" in content_type or body.startswith("<!doctype html") or body.startswith("<html")
+
+
+def _looks_like_citygo_spa(result: HttpResult | None) -> bool:
+    if not _looks_like_html(result):
+        return False
+    body = (result.body or "").lower()
+    return "<title>city go</title>" in body or "/assets/index-" in body
+
+
+def _response_excerpt(result: HttpResult) -> str:
+    if _looks_like_citygo_spa(result):
+        return "HTML frontend index.html City GO вместо JSON API. Полный HTML скрыт из уведомления."
+    if _looks_like_html(result):
+        return "HTML-страница вместо JSON API. Полный HTML скрыт из уведомления."
+    return _short_body(result.body)
+
+
 def _endpoint(url: str) -> str:
     parsed = urllib.parse.urlsplit(url)
     path = parsed.path or "/"
@@ -98,6 +121,10 @@ def parse_json(result: HttpResult) -> tuple[Any | None, str | None]:
         return None, result.error or "запрос не выполнен"
     if result.status >= 400:
         return None, f"HTTP {result.status}"
+    if _looks_like_citygo_spa(result):
+        return None, "endpoint вернул frontend index.html вместо JSON API"
+    if _looks_like_html(result):
+        return None, "endpoint вернул HTML вместо JSON API"
     try:
         return json.loads(result.body), None
     except json.JSONDecodeError as exc:
@@ -131,6 +158,10 @@ def _first_city_slug(payload: Any) -> str | None:
 def _technical_error(result: HttpResult | None) -> str:
     if result is None:
         return "проверка остановилась до HTTP-запроса"
+    if _looks_like_citygo_spa(result):
+        return "ожидали JSON API, но получили frontend index.html"
+    if _looks_like_html(result):
+        return "ожидали JSON API, но получили HTML"
     if result.error:
         return result.error
     if result.status is None:
@@ -143,7 +174,7 @@ def _technical_error(result: HttpResult | None) -> str:
 def failure_report(*, host: str, result: HttpResult | None, problem: str, meaning: str, action: str) -> str:
     lines = [
         "❌ CITY GO · CATALOG DATA MONITOR",
-        "Статус: публичный каталог недоступен или пустой",
+        "Статус: публичный каталог не прошёл проверку",
         "Сценарий: пользователь открывает город и список мест",
         f"Хост: {host}",
         f"Проблема: {problem}",
@@ -154,8 +185,8 @@ def failure_report(*, host: str, result: HttpResult | None, problem: str, meanin
                 f"Запрос: {result.method} {_endpoint(result.url)}",
                 f"Факт: {_status_text(result)} за {result.elapsed_ms} мс",
                 f"Content-Type: {result.content_type or 'не указан'}",
-                f"Техническая ошибка: {_technical_error(result)}",
-                f"Ответ: {_short_body(result.body)}",
+                f"Техническая причина: {_technical_error(result)}",
+                f"Ответ: {_response_excerpt(result)}",
             ]
         )
     lines.extend(
@@ -182,11 +213,23 @@ def success_report(*, host: str, city_count: int, city_slug: str, places_total: 
     )
 
 
+def _html_api_failure(*, host: str, result: HttpResult, endpoint_name: str) -> tuple[int, str]:
+    return 1, failure_report(
+        host=host,
+        result=result,
+        problem=f"{endpoint_name} вернул frontend HTML вместо JSON",
+        meaning="запрос не дошёл до нужного backend API или был перенаправлен на SPA. Это проблема routing/URL/trailing slash/nginx, а не доказательство пустой БД.",
+        action="проверить API URL в monitor и frontend, trailing slash у backend route, nginx location /api/ и redirect FastAPI. Для places monitor должен использовать /api/places/.",
+    )
+
+
 def run_monitor(host: str) -> tuple[int, str]:
     base_url = _base_url(host)
     cities = http_get(f"{base_url}/api/cities/available?include_draft=true")
     cities_payload, cities_error = parse_json(cities)
     if cities_error:
+        if _looks_like_html(cities):
+            return _html_api_failure(host=host, result=cities, endpoint_name="список городов")
         return 1, failure_report(
             host=host,
             result=cities,
@@ -215,16 +258,20 @@ def run_monitor(host: str) -> tuple[int, str]:
             action="проверить контракт /api/cities/available и данные таблицы cities.",
         )
 
-    places_url = f"{base_url}/api/places?city_slug={urllib.parse.quote(city_slug)}&limit=1&offset=0"
+    # Trailing slash is intentional. Without it FastAPI can redirect /places to /places/;
+    # through nginx that redirect may escape /api and return the frontend SPA HTML.
+    places_url = f"{base_url}/api/places/?city_slug={urllib.parse.quote(city_slug)}&limit=1&offset=0"
     places = http_get(places_url)
     places_payload, places_error = parse_json(places)
     if places_error:
+        if _looks_like_html(places):
+            return _html_api_failure(host=host, result=places, endpoint_name=f"список мест для города {city_slug}")
         return 1, failure_report(
             host=host,
             result=places,
             problem=f"не удалось получить места для города {city_slug}: {places_error}",
             meaning="город есть, но список мест не открывается; вероятна ошибка API places, БД или visibility-фильтров.",
-            action="открыть backend logs по /api/places и проверить public visibility мест выбранного города.",
+            action="открыть backend logs по /api/places/ и проверить public visibility мест выбранного города.",
         )
 
     places_total = 0
