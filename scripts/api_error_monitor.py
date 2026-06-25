@@ -80,7 +80,7 @@ def _response_excerpt(result: CheckResult) -> str:
     if _looks_like_citygo_spa(result):
         return "HTML frontend index.html City GO вместо JSON API. Полный HTML скрыт из уведомления."
     if _looks_like_html(result):
-        return "HTML-страница вместо JSON API. Полный HTML скрыт из уведомления."
+        return _short_body(result.body)
     return _short_body(result.body)
 
 
@@ -214,6 +214,12 @@ def _status_text(result: CheckResult) -> str:
     return f"HTTP {result.status}"
 
 
+def _status_code_text(result: CheckResult) -> str:
+    if result.status is None:
+        return "нет ответа"
+    return str(result.status)
+
+
 def _probable_reason(result: CheckResult) -> str:
     if _looks_like_citygo_spa(result):
         return "API-запрос попал в frontend SPA. Частые причины: неверный URL, redirect без /api, trailing slash или nginx proxy не совпадает с backend route."
@@ -244,7 +250,7 @@ def _recommended_action(result: CheckResult) -> str:
     if result.status == 404:
         return "проверить nginx location, router registration и актуальность URL в monitor."
     if result.status == 422:
-        return "обновить payload monitor-запроса или backend-схему, чтобы контракт совпадал."
+        return "обновить payload monitor-запроса или backend-схему, чтобы контракт совпал."
     if result.status >= 500:
         return "открыть backend logs за время прогона, проверить PostgreSQL readiness, долгие запросы и последние миграции."
     return "открыть лог workflow и ответ endpoint."
@@ -261,7 +267,7 @@ def _ok_summary(results: list[CheckResult]) -> list[str]:
 def failure_report(*, host: str, results: list[CheckResult]) -> str:
     failed = [item for item in results if not item.ok]
     lines = [
-        "❌ CITY GO · API MONITOR",
+        "❌ City GO · API monitor нашёл ошибки",
         "Статус: API не прошёл production-проверку",
         f"Хост: {host}",
         f"Итог: {len(results) - len(failed)}/{len(results)} проверок успешно, {len(failed)} упало",
@@ -272,11 +278,12 @@ def failure_report(*, host: str, results: list[CheckResult]) -> str:
         lines.extend(
             [
                 f"{index}. {item.spec.label}",
-                f"   Запрос: {item.spec.method} {_endpoint_path(item.url)}",
-                f"   Факт: {_status_text(item)} за {item.elapsed_ms} мс",
+                f"   Endpoint: {item.spec.method} {_endpoint_path(item.url)}",
+                f"   HTTP: {_status_code_text(item)}",
+                f"   Время: {item.elapsed_ms} мс",
                 f"   Content-Type: {item.content_type or 'не указан'}",
                 f"   Техническая причина: {item.error or 'HTTP status >= 400'}",
-                f"   Вероятная причина: {_probable_reason(item)}",
+                f"   Причина: {_probable_reason(item)}",
                 f"   Что делать: {_recommended_action(item)}",
                 f"   Ответ: {_response_excerpt(item)}",
             ]
