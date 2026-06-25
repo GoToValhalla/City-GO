@@ -185,6 +185,7 @@ def failure_report(
     title: str | None = None,
 ) -> str:
     lines = [
+        "❌ CITY GO · CATALOG DATA MONITOR",
         "❌ City GO · Каталог недоступен",
         "Статус: публичный каталог не прошёл проверку",
         "Сценарий: пользователь открывает город и список мест",
@@ -196,6 +197,8 @@ def failure_report(
     if result is not None:
         lines.extend(
             [
+                f"Запрос: {result.method} {_endpoint(result.url)}",
+                f"Факт: {_status_text(result)} за {result.elapsed_ms} мс",
                 f"Endpoint: {result.method} {_endpoint(result.url)}",
                 f"HTTP: {_status_code_text(result)}",
                 f"Время: {result.elapsed_ms} мс",

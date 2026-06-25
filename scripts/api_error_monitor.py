@@ -267,6 +267,7 @@ def _ok_summary(results: list[CheckResult]) -> list[str]:
 def failure_report(*, host: str, results: list[CheckResult]) -> str:
     failed = [item for item in results if not item.ok]
     lines = [
+        "❌ CITY GO · API MONITOR",
         "❌ City GO · API monitor нашёл ошибки",
         "Статус: API не прошёл production-проверку",
         f"Хост: {host}",
@@ -278,11 +279,14 @@ def failure_report(*, host: str, results: list[CheckResult]) -> str:
         lines.extend(
             [
                 f"{index}. {item.spec.label}",
+                f"   Запрос: {item.spec.method} {_endpoint_path(item.url)}",
                 f"   Endpoint: {item.spec.method} {_endpoint_path(item.url)}",
+                f"   Факт: {_status_text(item)} за {item.elapsed_ms} мс",
                 f"   HTTP: {_status_code_text(item)}",
                 f"   Время: {item.elapsed_ms} мс",
                 f"   Content-Type: {item.content_type or 'не указан'}",
                 f"   Техническая причина: {item.error or 'HTTP status >= 400'}",
+                f"   Вероятная причина: {_probable_reason(item)}",
                 f"   Причина: {_probable_reason(item)}",
                 f"   Что делать: {_recommended_action(item)}",
                 f"   Ответ: {_response_excerpt(item)}",
