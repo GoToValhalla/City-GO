@@ -1,4 +1,4 @@
-"""Repository-wide pytest hooks for readable Allure reports."""
+"""Repository-wide pytest hooks for readable Allure and CI reports."""
 
 from __future__ import annotations
 
@@ -30,18 +30,18 @@ def _hierarchy_from_path(path: Path) -> tuple[str, str]:
     if "admin" in text:
         return "Операционный центр", "Админка"
     if "place" in text or "seed" in text or "nearby" in text or "open_now" in text:
-        return "Каталог мест", "Поиск и карточки мест"
+        return "Каталог мест", "Каталог мест"
     if "city" in text or "destination" in text:
         return "Территории", "Города и регионы"
     if "telegram" in text:
         return "Каналы", "Telegram"
     if "user" in text or "profile" in text or "signals" in text:
-        return "Пользователи", "Профили и персонализация"
+        return "Пользователи", "Пользователи"
     if "model" in text or "models" in text:
         return "Платформа данных", "Модели данных"
     if "readiness" in name or "health" in name or "deploy" in name or "ci_" in name:
         return "Платформа", "Инфраструктура и CI"
-    return "Платформа", "Backend"
+    return "Платформа", "Прочее"
 
 
 def _human_test_name(name: str, feature: str) -> str:
@@ -79,6 +79,36 @@ def _run_type_for_item(item: pytest.Item) -> str:
     return os.getenv("CITY_GO_TEST_RUN_TYPE", "regression")
 
 
+def _test_type_for_item(item: pytest.Item) -> str:
+    path = Path(str(item.fspath)).as_posix().lower()
+    fixtures = set(getattr(item, "fixturenames", ()) or ())
+    if item.get_closest_marker("api") is not None or any(token in path for token in ("api", "router", "endpoint")):
+        return "API"
+    if fixtures & {"client", "admin_client", "authenticated_client", "async_client"}:
+        return "API"
+    if item.get_closest_marker("integration") is not None or fixtures & {"db_session", "session", "database"}:
+        return "Integration"
+    return "Unit"
+
+
+def _display_title(item: pytest.Item, feature: str) -> str:
+    return getattr(item.obj, "__allure_display_name__", None) or _human_test_name(item.name, feature)
+
+
+def _set_junit_properties(item: pytest.Item) -> None:
+    path = Path(str(item.fspath))
+    epic, feature = _hierarchy_from_path(path)
+    values = {
+        "display_title": _display_title(item, feature),
+        "test_type": _test_type_for_item(item),
+        "functional_group": feature,
+        "epic": epic,
+        "node_id": item.nodeid,
+    }
+    existing = {name for name, _ in item.user_properties}
+    item.user_properties.extend((name, value) for name, value in values.items() if name not in existing)
+
+
 def _set_metadata(item: pytest.Item) -> None:
     path = Path(str(item.fspath))
     epic, feature = _hierarchy_from_path(path)
@@ -98,7 +128,14 @@ def _set_metadata(item: pytest.Item) -> None:
         allure.dynamic.tag(marker)
     allure.dynamic.label("test_file", path.as_posix())
     allure.dynamic.label("node_id", item.nodeid)
+    allure.dynamic.label("test_type", _test_type_for_item(item))
     allure.dynamic.parameter("run_type", run_type, excluded=True)
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Persist report metadata in JUnit so the notify job can aggregate it."""
+    for item in items:
+        _set_junit_properties(item)
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:
