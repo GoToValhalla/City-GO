@@ -54,16 +54,17 @@ export const MapLibreMap = ({
   callbacksRef.current = { interactiveSelection, onManualPoint, onPointSelect, onRouteStateChange }
 
   useEffect(() => {
-    if (!routeLine || points.length < 2) {
+    const currentPoints = dataRef.current.points
+    if (!routeLine || currentPoints.length < 2) {
       setRouteState(EMPTY_ROUTE)
-      onRouteStateChange?.(EMPTY_ROUTE)
+      callbacksRef.current.onRouteStateChange?.(EMPTY_ROUTE)
       return
     }
     const controller = new AbortController()
     const loading: MapRouteState = { ...EMPTY_ROUTE, status: 'loading' }
     setRouteState(loading)
-    onRouteStateChange?.(loading)
-    loadWalkingRoute(points, controller.signal)
+    callbacksRef.current.onRouteStateChange?.(loading)
+    loadWalkingRoute(currentPoints, controller.signal)
       .then((next) => {
         setRouteState(next)
         callbacksRef.current.onRouteStateChange?.(next)
@@ -79,7 +80,7 @@ export const MapLibreMap = ({
         callbacksRef.current.onRouteStateChange?.(unavailable)
       })
     return () => controller.abort()
-  }, [routeKey, routeLine]) // points are represented by routeKey to avoid requests on referential-only changes.
+  }, [routeKey, routeLine])
 
   useEffect(() => {
     let disposed = false
