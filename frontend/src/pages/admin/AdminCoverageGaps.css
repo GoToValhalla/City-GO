@@ -1,0 +1,111 @@
+.admin-kicker {
+  margin-bottom: 6px;
+  color: var(--admin-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.admin-gap-header {
+  align-items: center;
+}
+
+.admin-gap-header .admin-page-title {
+  color: var(--admin-text);
+  font-size: 28px;
+  line-height: 34px;
+}
+
+.admin-gap-header .admin-page-subtitle {
+  max-width: 820px;
+  color: #4f5668;
+}
+
+.admin-gap-header-actions {
+  flex: 0 0 auto;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.admin-gap-help {
+  margin-bottom: 16px;
+}
+
+.admin-gap-help .admin-help-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 18px;
+  padding-left: 18px;
+}
+
+.admin-gap-metric {
+  text-decoration: none;
+}
+
+.admin-gap-metric:hover {
+  border-color: var(--admin-primary);
+}
+
+.admin-gap-metric-hint {
+  margin-top: 6px;
+  color: #4f5668;
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.admin-gap-table {
+  min-width: 1120px;
+}
+
+.admin-gap-table td {
+  vertical-align: top;
+}
+
+.admin-gap-note {
+  max-width: 420px;
+  margin-top: 6px;
+  color: #5a6070;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.admin-gap-reason {
+  display: inline-flex;
+  margin-top: 6px;
+  color: var(--admin-primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.admin-gap-action-text {
+  max-width: 240px;
+  color: #4f5668;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.admin-gap-table .admin-actions-cell {
+  white-space: normal;
+}
+
+@media (max-width: 900px) {
+  .admin-gap-header {
+    align-items: stretch;
+  }
+
+  .admin-gap-header-actions {
+    width: 100%;
+  }
+
+  .admin-gap-header-actions .admin-btn {
+    flex: 1 1 180px;
+  }
+
+  .admin-gap-help .admin-help-list {
+    grid-template-columns: 1fr;
+  }
+}
