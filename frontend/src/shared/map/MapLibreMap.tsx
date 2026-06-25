@@ -38,9 +38,14 @@ const EMPTY_ROUTE: MapRouteState = {
 const source = <TSource extends GeoJSONSource = GeoJSONSource>(map: MapInstance, id: string): TSource | null =>
   (map.getSource(id) as TSource | undefined) ?? null
 
-const boundsCoordinates = (points: MapPoint[], user?: MapUserLocation | null): [number, number][] => [
+const boundsCoordinates = (
+  points: MapPoint[],
+  user?: MapUserLocation | null,
+  manual?: MapManualPoint | null,
+): [number, number][] => [
   ...points.map((point): [number, number] => [point.longitude, point.latitude]),
   ...(user ? [[user.longitude, user.latitude] as [number, number]] : []),
+  ...(manual ? [[manual.longitude, manual.latitude] as [number, number]] : []),
 ]
 
 const cssColor = (property: string, fallback: string): string => {
@@ -64,12 +69,50 @@ const fallbackClusterIds = (points: MapPoint[], coordinates: [number, number]): 
     .map((point) => point.id)
 }
 
+const viewportKey = (
+  points: MapPoint[],
+  user?: MapUserLocation | null,
+  manual?: MapManualPoint | null,
+): string => [
+  points.map((point) => `${point.id}:${point.latitude.toFixed(6)},${point.longitude.toFixed(6)}`).join('|'),
+  user ? `u:${user.latitude.toFixed(6)},${user.longitude.toFixed(6)}` : 'u:-',
+  manual ? `m:${manual.latitude.toFixed(6)},${manual.longitude.toFixed(6)}` : 'm:-',
+].join('::')
+
+const fitMapToData = (
+  map: MapInstance,
+  points: MapPoint[],
+  userLocation: MapUserLocation | null,
+  manualPoint: MapManualPoint | null,
+  activePointId: number | null,
+): void => {
+  const active = points.find((point) => point.id === activePointId)
+  if (active) {
+    map.easeTo({ center: [active.longitude, active.latitude], zoom: Math.max(map.getZoom(), 14) })
+    return
+  }
+
+  const coords = boundsCoordinates(points, userLocation, manualPoint)
+  if (coords.length === 0) return
+  if (coords.length === 1) {
+    map.easeTo({ center: coords[0], zoom: Math.max(map.getZoom(), 13) })
+    return
+  }
+
+  const lngValues = coords.map(([lng]) => lng)
+  const latValues = coords.map(([, lat]) => lat)
+  const southWest: [number, number] = [Math.min(...lngValues), Math.min(...latValues)]
+  const northEast: [number, number] = [Math.max(...lngValues), Math.max(...latValues)]
+  map.fitBounds([southWest, northEast], { padding: 54, maxZoom: 15 })
+}
+
 export const MapLibreMap = ({
   activePointId = null, className, interactiveSelection = true, manualPoint = null,
   onClusterSelect, onManualPoint, onPointSelect, onRouteStateChange, points, routeLine = false, userLocation = null,
 }: Props) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapInstance | null>(null)
+  const lastViewportKeyRef = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [routeState, setRouteState] = useState<MapRouteState>(EMPTY_ROUTE)
   const routeKey = useMemo(
@@ -112,7 +155,7 @@ export const MapLibreMap = ({
 
   useEffect(() => {
     let disposed = false
-    void import('maplibre-gl').then(({ LngLatBounds, Map, NavigationControl }) => {
+    void import('maplibre-gl').then(({ Map, NavigationControl }) => {
       if (disposed || !containerRef.current) return
       const first = dataRef.current.points[0]
       const map = new Map({
@@ -134,8 +177,8 @@ export const MapLibreMap = ({
           muted: cssColor('--cg-text-soft', '#6F778A'),
           text: cssColor('--cg-text-main', '#F5F7FA'),
         })
-        const coords = boundsCoordinates(current.points, current.userLocation)
-        if (coords.length > 1) map.fitBounds(coords.reduce((box, item) => box.extend(item), new LngLatBounds(coords[0], coords[0])), { padding: 54, maxZoom: 15 })
+        lastViewportKeyRef.current = viewportKey(current.points, current.userLocation, current.manualPoint)
+        fitMapToData(map, current.points, current.userLocation, current.manualPoint, current.activePointId)
       })
       map.on('click', 'place-clusters', (event) => {
         const feature = event.features?.[0]
@@ -189,6 +232,7 @@ export const MapLibreMap = ({
       disposed = true
       mapRef.current?.remove()
       mapRef.current = null
+      lastViewportKeyRef.current = null
     }
   }, [])
 
@@ -198,9 +242,15 @@ export const MapLibreMap = ({
     source(map, 'places')?.setData(pointCollection(points, activePointId))
     source(map, 'route')?.setData(routeCollection(routeState.geometry))
     source(map, 'locations')?.setData(locationCollection(userLocation, manualPoint))
-    const active = points.find((point) => point.id === activePointId)
-    if (active) map.easeTo({ center: [active.longitude, active.latitude], zoom: Math.max(map.getZoom(), 14) })
-  }, [activePointId, manualPoint, points, routeState, userLocation])
+
+    const nextViewportKey = viewportKey(points, userLocation, manualPoint)
+    const activeChanged = Boolean(activePointId)
+    const viewportChanged = lastViewportKeyRef.current !== nextViewportKey
+    if (viewportChanged || activeChanged) {
+      fitMapToData(map, points, userLocation, manualPoint, activePointId)
+      lastViewportKeyRef.current = nextViewportKey
+    }
+  }, [activePointId, manualPoint, points, routeState.geometry, userLocation])
 
   return <div className={className}>
     <div className="maplibre-map" ref={containerRef} data-testid="maplibre-map" />
