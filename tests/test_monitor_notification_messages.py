@@ -1,6 +1,10 @@
+import json
+from pathlib import Path
+
 import scripts.catalog_data_monitor as catalog_monitor
 from scripts.api_error_monitor import CheckResult, CheckSpec, failure_report as api_failure_report
 from scripts.catalog_data_monitor import HttpResult, failure_report as catalog_failure_report
+from services.osm_import_taxonomy import category_from_osm_tags, unsupported_tag_reason
 
 
 def test_api_monitor_failure_message_is_actionable(monkeypatch) -> None:
@@ -163,3 +167,30 @@ def test_catalog_monitor_uses_trailing_slash_for_places_api(monkeypatch) -> None
     assert exit_code == 0
     assert "публичный каталог доступен" in text
     assert calls[1] == "http://2.27.4.31/api/places/?city_slug=arkhangelsk&limit=1&offset=0"
+
+
+def test_known_missing_poi_seed_contains_kutaisi_regression_set() -> None:
+    payload = json.loads(Path("data/config/known_missing_poi.json").read_text(encoding="utf-8"))
+    kutaisi = next(city for city in payload["cities"] if city["city"] == "kutaisi")
+    slugs = {item["slug"] for item in kutaisi["items"]}
+
+    assert len(kutaisi["items"]) == 7
+    assert {
+        "bagrati-cathedral",
+        "motsameta-monastery",
+        "gelati-monastery",
+        "sanapiro",
+        "kebaby-bikentiya",
+        "kutaisi-amusement-park",
+        "sataplia-cave",
+    } <= slugs
+
+
+def test_osm_taxonomy_covers_kutaisi_gap_classes() -> None:
+    assert category_from_osm_tags({"historic": "monastery"}) == "culture"
+    assert category_from_osm_tags({"building": "cathedral"}) == "culture"
+    assert category_from_osm_tags({"natural": "cave_entrance"}) == "walk"
+    assert category_from_osm_tags({"waterway": "waterfall"}) == "walk"
+    assert category_from_osm_tags({"tourism": "theme_park"}) == "park"
+    assert category_from_osm_tags({"leisure": "amusement_arcade"}) == "park"
+    assert unsupported_tag_reason({"historic": "monastery"}) is None
