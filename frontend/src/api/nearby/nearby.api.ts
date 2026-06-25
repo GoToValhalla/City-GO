@@ -20,6 +20,7 @@ export const getNearbyPlaces = async (
   lat: number,
   lng: number,
   radiusKm = 3,
+  signal?: AbortSignal,
 ): Promise<NearbyPlace[]> => {
   const params = new URLSearchParams({
     lat: String(lat),
@@ -27,7 +28,7 @@ export const getNearbyPlaces = async (
     radius_km: String(radiusKm),
   })
 
-  const response = await fetch(buildApiUrl(`/nearby/?${params.toString()}`))
+  const response = await fetch(buildApiUrl(`/nearby/?${params.toString()}`), { signal })
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`)
   }
