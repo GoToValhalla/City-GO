@@ -49,7 +49,6 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # Manual bootstrap/ops job. Runtime services must not depend on seed.
   seed:
     profiles: ["ops"]
     image: ghcr.io/gotovalhalla/city-go-backend:latest
@@ -63,7 +62,6 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
-  # Manual ops only (profile ops). Not part of default deploy chain — no geocode apply on deploy.
   address-backfill:
     profiles: ["ops"]
     image: ghcr.io/gotovalhalla/city-go-backend:latest
@@ -80,7 +78,6 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
-  # Manual ops only. Data enrichment export must never block backend/frontend startup.
   place-enrichment-export:
     profiles: ["ops"]
     image: ghcr.io/gotovalhalla/city-go-backend:latest
@@ -130,11 +127,7 @@ services:
   import-worker:
     image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
-    command: >
-      bash -c 'while true; do
-        PYTHONPATH=/app python data/scripts/run_admin_import_queue.py --limit "$${IMPORT_WORKER_BATCH_LIMIT:-1}" || true;
-        sleep "$${IMPORT_WORKER_SLEEP_SECONDS:-60}";
-      done'
+    command: python data/scripts/run_admin_import_worker.py
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
