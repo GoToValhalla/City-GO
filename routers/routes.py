@@ -1,5 +1,5 @@
 """
-Готовые editorial-маршруты (модель Route) с точками.
+Готовые editorial-маршруты (модель Route) с точками и пешеходная геометрия.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
 from schemas.route import RouteDetailRead, RouteRead
+from schemas.walking_route import WalkingRouteRequest, WalkingRouteResponse
 from services.route_service import (
     build_route_points,
     get_route_by_id,
@@ -15,8 +16,15 @@ from services.route_service import (
     get_routes_by_city_id,
     get_routes_by_city_slug,
 )
+from services.walking_route_service import build_walking_route
 
 router = APIRouter(prefix="/routes", tags=["routes"])
+
+
+@router.post("/walking-geometry", response_model=WalkingRouteResponse)
+def create_walking_geometry(payload: WalkingRouteRequest) -> WalkingRouteResponse:
+    """Route ordered stops over the pedestrian street/path graph."""
+    return build_walking_route(payload.points)
 
 
 @router.get("/", response_model=list[RouteRead])
