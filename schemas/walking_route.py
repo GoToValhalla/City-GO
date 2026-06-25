@@ -49,5 +49,5 @@ class WalkingRouteResponse(BaseModel):
     geometry: list[tuple[float, float]]
     distance_meters: float | None = None
     duration_seconds: float | None = None
-    legs: list[WalkingRouteLeg] = []
+    legs: list[WalkingRouteLeg] = Field(default_factory=list)
     warning: str | None = None
