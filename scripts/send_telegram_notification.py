@@ -36,7 +36,7 @@ def send_message(*, token: str, chat_id: str, text: str, attempts: int = 3) -> N
             if body.get("ok") is not True:
                 raise RuntimeError(f"Telegram API rejected message: {body}")
             return
-        except (OSError, ValueError, urllib.error.URLError) as exc:
+        except (OSError, RuntimeError, ValueError, urllib.error.URLError) as exc:
             last_error = exc
             if attempt < attempts:
                 time.sleep(attempt * 2)
