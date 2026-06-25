@@ -26,12 +26,17 @@ type ClusterLeaf = {
   } | null
 }
 
+type ClusterSource = GeoJSONSource & {
+  getClusterLeaves?: (clusterId: number, limit: number, offset: number) => Promise<ClusterLeaf[]>
+  getClusterExpansionZoom?: (clusterId: number) => Promise<number>
+}
+
 const EMPTY_ROUTE: MapRouteState = {
   status: 'idle', geometry: [], distanceMeters: null, durationSeconds: null, legs: [], warning: null,
 }
 
-const source = (map: MapInstance, id: string): GeoJSONSource | null =>
-  (map.getSource(id) as GeoJSONSource | undefined) ?? null
+const source = <TSource extends GeoJSONSource = GeoJSONSource>(map: MapInstance, id: string): TSource | null =>
+  (map.getSource(id) as TSource | undefined) ?? null
 
 const boundsCoordinates = (points: MapPoint[], user?: MapUserLocation | null): [number, number][] => [
   ...points.map((point): [number, number] => [point.longitude, point.latitude]),
@@ -46,6 +51,18 @@ const cssColor = (property: string, fallback: string): string => {
 const clusterLeafIds = (leaves: ClusterLeaf[]): number[] => Array.from(new Set(leaves
   .map((leaf) => Number(leaf.properties?.id))
   .filter((id) => Number.isFinite(id))))
+
+const fallbackClusterIds = (points: MapPoint[], coordinates: [number, number]): number[] => {
+  const [longitude, latitude] = coordinates
+  return points
+    .map((point) => ({
+      id: point.id,
+      distance: Math.abs(point.longitude - longitude) + Math.abs(point.latitude - latitude),
+    }))
+    .sort((left, right) => left.distance - right.distance)
+    .slice(0, 20)
+    .map((point) => point.id)
+}
 
 export const MapLibreMap = ({
   activePointId = null, className, interactiveSelection = true, manualPoint = null,
@@ -123,16 +140,30 @@ export const MapLibreMap = ({
       map.on('click', 'place-clusters', (event) => {
         const feature = event.features?.[0]
         const clusterId = Number(feature?.properties?.cluster_id)
-        const coordinates = feature?.geometry.type === 'Point' ? feature.geometry.coordinates : null
-        const placesSource = source(map, 'places')
+        const coordinates = feature?.geometry.type === 'Point'
+          ? [Number(feature.geometry.coordinates[0]), Number(feature.geometry.coordinates[1])] as [number, number]
+          : null
+        const placesSource = source<ClusterSource>(map, 'places')
         if (!Number.isFinite(clusterId) || !placesSource || !coordinates) return
-        void placesSource.getClusterLeaves(clusterId, 60, 0).then((leaves) => {
-          const ids = clusterLeafIds(leaves as ClusterLeaf[])
-          if (ids.length > 0) callbacksRef.current.onClusterSelect?.(ids)
-        })
-        void placesSource.getClusterExpansionZoom(clusterId).then((zoom) => {
-          map.easeTo({ center: [Number(coordinates[0]), Number(coordinates[1])], zoom: Math.min(zoom, 16) })
-        })
+        const fallbackIds = () => callbacksRef.current.onClusterSelect?.(fallbackClusterIds(dataRef.current.points, coordinates))
+        if (placesSource.getClusterLeaves) {
+          void placesSource.getClusterLeaves(clusterId, 60, 0)
+            .then((leaves) => {
+              const ids = clusterLeafIds(leaves)
+              if (ids.length > 0) callbacksRef.current.onClusterSelect?.(ids)
+              else fallbackIds()
+            })
+            .catch(fallbackIds)
+        } else {
+          fallbackIds()
+        }
+        if (placesSource.getClusterExpansionZoom) {
+          void placesSource.getClusterExpansionZoom(clusterId).then((zoom) => {
+            map.easeTo({ center: coordinates, zoom: Math.min(zoom, 16) })
+          })
+        } else {
+          map.easeTo({ center: coordinates, zoom: Math.min(map.getZoom() + 2, 16) })
+        }
       })
       map.on('click', 'place-points', (event) => {
         const id = Number(event.features?.[0]?.properties?.id)
