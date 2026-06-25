@@ -63,8 +63,7 @@ def _humanize(value: str) -> str:
 
 
 def _suite_name(classname: str) -> str:
-    module = classname.removeprefix("tests.").removeprefix("src.")
-    module = module.split(".")[-1]
+    module = classname.removeprefix("tests.").removeprefix("src.").split(".")[-1]
     module = re.sub(r"^test_", "", module)
     module = re.sub(r"_new$", "", module)
     return module.replace("_", " ") or "unknown"
@@ -132,6 +131,15 @@ def progress_bar(rate: float, width: int = 12) -> str:
     return "🟩" * filled + "⬜" * (width - filled)
 
 
+def _allure_coverage_lines() -> list[str]:
+    path = Path("artifacts/messages/allure-coverage.txt")
+    if not path.exists():
+        return []
+    lines = path.read_text(encoding="utf-8").splitlines()
+    metrics = [line for line in lines if line.startswith(("Functional tests:", "Explicit Russian scenarios:", "Coverage:"))]
+    return ["", "Покрытие явными Allure-сценариями:", *metrics]
+
+
 def render_message(summary: TestSummary, args: argparse.Namespace) -> str:
     passed = args.exit_code == 0 and summary.failed == 0
     status_icon = "✅" if passed else "❌"
@@ -165,6 +173,7 @@ def render_message(summary: TestSummary, args: argparse.Namespace) -> str:
                 lines.append(f"   Действие: {failed.action}")
         if len(summary.failed_tests) > 4:
             lines.append(f"   Ещё падений: {len(summary.failed_tests) - 4}. Полный список в Allure/JUnit.")
+    lines.extend(_allure_coverage_lines())
     lines.extend(["", f"Артефакты JUnit/Allure: {args.artifact_hint}", f"GitHub: {run_url}"])
     return "\n".join(lines)
 
