@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GeoJSONSource, Map as MapInstance, MapMouseEvent } from 'maplibre-gl'
 import { addMapLayers } from './mapLayers'
 import { locationCollection, pointCollection, routeCollection } from './mapGeoJson'
 import { mapStyle } from './mapConfig'
-import type { MapManualPoint, MapPoint, MapUserLocation } from './mapTypes'
+import type { MapManualPoint, MapPoint, MapRouteState, MapUserLocation } from './mapTypes'
+import { loadWalkingRoute } from './walkingRoute.api'
 
 type Props = {
   points: MapPoint[]
@@ -14,7 +15,12 @@ type Props = {
   interactiveSelection?: boolean
   onPointSelect?: (id: number) => void
   onManualPoint?: (point: MapManualPoint) => void
+  onRouteStateChange?: (state: MapRouteState) => void
   className?: string
+}
+
+const EMPTY_ROUTE: MapRouteState = {
+  status: 'idle', geometry: [], distanceMeters: null, durationSeconds: null, legs: [], warning: null,
 }
 
 const source = (map: MapInstance, id: string): GeoJSONSource | null =>
@@ -32,15 +38,48 @@ const cssColor = (property: string, fallback: string): string => {
 
 export const MapLibreMap = ({
   activePointId = null, className, interactiveSelection = true, manualPoint = null,
-  onManualPoint, onPointSelect, points, routeLine = false, userLocation = null,
+  onManualPoint, onPointSelect, onRouteStateChange, points, routeLine = false, userLocation = null,
 }: Props) => {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapInstance | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const dataRef = useRef({ activePointId, manualPoint, points, routeLine, userLocation })
-  const callbacksRef = useRef({ interactiveSelection, onManualPoint, onPointSelect })
-  dataRef.current = { activePointId, manualPoint, points, routeLine, userLocation }
-  callbacksRef.current = { interactiveSelection, onManualPoint, onPointSelect }
+  const [routeState, setRouteState] = useState<MapRouteState>(EMPTY_ROUTE)
+  const routeKey = useMemo(
+    () => points.map((point) => `${point.id}:${point.latitude.toFixed(6)},${point.longitude.toFixed(6)}`).join('|'),
+    [points],
+  )
+  const dataRef = useRef({ activePointId, manualPoint, points, routeState, userLocation })
+  const callbacksRef = useRef({ interactiveSelection, onManualPoint, onPointSelect, onRouteStateChange })
+  dataRef.current = { activePointId, manualPoint, points, routeState, userLocation }
+  callbacksRef.current = { interactiveSelection, onManualPoint, onPointSelect, onRouteStateChange }
+
+  useEffect(() => {
+    if (!routeLine || points.length < 2) {
+      setRouteState(EMPTY_ROUTE)
+      onRouteStateChange?.(EMPTY_ROUTE)
+      return
+    }
+    const controller = new AbortController()
+    const loading: MapRouteState = { ...EMPTY_ROUTE, status: 'loading' }
+    setRouteState(loading)
+    onRouteStateChange?.(loading)
+    loadWalkingRoute(points, controller.signal)
+      .then((next) => {
+        setRouteState(next)
+        callbacksRef.current.onRouteStateChange?.(next)
+      })
+      .catch((requestError: unknown) => {
+        if (requestError instanceof DOMException && requestError.name === 'AbortError') return
+        const unavailable: MapRouteState = {
+          ...EMPTY_ROUTE,
+          status: 'unavailable',
+          warning: 'Пешеходный путь временно недоступен. Точки показаны без неверной прямой линии.',
+        }
+        setRouteState(unavailable)
+        callbacksRef.current.onRouteStateChange?.(unavailable)
+      })
+    return () => controller.abort()
+  }, [routeKey, routeLine]) // points are represented by routeKey to avoid requests on referential-only changes.
 
   useEffect(() => {
     let disposed = false
@@ -58,7 +97,7 @@ export const MapLibreMap = ({
       map.on('load', () => {
         const current = dataRef.current
         map.addSource('places', { type: 'geojson', data: pointCollection(current.points, current.activePointId), cluster: true, clusterRadius: 48 })
-        map.addSource('route', { type: 'geojson', data: routeCollection(current.routeLine ? current.points : []) })
+        map.addSource('route', { type: 'geojson', data: routeCollection(current.routeState.geometry) })
         map.addSource('locations', { type: 'geojson', data: locationCollection(current.userLocation, current.manualPoint) })
         addMapLayers(map, {
           primary: cssColor('--cg-primary', '#7C4DFF'),
@@ -109,11 +148,16 @@ export const MapLibreMap = ({
     const map = mapRef.current
     if (!map?.isStyleLoaded()) return
     source(map, 'places')?.setData(pointCollection(points, activePointId))
-    source(map, 'route')?.setData(routeCollection(routeLine ? points : []))
+    source(map, 'route')?.setData(routeCollection(routeState.geometry))
     source(map, 'locations')?.setData(locationCollection(userLocation, manualPoint))
     const active = points.find((point) => point.id === activePointId)
     if (active) map.easeTo({ center: [active.longitude, active.latitude], zoom: Math.max(map.getZoom(), 14) })
-  }, [activePointId, manualPoint, points, routeLine, userLocation])
+  }, [activePointId, manualPoint, points, routeState, userLocation])
 
-  return <div className={className}><div className="maplibre-map" ref={containerRef} data-testid="maplibre-map" />{error ? <p className="maplibre-map-error">{error}</p> : null}</div>
+  return <div className={className}>
+    <div className="maplibre-map" ref={containerRef} data-testid="maplibre-map" />
+    {routeState.status === 'loading' ? <p className="maplibre-route-status">Строим пешеходный путь по улицам...</p> : null}
+    {routeState.warning ? <p className="maplibre-route-status maplibre-route-status-warning">{routeState.warning}</p> : null}
+    {error ? <p className="maplibre-map-error">{error}</p> : null}
+  </div>
 }
