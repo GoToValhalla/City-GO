@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from data.scripts import import_city_osm as legacy_import
 from db.session import SessionLocal
-from services.coverage_gap_service import refresh_coverage_statuses
+from services.data_coverage_assurance import run_data_coverage_assurance
 from services.osm_import_taxonomy import category_from_osm_tags
 
 # These filters are the production Overpass contract for Data Coverage Assurance.
@@ -20,25 +20,29 @@ COVERAGE_AWARE_PROFILE_FILTERS: dict[str, list[tuple[str, str | None]]] = {
         ("tourism", "attraction|museum|gallery|viewpoint|artwork|information|zoo|aquarium|theme_park"),
         ("historic", None),
         ("heritage", None),
-        ("amenity", "cafe|restaurant|place_of_worship|monastery"),
-        ("building", "church|cathedral|monastery|chapel"),
-        ("leisure", "park|garden|nature_reserve|playground|amusement_arcade"),
-        ("natural", "beach|water|wood|peak|cave_entrance|cave"),
-        ("waterway", "waterfall"),
+        ("amenity", "cafe|restaurant|place_of_worship|monastery|marketplace"),
+        ("building", "church|cathedral|monastery|chapel|synagogue|mosque"),
+        ("leisure", "park|garden|nature_reserve|playground|amusement_arcade|marina|promenade"),
+        ("natural", "beach|water|wood|peak|cave_entrance|cave|volcano|cliff|ridge"),
+        ("waterway", "waterfall|river|stream"),
         ("attraction", "amusement_ride"),
+        ("railway", "funicular|tram|monorail"),
+        ("aerialway", "cable_car|gondola"),
+        ("boundary", "national_park"),
         ("wikidata", None),
         ("wikipedia", None),
     ],
     "food_and_coffee": [
-        ("amenity", "cafe|restaurant|fast_food|bar|pub|food_court"),
-        ("shop", "bakery|confectionery|coffee|tea|ice_cream"),
+        ("amenity", "cafe|restaurant|fast_food|bar|pub|food_court|marketplace"),
+        ("shop", "bakery|confectionery|coffee|tea|ice_cream|deli|cheese|pastry|marketplace"),
         ("cuisine", None),
     ],
     "nature_walk": [
-        ("leisure", "park|garden|nature_reserve|playground"),
-        ("natural", "beach|water|wood|peak|cave_entrance|cave"),
-        ("waterway", "waterfall"),
+        ("leisure", "park|garden|nature_reserve|playground|marina|promenade"),
+        ("natural", "beach|water|wood|peak|cave_entrance|cave|volcano|cliff|ridge"),
+        ("waterway", "waterfall|river|stream"),
         ("tourism", "viewpoint|information|attraction"),
+        ("boundary", "national_park"),
         ("heritage", None),
         ("wikidata", None),
         ("wikipedia", None),
@@ -61,14 +65,17 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
 
     if args.apply:
         with SessionLocal() as db:
-            coverage = refresh_coverage_statuses(db, city_slug=args.city)
+            coverage = run_data_coverage_assurance(db, city_slug=args.city)
             db.commit()
         result = {
             **result,
-            "coverage_gap_refresh": {
+            "data_coverage_assurance": {
                 "evaluated": coverage["evaluated"],
                 "changed": coverage["changed"],
+                "changed_by_assurance": coverage["changed_by_assurance"],
                 "summary": coverage["summary"],
+                "acceptance": coverage["acceptance"],
+                "recommended_actions": coverage["recommended_actions"],
             },
         }
 
