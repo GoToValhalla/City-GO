@@ -20,6 +20,7 @@ import models.country  # noqa: F401
 import models.data_foundation  # noqa: F401
 import models.import_batch  # noqa: F401
 import models.import_job_step  # noqa: F401
+import models.known_missing_poi  # noqa: F401
 import models.place_image  # noqa: F401
 import models.place_field_confidence  # noqa: F401
 import models.place_photo_candidate  # noqa: F401
