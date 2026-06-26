@@ -69,31 +69,9 @@ def approve_place_change_review(
     row = _open_review_row(db, review_id)
     if row is None:
         return None
-    item, place, city = row
-    payload = _payload(item)
-    old_value = _place_state(place)
-
-    if payload.get("decision") != "hidden":
-        place.status = "active"
-        place.is_active = True
-        if city.is_active and city.launch_status == "published":
-            _publish_place(place, reason=reason)
-        else:
-            _keep_approved_place_private(place, reason=reason)
-
-    _resolve(item, actor=actor, resolution="approved")
-    write_admin_audit_log(
-        db,
-        actor=actor,
-        action="approve_place_change_review",
-        entity_type="review_queue_item",
-        entity_id=item.id,
-        old_value=old_value,
-        new_value=_place_state(place),
-        reason=reason,
-    )
+    result = _resolve_place_change_review(db, row, action="approve", actor=actor, reason=reason)
     db.commit()
-    return _review_payload(item, place, city)
+    return result
 
 
 def reject_place_change_review(
@@ -106,23 +84,83 @@ def reject_place_change_review(
     row = _open_review_row(db, review_id)
     if row is None:
         return None
+    result = _resolve_place_change_review(db, row, action="reject", actor=actor, reason=reason)
+    db.commit()
+    return result
+
+
+
+def bulk_resolve_place_change_reviews(
+    db: Session,
+    review_ids: list[int],
+    *,
+    action: str,
+    actor: str,
+    reason: str | None = None,
+) -> tuple[list[dict[str, object]], list[int]]:
+    if action not in {"approve", "reject"}:
+        raise ValueError("Unsupported place change review action")
+
+    unique_ids = list(dict.fromkeys(review_ids))
+    rows = (
+        db.query(ReviewQueueItem, Place, City)
+        .join(Place, Place.id == ReviewQueueItem.place_id)
+        .join(City, City.id == ReviewQueueItem.city_id)
+        .filter(
+            ReviewQueueItem.id.in_(unique_ids),
+            ReviewQueueItem.field_name == PLACE_CHANGE_FIELD,
+            ReviewQueueItem.status == OPEN_STATUS,
+        )
+        .all()
+    )
+    rows_by_id = {item.id: (item, place, city) for item, place, city in rows}
+    resolved = [
+        _resolve_place_change_review(db, rows_by_id[review_id], action=action, actor=actor, reason=reason)
+        for review_id in unique_ids
+        if review_id in rows_by_id
+    ]
+    db.commit()
+    return resolved, [review_id for review_id in unique_ids if review_id not in rows_by_id]
+
+
+def _resolve_place_change_review(
+    db: Session,
+    row: tuple[ReviewQueueItem, Place, City],
+    *,
+    action: str,
+    actor: str,
+    reason: str | None,
+) -> dict[str, object]:
     item, place, city = row
     payload = _payload(item)
     old_value = _place_state(place)
 
-    _restore_previous_place_values(place, payload)
-    _resolve(item, actor=actor, resolution="rejected")
+    if action == "approve":
+        if payload.get("decision") != "hidden":
+            place.status = "active"
+            place.is_active = True
+            if city.is_active and city.launch_status == "published":
+                _publish_place(place, reason=reason)
+            else:
+                _keep_approved_place_private(place, reason=reason)
+        resolution = "approved"
+        audit_action = "approve_place_change_review"
+    else:
+        _restore_previous_place_values(place, payload)
+        resolution = "rejected"
+        audit_action = "reject_place_change_review"
+
+    _resolve(item, actor=actor, resolution=resolution)
     write_admin_audit_log(
         db,
         actor=actor,
-        action="reject_place_change_review",
+        action=audit_action,
         entity_type="review_queue_item",
         entity_id=item.id,
         old_value=old_value,
         new_value=_place_state(place),
         reason=reason,
     )
-    db.commit()
     return _review_payload(item, place, city)
 
 
@@ -204,6 +242,8 @@ def _review_payload(item: ReviewQueueItem, place: Place, city: City) -> dict[str
         "severity": item.severity,
         "status": item.status,
         "decision": str(payload.get("decision") or "needs_review"),
+        "source": payload.get("source"),
+        "source_url": payload.get("source_url"),
         "changes": payload.get("changes") if isinstance(payload.get("changes"), dict) else {},
         "review_reasons": payload.get("review_reasons") if isinstance(payload.get("review_reasons"), list) else [],
         "created_at": item.created_at,
