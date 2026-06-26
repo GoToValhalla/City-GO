@@ -70,11 +70,11 @@ type Props = {
   features?: string[]
 }
 
-export const RouteHeroPreview = ({ cityName, citySlug, features = [] }: Props) => {
+export const RouteHeroPreview = ({ cityName, citySlug, features }: Props) => {
   const currentCity = getCurrentCity()
   const effectiveSlug = citySlug ?? currentCity.slug
   const effectiveName = cityName ?? currentCity.name
-  const profile = cityRouteProfiles[effectiveSlug] ?? defaultProfile(effectiveName, features)
+  const profile = features ? defaultProfile(effectiveName, features) : (cityRouteProfiles[effectiveSlug] ?? defaultProfile(effectiveName, []))
 
   return (
     <aside className="route-photo-preview" aria-label="Пример маршрута">
