@@ -83,7 +83,14 @@ def _status_code_text(result: HttpResult) -> str:
     return str(result.status)
 
 
-def http_get(\n    url: str,\n    *,\n    timeout: int = 25,\n    headers: dict[str, str] | None = None,\n) -> HttpResult:\n    started = time.monotonic()\n    request = urllib.request.Request(url, headers=headers or {}, method="GET")
+def http_get(
+    url: str,
+    *,
+    timeout: int = 25,
+    headers: dict[str, str] | None = None,
+) -> HttpResult:
+    started = time.monotonic()
+    request = urllib.request.Request(url, headers=headers or {}, method="GET")
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - production monitor URL from secrets
             body = response.read().decode("utf-8", errors="replace")
@@ -359,7 +366,10 @@ def main() -> int:
         )
         return 1
 
-    exit_code, text = run_monitor(\n        args.host.strip(),\n        admin_api_token=args.admin_api_token.strip() or None,\n    )
+    exit_code, text = run_monitor(
+        args.host.strip(),
+        admin_api_token=args.admin_api_token.strip() or None,
+    )
     args.notification_file.write_text(text + "\n", encoding="utf-8")
     print(text)
     return exit_code
