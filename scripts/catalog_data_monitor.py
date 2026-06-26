@@ -83,9 +83,7 @@ def _status_code_text(result: HttpResult) -> str:
     return str(result.status)
 
 
-def http_get(url: str, *, timeout: int = 25) -> HttpResult:
-    started = time.monotonic()
-    request = urllib.request.Request(url, method="GET")
+def http_get(\n    url: str,\n    *,\n    timeout: int = 25,\n    headers: dict[str, str] | None = None,\n) -> HttpResult:\n    started = time.monotonic()\n    request = urllib.request.Request(url, headers=headers or {}, method="GET")
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - production monitor URL from secrets
             body = response.read().decode("utf-8", errors="replace")
@@ -241,9 +239,39 @@ def _html_api_failure(*, host: str, result: HttpResult, endpoint_name: str) -> t
     )
 
 
-def run_monitor(host: str) -> tuple[int, str]:
+def _empty_catalog_diagnostic(base_url: str, admin_api_token: str | None) -> str:
+    if not admin_api_token:
+        return "Диагностика admin API недоступна: secret ADMIN_API_TOKEN не задан."
+
+    result = http_get(
+        f"{base_url}/api/admin/cities?limit=200",
+        headers={"Authorization": f"Bearer {admin_api_token}"},
+    )
+    payload, error = parse_json(result)
+    if error or not isinstance(payload, dict):
+        return f"Диагностика admin API не получена: {error or _technical_error(result)}."
+
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return "Диагностика admin API не содержит списка городов."
+
+    if not items:
+        return "В базе нет городов."
+
+    rows: list[str] = []
+    for item in items[:12]:
+        if not isinstance(item, dict):
+            continue
+        slug = str(item.get("slug") or "без slug")
+        status = str(item.get("launch_status") or "не задан")
+        active = "да" if item.get("is_active") else "нет"
+        rows.append(f"{slug}: status={status}, active={active}")
+    suffix = f"; ещё {len(items) - len(rows)}" if len(items) > len(rows) else ""
+    return "Города в админке: " + "; ".join(rows) + suffix
+
+def run_monitor(host: str, *, admin_api_token: str | None = None) -> tuple[int, str]:
     base_url = _base_url(host)
-    cities = http_get(f"{base_url}/api/cities/available?include_draft=true")
+    cities = http_get(f"{base_url}/api/cities/available")
     cities_payload, cities_error = parse_json(cities)
     if cities_error:
         if _looks_like_html(cities):
@@ -263,7 +291,10 @@ def run_monitor(host: str) -> tuple[int, str]:
             result=cities,
             problem="API вернул 0 доступных городов",
             meaning="HTTP 200 не означает рабочий каталог: витрина фактически пустая. Частая причина — все города inactive/review_required или выключены feature flags.",
-            action="проверить cities.is_active, launch_status, web_app_enabled, city_visible_to_users и последние импорты/миграции.",
+            action=(
+                "опубликовать нужный город через админку, если это ожидаемое состояние. "
+                + _empty_catalog_diagnostic(base_url, admin_api_token)
+            ),
         )
 
     city_slug = _first_city_slug(cities_payload)
@@ -314,6 +345,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default=os.getenv("PROD_HOST", ""))
     parser.add_argument("--notification-file", type=Path, required=True)
+    parser.add_argument("--admin-api-token", default=os.getenv("ADMIN_API_TOKEN", ""))
     args = parser.parse_args()
 
     if not args.host.strip():
@@ -327,7 +359,7 @@ def main() -> int:
         )
         return 1
 
-    exit_code, text = run_monitor(args.host.strip())
+    exit_code, text = run_monitor(\n        args.host.strip(),\n        admin_api_token=args.admin_api_token.strip() or None,\n    )
     args.notification_file.write_text(text + "\n", encoding="utf-8")
     print(text)
     return exit_code
