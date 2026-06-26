@@ -292,63 +292,36 @@ def _stage_icon(status: str) -> str:
 
 def render_report(report: TotalReport) -> str:
     stats = report.stats
-    icon = "✅" if report.successful else "❌"
     run_number = os.getenv("GITHUB_RUN_NUMBER", "unknown")
-    attempt = os.getenv("GITHUB_RUN_ATTEMPT", "1")
     branch = os.getenv("GITHUB_REF_NAME", "unknown")
-    commit = os.getenv("GITHUB_SHA", "unknown")
+    commit = os.getenv("GITHUB_SHA", "unknown")[:7]
     run_url = f"{os.getenv('GITHUB_SERVER_URL', 'https://github.com')}/{os.getenv('GITHUB_REPOSITORY', '')}/actions/runs/{os.getenv('GITHUB_RUN_ID', '')}"
+
+    if report.successful:
+        return "\n".join([
+            f"CITY GO CI #{run_number}: passed",
+            f"{stats.passed}/{stats.total} tests passed · {format_duration(report.duration)}",
+            f"{branch} · {commit}",
+            run_url,
+        ])
+
+    failed_stages = ", ".join(report.failed_stages) or "unknown stage"
     lines = [
-        f"{icon} CITY GO · ПОЛНЫЙ ПРОГОН #{run_number}",
-        f"Ветка: {branch} · commit {commit[:7]} · попытка {attempt}",
-        "",
-        "ИТОГО",
-        f"Всего: {stats.total} · пройдено: {stats.passed} · упало: {stats.failed} · пропущено: {stats.skipped}",
-        f"Время тестов: {format_duration(report.duration)}",
-        "",
-        "ПО ТИПУ",
+        f"CITY GO CI #{run_number}: failed",
+        f"{stats.failed} failed of {stats.total} tests · {format_duration(report.duration)}",
+        f"Stages: {failed_stages}",
     ]
-    by_type = _grouped(report.cases, "test_type")
-    for name in TYPE_ORDER:
-        if name in by_type:
-            lines.append(_stats_line(name, by_type[name]))
-    for name in sorted(set(by_type) - set(TYPE_ORDER)):
-        lines.append(_stats_line(name, by_type[name]))
-
-    lines.extend(["", "ПО ФУНКЦИОНАЛУ"])
-    by_function = _grouped(report.cases, "functional_group")
-    ordered_functions = [name for name in FUNCTION_ORDER if name in by_function]
-    ordered_functions.extend(sorted(set(by_function) - set(ordered_functions)))
-    for name in ordered_functions[:12]:
-        lines.append(_stats_line(name, by_function[name]))
-
-    lines.extend(["", "ЭТАПЫ"])
-    for name, status in report.stages.items():
-        lines.append(f"{_stage_icon(status)} {name}")
-
-    if report.failed_cases or report.failed_stages:
-        lines.extend(["", "ПАДЕНИЯ"])
-        for index, case in enumerate(report.failed_cases[:5], start=1):
-            lines.append(f"{index}. {case.title}")
-            lines.append(f"   Группа: {case.functional_group} · {case.test_type}")
-            lines.append(f"   Шаг: {case.failed_step or ('Выполнение UI-сценария' if case.source == 'frontend' else 'Выполнение проверки')}")
-            if case.location:
-                lines.append(f"   Файл: {case.location}")
-            if case.message:
-                lines.append(f"   Ошибка: {case.message}")
-            if case.diagnosis:
-                lines.append(f"   Причина: {case.diagnosis}")
-        if len(report.failed_cases) > 5:
-            lines.append(f"Ещё падений: {len(report.failed_cases) - 5}. Полный список находится в Allure/JUnit.")
-        if report.failed_stages and not report.failed_cases:
-            lines.append("Тестовые кейсы не упали, но завершились ошибкой этапы: " + ", ".join(report.failed_stages))
-            lines.append("Проверьте лог соответствующего этапа: ошибка произошла вне выполнения теста.")
-
-    lines.extend(["", f"Подробности и артефакты: {run_url}"])
-    message = "\n".join(lines)
-    if len(message) > 3900:
-        message = message[:3800].rsplit("\n", 1)[0] + "\n\nОтчет сокращен. Полные данные доступны в GitHub Actions.\n" + run_url
-    return message
+    if report.failed_cases:
+        lines.append("Main failures:")
+        for case in report.failed_cases[:3]:
+            where = f" ({case.location})" if case.location else ""
+            detail = case.message or case.title
+            lines.append(f"- {case.name}{where}: {detail}")
+        remaining = len(report.failed_cases) - 3
+        if remaining > 0:
+            lines.append(f"+{remaining} more failures in GitHub.")
+    lines.extend([f"{branch} · {commit}", run_url])
+    return "\n".join(lines)
 
 
 def main() -> int:
