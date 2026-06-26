@@ -175,4 +175,6 @@ def test_admin_approve_publishes_changed_place_in_web_and_telegram(
     response = client.post(f"/admin/place-change-reviews/{review.id}/approve", json={"reason": "verified source"})
     assert response.status_code == 200
     assert client.get(f"/places/{place.id}").status_code == 200
-    assert BotFacade(db_session).place(place.id).title == "Новая версия"
+    bot_place = BotFacade(db_session).place(place.id)
+    assert bot_place is not None
+    assert bot_place.title == "Новая версия"
