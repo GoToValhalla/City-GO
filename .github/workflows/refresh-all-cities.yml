@@ -1,0 +1,119 @@
+name: Refresh City Catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      city_slug:
+        description: "Optional city slug. Empty means all enabled cities."
+        required: false
+        default: ""
+      mode:
+        description: "Run mode"
+        required: true
+        default: "apply"
+        type: choice
+        options:
+          - apply
+          - dry-run
+      sleep_seconds:
+        description: "Delay between import scopes"
+        required: true
+        default: "5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-city-catalog
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Refresh enabled city scopes
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate production SSH secrets
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+
+      - name: Setup SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Refresh cities
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
+          REF_SHA: ${{ github.sha }}
+          CITY_SLUG: ${{ inputs.city_slug }}
+          REFRESH_MODE: ${{ inputs.mode }}
+          SLEEP_SECONDS: ${{ inputs.sleep_seconds }}
+        run: |
+          set -euo pipefail
+          REMOTE_REF_SHA=$(printf '%q' "$REF_SHA")
+          REMOTE_CITY_SLUG=$(printf '%q' "${CITY_SLUG:-}")
+          REMOTE_REFRESH_MODE=$(printf '%q' "$REFRESH_MODE")
+          REMOTE_SLEEP_SECONDS=$(printf '%q' "$SLEEP_SECONDS")
+
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            -i ~/.ssh/deploy_key \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "REF_SHA=$REMOTE_REF_SHA CITY_SLUG=$REMOTE_CITY_SLUG REFRESH_MODE=$REMOTE_REFRESH_MODE SLEEP_SECONDS=$REMOTE_SLEEP_SECONDS bash -seu -o pipefail" <<'REMOTE'
+          cd /srv/app
+
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE="docker compose"
+          elif command -v docker-compose >/dev/null 2>&1; then
+            COMPOSE="docker-compose"
+          else
+            echo "ERROR: neither docker compose nor docker-compose is available" >&2
+            exit 127
+          fi
+
+          mkdir -p /srv/app/tmp
+          curl -sf --connect-timeout 15 --max-time 60 \
+            -o /srv/app/tmp/refresh_all_cities.py \
+            "https://raw.githubusercontent.com/GoToValhalla/City-GO/${REF_SHA}/scripts/refresh_all_cities.py"
+
+          if [ "$REFRESH_MODE" = "dry-run" ]; then
+            MODE_ARG="--dry-run"
+          else
+            MODE_ARG="--apply"
+          fi
+
+          CITY_ARGS=""
+          if [ -n "${CITY_SLUG:-}" ]; then
+            CITY_ARGS="--city ${CITY_SLUG}"
+          fi
+
+          $COMPOSE exec -T backend sh -c \
+            "python - $MODE_ARG $CITY_ARGS --sleep-seconds \"$SLEEP_SECONDS\" --send-telegram" \
+            < /srv/app/tmp/refresh_all_cities.py
+          REMOTE
