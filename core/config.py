@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     db_max_overflow: int = 20
     db_pool_timeout_seconds: int = 30
     db_pool_recycle_seconds: int = 1800
+    db_statement_timeout_ms: int = 15_000
+    db_lock_timeout_ms: int = 5_000
 
     # Local persistent cache for import/enrichment external calls. This is not distributed state.
     local_cache_enabled: bool = True
