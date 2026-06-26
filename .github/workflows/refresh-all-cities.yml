@@ -145,4 +145,7 @@ jobs:
           $COMPOSE exec -T backend sh -c \
             "python - $MODE_ARG $CITY_ARGS --sleep-seconds \"$SLEEP_SECONDS\" --send-telegram" \
             < /srv/app/tmp/refresh_all_cities.py
+          if [ "$REFRESH_MODE" = "apply" ]; then
+            $COMPOSE exec -T backend sh -c "python - $CITY_ARGS" < /srv/app/tmp/enqueue_stale_place_fields.py
+          fi
           REMOTE
