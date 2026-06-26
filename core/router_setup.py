@@ -10,6 +10,7 @@ from routers.admin_route_ops import router as admin_route_ops_router
 from routers.admin_route_eligibility import router as admin_route_eligibility_router
 from routers.admin_place_ops import router as admin_place_ops_router
 from routers.admin_place_search import router as admin_place_search_router
+from routers.admin_place_change_review import router as admin_place_change_review_router
 from routers.admin_platform import router as admin_platform_router
 from routers.admin_taxonomy import router as admin_taxonomy_router
 from routers.ai import router as ai_router
@@ -71,6 +72,7 @@ _ROOT_ROUTERS = (
     admin_route_eligibility_router,
     admin_place_ops_router,
     admin_place_search_router,
+    admin_place_change_review_router,
     admin_platform_router,
     admin_taxonomy_router,
     ai_router,
