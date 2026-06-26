@@ -49,7 +49,9 @@ def test_deploy_quiesces_database_clients_and_guards_schema_new() -> None:
     assert "run_compose_timeout 5m" in deploy
     assert "run_compose_timeout 3m" in deploy
     assert "run_compose start backend bot import-worker" in deploy
-    assert "docker system df" not in deploy
+    assert "reclaim_docker_storage" in deploy
+    assert "docker system df" in deploy
+    assert "docker volume prune" not in deploy
     assert "Docker daemon is not responding within 30 seconds" in deploy
 
 
