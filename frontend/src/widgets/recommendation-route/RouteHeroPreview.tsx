@@ -5,7 +5,14 @@ type CityRouteProfile = {
   steps: string[]
 }
 
-const defaultProfile = (cityName: string): CityRouteProfile => ({
+const defaultProfile = (cityName: string, features: string[]): CityRouteProfile => features.includes('sea') ? ({
+  title: 'Кофе, море, ужин',
+  steps: [
+    `Кофе в ${cityName}`,
+    'Прогулка у воды',
+    'Ужин или вечерняя точка',
+  ],
+}) : ({
   title: 'Кофе, прогулка, ужин',
   steps: [
     `Кофе в ${cityName}`,
@@ -63,11 +70,11 @@ type Props = {
   features?: string[]
 }
 
-export const RouteHeroPreview = ({ cityName, citySlug }: Props) => {
+export const RouteHeroPreview = ({ cityName, citySlug, features = [] }: Props) => {
   const currentCity = getCurrentCity()
   const effectiveSlug = citySlug ?? currentCity.slug
   const effectiveName = cityName ?? currentCity.name
-  const profile = cityRouteProfiles[effectiveSlug] ?? defaultProfile(effectiveName)
+  const profile = cityRouteProfiles[effectiveSlug] ?? defaultProfile(effectiveName, features)
 
   return (
     <aside className="route-photo-preview" aria-label="Пример маршрута">
