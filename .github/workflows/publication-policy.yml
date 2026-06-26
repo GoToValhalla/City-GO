@@ -99,3 +99,94 @@ jobs:
           path: /tmp/city-go-publication-policy/run.log
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Build publication policy notification
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          SUMMARY_JSON=""
+          if [ -f /tmp/city-go-publication-policy/run.log ]; then
+            SUMMARY_JSON=$(grep '^PUBLICATION_POLICY_SUMMARY_JSON=' /tmp/city-go-publication-policy/run.log | tail -n 1 | sed 's/^PUBLICATION_POLICY_SUMMARY_JSON=//' || true)
+          fi
+          python - "$SUMMARY_JSON" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          summary_json = sys.argv[1]
+          status = os.environ.get("JOB_STATUS", "failure")
+          run_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          mode = os.environ.get("POLICY_MODE", "shadow")
+          city = os.environ.get("CITY_SLUG") or "все города"
+          threshold = os.environ.get("AUTO_PUBLISH_THRESHOLD", "90")
+
+          if summary_json:
+              payload = json.loads(summary_json)
+              run = payload.get("run", {})
+              last_7 = payload.get("last_7_days", {})
+              by_decision = last_7.get("by_decision", {})
+              trust = last_7.get("trust_score", {})
+              cities = last_7.get("cities", [])[:6]
+              lines = [
+                  "CITY GO · PUBLICATION POLICY",
+                  f"Статус: {'✅ пройден' if status == 'success' else '❌ не пройден'}",
+                  f"Запуск: mode={mode} · city={city} · threshold={threshold}",
+                  "",
+                  "ЭТОТ ЗАПУСК",
+                  f"Проверено: {run.get('evaluated', 0)}",
+                  f"Shadow auto: {run.get('shadow_auto_publish', 0)}",
+                  f"Auto published: {run.get('auto_publish', 0)}",
+                  f"Review: {run.get('send_to_review', 0)}",
+                  f"Hidden: {run.get('hidden', 0)}",
+                  "",
+                  "7 ДНЕЙ",
+                  f"Всего решений: {last_7.get('total_decisions', 0)}",
+                  f"Auto published: {by_decision.get('auto_publish', 0)}",
+                  f"Shadow auto: {by_decision.get('shadow_auto_publish', 0)}",
+                  f"Review: {by_decision.get('send_to_review', 0)}",
+                  f"Hidden: {by_decision.get('hidden', 0)}",
+                  f"Trust avg/min/max: {trust.get('avg')}/{trust.get('min')}/{trust.get('max')}",
+                  f"Open publication review: {last_7.get('open_publication_review_items', 0)}",
+                  f"Open change review: {last_7.get('pending_change_reviews', 0)}",
+              ]
+              if cities:
+                  lines.extend(["", "ГОРОДА"])
+                  for city_row in cities:
+                      decisions = city_row.get("decisions", {})
+                      lines.append(
+                          f"{city_row.get('name') or city_row.get('slug')}: "
+                          f"auto {decisions.get('auto_publish', 0)} · "
+                          f"shadow {decisions.get('shadow_auto_publish', 0)} · "
+                          f"review {decisions.get('send_to_review', 0)} · "
+                          f"hidden {decisions.get('hidden', 0)}"
+                      )
+              lines.extend(["", f"GitHub Actions: {run_url}"])
+          else:
+              tail = ""
+              log_path = Path("/tmp/city-go-publication-policy/run.log")
+              if log_path.exists():
+                  tail = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-20:])
+              lines = [
+                  "CITY GO · PUBLICATION POLICY",
+                  "Статус: ❌ не пройден",
+                  f"Запуск: mode={mode} · city={city} · threshold={threshold}",
+                  "Причина: summary JSON не найден в логе.",
+                  "",
+                  tail,
+                  "",
+                  f"GitHub Actions: {run_url}",
+              ]
+          Path("/tmp/city-go-publication-policy/notification.txt").write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+          PY
+
+      - name: Send publication policy Telegram notification
+        if: always()
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/send_telegram_notification.py --text-file /tmp/city-go-publication-policy/notification.txt
