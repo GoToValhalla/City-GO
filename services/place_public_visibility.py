@@ -5,6 +5,7 @@ from typing import Any
 from sqlalchemy import or_
 from sqlalchemy.orm import Query
 
+from models.city import City
 from models.place import Place
 
 PUBLIC_ACTIVE_STATUS = "active"
@@ -25,6 +26,7 @@ PUBLIC_HIDDEN_CATEGORIES = {
 
 def public_place_conditions() -> tuple[Any, ...]:
     return (
+        Place.city.has(and_(City.is_active.is_(True), City.launch_status == "published")),
         _true_or_null(Place.is_active),
         or_(Place.status.is_(None), Place.status == PUBLIC_ACTIVE_STATUS),
         _true_or_null(Place.is_published),
