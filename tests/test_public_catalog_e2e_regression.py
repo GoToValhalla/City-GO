@@ -141,3 +141,38 @@ def test_reconciliation_requires_no_auto_publication_and_supports_audited_rollba
     )
     assert rollback["restored_places"] == 1
     assert leaked.is_published is True
+
+
+def test_admin_approve_publishes_changed_place_in_web_and_telegram(
+    client,
+    db_session,
+    city_factory,
+) -> None:
+    city = city_factory(slug="rostov", name="Ростов", is_active=True, launch_status="published")
+    place = _public_place(city.id, "rostov-approved-change")
+    place.title = "Новая версия"
+    place.status = "needs_review"
+    place.is_active = False
+    place.is_published = False
+    place.is_visible_in_catalog = False
+    place.is_searchable = False
+    place.is_route_eligible = False
+    place.publication_status = "needs_review"
+    db_session.add(place)
+    db_session.flush()
+    review = ReviewQueueItem(
+        city_id=city.id,
+        place_id=place.id,
+        field_name="place_change",
+        reason="source_data_changed",
+        severity="medium",
+        status="open",
+        payload={"decision": "needs_review", "changes": {"title": {"before": "Старое", "after": "Новая версия"}}},
+    )
+    db_session.add(review)
+    db_session.commit()
+
+    response = client.post(f"/admin/place-change-reviews/{review.id}/approve", json={"reason": "verified source"})
+    assert response.status_code == 200
+    assert client.get(f"/places/{place.id}").status_code == 200
+    assert BotFacade(db_session).place(place.id).title == "Новая версия"
