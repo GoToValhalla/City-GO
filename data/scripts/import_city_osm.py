@@ -28,6 +28,7 @@ from services.import_profiles import production_profile
 from services.import_publication_gate import assess_import_quality
 from services.import_state_service import update_import_state
 from services.place_public_visibility import is_public_hidden_category
+from services.place_field_provenance_service import record_place_field_provenance
 from services.review_queue_service import ensure_review_item
 from services.place_import_lifecycle_service import (
     apply_accepted_import_to_place,
@@ -588,6 +589,22 @@ def _apply_import(
 
             _ensure_scope_link(db, place.id, scope.id, batch.id)
             _ensure_source_presence(db, place.id, item["source_external_id"], observation.id, batch.id)
+            record_place_field_provenance(
+                db,
+                place=place,
+                source="osm",
+                source_url=item["source_url"],
+                values={
+                    "title": item["title"],
+                    "category": item["category"],
+                    "address": item.get("address"),
+                    "opening_hours": item.get("opening_hours"),
+                    "website": item.get("website"),
+                    "phone": item.get("phone"),
+                    "lat": item["raw_lat"],
+                    "lng": item["raw_lng"],
+                },
+            )
 
         deactivated_bad_places = _hide_bad_existing_places(db, city.id, scope.id)
         missing_stats = _mark_missing_sources(db, scope.id, batch.id, normalized)
