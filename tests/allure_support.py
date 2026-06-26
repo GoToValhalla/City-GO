@@ -20,10 +20,10 @@ def title(value: str):
     return decorate
 
 
-def scenario(title: str, *, epic: str, feature: str, story: str, severity: str = allure.severity_level.NORMAL):
+def scenario(scenario_title: str, *, epic: str, feature: str, story: str, severity: str = allure.severity_level.NORMAL):
     """Apply the complete product hierarchy to a functional test."""
     def decorate(function):
-        function = globals()["title"](title)(function)
+        function = title(scenario_title)(function)
         function = allure.epic(epic)(function)
         function = allure.feature(feature)(function)
         function = allure.story(story)(function)
