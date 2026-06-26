@@ -101,6 +101,9 @@ jobs:
           curl -sf --connect-timeout 15 --max-time 60 \
             -o /srv/app/tmp/refresh_all_cities.py \
             "https://raw.githubusercontent.com/GoToValhalla/City-GO/${REF_SHA}/scripts/refresh_all_cities.py"
+          curl -sf --connect-timeout 15 --max-time 60 \
+            -o /srv/app/tmp/enable_default_import_scopes.py \
+            "https://raw.githubusercontent.com/GoToValhalla/City-GO/${REF_SHA}/scripts/enable_default_import_scopes.py"
 
           if [ "$REFRESH_MODE" = "dry-run" ]; then
             MODE_ARG="--dry-run"
@@ -111,6 +114,12 @@ jobs:
           CITY_ARGS=""
           if [ -n "${CITY_SLUG:-}" ]; then
             CITY_ARGS="--city ${CITY_SLUG}"
+          fi
+
+          if [ "$REFRESH_MODE" = "apply" ]; then
+            $COMPOSE exec -T backend sh -c "python - $CITY_ARGS" < /srv/app/tmp/enable_default_import_scopes.py
+          else
+            echo "Dry-run mode: import scopes are not auto-enabled in DB. Use apply to repair legacy disabled scopes."
           fi
 
           $COMPOSE exec -T backend sh -c \
