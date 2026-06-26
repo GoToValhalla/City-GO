@@ -757,7 +757,7 @@ def _find_existing_place(db, city_id: int, item: dict[str, Any]) -> Place | None
         db.query(Place)
         .filter(
             Place.city_id == city_id,
-            Place.slug == item["slug"],
+            Place.slug == item.get("slug", ""),
         )
         .first()
     )
