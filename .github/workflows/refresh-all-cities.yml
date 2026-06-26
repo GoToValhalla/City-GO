@@ -105,10 +105,10 @@ jobs:
             "REF_SHA=$REMOTE_REF_SHA CITY_SLUG=$REMOTE_CITY_SLUG REFRESH_MODE=$REMOTE_REFRESH_MODE SLEEP_SECONDS=$REMOTE_SLEEP_SECONDS bash -seu -o pipefail" <<'REMOTE'
           cd /srv/app
 
-          if docker compose version >/dev/null 2>&1; then
-            COMPOSE="docker compose"
-          elif command -v docker-compose >/dev/null 2>&1; then
+          if command -v docker-compose >/dev/null 2>&1; then
             COMPOSE="docker-compose"
+          elif docker compose version >/dev/null 2>&1; then
+            COMPOSE="docker compose"
           else
             echo "ERROR: neither docker compose nor docker-compose is available" >&2
             exit 127
