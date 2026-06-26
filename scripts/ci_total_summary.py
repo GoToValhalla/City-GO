@@ -248,7 +248,9 @@ def enrich_with_allure(cases: list[TestCaseResult], directory: Path | None) -> N
         if not record:
             case.failed_step = "Выполнение проверки"
             continue
-        case.title = record["name"] or case.title
+        allure_title = str(record["name"] or "").strip()
+        if allure_title and not allure_title.startswith("test_"):
+            case.title = allure_title
         case.functional_group = record["feature"] or case.functional_group
         case.failed_step = record["failed_step"] or record["failed_phase"] or "Выполнение проверки"
 
