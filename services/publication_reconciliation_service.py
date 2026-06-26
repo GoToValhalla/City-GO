@@ -5,17 +5,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, func, or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from models.admin_audit_log import AdminAuditLog
 from models.city import City
+from models.feature_toggle import FeatureToggle
 from models.place import Place
 from services.admin_audit_service import write_admin_audit_log
+from services.admin_city_publication_service import publish_city, unpublish_city
 from services.place_public_visibility import public_place_conditions
 
 PUBLIC_CITY_STATUS = "published"
 RECONCILIATION_ACTION = "reconcile_publication_flags"
+CITY_VISIBILITY_TOGGLE = "city_visible_to_users"
 
 
 def publication_reconciliation_snapshot(db: Session) -> dict[str, object]:
@@ -41,6 +44,7 @@ def publication_reconciliation_snapshot(db: Session) -> dict[str, object]:
                 "is_public": city_is_public,
                 "places_total": len(places),
                 "public_places": public_places,
+                "city_visibility_toggle": _city_visibility_toggle_value(db, city.slug),
                 "leaked_place_ids": [place.id for place in leaked],
                 "partial_public_place_ids": [place.id for place in partial],
             }
@@ -60,6 +64,65 @@ def publication_reconciliation_snapshot(db: Session) -> dict[str, object]:
             "supported": True,
             "instruction": "Use POST /admin/publication-reconciliation/rollback with audit_ids returned by apply.",
         },
+    }
+
+
+def apply_city_visibility_toggle_reconciliation(
+    db: Session,
+    *,
+    actor: str,
+    city_slugs: list[str] | None = None,
+    reason: str | None = None,
+) -> dict[str, object]:
+    """Apply legacy admin city_visible_to_users toggles to real city publication.
+
+    This is not an automatic publication policy. It only executes an explicit admin
+    state that already exists in the database: city scope toggle
+    city_visible_to_users=true. Publication still goes through the normal city
+    publication quality gate.
+    """
+    toggle_query = db.query(FeatureToggle).filter(
+        FeatureToggle.scope == "city",
+        FeatureToggle.key == CITY_VISIBILITY_TOGGLE,
+        FeatureToggle.value_bool.is_(True),
+    )
+    if city_slugs:
+        toggle_query = toggle_query.filter(FeatureToggle.scope_id.in_(city_slugs))
+
+    published: list[dict[str, object]] = []
+    failed: list[dict[str, object]] = []
+    for toggle in toggle_query.order_by(FeatureToggle.scope_id.asc()).all():
+        city = db.query(City).filter(City.slug == toggle.scope_id).first()
+        if city is None:
+            failed.append({"city_slug": toggle.scope_id, "reason": "city_not_found"})
+            continue
+        if city.is_active and city.launch_status == PUBLIC_CITY_STATUS:
+            continue
+        try:
+            result = publish_city(
+                db,
+                city.id,
+                actor=actor,
+                reason=reason or "legacy city_visible_to_users=true reconciliation",
+            )
+        except ValueError as exc:
+            failed.append({"city_slug": city.slug, "reason": str(exc)})
+            continue
+        if result is not None:
+            published.append(
+                {
+                    "city_slug": result.city.slug,
+                    "city_name": result.city.name,
+                    "places_total": result.places_total,
+                    "places_published": result.places_published,
+                    "places_hidden": result.places_hidden,
+                }
+            )
+
+    return {
+        "published_cities": published,
+        "failed_cities": failed,
+        "snapshot": publication_reconciliation_snapshot(db),
     }
 
 
@@ -154,6 +217,14 @@ _PUBLIC_FLAG_FIELDS = (
     "is_route_eligible",
     "publication_status",
 )
+
+
+def _city_visibility_toggle_value(db: Session, city_slug: str) -> bool | None:
+    return db.query(FeatureToggle.value_bool).filter(
+        FeatureToggle.scope == "city",
+        FeatureToggle.scope_id == city_slug,
+        FeatureToggle.key == CITY_VISIBILITY_TOGGLE,
+    ).scalar()
 
 
 def _public_flags(place: Place) -> dict[str, object]:
