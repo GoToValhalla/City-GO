@@ -22,10 +22,9 @@ def read_cities(db: Session = Depends(get_db)) -> list[CityRead]:
 
 @router.get("/available", response_model=list[CityAvailableRead])
 def read_available_cities(
-    include_draft: bool = False,
     db: Session = Depends(get_db),
 ) -> list[CityAvailableRead]:
-    return get_available_cities(db, include_draft=include_draft)
+    return get_available_cities(db)
 
 
 # Возвращает один опубликованный город по его slug.
@@ -40,7 +39,7 @@ def read_city_by_slug(slug: str, db: Session = Depends(get_db)) -> CityRead:
 @router.get("/{slug}/start-points", response_model=list[CityStartPointRead])
 def read_city_start_points(slug: str, db: Session = Depends(get_db)) -> list[CityStartPointRead]:
     city = get_city_by_slug(db, slug)
-    if city is None:
+    if city is None or not city_is_published(city):
         raise HTTPException(status_code=404, detail="City not found")
     return [CityStartPointRead(**item) for item in list_city_start_points(db, city)]
 
