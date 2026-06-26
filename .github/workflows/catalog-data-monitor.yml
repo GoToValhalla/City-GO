@@ -14,6 +14,7 @@ jobs:
     timeout-minutes: 5
     env:
       PROD_HOST: ${{ secrets.SSH_HOST }}
+      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       NOTIFICATION_FILE: /tmp/catalog-data-monitor-notification.txt
@@ -27,6 +28,7 @@ jobs:
           set -euo pipefail
           python scripts/catalog_data_monitor.py \
             --host "$PROD_HOST" \
+            --admin-api-token "$ADMIN_API_TOKEN" \
             --notification-file "$NOTIFICATION_FILE"
 
       - name: Notify Telegram on catalog failure
