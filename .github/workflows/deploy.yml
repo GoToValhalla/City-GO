@@ -230,16 +230,17 @@ jobs:
           DEPLOY_RESULT: ${{ needs.deploy.result }}
         run: |
           set -euo pipefail
-          DEPLOY_LOG_TAIL=""
-          for diagnostic in \
-            /tmp/deploy-log/production-deploy.log \
-            /tmp/deploy-log/ssh-preflight-warning.log \
-            /tmp/deploy-log/ssh-keyscan.log; do
-            if [ -f "$diagnostic" ]; then
-              DEPLOY_LOG_TAIL="$(tail -n 55 "$diagnostic")"
-              break
+          DEPLOY_DIAGNOSTICS=""
+          if [ -f /tmp/deploy-log/production-deploy.log ]; then
+            DEPLOY_DIAGNOSTICS="$(
+              grep -Ei '^(===|ERROR:|WARN:)|No space left|[[:space:]]9[0-9]%[[:space:]]/$|timed out|timeout|exit code|not ready|failed|failure|unknown command'                 /tmp/deploy-log/production-deploy.log                 | tail -n 30                 || true
+            )"
+            if [ -z "$DEPLOY_DIAGNOSTICS" ]; then
+              DEPLOY_DIAGNOSTICS="$(tail -n 12 /tmp/deploy-log/production-deploy.log)"
             fi
-          done
+          elif [ -f /tmp/deploy-log/ssh-preflight-warning.log ]; then
+            DEPLOY_DIAGNOSTICS="$(tail -n 20 /tmp/deploy-log/ssh-preflight-warning.log)"
+          fi
 
           if [ "$BUILD_RESULT" = "success" ] && [ "$DEPLOY_RESULT" = "success" ]; then
             cat > /tmp/deploy-notification.txt <<EOF
@@ -277,16 +278,16 @@ jobs:
           Вероятная зона: SSH, docker compose pull/up, PostgreSQL readiness, миграции, schema guard, frontend SHA gate или background services.
           GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
-            if [ -n "$DEPLOY_LOG_TAIL" ]; then
+            if [ -n "$DEPLOY_DIAGNOSTICS" ]; then
               cat >> /tmp/deploy-notification.txt <<EOF
 
-          Последние строки deploy:
-          ${DEPLOY_LOG_TAIL}
+          Диагностика deploy:
+          ${DEPLOY_DIAGNOSTICS}
           EOF
             else
               cat >> /tmp/deploy-notification.txt <<EOF
 
-          Последние строки deploy: лог не найден в artifact production-deploy-log.
+          Диагностика deploy: лог не найден в artifact production-deploy-log.
           EOF
             fi
           fi
