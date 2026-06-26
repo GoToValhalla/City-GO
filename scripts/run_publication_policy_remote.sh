@@ -14,6 +14,18 @@ else
   exit 127
 fi
 
+restore_backend() {
+  echo "=== ensure backend remains running ==="
+  if [ "$COMPOSE_MODE" = "plugin" ]; then
+    timeout --signal=TERM --kill-after=20s 2m docker compose up -d backend || true
+    timeout --signal=TERM --kill-after=20s 30s docker compose ps backend || true
+  else
+    timeout --signal=TERM --kill-after=20s 2m docker-compose up -d backend || true
+    timeout --signal=TERM --kill-after=20s 30s docker-compose ps backend || true
+  fi
+}
+trap restore_backend EXIT
+
 POLICY_MODE="${POLICY_MODE:-shadow}"
 CITY_SLUG="${CITY_SLUG:-}"
 LIMIT="${LIMIT:-100}"
