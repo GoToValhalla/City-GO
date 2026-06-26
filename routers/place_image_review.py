@@ -15,6 +15,15 @@ router=APIRouter(prefix="/admin/place-images",tags=["admin-place-images"])
 def read_pending_place_images(city_slug:str|None=Query(None),limit:int=Query(50,ge=1,le=200),offset:int=Query(0,ge=0),auth:AdminContext=Depends(admin_required),db:Session=Depends(get_db)):
  assert_photo_moderation(db);items,total=get_pending_place_images(db,city_slug=city_slug,limit=limit,offset=offset);return PendingPlaceImagesResponse(items=[PendingPlaceImageRead.model_validate(item) for item in items],total=total,limit=limit,offset=offset)
 
+@router.post("/bulk/{action}",response_model=PlaceImageBulkActionResult)
+def post_bulk_review_place_images(action:str,body:PlaceImageBulkReviewAction,auth:AdminContext=Depends(admin_required),db:Session=Depends(get_db)):
+ if action not in {"approve","reject"}:raise HTTPException(404,"Unknown photo review action")
+ try:images,missing_ids=bulk_review_place_images(db,body.image_ids,action=action,actor=auth.actor_id,comment=body.comment)
+ except ValueError as exc:raise HTTPException(400,str(exc)) from exc
+ if action=="approve":
+  for image in images:_photo_workflow(db,image,auth.actor_id,"approve")
+ return PlaceImageBulkActionResult(items=[PlaceImageActionResult.model_validate(image) for image in images],missing_ids=missing_ids)
+
 @router.post("/{image_id}/approve",response_model=PlaceImageActionResult)
 def post_approve_place_image(image_id:int,body:PlaceImageReviewAction|None=None,auth:AdminContext=Depends(admin_required),db:Session=Depends(get_db)):
  try:image=approve_place_image(db,image_id,actor=auth.actor_id,comment=None if body is None else body.comment)
