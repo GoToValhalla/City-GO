@@ -195,8 +195,8 @@ def test_facade_city_picker_matches_website_available_cities_new(db_session, cit
     slugs = {city.slug for city in cities}
 
     assert published.slug in slugs
-    assert ready.slug in slugs
-    assert draft.slug in slugs
+    assert ready.slug not in slugs
+    assert draft.slug not in slugs
 
 
 def test_facade_category_groups_cover_common_food_and_sights_new(db_session, city_factory, place_factory) -> None:
