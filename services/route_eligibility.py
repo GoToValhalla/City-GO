@@ -5,7 +5,10 @@ from typing import Any
 from sqlalchemy import func
 
 from models.place import Place
-from services.place_public_visibility import (\n    admin_preview_route_place_conditions,\n    public_route_place_conditions,\n)
+from services.place_public_visibility import (
+    admin_preview_route_place_conditions,
+    public_route_place_conditions,
+)
 
 
 def route_eligible_sql_conditions() -> tuple[Any, ...]:
