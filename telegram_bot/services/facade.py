@@ -31,8 +31,8 @@ CATEGORY_GROUPS = {
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
-def _telegram_available_cities(db: Session) -> list[dict[str, object]]:
-    return get_available_cities(db, include_draft=True, channel="telegram")
+def _public_available_cities(db: Session) -> list[dict[str, object]]:
+    return get_available_cities(db)
 
 
 class BotFacade:
@@ -40,12 +40,12 @@ class BotFacade:
         self.db = db
 
     def published_cities(self) -> list[BotCity]:
-        return [self._city_from_available(row) for row in _telegram_available_cities(self.db)]
+        return [self._city_from_available(row) for row in _public_available_cities(self.db)]
 
     def city(self, slug: str | None) -> BotCity | None:
         if not slug:
             return None
-        for row in _telegram_available_cities(self.db):
+        for row in _public_available_cities(self.db):
             if row["slug"] == slug:
                 return self._city_from_available(row)
         return None
@@ -54,7 +54,7 @@ class BotFacade:
         normalized = value.strip().lower()
         if not normalized:
             return None
-        cities = _telegram_available_cities(self.db)
+        cities = _public_available_cities(self.db)
         for row in cities:
             if str(row["slug"]).lower() == normalized or str(row["name"]).lower() == normalized:
                 return self._city_from_available(row)
