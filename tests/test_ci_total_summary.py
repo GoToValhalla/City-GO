@@ -46,14 +46,11 @@ def test_total_report_groups_backend_and_frontend_tests(tmp_path, monkeypatch) -
         message = render_report(TotalReport(cases=cases, stages={"Backend tests": "success", "Frontend tests": "success"}))
         allure.attach(message, "Единый отчёт", allure.attachment_type.TEXT)
 
-    with then("в отчёте отображается общий total"):
-        assert "Всего: 2 · пройдено: 2 · упало: 0" in message
-
-    with then("в отчёте есть разрез по API, UI и функциональным областям"):
-        assert "API: 1/1" in message
-        assert "UI: 1/1" in message
-        assert "Построение и прохождение маршрута: 1/1" in message
-        assert "Каталог мест: 1/1" in message
+    with then("в отчёте отображается короткий итог"):
+        assert "Статус: пройден" in message
+        assert "Тесты: 2/2 · 3s" in message
+        assert "API:" not in message
+        assert "Построение и прохождение маршрута:" not in message
 
 
 @scenario(
@@ -104,9 +101,10 @@ def test_total_report_uses_deepest_failed_allure_step(tmp_path) -> None:
     with then("отчёт использует понятное название сценария"):
         assert "Импорт сохраняет нормализованную категорию" in message
 
-    with then("отчёт указывает самый глубокий упавший шаг и файл"):
-        assert "Шаг: Выполнение проверки → Тогда: категория соответствует taxonomy" in message
-        assert "Файл: tests/test_import_pipeline.py:42" in message
+    with then("глубокий шаг сохраняется в данных, но не засоряет Telegram-уведомление"):
+        assert cases[0].failed_step == "Выполнение проверки → Тогда: категория соответствует taxonomy"
+        assert "tests/test_import_pipeline.py:42" not in message
+        assert "test_import_keeps_category" not in message
 
 
 @scenario(
@@ -124,5 +122,5 @@ def test_total_report_shows_failed_stage_without_fake_test_failure() -> None:
         message = render_report(report)
 
     with then("этап отмечается отдельно от падений тестов"):
-        assert "❌ Frontend build" in message
-        assert "ошибка произошла вне выполнения теста" in message
+        assert "Этапы: Frontend build" in message
+        assert "Тесты: 0 из 0 упали" in message
