@@ -48,7 +48,6 @@ def read_places(
         offset=offset,
         sort_by=sort_by,
         sort_order=sort_order,
-        public_only=True,
     )
 
     total = get_places_total(
@@ -58,7 +57,6 @@ def read_places(
         category_id=category_id,
         tag_id=tag_id,
         q=q,
-        public_only=True,
     )
 
     return build_place_search_response(
