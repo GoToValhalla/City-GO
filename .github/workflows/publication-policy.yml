@@ -117,6 +117,13 @@ jobs:
           import sys
           from pathlib import Path
 
+          def add_reasons(lines, title, rows):
+              if not rows:
+                  return
+              lines.extend(["", title])
+              for row in rows[:5]:
+                  lines.append(f"{row.get('reason')}: {row.get('count')}")
+
           summary_json = sys.argv[1]
           status = os.environ.get("JOB_STATUS", "failure")
           run_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
@@ -131,6 +138,7 @@ jobs:
               by_decision = last_7.get("by_decision", {})
               trust = last_7.get("trust_score", {})
               cities = last_7.get("cities", [])[:6]
+              blocked = last_7.get("recent_blocked", [])[:5]
               lines = [
                   "CITY GO · PUBLICATION POLICY",
                   f"Статус: {'✅ пройден' if status == 'success' else '❌ не пройден'}",
@@ -153,6 +161,16 @@ jobs:
                   f"Open publication review: {last_7.get('open_publication_review_items', 0)}",
                   f"Open change review: {last_7.get('pending_change_reviews', 0)}",
               ]
+              add_reasons(lines, "ПРИЧИНЫ", last_7.get("top_review_reasons", []))
+              add_reasons(lines, "FAILED GATES", last_7.get("top_failed_gates", []))
+              if blocked:
+                  lines.extend(["", "BLOCKED"])
+                  for item in blocked:
+                      reasons = ", ".join(item.get("review_reasons") or item.get("failed_gates") or []) or "no_reason"
+                      lines.append(
+                          f"{item.get('city_name') or item.get('city_slug')}: "
+                          f"{item.get('title') or 'без названия'} · score {item.get('trust_score')} · {reasons}"
+                      )
               if cities:
                   lines.extend(["", "ГОРОДА"])
                   for city_row in cities:
