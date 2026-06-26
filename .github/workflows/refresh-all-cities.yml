@@ -19,6 +19,9 @@ on:
         description: "Delay between import scopes"
         required: true
         default: "5"
+  schedule:
+    # GitHub Actions cron uses UTC. 00:30 UTC is 03:30 Moscow time year-round.
+    - cron: "30 0 * * *"
 
 permissions:
   contents: read
@@ -59,7 +62,19 @@ jobs:
           mkdir -p ~/.ssh
           echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+          # Do not fail the refresh only because a short key-scan race occurred.
+          # The actual SSH client below still verifies a known host or accepts a new one once.
+          KEYSCAN_KEYS=$(mktemp)
+          for attempt in 1 2 3; do
+            if timeout 20s ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" > "$KEYSCAN_KEYS" 2>/dev/null \
+              && test -s "$KEYSCAN_KEYS"; then
+              cat "$KEYSCAN_KEYS" >> ~/.ssh/known_hosts
+              break
+            fi
+            echo "WARN: SSH host key preflight failed attempt=${attempt}/3"
+            sleep "$attempt"
+          done
 
       - name: Refresh cities
         shell: bash
@@ -68,9 +83,9 @@ jobs:
           DEPLOY_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
           REF_SHA: ${{ github.sha }}
-          CITY_SLUG: ${{ inputs.city_slug }}
-          REFRESH_MODE: ${{ inputs.mode }}
-          SLEEP_SECONDS: ${{ inputs.sleep_seconds }}
+          CITY_SLUG: ${{ inputs.city_slug || '' }}
+          REFRESH_MODE: ${{ inputs.mode || 'apply' }}
+          SLEEP_SECONDS: ${{ inputs.sleep_seconds || '5' }}
         run: |
           set -euo pipefail
           REMOTE_REF_SHA=$(printf '%q' "$REF_SHA")
@@ -82,6 +97,8 @@ jobs:
             -o ConnectTimeout=20 \
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
             -i ~/.ssh/deploy_key \
             -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
