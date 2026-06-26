@@ -6,11 +6,14 @@ from db.dependencies import get_db
 from schemas.place_change_review import (
     AdminPlaceChangeReviewActionRequest,
     AdminPlaceChangeReviewActionResponse,
+    AdminPlaceChangeReviewBulkActionRequest,
+    AdminPlaceChangeReviewBulkActionResponse,
     AdminPlaceChangeReviewListResponse,
     AdminPlaceChangeReviewRead,
 )
 from services.place_change_review_service import (
     approve_place_change_review,
+    bulk_resolve_place_change_reviews,
     list_place_change_reviews,
     reject_place_change_review,
 )
@@ -39,6 +42,30 @@ def read_place_change_reviews(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.post("/bulk/{action}", response_model=AdminPlaceChangeReviewBulkActionResponse)
+def bulk_resolve_reviews(
+    action: str,
+    payload: AdminPlaceChangeReviewBulkActionRequest,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> AdminPlaceChangeReviewBulkActionResponse:
+    if action not in {"approve", "reject"}:
+        raise HTTPException(status_code=404, detail="Неизвестное действие очереди")
+    items, missing_ids = bulk_resolve_place_change_reviews(
+        db,
+        payload.review_ids,
+        action=action,
+        actor=auth.actor_id,
+        reason=payload.reason,
+    )
+    message = "Изменения приняты." if action == "approve" else "Изменения отклонены, прежние данные восстановлены."
+    return AdminPlaceChangeReviewBulkActionResponse(
+        items=[AdminPlaceChangeReviewRead.model_validate(item) for item in items],
+        missing_ids=missing_ids,
+        message=message,
     )
 
 
