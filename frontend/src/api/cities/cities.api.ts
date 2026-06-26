@@ -6,7 +6,7 @@ type CitiesResponse = CityOption[] | {
 }
 
 export const getAvailableCities = async (): Promise<CityOption[]> => {
-  const response = await fetch(buildApiUrl('/cities/available?include_draft=true'))
+  const response = await fetch(buildApiUrl('/cities/available'))
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`)
