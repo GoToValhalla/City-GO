@@ -8,6 +8,7 @@ from tests.allure_support import title
 START_REPLACED_WARNING = "start_coordinates_replaced_with_city_center"
 
 
+@title("Исключение категории интересов не лишает маршрут точек")
 def test_tm_002_interest_exclusion_conflict_keeps_route_new(client, city_factory, place_factory) -> None:
     city = city_factory(
         slug="tm-interest-clash",
@@ -33,6 +34,7 @@ def test_tm_002_interest_exclusion_conflict_keeps_route_new(client, city_factory
     assert "interest_removed_due_to_avoidance" in body["quality"]["warnings"]
 
 
+@title("Старт в удалённом районе сохраняет маршрут")
 def test_tm_004_deep_suburb_start_keeps_route_new(client, city_factory, place_factory) -> None:
     city = city_factory(
         slug="tm-deep-suburb",
@@ -57,6 +59,7 @@ def test_tm_004_deep_suburb_start_keeps_route_new(client, city_factory, place_fa
     assert "long_initial_transfer" in body["quality"]["warnings"]
 
 
+@title("Короткий маршрут с удалённым стартом содержит одну точку")
 def test_tm_008_ultra_short_budget_remote_start_uses_single_point_new(client, city_factory, place_factory) -> None:
     city = city_factory(
         slug="tm-short-remote",
@@ -105,6 +108,7 @@ def test_tm_007_admin_dry_run_bypasses_draft_city_status_new(client, city_factor
     assert body["quality"]["route_status"] != "failed"
 
 
+@title("Нулевые координаты старта заменяются центром города")
 def test_tm_010_admin_dry_run_recovers_zero_zero_start_new(client, city_factory, place_factory) -> None:
     city = city_factory(
         slug="tm-zero-start",
@@ -125,6 +129,7 @@ def test_tm_010_admin_dry_run_recovers_zero_zero_start_new(client, city_factory,
     assert START_REPLACED_WARNING in body["quality"]["warnings"]
 
 
+@title("Маршрут не включает точку с координатами 0,0")
 def test_route_engine_does_not_select_zero_zero_place_new(client, city_factory, place_factory) -> None:
     city = city_factory(
         slug="tm-bad-place-coords",
