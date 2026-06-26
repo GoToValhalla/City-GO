@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from math import atan2, cos, radians, sin, sqrt
 from typing import Any
@@ -35,6 +35,7 @@ class PlaceImportDecision:
     is_active: bool
     changed_fields: list[str]
     review_reasons: list[str]
+    change_set: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def apply_accepted_import_to_place(
@@ -89,6 +90,12 @@ def apply_accepted_import_to_place(
             review_reasons=[],
         )
 
+    change_set = {
+        field_name: {"before": getattr(place, field_name), "after": value}
+        for field_name, value in proposed.items()
+        if field_name in changed_fields
+    }
+
     review_reasons = ["source_data_changed"]
     coordinate_drift_meters = _coordinate_drift_meters(
         old_lat=place.lat,
@@ -111,6 +118,7 @@ def apply_accepted_import_to_place(
         is_active=False,
         changed_fields=changed_fields,
         review_reasons=review_reasons,
+        change_set=change_set,
     )
 
 
@@ -124,6 +132,7 @@ def mark_place_for_review(place: Place, *, reason: str = "enrichment_changed") -
         is_active=False,
         changed_fields=changed_fields,
         review_reasons=[reason],
+        change_set={},
     )
 
 
@@ -146,6 +155,7 @@ def _mark_place_for_review(place: Place, changed_fields: list[str]) -> None:
 def hide_place(place: Place, reason: str, status: str = DRAFT_STATUS) -> PlaceImportDecision:
     """Hide a place without deleting it. A no-op remains a true no-op."""
     changed_fields: list[str] = []
+    before = _snapshot_review_state(place)
     now = datetime.utcnow()
     was_public = bool(place.is_published or place.is_visible_in_catalog or place.is_searchable)
     _set_if_changed(place, "status", status, changed_fields)
@@ -166,6 +176,7 @@ def hide_place(place: Place, reason: str, status: str = DRAFT_STATUS) -> PlaceIm
         is_active=False,
         changed_fields=changed_fields,
         review_reasons=[reason] if changed_fields else [],
+        change_set=_change_set_from_snapshot(place, before, changed_fields),
     )
 
 
@@ -189,6 +200,37 @@ def mark_missing_place(place: Place, missing_count: int) -> PlaceImportDecision:
             review_reasons=["missing_from_source"],
         )
     return hide_place(place=place, reason="missing_from_source_repeatedly", status=REMOVED_FROM_SOURCE_STATUS)
+
+
+
+def _snapshot_review_state(place: Place) -> dict[str, Any]:
+    return {
+        field_name: getattr(place, field_name)
+        for field_name in (
+            "status",
+            "is_active",
+            "is_published",
+            "is_visible_in_catalog",
+            "is_route_eligible",
+            "is_searchable",
+            "publication_status",
+            "unpublished_at",
+            "last_verified_at",
+            "updated_at",
+        )
+    }
+
+
+def _change_set_from_snapshot(
+    place: Place,
+    before: dict[str, Any],
+    changed_fields: list[str],
+) -> dict[str, dict[str, Any]]:
+    return {
+        field_name: {"before": before[field_name], "after": getattr(place, field_name)}
+        for field_name in changed_fields
+        if field_name in before
+    }
 
 
 def _set_if_changed(
