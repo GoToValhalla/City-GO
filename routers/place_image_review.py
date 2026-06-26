@@ -4,9 +4,9 @@ from fastapi import APIRouter,Depends,HTTPException,Query
 from sqlalchemy.orm import Session
 from core.admin_auth import AdminContext,admin_required
 from db.dependencies import get_db
-from schemas.place_image import PendingPlaceImageRead,PendingPlaceImagesResponse,PlaceImageActionResult,PlaceImageReviewAction
+from schemas.place_image import PendingPlaceImageRead,PendingPlaceImagesResponse,PlaceImageActionResult,PlaceImageBulkActionResult,PlaceImageBulkReviewAction,PlaceImageReviewAction
 from services.feature_toggle_guards import assert_photo_moderation
-from services.place_image_review_service import approve_place_image,get_pending_place_images,reject_place_image,set_primary_place_image
+from services.place_image_review_service import approve_place_image,bulk_review_place_images,get_pending_place_images,reject_place_image,set_primary_place_image
 from services.taxonomy_workflow_service import run_workflow
 
 router=APIRouter(prefix="/admin/place-images",tags=["admin-place-images"])
