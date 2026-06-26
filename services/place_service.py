@@ -37,7 +37,7 @@ def get_places(
     offset: int = 0,
     sort_by: str = "title",
     sort_order: str = "asc",
-    public_only: bool = False,
+    public_only: bool = True,
 ) -> list[Place]:
     params = normalize_place_query_params(
         PlaceQueryParams(
@@ -82,7 +82,7 @@ def get_places_total(
     category_id: int | None = None,
     tag_id: int | None = None,
     q: str | None = None,
-    public_only: bool = False,
+    public_only: bool = True,
 ) -> int:
     """Возвращает общее количество мест по тем же фильтрам, но без limit / offset."""
     params = normalize_place_query_params(
