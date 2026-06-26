@@ -28,6 +28,7 @@ from services.import_profiles import production_profile
 from services.import_publication_gate import assess_import_quality
 from services.import_state_service import update_import_state
 from services.place_public_visibility import is_public_hidden_category
+from services.review_queue_service import ensure_review_item
 from services.place_import_lifecycle_service import (
     apply_accepted_import_to_place,
     existing_place_must_be_hidden,
@@ -480,14 +481,27 @@ def _apply_import(
             if not item["accepted"]:
                 rejected += 1
                 rejection_reasons[str(item.get("rejection_reason") or "unknown")] += 1
+                hidden_place = _find_existing_place(db, city.id, item)
+                before_public = _public_state_snapshot(hidden_place) if hidden_place is not None else None
                 decision = _hide_existing_rejected_place(db, city.id, item)
                 if decision is not None:
                     hidden += 1
+                    needs_review += 1
+                    _enqueue_place_change_review(
+                        db,
+                        city=city,
+                        batch=batch,
+                        place=hidden_place,
+                        decision=decision,
+                        item=item,
+                        before_public=before_public,
+                    )
                 continue
 
             category = _get_or_create_category(db, item["category"])
             place = _find_existing_place(db, city.id, item)
             matched_existing = place is not None
+            before_public = _public_state_snapshot(place) if matched_existing else None
 
             if place is None:
                 _gate = assess_import_quality(
@@ -539,10 +553,29 @@ def _apply_import(
             if matched_existing:
                 if decision.action == "needs_review":
                     needs_review += 1
+                    _enqueue_place_change_review(
+                        db,
+                        city=city,
+                        batch=batch,
+                        place=place,
+                        decision=decision,
+                        item=item,
+                        before_public=before_public,
+                    )
                 elif decision.action == "unchanged":
                     unchanged += 1
                 elif decision.action == "hidden":
                     hidden += 1
+                    needs_review += 1
+                    _enqueue_place_change_review(
+                        db,
+                        city=city,
+                        batch=batch,
+                        place=place,
+                        decision=decision,
+                        item=item,
+                        before_public=before_public,
+                    )
                 else:
                     updated += 1
 
@@ -615,6 +648,79 @@ def _apply_import(
             update_import_state(db, batch, "failed", str(exc))
         raise
 
+
+
+def _public_state_snapshot(place: Place | None) -> dict[str, object] | None:
+    if place is None:
+        return None
+    return {
+        "was_public": bool(place.is_published and place.is_visible_in_catalog and place.is_searchable),
+        "status": place.status,
+        "is_active": bool(place.is_active),
+        "is_published": bool(place.is_published),
+        "is_visible_in_catalog": bool(place.is_visible_in_catalog),
+        "is_route_eligible": bool(place.is_route_eligible),
+        "is_searchable": bool(place.is_searchable),
+        "publication_status": place.publication_status,
+    }
+
+
+def _enqueue_place_change_review(
+    db,
+    *,
+    city: City,
+    batch: ImportBatch,
+    place: Place | None,
+    decision,
+    item: dict[str, Any],
+    before_public: dict[str, object] | None,
+) -> None:
+    if place is None or decision.action == "unchanged":
+        return
+
+    changes = {
+        field_name: {
+            "before": _json_value(change.get("before")),
+            "after": _json_value(change.get("after")),
+        }
+        for field_name, change in (decision.change_set or {}).items()
+        if field_name not in {"updated_at", "last_verified_at", "unpublished_at"}
+    }
+    if not changes:
+        changes = {
+            "status": {
+                "before": (before_public or {}).get("status"),
+                "after": place.status,
+            }
+        }
+
+    reason = str((decision.review_reasons or ["source_data_changed"])[0])
+    severity = "high" if reason in {"large_coordinate_drift", "source_removed", "source_closed"} else "medium"
+    ensure_review_item(
+        db,
+        city_id=city.id,
+        place_id=place.id,
+        job_id=batch.id,
+        field_name="place_change",
+        reason=reason,
+        severity=severity,
+        payload={
+            "kind": "place_change",
+            "source": "osm",
+            "source_url": item.get("source_url"),
+            "decision": decision.action,
+            "place_title": place.title,
+            "before_public": before_public or {},
+            "changes": changes,
+            "review_reasons": list(decision.review_reasons or []),
+        },
+    )
+
+
+def _json_value(value: object) -> object:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 def _find_existing_place(db, city_id: int, item: dict[str, Any]) -> Place | None:
     by_source_url = (
