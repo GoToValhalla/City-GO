@@ -11,6 +11,7 @@ from routers.admin_route_eligibility import router as admin_route_eligibility_ro
 from routers.admin_place_ops import router as admin_place_ops_router
 from routers.admin_place_search import router as admin_place_search_router
 from routers.admin_place_change_review import router as admin_place_change_review_router
+from routers.admin_publication_policy import router as admin_publication_policy_router
 from routers.admin_publication_reconciliation import router as admin_publication_reconciliation_router
 from routers.admin_platform import router as admin_platform_router
 from routers.admin_taxonomy import router as admin_taxonomy_router
@@ -74,6 +75,7 @@ _ROOT_ROUTERS = (
     admin_place_ops_router,
     admin_place_search_router,
     admin_place_change_review_router,
+    admin_publication_policy_router,
     admin_publication_reconciliation_router,
     admin_platform_router,
     admin_taxonomy_router,
