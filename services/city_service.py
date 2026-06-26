@@ -84,8 +84,6 @@ def city_is_published(city: City | None) -> bool:
 
 
 def _city_visible_to_users(db: Session, city_slug: str) -> bool:
-    if not is_toggle_enabled(db, "city_visible_to_users", scope="city", scope_id=city_slug, default=True):
-        return False
     if is_toggle_enabled(db, "admin_only_city", scope="city", scope_id=city_slug, default=False):
         return False
     if is_toggle_enabled(db, "test_city", scope="city", scope_id=city_slug, default=False):
