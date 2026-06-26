@@ -125,10 +125,34 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
           set -euo pipefail
-          mkdir -p ~/.ssh
+          mkdir -p ~/.ssh /tmp/city-go-deploy
           echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+          # Key scanning is a best-effort preflight. GitHub-hosted runners can
+          # lose a short TCP race here even when SSH itself can still connect.
+          KEYSCAN_LOG=/tmp/city-go-deploy/ssh-keyscan.log
+          KEYSCAN_KEYS=/tmp/city-go-deploy/ssh-known-hosts
+          KEYSCAN_OK=0
+          for attempt in 1 2 3; do
+            : > "$KEYSCAN_KEYS"
+            if timeout 20s ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" > "$KEYSCAN_KEYS" 2>>"$KEYSCAN_LOG" \
+              && test -s "$KEYSCAN_KEYS"; then
+              cat "$KEYSCAN_KEYS" >> ~/.ssh/known_hosts
+              KEYSCAN_OK=1
+              echo "SSH host key preflight succeeded attempt=${attempt}"
+              break
+            fi
+            echo "WARN: SSH host key preflight failed attempt=${attempt}/3"
+            sleep "$attempt"
+          done
+          if [ "$KEYSCAN_OK" != "1" ]; then
+            {
+              echo "WARN: ssh-keyscan could not reach ${SSH_HOST}:${SSH_PORT} after 3 attempts."
+              echo "The deployment will continue with StrictHostKeyChecking=accept-new so the SSH client reports the final connection error."
+              cat "$KEYSCAN_LOG"
+            } | tee /tmp/city-go-deploy/ssh-preflight-warning.log
+          fi
 
       - name: Deploy
         shell: bash
@@ -159,6 +183,8 @@ jobs:
             -o ConnectTimeout=20 \
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
             -i ~/.ssh/deploy_key \
             -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
@@ -173,7 +199,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: production-deploy-log
-          path: /tmp/city-go-deploy/production-deploy.log
+          path: /tmp/city-go-deploy/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -205,9 +231,15 @@ jobs:
         run: |
           set -euo pipefail
           DEPLOY_LOG_TAIL=""
-          if [ -f /tmp/deploy-log/production-deploy.log ]; then
-            DEPLOY_LOG_TAIL=$(tail -n 55 /tmp/deploy-log/production-deploy.log)
-          fi
+          for diagnostic in \
+            /tmp/deploy-log/production-deploy.log \
+            /tmp/deploy-log/ssh-preflight-warning.log \
+            /tmp/deploy-log/ssh-keyscan.log; do
+            if [ -f "$diagnostic" ]; then
+              DEPLOY_LOG_TAIL="$(tail -n 55 "$diagnostic")"
+              break
+            fi
+          done
 
           if [ "$BUILD_RESULT" = "success" ] && [ "$DEPLOY_RESULT" = "success" ]; then
             cat > /tmp/deploy-notification.txt <<EOF
