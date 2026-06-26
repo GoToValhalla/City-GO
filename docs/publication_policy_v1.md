@@ -106,6 +106,38 @@ When a place is auto-published, the service:
 2. sets canonical public flags on `places`;
 3. records an applied `place_publication_decisions` row.
 
+## Statistics
+
+Statistics are available in three places.
+
+1. Telegram notification after every `Publication Policy` workflow run.
+
+   The message contains:
+
+   - run mode, city scope and threshold;
+   - checked places in the current run;
+   - current-run `shadow_auto_publish`, `auto_publish`, `send_to_review`, `hidden`;
+   - 7-day totals;
+   - average/min/max trust score;
+   - open publication review count;
+   - open change review count;
+   - per-city breakdown for the largest cities in the window.
+
+2. Admin API:
+
+   ```http
+   GET /admin/publication-policy/summary?days=7
+   GET /admin/publication-policy/summary?days=7&city_slug=kutaisi
+   ```
+
+   Requires the standard admin Bearer token.
+
+3. Database source of truth:
+
+   - `place_publication_decisions` for decisions and trust scores;
+   - `review_queue_items` for open publication review;
+   - `place_change_reviews` for pending field-level diffs.
+
 ## Change review rules
 
 Always manual review:
@@ -137,7 +169,8 @@ Critical review keeps the published place visible with the old values. The incom
 - can be launched manually;
 - scheduled run is always shadow;
 - manual run can target a single city;
-- manual apply requires `auto_publish_enabled=true`.
+- manual apply requires `auto_publish_enabled=true`;
+- sends a short Telegram summary after every run.
 
 ## Operational rollout
 
