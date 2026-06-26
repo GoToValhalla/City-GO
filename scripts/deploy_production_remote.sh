@@ -267,6 +267,16 @@ if [ "$SCHEMA_EXIT" != "0" ]; then
   exit 1
 fi
 
+echo "=== materialize legacy city visibility defaults ==="
+# One-time transition from the old admin default=true checkbox. Only cities that
+# already existed before the explicit-publication toggle rollout are affected;
+# newly created cities keep the new default hidden state.
+run_compose_timeout 90s run -T --rm --no-deps backend \
+  python scripts/reconcile_publication_flags.py --materialize-legacy-city-visibility-defaults --confirm \
+  --cutoff "2026-06-26T00:00:00" \
+  --reason "production deploy legacy city visibility default materialization" \
+  </dev/null
+
 echo "=== reconcile city visibility toggles ==="
 # Applies explicit legacy admin intent: city_visible_to_users=true means publish
 # the city through the normal publication quality gate.
