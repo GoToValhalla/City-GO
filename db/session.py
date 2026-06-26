@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from core.config import settings
 
 
-def _engine_kwargs() -> dict[str, int | bool]:
+def _engine_kwargs() -> dict[str, object]:
     if settings.database_url.startswith("sqlite"):
         return {}
 
@@ -19,6 +19,13 @@ def _engine_kwargs() -> dict[str, int | bool]:
         "max_overflow": settings.db_max_overflow,
         "pool_timeout": settings.db_pool_timeout_seconds,
         "pool_recycle": settings.db_pool_recycle_seconds,
+        "connect_args": {
+            "connect_timeout": settings.db_pool_timeout_seconds,
+            "options": (
+                f"-c statement_timeout={settings.db_statement_timeout_ms} "
+                f"-c lock_timeout={settings.db_lock_timeout_ms}"
+            ),
+        },
     }
 
 
