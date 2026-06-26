@@ -10,10 +10,20 @@ import allure
 import pytest
 
 
+def title(value: str):
+    """Apply a title and retain it for the JUnit/Allure title bridge."""
+
+    def decorate(function):
+        setattr(function, "__citygo_allure_title__", value)
+        return allure.title(value)(function)
+
+    return decorate
+
+
 def scenario(title: str, *, epic: str, feature: str, story: str, severity: str = allure.severity_level.NORMAL):
     """Apply the complete product hierarchy to a functional test."""
     def decorate(function):
-        function = allure.title(title)(function)
+        function = globals()["title"](title)(function)
         function = allure.epic(epic)(function)
         function = allure.feature(feature)(function)
         function = allure.story(story)(function)
