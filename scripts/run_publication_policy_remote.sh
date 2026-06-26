@@ -14,14 +14,6 @@ else
   exit 127
 fi
 
-compose() {
-  if [ "$COMPOSE_MODE" = "plugin" ]; then
-    docker compose "$@"
-  else
-    docker-compose "$@"
-  fi
-}
-
 POLICY_MODE="${POLICY_MODE:-shadow}"
 CITY_SLUG="${CITY_SLUG:-}"
 LIMIT="${LIMIT:-100}"
@@ -48,9 +40,18 @@ echo "mode=${POLICY_MODE} city=${CITY_SLUG:-all} limit=${LIMIT} threshold=${AUTO
 # live backend container memory cgroup and can kill the public API with exit 137.
 # A one-off container uses the same image and network, but isolates failures from
 # the running backend service.
-timeout --signal=TERM --kill-after=20s 10m compose run -T --rm --no-deps \
-  -e DB_POOL_SIZE=1 \
-  -e DB_MAX_OVERFLOW=0 \
-  -e DB_POOL_TIMEOUT_SECONDS=10 \
-  -e DB_STATEMENT_TIMEOUT_MS=30000 \
-  backend "${CMD[@]}"
+if [ "$COMPOSE_MODE" = "plugin" ]; then
+  timeout --signal=TERM --kill-after=20s 10m docker compose run -T --rm --no-deps \
+    -e DB_POOL_SIZE=1 \
+    -e DB_MAX_OVERFLOW=0 \
+    -e DB_POOL_TIMEOUT_SECONDS=10 \
+    -e DB_STATEMENT_TIMEOUT_MS=30000 \
+    backend "${CMD[@]}"
+else
+  timeout --signal=TERM --kill-after=20s 10m docker-compose run -T --rm --no-deps \
+    -e DB_POOL_SIZE=1 \
+    -e DB_MAX_OVERFLOW=0 \
+    -e DB_POOL_TIMEOUT_SECONDS=10 \
+    -e DB_STATEMENT_TIMEOUT_MS=30000 \
+    backend "${CMD[@]}"
+fi
