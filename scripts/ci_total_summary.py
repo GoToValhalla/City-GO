@@ -307,19 +307,20 @@ def render_report(report: TotalReport) -> str:
 
     failed_stages = ", ".join(report.failed_stages) or "unknown stage"
     lines = [
-        f"CITY GO CI #{run_number}: failed",
-        f"{stats.failed} failed of {stats.total} tests · {format_duration(report.duration)}",
-        f"Stages: {failed_stages}",
+        f"CITY GO · CI #{run_number}",
+        "Статус: не пройден",
+        f"Тесты: {stats.failed} из {stats.total} упали · {format_duration(report.duration)}",
+        f"Этапы: {failed_stages}",
     ]
     if report.failed_cases:
-        lines.append("Main failures:")
+        lines.append("Первые причины:")
         for case in report.failed_cases[:3]:
             where = f" ({case.location})" if case.location else ""
             detail = case.message or case.title
             lines.append(f"- {case.name}{where}: {detail}")
         remaining = len(report.failed_cases) - 3
         if remaining > 0:
-            lines.append(f"+{remaining} more failures in GitHub.")
+            lines.append(f"+ ещё {remaining}; полный список в GitHub.")
     lines.extend([f"{branch} · {commit}", run_url])
     return "\n".join(lines)
 
