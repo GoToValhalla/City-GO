@@ -1,3 +1,6 @@
+from tests.allure_support import title
+
+
 def _route_payload(city_slug="flex-city"):
     return {
         "lat": 54.96,
@@ -68,6 +71,7 @@ def _state(place_ids, city_slug="flex-city"):
     }
 
 
+@title("Предпросмотр пользовательского маршрута возвращается без публикации")
 def test_user_route_preview_returns_preview_status_new(client, city_factory, place_factory):
     city = city_factory(slug="preview-city", name="Preview City")
     place_factory(slug="preview-place", title="Preview Place", city_id=city.id, category="walk")
