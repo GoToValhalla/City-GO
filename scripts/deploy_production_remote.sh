@@ -79,6 +79,16 @@ wait_for_backend_ready() {
   return 1
 }
 
+post_start_api_smoke() {
+  echo "=== post-start API smoke ==="
+  curl -fsS --connect-timeout 5 --max-time 15 http://localhost:8000/ready >/dev/null
+  curl -fsS --connect-timeout 5 --max-time 15 "http://localhost:8000/places/?limit=1" >/dev/null
+  curl -fsS --connect-timeout 5 --max-time 15 \
+    -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+    http://localhost:8000/admin/overview >/dev/null
+  echo "Public and admin API smoke OK"
+}
+
 mkdir -p /srv/app
 
 echo "=== download compose from ${GH_REPO}@main ==="
@@ -265,7 +275,11 @@ for check in 1 2 3; do
   fi
 done
 
-curl -sf --connect-timeout 5 --max-time 10 http://localhost/api/ready >/dev/null
+if ! post_start_api_smoke; then
+  echo "ERROR: post-start API smoke failed."
+  diagnose_runtime
+  exit 1
+fi
 curl -sf --connect-timeout 5 --max-time 10 http://localhost/api/version || curl -sf --max-time 10 http://localhost:8000/version
 run_compose_timeout 60s exec -T backend alembic current </dev/null || true
 run_compose ps || true
