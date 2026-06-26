@@ -2,8 +2,6 @@
 Чтение городов из БД для роутера /cities и связанной логики.
 """
 
-from typing import Literal
-
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
@@ -21,21 +19,14 @@ def get_cities(db: Session) -> list[City]:
     return db.query(City).filter(City.is_active.is_(True), City.launch_status == PUBLISHED).all()
 
 
-def get_available_cities(
-    db: Session,
-    include_draft: bool = False,
-    *,
-    admin_view: bool = False,
-    channel: Literal["web", "telegram"] = "web",
-) -> list[dict[str, object]]:
-    if channel not in {"web", "telegram"}:
-        raise ValueError(f"Unsupported city availability channel: {channel}")
+def get_available_cities(db: Session) -> list[dict[str, object]]:
+    """Return the single public city catalogue shared by Web and Telegram.
 
-    global_toggle = "telegram_bot_enabled" if channel == "telegram" else "web_app_enabled"
-    channel_toggle = "telegram_enabled" if channel == "telegram" else "web_enabled"
-    if not admin_view and not is_toggle_enabled(db, global_toggle, default=True):
-        return []
-    query = (
+    A city becomes user-visible only through the explicit admin publication
+    action. Channel-specific feature toggles must not make Web and Telegram
+    disagree about the available destinations.
+    """
+    rows = (
         db.query(
             City.slug.label("slug"),
             City.name.label("name"),
@@ -51,7 +42,7 @@ def get_available_cities(
                 *public_place_conditions(),
             ),
         )
-        .filter(City.is_active.is_(True))
+        .filter(City.is_active.is_(True), City.launch_status == PUBLISHED)
         .group_by(
             City.id,
             City.slug,
@@ -60,33 +51,20 @@ def get_available_cities(
             City.region,
             City.launch_status,
         )
+        .order_by(City.name.asc())
+        .all()
     )
-
-    if not include_draft:
-        query = query.filter(City.launch_status == PUBLISHED)
-
-    rows = query.order_by(City.name.asc()).all()
-
-    result: list[dict[str, object]] = []
-    for row in rows:
-        if not admin_view and not is_toggle_enabled(db, "city_visible_to_users", scope="city", scope_id=row.slug, default=True):
-            continue
-        if not admin_view and not is_toggle_enabled(db, channel_toggle, scope="city", scope_id=row.slug, default=True):
-            continue
-        if not admin_view and is_toggle_enabled(db, "admin_only_city", scope="city", scope_id=row.slug, default=False):
-            continue
-        if not admin_view and is_toggle_enabled(db, "test_city", scope="city", scope_id=row.slug, default=False):
-            continue
-        result.append({
+    return [
+        {
             "slug": row.slug,
             "name": row.name,
             "country": row.country,
             "region": row.region,
             "launch_status": row.launch_status,
             "places_count": int(row.places_count or 0),
-        })
-    return result
-
+        }
+        for row in rows
+    ]
 
 # Возвращает один город по его идентификатору.
 def get_city_by_id(db: Session, city_id: int) -> City | None:
