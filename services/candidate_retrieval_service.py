@@ -11,8 +11,14 @@ from models.place import Place
 from schemas.merged_context import MergedContext
 from services.candidate_category_budget import balance_candidates_by_category
 from services.place_public_image_attach_service import attach_public_images
-from services.place_public_visibility import (\n    admin_preview_route_place_conditions,\n    public_route_place_conditions,\n)
-from services.route_eligibility import (\n    admin_preview_route_eligible_sql_conditions,\n    route_eligible_sql_conditions,\n)
+from services.place_public_visibility import (
+    admin_preview_route_place_conditions,
+    public_route_place_conditions,
+)
+from services.route_eligibility import (
+    admin_preview_route_eligible_sql_conditions,
+    route_eligible_sql_conditions,
+)
 from services.route_geometry import walk_minutes_between
 
 ROUTE_FRIENDLY_CATEGORIES = frozenset(
