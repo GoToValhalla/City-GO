@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from models.admin_audit_log import AdminAuditLog
