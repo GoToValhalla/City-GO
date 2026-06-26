@@ -60,3 +60,12 @@ class PlaceImageEnqueueSummary(BaseModel):
     skipped_ineligible: int = 0
     dry_run: bool = True
     preview: list[dict[str, object]] = Field(default_factory=list)
+
+
+class PlaceImageBulkReviewAction(PlaceImageReviewAction):
+    image_ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class PlaceImageBulkActionResult(BaseModel):
+    items: list[PlaceImageActionResult]
+    missing_ids: list[int] = Field(default_factory=list)
