@@ -31,6 +31,7 @@ def public_place_conditions() -> tuple[Any, ...]:
         or_(Place.status.is_(None), Place.status == PUBLIC_ACTIVE_STATUS),
         _true_or_null(Place.is_published),
         _true_or_null(Place.is_visible_in_catalog),
+        _true_or_null(Place.is_searchable),
         or_(
             Place.category.is_(None),
             Place.category.notin_(tuple(PUBLIC_HIDDEN_CATEGORIES)),
