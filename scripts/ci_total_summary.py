@@ -316,9 +316,8 @@ def render_report(report: TotalReport) -> str:
     if report.failed_cases:
         lines.append("Первые причины:")
         for case in report.failed_cases[:3]:
-            where = f" ({case.location})" if case.location else ""
-            detail = case.message or case.title
-            lines.append(f"- {case.name}{where}: {detail}")
+            detail = case.message or case.failed_step or "Проверка завершилась ошибкой"
+            lines.append(f"- {case.title}: {detail}")
         remaining = len(report.failed_cases) - 3
         if remaining > 0:
             lines.append(f"+ ещё {remaining}; полный список в GitHub.")
