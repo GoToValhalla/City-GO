@@ -21,7 +21,7 @@ on:
       limit:
         description: "Max places to evaluate"
         required: true
-        default: "500"
+        default: "100"
       auto_publish_enabled:
         description: "Required for apply mode to publish high-trust places"
         type: boolean
@@ -47,7 +47,7 @@ jobs:
     env:
       POLICY_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'shadow' }}
       CITY_SLUG: ${{ github.event_name == 'workflow_dispatch' && inputs.city_slug || '' }}
-      LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '500' }}
+      LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '100' }}
       AUTO_PUBLISH_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_publish_enabled || false }}
       AUTO_PUBLISH_THRESHOLD: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_publish_threshold || '90' }}
     steps:
