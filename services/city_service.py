@@ -18,7 +18,7 @@ def get_cities(db: Session) -> list[City]:
     return db.query(City).filter(City.is_active.is_(True), City.launch_status == PUBLISHED).all()
 
 
-def get_available_cities(db: Session) -> list[dict[str, object]]:
+def get_available_cities(db: Session, *, include_draft: bool = False) -> list[dict[str, object]]:
     """Return the single public city catalogue shared by Web and Telegram.
 
     A city becomes user-visible only through the explicit admin publication
@@ -41,7 +41,7 @@ def get_available_cities(db: Session) -> list[dict[str, object]]:
                 *public_place_conditions(),
             ),
         )
-        .filter(City.is_active.is_(True), City.launch_status == PUBLISHED)
+        .filter(City.is_active.is_(True))
         .group_by(
             City.id,
             City.slug,
@@ -53,6 +53,8 @@ def get_available_cities(db: Session) -> list[dict[str, object]]:
         .order_by(City.name.asc())
         .all()
     )
+    if not include_draft:
+        rows = [row for row in rows if row.launch_status == PUBLISHED]
     return [
         {
             "slug": row.slug,
