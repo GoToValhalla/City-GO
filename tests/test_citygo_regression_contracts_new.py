@@ -23,7 +23,7 @@ def test_deploy_repairs_known_alembic_overlap_and_fails_fast_new() -> None:
     assert "alembic upgrade head" in compose
     assert "alembic upgrade heads" not in compose
     assert "< scripts/deploy_production_remote.sh" in workflow
-    assert "docker compose run" in deploy
+    assert "run_compose_timeout 5m run" in deploy
     assert "migrate </dev/null" in deploy
     assert "docker compose up migrate" not in deploy
     assert "MIGRATE_EXIT=$?" in deploy
@@ -45,9 +45,9 @@ def test_deploy_quiesces_database_clients_and_guards_schema_new() -> None:
     assert cleanup_pos < quiesce_pos < migrations_pos < schema_guard_pos < recreate_backend_pos
     assert "label=com.docker.compose.service=migrate" in deploy
     assert "docker rm -f $STALE_MIGRATE_IDS" in deploy
-    assert "docker compose stop -t 30 import-worker bot backend" in deploy
-    assert "timeout --signal=TERM --kill-after=30s 5m" in deploy
-    assert "timeout --signal=TERM --kill-after=30s 3m" in deploy
+    assert "run_compose_timeout 2m stop -t 30 import-worker bot backend" in deploy
+    assert "run_compose_timeout 5m" in deploy
+    assert "run_compose_timeout 3m" in deploy
     assert "run_compose start backend bot import-worker" in deploy
     assert "docker system df" not in deploy
     assert "Docker daemon is not responding within 30 seconds" in deploy
