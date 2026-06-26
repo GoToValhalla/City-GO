@@ -101,7 +101,7 @@ export const AdminPlaceChangeReviewsPage = () => {
         <td><Link to={`/admin/cities/${review.city_slug}`}>{review.city_name}</Link></td>
         <td>{Object.entries(review.changes).map(([field, change]) => <div key={field}><strong>{field}:</strong> {valueText(change.before)} → {valueText(change.after)}</div>)}</td>
         <td>{review.source_url ? <a href={review.source_url} target="_blank" rel="noreferrer">{review.source ?? "Источник"}</a> : review.source ?? "Источник"}<br />{review.reason}<br /><span className="admin-muted">{review.review_reasons.join(', ') || "Источник обновил данные"}</span></td>
-        <td><div className="admin-actions-cell"><button type="button" className="admin-btn admin-btn-ok admin-btn-sm" disabled={busy !== null} onClick={() => void resolve(review, 'approve')}>Принять</button><button type="button" className="admin-btn admin-btn-danger admin-btn-sm" disabled={busy === review.id} onClick={() => void resolve(review, 'reject')}>Отклонить</button></div></td>
+        <td><div className="admin-actions-cell"><button type="button" className="admin-btn admin-btn-ok admin-btn-sm" disabled={busy !== null} onClick={() => void resolve(review, 'approve')}>Принять</button><button type="button" className="admin-btn admin-btn-danger admin-btn-sm" disabled={busy !== null} onClick={() => void resolve(review, 'reject')}>Отклонить</button></div></td>
       </tr>)}
     </tbody></table></div>}
   </div>
