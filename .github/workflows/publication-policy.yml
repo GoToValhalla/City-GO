@@ -1,0 +1,101 @@
+name: Publication Policy
+
+on:
+  schedule:
+    # 03:00 Europe/Paris in summer time, after nightly enrichment/import windows.
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode"
+        type: choice
+        required: true
+        default: shadow
+        options:
+          - shadow
+          - apply
+      city_slug:
+        description: "Optional city slug"
+        required: false
+        default: ""
+      limit:
+        description: "Max places to evaluate"
+        required: true
+        default: "500"
+      auto_publish_enabled:
+        description: "Required for apply mode to publish high-trust places"
+        type: boolean
+        required: true
+        default: false
+      auto_publish_threshold:
+        description: "Trust score threshold for auto-publication"
+        required: true
+        default: "90"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publication-policy
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: Evaluate publication policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      POLICY_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'shadow' }}
+      CITY_SLUG: ${{ github.event_name == 'workflow_dispatch' && inputs.city_slug || '' }}
+      LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '500' }}
+      AUTO_PUBLISH_ENABLED: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_publish_enabled || false }}
+      AUTO_PUBLISH_THRESHOLD: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_publish_threshold || '90' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh /tmp/city-go-publication-policy
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run publication policy on production backend
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          REMOTE_POLICY_MODE=$(printf '%q' "$POLICY_MODE")
+          REMOTE_CITY_SLUG=$(printf '%q' "$CITY_SLUG")
+          REMOTE_LIMIT=$(printf '%q' "$LIMIT")
+          REMOTE_AUTO_PUBLISH_ENABLED=$(printf '%q' "$AUTO_PUBLISH_ENABLED")
+          REMOTE_AUTO_PUBLISH_THRESHOLD=$(printf '%q' "$AUTO_PUBLISH_THRESHOLD")
+
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            -i ~/.ssh/deploy_key \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "POLICY_MODE=$REMOTE_POLICY_MODE CITY_SLUG=$REMOTE_CITY_SLUG LIMIT=$REMOTE_LIMIT AUTO_PUBLISH_ENABLED=$REMOTE_AUTO_PUBLISH_ENABLED AUTO_PUBLISH_THRESHOLD=$REMOTE_AUTO_PUBLISH_THRESHOLD bash -seu -o pipefail" \
+            < scripts/run_publication_policy_remote.sh 2>&1 | tee /tmp/city-go-publication-policy/run.log
+
+      - name: Upload publication policy log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: publication-policy-log
+          path: /tmp/city-go-publication-policy/run.log
+          if-no-files-found: ignore
+          retention-days: 7
