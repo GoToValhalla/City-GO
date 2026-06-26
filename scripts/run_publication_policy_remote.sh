@@ -24,7 +24,7 @@ compose() {
 
 POLICY_MODE="${POLICY_MODE:-shadow}"
 CITY_SLUG="${CITY_SLUG:-}"
-LIMIT="${LIMIT:-500}"
+LIMIT="${LIMIT:-100}"
 AUTO_PUBLISH_ENABLED="${AUTO_PUBLISH_ENABLED:-false}"
 AUTO_PUBLISH_THRESHOLD="${AUTO_PUBLISH_THRESHOLD:-90}"
 
@@ -43,4 +43,14 @@ fi
 
 echo "=== publication policy ==="
 echo "mode=${POLICY_MODE} city=${CITY_SLUG:-all} limit=${LIMIT} threshold=${AUTO_PUBLISH_THRESHOLD} auto_publish_enabled=${AUTO_PUBLISH_ENABLED}"
-compose exec -T backend "${CMD[@]}"
+
+# Do not run policy through `docker compose exec backend`: the process shares the
+# live backend container memory cgroup and can kill the public API with exit 137.
+# A one-off container uses the same image and network, but isolates failures from
+# the running backend service.
+timeout --signal=TERM --kill-after=20s 10m compose run -T --rm --no-deps \
+  -e DB_POOL_SIZE=1 \
+  -e DB_MAX_OVERFLOW=0 \
+  -e DB_POOL_TIMEOUT_SECONDS=10 \
+  -e DB_STATEMENT_TIMEOUT_MS=30000 \
+  backend "${CMD[@]}"
