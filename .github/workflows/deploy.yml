@@ -232,9 +232,7 @@ jobs:
           set -euo pipefail
           DEPLOY_DIAGNOSTICS=""
           if [ -f /tmp/deploy-log/production-deploy.log ]; then
-            DEPLOY_DIAGNOSTICS="$(
-              grep -Ei '^(===|ERROR:|WARN:)|No space left|[[:space:]]9[0-9]%[[:space:]]/$|timed out|timeout|exit code|not ready|failed|failure|unknown command'                 /tmp/deploy-log/production-deploy.log                 | tail -n 30                 || true
-            )"
+            DEPLOY_DIAGNOSTICS="$(grep -Ei '^(===|ERROR:|WARN:)|No space left|[[:space:]]9[0-9]%[[:space:]]/$|timed out|timeout|exit code|not ready|failed|failure|unknown command' /tmp/deploy-log/production-deploy.log | tail -n 30 || true)"
             if [ -z "$DEPLOY_DIAGNOSTICS" ]; then
               DEPLOY_DIAGNOSTICS="$(tail -n 12 /tmp/deploy-log/production-deploy.log)"
             fi
