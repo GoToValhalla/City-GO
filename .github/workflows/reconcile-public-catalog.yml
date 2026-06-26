@@ -92,10 +92,10 @@ jobs:
 
           ssh             -o ConnectTimeout=20             -o ServerAliveInterval=15             -o ServerAliveCountMax=4             -o StrictHostKeyChecking=accept-new             -o UserKnownHostsFile=~/.ssh/known_hosts             -i ~/.ssh/deploy_key             -p "$DEPLOY_PORT"             "$DEPLOY_USER@$DEPLOY_HOST"             "MODE=$REMOTE_MODE CITY_SLUGS=$REMOTE_CITY_SLUGS ROLLBACK_AUDIT_IDS=$REMOTE_ROLLBACK_AUDIT_IDS bash -seu -o pipefail" <<'REMOTE' | tee artifacts/publication-reconciliation.json
           cd /srv/app
-          if docker compose version >/dev/null 2>&1; then
-            COMPOSE="docker compose"
-          elif command -v docker-compose >/dev/null 2>&1; then
+          if command -v docker-compose >/dev/null 2>&1; then
             COMPOSE="docker-compose"
+          elif docker compose version >/dev/null 2>&1; then
+            COMPOSE="docker compose"
           else
             echo "ERROR: Docker Compose is unavailable." >&2
             exit 127
