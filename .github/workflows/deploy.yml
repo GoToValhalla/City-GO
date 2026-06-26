@@ -145,6 +145,7 @@ jobs:
           EXPECTED_FRONTEND_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          mkdir -p /tmp/city-go-deploy
           REMOTE_GH_TOKEN=$(printf '%q' "$GH_TOKEN")
           REMOTE_GH_ACTOR=$(printf '%q' "$GH_ACTOR")
           REMOTE_GH_REPO=$(printf '%q' "$GH_REPO")
@@ -153,6 +154,7 @@ jobs:
           REMOTE_TELEGRAM_CHAT_ID=$(printf '%q' "${TELEGRAM_CHAT_ID:-}")
           REMOTE_EXPECTED_FRONTEND_SHA=$(printf '%q' "$EXPECTED_FRONTEND_SHA")
 
+          set +e
           ssh \
             -o ConnectTimeout=20 \
             -o ServerAliveInterval=15 \
@@ -161,7 +163,19 @@ jobs:
             -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
             "GH_TOKEN=$REMOTE_GH_TOKEN GH_ACTOR=$REMOTE_GH_ACTOR GH_REPO=$REMOTE_GH_REPO ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN TELEGRAM_BOT_TOKEN=$REMOTE_TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID=$REMOTE_TELEGRAM_CHAT_ID EXPECTED_FRONTEND_SHA=$REMOTE_EXPECTED_FRONTEND_SHA bash -seu -o pipefail" \
-            < scripts/deploy_production_remote.sh
+            < scripts/deploy_production_remote.sh 2>&1 | tee /tmp/city-go-deploy/production-deploy.log
+          DEPLOY_EXIT=${PIPESTATUS[0]}
+          set -e
+          exit "$DEPLOY_EXIT"
+
+      - name: Upload deploy log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-deploy-log
+          path: /tmp/city-go-deploy/production-deploy.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   notify:
     name: Notify deploy result
@@ -175,6 +189,14 @@ jobs:
       - name: Checkout notification helper
         uses: actions/checkout@v4
 
+      - name: Download deploy log
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          name: production-deploy-log
+          path: /tmp/deploy-log
+        continue-on-error: true
+
       - name: Build deploy notification
         shell: bash
         env:
@@ -182,6 +204,11 @@ jobs:
           DEPLOY_RESULT: ${{ needs.deploy.result }}
         run: |
           set -euo pipefail
+          DEPLOY_LOG_TAIL=""
+          if [ -f /tmp/deploy-log/production-deploy.log ]; then
+            DEPLOY_LOG_TAIL=$(tail -n 55 /tmp/deploy-log/production-deploy.log)
+          fi
+
           if [ "$BUILD_RESULT" = "success" ] && [ "$DEPLOY_RESULT" = "success" ]; then
             cat > /tmp/deploy-notification.txt <<EOF
           ✅ CITY GO · PRODUCTION DEPLOY
@@ -216,9 +243,20 @@ jobs:
           Сборка образов: ✅ ${BUILD_RESULT}
           Деплой на сервер: ❌ ${DEPLOY_RESULT}
           Вероятная зона: SSH, docker compose pull/up, PostgreSQL readiness, миграции, schema guard, frontend SHA gate или background services.
-          Что делать: открыть job "Deploy production" → step "Deploy" и смотреть последнюю строку перед error/timeout.
           GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
           EOF
+            if [ -n "$DEPLOY_LOG_TAIL" ]; then
+              cat >> /tmp/deploy-notification.txt <<EOF
+
+          Последние строки deploy:
+          ${DEPLOY_LOG_TAIL}
+          EOF
+            else
+              cat >> /tmp/deploy-notification.txt <<EOF
+
+          Последние строки deploy: лог не найден в artifact production-deploy-log.
+          EOF
+            fi
           fi
           sed -i 's/^          //' /tmp/deploy-notification.txt
 
