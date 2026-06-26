@@ -133,6 +133,28 @@ PY
 
 run_compose_timeout 30s config >/dev/null
 
+reclaim_docker_storage() {
+  echo "=== reclaim unused Docker storage ==="
+  # Never prune volumes or images used by running containers: PostgreSQL data and
+  # the live release remain untouched. This only frees stopped containers,
+  # unreferenced images, and build cache before downloading a new release.
+  run_docker container prune -f || true
+  run_docker image prune -af || true
+  run_docker builder prune -af || true
+  docker system df || true
+  df -h /
+}
+
+require_deploy_disk_space() {
+  local available_kb
+  available_kb="$(df -Pk / | awk 'NR == 2 {print $4}')"
+  if [ -z "$available_kb" ] || [ "$available_kb" -lt 1048576 ]; then
+    echo "ERROR: less than 1 GiB free on /. Docker cleanup could not free enough space for a release image."
+    exit 1
+  fi
+  echo "Disk space gate OK: ${available_kb} KiB free on /"
+}
+
 echo "=== docker daemon preflight ==="
 if ! timeout 30s docker info >/dev/null; then
   echo "ERROR: Docker daemon is not responding within 30 seconds. Deploy stopped before changing runtime containers."
@@ -145,6 +167,9 @@ if [ -n "$STALE_MIGRATE_IDS" ]; then
   echo "Removing stale migration containers: $STALE_MIGRATE_IDS"
   timeout --signal=TERM --kill-after=15s 90s docker rm -f $STALE_MIGRATE_IDS
 fi
+
+reclaim_docker_storage
+require_deploy_disk_space
 
 echo "=== production state before deploy ==="
 df -h || true
@@ -174,7 +199,7 @@ if [ "$REGISTRY_OK" != "1" ]; then
 fi
 
 echo "=== ensure PostgreSQL is running before migrations ==="
-run_compose up -d db
+run_compose_timeout 3m up -d db
 if ! wait_for_database 30; then
   echo "ERROR: PostgreSQL is not ready before migrations."
   diagnose_runtime
