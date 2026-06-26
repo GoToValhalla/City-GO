@@ -121,6 +121,9 @@ jobs:
           curl -sf --connect-timeout 15 --max-time 60 \
             -o /srv/app/tmp/enable_default_import_scopes.py \
             "https://raw.githubusercontent.com/GoToValhalla/City-GO/${REF_SHA}/scripts/enable_default_import_scopes.py"
+          curl -sf --connect-timeout 15 --max-time 60 \
+            -o /srv/app/tmp/enqueue_stale_place_fields.py \
+            "https://raw.githubusercontent.com/GoToValhalla/City-GO/${REF_SHA}/scripts/enqueue_stale_place_fields.py"
 
           if [ "$REFRESH_MODE" = "dry-run" ]; then
             MODE_ARG="--dry-run"
