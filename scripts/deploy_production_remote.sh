@@ -53,6 +53,18 @@ diagnose_runtime() {
     "SELECT pid, usename, application_name, state, wait_event_type, wait_event, age(clock_timestamp(), query_start) AS query_age, left(query, 180) AS query FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() ORDER BY query_start NULLS LAST LIMIT 30;" </dev/null || true
 }
 
+cleanup_stale_bot_containers() {
+  echo "=== cleanup stale Telegram bot containers ==="
+  local bot_ids
+  bot_ids="$(timeout 30s docker ps -aq --filter label=com.docker.compose.service=bot || true)"
+  if [ -n "$bot_ids" ]; then
+    echo "Removing stale bot containers: $bot_ids"
+    timeout --signal=TERM --kill-after=15s 90s docker rm -f $bot_ids || true
+  else
+    echo "No stale bot containers found"
+  fi
+}
+
 wait_for_database() {
   local attempts="${1:-30}"
   for attempt in $(seq 1 "$attempts"); do
@@ -220,6 +232,7 @@ fi
 
 echo "=== quiesce database clients before migrations ==="
 run_compose_timeout 2m stop -t 30 import-worker bot backend || true
+cleanup_stale_bot_containers
 run_compose ps || true
 
 restore_runtime() {
@@ -253,6 +266,14 @@ if [ "$SCHEMA_EXIT" != "0" ]; then
   restore_runtime
   exit 1
 fi
+
+echo "=== reconcile city visibility toggles ==="
+# Applies explicit legacy admin intent: city_visible_to_users=true means publish
+# the city through the normal publication quality gate.
+run_compose_timeout 90s run -T --rm --no-deps backend \
+  python scripts/reconcile_publication_flags.py --apply-city-visibility-toggles --confirm \
+  --reason "production deploy city visibility toggle reconciliation" \
+  </dev/null
 
 echo "=== reconcile legacy public flags ==="
 # This only closes legacy leaks from cities that are not explicitly published.
@@ -290,6 +311,7 @@ if [ "$FRONTEND_OK" != "1" ]; then
 fi
 
 echo "=== recreate background services ==="
+cleanup_stale_bot_containers
 compose_recreate_no_pull bot import-worker
 BACKGROUND_OK=0
 for attempt in $(seq 1 10); do
