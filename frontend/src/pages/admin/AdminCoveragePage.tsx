@@ -34,10 +34,7 @@ export const AdminCoveragePage = () => {
   const highlight = params.get('city')
 
   useEffect(() => {
-    if (params.get('tab') === 'gaps') {
-      setLoading(false)
-      return
-    }
+    if (params.get('tab') === 'gaps') return
     adminGet<CoverageResponse>('/admin/coverage/summary?limit=100')
       .then((r) => setItems(r.items))
       .catch((e: Error) => setError(e.message))
