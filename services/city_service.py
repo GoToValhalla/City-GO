@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.place import Place
 from services.city_slug_resolver import resolve_city_by_slug
-from services.feature_toggle_service import is_toggle_enabled
 from services.place_public_visibility import public_place_conditions
 
 PUBLISHED = "published"
