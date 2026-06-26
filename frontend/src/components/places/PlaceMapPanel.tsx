@@ -30,16 +30,16 @@ export const PlaceMapPanel = ({
   places, userLocation = null,
 }: Props) => {
   const [clusterPlaceIds, setClusterPlaceIds] = useState<number[]>([])
-  const mapped = places.filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng))
+  const mapped = useMemo(() => places.filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng)), [places])
   const active = mapped.find((place) => place.id === activePlaceId) ?? null
   const clusterPlaces = useMemo(() => {
     const idSet = new Set(clusterPlaceIds)
     return mapped.filter((place) => idSet.has(place.id))
   }, [clusterPlaceIds, mapped])
-  const points = mapped.map((place) => ({
+  const points = useMemo(() => mapped.map((place) => ({
     id: place.id, latitude: Number(place.lat), longitude: Number(place.lng),
     title: place.title, category: place.category, closed: placeStatus(place) === 'closed',
-  }))
+  })), [mapped])
   const center = active
     ? { latitude: Number(active.lat), longitude: Number(active.lng) }
     : userLocation ?? manualPoint ?? (points[0] ?? null)
