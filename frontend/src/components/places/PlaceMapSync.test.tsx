@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PlaceList } from './PlaceList'
 import { PlaceMapPanel } from './PlaceMapPanel'
 
@@ -25,6 +25,7 @@ const places = [
 ]
 
 describe('place map synchronization', () => {
+  afterEach(() => { document.body.innerHTML = '' })
   it('sends marker and manual point selections', () => {
     const select = vi.fn()
     const manual = vi.fn()
