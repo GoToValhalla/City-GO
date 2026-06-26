@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import asdict
 
 from sqlalchemy.orm import joinedload
@@ -15,6 +16,7 @@ from services.publication_policy import (
     apply_publication_decision,
     evaluate_new_place,
 )
+from services.publication_policy_summary import get_publication_policy_summary
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,7 +49,7 @@ def main() -> None:
             query = query.join(City).filter(City.slug == args.city_slug)
 
         places = query.order_by(Place.updated_at.desc()).limit(args.limit).all()
-        summary = {
+        run_summary = {
             "config": asdict(config),
             "evaluated": 0,
             "shadow_auto_publish": 0,
@@ -59,11 +61,14 @@ def main() -> None:
         for place in places:
             decision = evaluate_new_place(place, config=config)
             apply_publication_decision(db, place, decision, config=config, actor="publication-policy-runner")
-            summary["evaluated"] += 1
-            summary[decision.decision] = int(summary.get(decision.decision, 0)) + 1
+            run_summary["evaluated"] += 1
+            run_summary[decision.decision] = int(run_summary.get(decision.decision, 0)) + 1
 
         db.commit()
-        print(summary)
+        summary = get_publication_policy_summary(db, days=7, city_slug=args.city_slug)
+        output = {"run": run_summary, "last_7_days": summary}
+        print(json.dumps(output, ensure_ascii=False, sort_keys=True))
+        print("PUBLICATION_POLICY_SUMMARY_JSON=" + json.dumps(output, ensure_ascii=False, sort_keys=True))
     finally:
         db.close()
 
