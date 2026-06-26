@@ -66,6 +66,56 @@ def publication_reconciliation_snapshot(db: Session) -> dict[str, object]:
     }
 
 
+def materialize_legacy_city_visibility_defaults(
+    db: Session,
+    *,
+    actor: str,
+    cutoff: datetime,
+    reason: str | None = None,
+) -> dict[str, object]:
+    """Persist the old admin default=true city visibility state for legacy cities.
+
+    Before the publication toggle became authoritative, the admin UI displayed
+    city_visible_to_users as enabled by default even when no feature_toggle row
+    existed. This one-time transition records that old visible state for cities
+    created before the cutoff. New cities keep the new default=false behavior.
+    """
+    created: list[str] = []
+    cities = db.query(City).filter(City.created_at <= cutoff).order_by(City.slug.asc()).all()
+    for city in cities:
+        exists = db.query(FeatureToggle.id).filter(
+            FeatureToggle.scope == "city",
+            FeatureToggle.scope_id == city.slug,
+            FeatureToggle.key == CITY_VISIBILITY_TOGGLE,
+        ).first()
+        if exists is not None:
+            continue
+        row = FeatureToggle(
+            key=CITY_VISIBILITY_TOGGLE,
+            scope="city",
+            scope_id=city.slug,
+            value_bool=True,
+            description="Materialized legacy admin default before city publication toggle became explicit.",
+            updated_by=actor,
+            change_reason=reason or "legacy city visibility default materialization",
+        )
+        db.add(row)
+        db.flush()
+        write_admin_audit_log(
+            db,
+            actor=actor,
+            action="materialize_legacy_city_visibility_toggle",
+            entity_type="feature_toggle",
+            entity_id=f"city:{city.slug}:{CITY_VISIBILITY_TOGGLE}",
+            old_value={"value_bool": None},
+            new_value={"value_bool": True, "city_slug": city.slug, "cutoff": cutoff.isoformat()},
+            reason=reason or "legacy city visibility default materialization",
+        )
+        created.append(city.slug)
+    db.commit()
+    return {"created_city_visibility_toggles": created}
+
+
 def apply_city_visibility_toggle_reconciliation(
     db: Session,
     *,
