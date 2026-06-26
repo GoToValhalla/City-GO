@@ -8,6 +8,7 @@ import os
 os.environ["ALEMBIC_SKIP_FILE_CONFIG"] = "1"
 from typing import Generator
 
+import allure
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
@@ -17,6 +18,7 @@ from core.admin_auth import AdminContext, admin_required
 from core.config import settings
 from db.base import Base
 from db.dependencies import get_db
+from tests.allure_support import readable_test_title
 from tests.test_db_setup import apply_alembic_migrations
 
 # Регистрация всех ORM-таблиц до create_all (FK на import_batches и др.).
@@ -52,6 +54,26 @@ import models.source_observation  # noqa: F401
 import models.tag  # noqa: F401
 
 from main import app
+
+
+def _allure_title_for_item(item: pytest.Item) -> str:
+    function = getattr(item, "obj", None)
+    explicit = getattr(function, "__citygo_allure_title__", None)
+    if not explicit:
+        explicit = getattr(function, "__allure_display_name__", None)
+    return str(explicit or readable_test_title(item.name)).strip()
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Give every collected test a stable, readable title in JUnit and Allure."""
+
+    for item in items:
+        item.user_properties.append(("display_title", _allure_title_for_item(item)))
+
+
+@pytest.fixture(autouse=True)
+def attach_readable_allure_title(request: pytest.FixtureRequest) -> None:
+    allure.dynamic.title(_allure_title_for_item(request.node))
 
 
 @pytest.fixture(scope="session", autouse=True)
