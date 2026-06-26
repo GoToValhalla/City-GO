@@ -12,7 +12,7 @@ from models.city import City
 from models.feature_toggle import FeatureToggle
 from models.place import Place
 from services.admin_audit_service import write_admin_audit_log
-from services.admin_city_publication_service import publish_city, unpublish_city
+from services.admin_city_publication_service import publish_city
 from services.place_public_visibility import public_place_conditions
 
 PUBLIC_CITY_STATUS = "published"
