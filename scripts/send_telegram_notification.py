@@ -14,12 +14,20 @@ import urllib.request
 from pathlib import Path
 
 
+def _telegram_safe_text(text: str, limit: int = 4000) -> str:
+    if len(text) <= limit:
+        return text
+    head_limit = 1400
+    tail_limit = limit - head_limit - 48
+    return f"{text[:head_limit]}\n\n... message shortened ...\n\n{text[-tail_limit:]}"
+
+
 def send_message(*, token: str, chat_id: str, text: str, attempts: int = 3) -> None:
     if not token or not chat_id:
         raise RuntimeError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required")
     payload = urllib.parse.urlencode({
         "chat_id": chat_id,
-        "text": text[:4000],
+        "text": _telegram_safe_text(text),
         "disable_web_page_preview": "true",
     }).encode("utf-8")
     request = urllib.request.Request(
