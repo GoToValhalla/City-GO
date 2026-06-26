@@ -11,8 +11,8 @@ from models.place import Place
 from schemas.merged_context import MergedContext
 from services.candidate_category_budget import balance_candidates_by_category
 from services.place_public_image_attach_service import attach_public_images
-from services.place_public_visibility import public_route_place_conditions
-from services.route_eligibility import route_eligible_sql_conditions
+from services.place_public_visibility import (\n    admin_preview_route_place_conditions,\n    public_route_place_conditions,\n)
+from services.route_eligibility import (\n    admin_preview_route_eligible_sql_conditions,\n    route_eligible_sql_conditions,\n)
 from services.route_geometry import walk_minutes_between
 
 ROUTE_FRIENDLY_CATEGORIES = frozenset(
@@ -182,9 +182,12 @@ class CandidateRetrievalService:
 
     def _base_query(self, ctx: MergedContext, *, apply_user_exclusions: bool = True):
         admin_preview = bool(getattr(ctx, "is_admin", False))
-        query = select(Place).where(
-            *route_eligible_sql_conditions(require_published_city=not admin_preview)
+        eligibility_conditions = (
+            admin_preview_route_eligible_sql_conditions()
+            if admin_preview
+            else route_eligible_sql_conditions()
         )
+        query = select(Place).where(*eligibility_conditions)
         query = query.join(City, Place.city_id == City.id)
         if not admin_preview:
             query = query.where(
@@ -265,8 +268,10 @@ class CandidateRetrievalService:
             select(Place)
             .join(City, Place.city_id == City.id)
             .where(
-                *public_route_place_conditions(
-                    require_published_city=not bool(getattr(ctx, "is_admin", False))
+                *(
+                    admin_preview_route_place_conditions()
+                    if bool(getattr(ctx, "is_admin", False))
+                    else public_route_place_conditions()
                 ),
                 Place.lat.is_not(None),
                 Place.lng.is_not(None),
@@ -433,8 +438,10 @@ class CandidateRetrievalService:
             select(Place)
             .join(City, Place.city_id == City.id)
             .where(
-                *public_route_place_conditions(
-                    require_published_city=not bool(getattr(ctx, "is_admin", False))
+                *(
+                    admin_preview_route_place_conditions()
+                    if bool(getattr(ctx, "is_admin", False))
+                    else public_route_place_conditions()
                 ),
                 Place.lat.is_not(None),
                 Place.lng.is_not(None),
