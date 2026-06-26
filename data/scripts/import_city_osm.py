@@ -591,6 +591,7 @@ def _apply_import(
 
         deactivated_bad_places = _hide_bad_existing_places(db, city.id, scope.id)
         missing_stats = _mark_missing_sources(db, scope.id, batch.id, normalized)
+        needs_review += missing_stats["needs_review"]
 
         batch.normalized_count = created + updated + unchanged + needs_review
         batch.published_count = created + updated + unchanged
@@ -952,16 +953,29 @@ def _mark_missing_sources(
         if place is None:
             continue
 
+        before_public = _public_state_snapshot(place)
         decision = mark_missing_place(
             place=place,
             missing_count=row.consecutive_missing_count,
         )
         if decision.action == "hidden":
             hidden_missing_places += 1
+            city = db.query(City).filter(City.id == place.city_id).first()
+            if city is not None:
+                _enqueue_place_change_review(
+                    db,
+                    city=city,
+                    batch=db.query(ImportBatch).filter(ImportBatch.id == batch_id).one(),
+                    place=place,
+                    decision=decision,
+                    item={"source_url": None},
+                    before_public=before_public,
+                )
 
     return {
         "missing_from_source": len(missing_rows),
         "hidden_missing_places": hidden_missing_places,
+        "needs_review": hidden_missing_places,
     }
 
 
