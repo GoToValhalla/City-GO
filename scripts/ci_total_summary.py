@@ -299,8 +299,9 @@ def render_report(report: TotalReport) -> str:
 
     if report.successful:
         return "\n".join([
-            f"CITY GO CI #{run_number}: passed",
-            f"{stats.passed}/{stats.total} tests passed · {format_duration(report.duration)}",
+            f"CITY GO · CI #{run_number}",
+            "Статус: пройден",
+            f"Тесты: {stats.passed}/{stats.total} · {format_duration(report.duration)}",
             f"{branch} · {commit}",
             run_url,
         ])
