@@ -1,11 +1,11 @@
 from services.feature_toggle_catalog.types import ToggleDef
 
 CITY_TOGGLES: tuple[ToggleDef, ...] = (
-    {"key": "city_visible_to_users", "label": "Город доступен пользователям", "description": "Город виден в каталоге", "default": True, "scope": "city", "group": "visibility"},
+    {"key": "city_visible_to_users", "label": "Город опубликован", "description": "Включает или снимает город с публикации для сайта и Telegram", "default": False, "scope": "city", "group": "visibility"},
     {"key": "admin_only_city", "label": "Только для админов", "description": "Город скрыт от публики", "default": False, "scope": "city", "group": "visibility"},
     {"key": "test_city", "label": "Тестовый город", "description": "Помечен как тестовый", "default": False, "scope": "city", "group": "visibility"},
-    {"key": "web_enabled", "label": "Web для города", "description": "Сайт показывает этот город", "default": True, "scope": "city", "group": "channels"},
-    {"key": "telegram_enabled", "label": "Telegram для города", "description": "Бот работает в этом городе", "default": True, "scope": "city", "group": "channels"},
+    {"key": "web_enabled", "label": "Web для города", "description": "Операционная настройка Web; публичный список городов общий с Telegram", "default": True, "scope": "city", "group": "channels"},
+    {"key": "telegram_enabled", "label": "Telegram для города", "description": "Операционная настройка Telegram; публичный список городов общий с сайтом", "default": True, "scope": "city", "group": "channels"},
     {"key": "route_generation_enabled", "label": "Маршруты в городе", "description": "Генерация маршрутов для города", "default": True, "scope": "city", "group": "routes"},
     {"key": "ai_recommendations_enabled", "label": "AI-рекомендации", "description": "Рекомендации для города", "default": True, "scope": "city", "group": "ai"},
     {"key": "import_enabled", "label": "Импорт мест", "description": "Разрешён импорт в город", "default": True, "scope": "city", "group": "data"},
