@@ -217,6 +217,13 @@ if [ "$SCHEMA_EXIT" != "0" ]; then
   exit 1
 fi
 
+echo "=== reconcile legacy public flags ==="
+# This only closes legacy leaks from cities that are not explicitly published.
+# It never publishes a city or place.
+run_compose_timeout 90s run -T --rm --no-deps backend \
+  python scripts/reconcile_publication_flags.py --apply --confirm \
+  </dev/null
+
 echo "=== recreate backend ==="
 compose_recreate_no_pull backend
 if ! wait_for_backend_ready 30; then
