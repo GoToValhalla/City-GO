@@ -6,7 +6,7 @@ from typing import Awaitable, Callable
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
@@ -230,14 +230,14 @@ async def _start_flow(db: Session, session, facade: BotFacade, message: Message)
         session.current_flow = "main"
         session.nav_stack = ["m:main"]
         save_session(db, session)
-        await message.answer(renderers.main_menu_text(selected), reply_markup=kb.main_menu())
+        await _answer_main_menu(message, renderers.main_menu_text(selected))
         return
     if len(cities) == 1:
         session.selected_city_slug = cities[0].slug
         session.current_flow = "main"
         session.nav_stack = ["m:main"]
         save_session(db, session)
-        await message.answer(renderers.main_menu_text(cities[0]), reply_markup=kb.main_menu())
+        await _answer_main_menu(message, renderers.main_menu_text(cities[0]))
         return
     session.current_flow = "city_select"
     session.nav_stack = ["c:list"]
@@ -253,7 +253,18 @@ async def _show_main_menu_message(db: Session, session, facade: BotFacade, messa
         return
     session.current_flow = "main"
     save_session(db, session)
-    await message.answer(renderers.main_menu_text(city), reply_markup=kb.main_menu())
+    await _answer_main_menu(message, renderers.main_menu_text(city))
+
+
+async def _answer_main_menu(message: Message, text: str) -> None:
+    # Reply keyboards persist in Telegram until a message explicitly removes them.
+    # Remove the legacy keyboard on the same menu message, without a separate notice.
+    sent = await message.answer(text, reply_markup=ReplyKeyboardRemove())
+    try:
+        await sent.edit_reply_markup(reply_markup=kb.main_menu())
+    except Exception:
+        logger.exception("Failed to attach inline main menu after keyboard removal")
+        await message.answer("Открываю меню.", reply_markup=kb.main_menu())
 
 
 async def _show_main_menu_callback(callback: CallbackQuery, db: Session, session, facade: BotFacade) -> None:
