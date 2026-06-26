@@ -9,6 +9,7 @@ from schemas.place import PlaceCreate, PlaceUpdate
 from schemas.place_query_params import PlaceQueryParams
 from services.place_count_service import get_query_total
 from services.place_filters_service import apply_place_filters
+from services.place_public_visibility import apply_public_place_visibility
 from services.place_query_params_service import normalize_place_query_params
 from services.place_search_service import apply_place_text_search
 from services.place_sorting_service import apply_place_sorting
@@ -36,6 +37,7 @@ def get_places(
     offset: int = 0,
     sort_by: str = "title",
     sort_order: str = "asc",
+    public_only: bool = False,
 ) -> list[Place]:
     params = normalize_place_query_params(
         PlaceQueryParams(
@@ -52,6 +54,8 @@ def get_places(
     )
 
     query = db.query(Place)
+    if public_only:
+        query = apply_public_place_visibility(query)
 
     query = apply_place_filters(
         db=db,
@@ -78,6 +82,7 @@ def get_places_total(
     category_id: int | None = None,
     tag_id: int | None = None,
     q: str | None = None,
+    public_only: bool = False,
 ) -> int:
     """Возвращает общее количество мест по тем же фильтрам, но без limit / offset."""
     params = normalize_place_query_params(
@@ -91,6 +96,8 @@ def get_places_total(
     )
 
     query = db.query(Place)
+    if public_only:
+        query = apply_public_place_visibility(query)
     query = apply_place_filters(
         db=db,
         query=query,
@@ -107,13 +114,19 @@ def get_places_total(
 
 
 # Возвращает одно место по его идентификатору.
-def get_place_by_id(db: Session, place_id: int) -> Place | None:
-    return db.query(Place).filter(Place.id == place_id).first()
+def get_place_by_id(db: Session, place_id: int, *, public_only: bool = False) -> Place | None:
+    query = db.query(Place).filter(Place.id == place_id)
+    if public_only:
+        query = apply_public_place_visibility(query)
+    return query.first()
 
 
 # Возвращает одно место по его slug.
-def get_place_by_slug(db: Session, slug: str) -> Place | None:
-    return db.query(Place).filter(Place.slug == slug).first()
+def get_place_by_slug(db: Session, slug: str, *, public_only: bool = False) -> Place | None:
+    query = db.query(Place).filter(Place.slug == slug)
+    if public_only:
+        query = apply_public_place_visibility(query)
+    return query.first()
 
 
 # Создает новое место, сохраняет его в базе и возвращает результат.
