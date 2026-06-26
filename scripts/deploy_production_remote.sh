@@ -5,12 +5,14 @@ run_docker() {
   timeout --signal=TERM --kill-after=15s 90s docker "$@"
 }
 
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE_MODE="plugin"
-  echo "Docker Compose command: docker compose"
-elif command -v docker-compose >/dev/null 2>&1; then
+# Prefer the standalone binary on legacy hosts. Some old Docker CLIs accept
+# the version probe but reject real `docker compose` subcommands.
+if command -v docker-compose >/dev/null 2>&1; then
   COMPOSE_MODE="standalone"
   echo "Docker Compose command: docker-compose"
+elif docker compose version >/dev/null 2>&1; then
+  COMPOSE_MODE="plugin"
+  echo "Docker Compose command: docker compose"
 else
   echo "ERROR: neither 'docker compose' nor 'docker-compose' is available on the production host." >&2
   exit 127
