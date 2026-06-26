@@ -91,6 +91,18 @@ post_start_api_smoke() {
   echo "Public and admin API smoke OK"
 }
 
+post_start_public_catalog_gate() {
+  echo "=== public catalog gate ==="
+  local catalog
+  catalog="$(curl -fsS --connect-timeout 5 --max-time 15 http://localhost:8000/cities/available)"
+  if ! printf '%s' "$catalog" | "$HOST_PYTHON" -c \
+    'import json, sys; payload = json.load(sys.stdin); assert isinstance(payload, list) and payload, "no published cities in public catalog"'; then
+    echo "ERROR: public catalog has no published cities after deploy. Runtime remains up, but deploy is marked failed."
+    return 1
+  fi
+  echo "Public catalog gate OK"
+}
+
 mkdir -p /srv/app
 
 echo "=== download compose from ${GH_REPO}@main ==="
@@ -311,6 +323,10 @@ done
 
 if ! post_start_api_smoke; then
   echo "ERROR: post-start API smoke failed."
+  diagnose_runtime
+  exit 1
+fi
+if ! post_start_public_catalog_gate; then
   diagnose_runtime
   exit 1
 fi
