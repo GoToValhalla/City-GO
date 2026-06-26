@@ -71,6 +71,7 @@ _TITLE_PHRASES = (
     ("frontend", "frontend"),
     ("backend", "backend"),
     ("admin", "админка"),
+    ("and", "и"),
     ("telegram", "Telegram"),
     ("cities", "города"),
     ("city", "город"),
