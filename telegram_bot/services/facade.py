@@ -124,7 +124,7 @@ class BotFacade:
             .filter(Route.id == route_id, Route.is_active.is_(True))
             .first()
         )
-        if row is None:
+        if row is None or not self._city_is_public(row.city_id):
             return None
         route = self._route(row)
         return route if len(route.points) >= 2 else None
@@ -144,7 +144,7 @@ class BotFacade:
 
     def place(self, place_id: int) -> BotPlace | None:
         row = self.db.query(Place).options(joinedload(Place.category_ref)).filter(Place.id == place_id).first()
-        if row is None or not is_place_bot_visible(row):
+        if row is None or not self._public_place(row):
             return None
         return self._place(row)
 
@@ -239,7 +239,7 @@ class BotFacade:
         if not place_ids:
             return []
         rows = self.db.query(Place).options(joinedload(Place.category_ref)).filter(Place.id.in_(place_ids)).all()
-        return [self._place(row) for row in rows if is_place_bot_visible(row)]
+        return [self._place(row) for row in rows if self._public_place(row)]
 
     def favorite_routes(self, route_ids: list[int]) -> list[BotRoute]:
         if not route_ids:
@@ -251,6 +251,17 @@ class BotFacade:
             .all()
         )
         return [route for route in (self._route(row) for row in rows) if len(route.points) >= 2]
+
+    def _city_is_public(self, city_id: int) -> bool:
+        return (
+            self.db.query(City.id)
+            .filter(City.id == city_id, City.is_active.is_(True), City.launch_status == "published")
+            .first()
+            is not None
+        )
+
+    def _public_place(self, place: Place) -> bool:
+        return self._city_is_public(place.city_id) and is_place_bot_visible(place)
 
     def _city_row(self, slug: str) -> City | None:
         if self.city(slug) is None:
@@ -300,7 +311,7 @@ class BotFacade:
         points = []
         for link in sorted(row.route_places, key=lambda item: item.position):
             place = link.place
-            if place is None or not is_route_point_bot_eligible(place):
+            if place is None or not self._public_place(place) or not is_route_point_bot_eligible(place):
                 continue
             points.append(
                 BotRoutePoint(
