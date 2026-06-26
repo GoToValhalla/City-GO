@@ -24,9 +24,8 @@ PUBLIC_HIDDEN_CATEGORIES = {
 }
 
 
-def public_place_conditions() -> tuple[Any, ...]:
-    return (
-        Place.city.has(and_(City.is_active.is_(True), City.launch_status == "published")),
+def public_place_conditions(*, require_published_city: bool = True) -> tuple[Any, ...]:
+    conditions: tuple[Any, ...] = (
         _true_or_null(Place.is_active),
         or_(Place.status.is_(None), Place.status == PUBLIC_ACTIVE_STATUS),
         _true_or_null(Place.is_published),
@@ -36,10 +35,19 @@ def public_place_conditions() -> tuple[Any, ...]:
             Place.category.notin_(tuple(PUBLIC_HIDDEN_CATEGORIES)),
         ),
     )
+    if require_published_city:
+        return (
+            Place.city.has(and_(City.is_active.is_(True), City.launch_status == "published")),
+            *conditions,
+        )
+    return conditions
 
 
-def public_route_place_conditions() -> tuple[Any, ...]:
-    return (*public_place_conditions(), _true_or_null(Place.is_route_eligible))
+def public_route_place_conditions(*, require_published_city: bool = True) -> tuple[Any, ...]:
+    return (
+        *public_place_conditions(require_published_city=require_published_city),
+        _true_or_null(Place.is_route_eligible),
+    )
 
 
 def apply_public_place_visibility(query: Query) -> Query:
