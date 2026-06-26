@@ -94,6 +94,7 @@ def approve_place_image(
     image_id: int,
     actor: str = "admin",
     comment: str | None = None,
+    commit: bool = True,
 ) -> PlaceImage:
     """Одобряет фото и пишет audit event. actor берётся из auth context."""
     image = _get_image_or_raise(db, image_id)
@@ -133,8 +134,9 @@ def approve_place_image(
         new_value={"status": image.status, "reviewed_by": actor},
     )
 
-    db.commit()
-    db.refresh(image)
+    if commit:
+        db.commit()
+        db.refresh(image)
     return image
 
 
@@ -143,6 +145,7 @@ def reject_place_image(
     image_id: int,
     actor: str = "admin",
     comment: str | None = None,
+    commit: bool = True,
 ) -> PlaceImage:
     """Отклоняет фото и пишет audit event. actor берётся из auth context."""
     image = _get_image_or_raise(db, image_id)
@@ -168,9 +171,36 @@ def reject_place_image(
         new_value={"status": image.status, "reviewed_by": actor},
     )
 
-    db.commit()
-    db.refresh(image)
+    if commit:
+        db.commit()
+        db.refresh(image)
     return image
+
+
+def bulk_review_place_images(
+    db: Session,
+    image_ids: list[int],
+    *,
+    action: str,
+    actor: str,
+    comment: str | None = None,
+) -> tuple[list[PlaceImage], list[int]]:
+    if action not in {"approve", "reject"}:
+        raise ValueError("Unsupported photo review action")
+    unique_ids = list(dict.fromkeys(image_ids))
+    existing = {image.id for image in db.query(PlaceImage).filter(PlaceImage.id.in_(unique_ids)).all()}
+    processed: list[PlaceImage] = []
+    for image_id in unique_ids:
+        if image_id not in existing:
+            continue
+        if action == "approve":
+            processed.append(approve_place_image(db, image_id, actor=actor, comment=comment, commit=False))
+        else:
+            processed.append(reject_place_image(db, image_id, actor=actor, comment=comment, commit=False))
+    db.commit()
+    for image in processed:
+        db.refresh(image)
+    return processed, [image_id for image_id in unique_ids if image_id not in existing]
 
 
 def set_primary_place_image(db: Session, image_id: int, actor: str = "admin") -> PlaceImage:
