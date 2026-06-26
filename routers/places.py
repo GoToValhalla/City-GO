@@ -48,6 +48,7 @@ def read_places(
         offset=offset,
         sort_by=sort_by,
         sort_order=sort_order,
+        public_only=True,
     )
 
     total = get_places_total(
@@ -57,6 +58,7 @@ def read_places(
         category_id=category_id,
         tag_id=tag_id,
         q=q,
+        public_only=True,
     )
 
     return build_place_search_response(
@@ -70,7 +72,7 @@ def read_places(
 # Возвращает одно место по его идентификатору.
 @router.get("/{place_id}", response_model=PlaceRead)
 def read_place(place_id: int, db: Session = Depends(get_db)) -> PlaceRead:
-    place = get_place_by_id(db, place_id)
+    place = get_place_by_id(db, place_id, public_only=True)
     if place is None:
         raise HTTPException(status_code=404, detail="Place not found")
     return build_place_read(db, place)
@@ -79,7 +81,7 @@ def read_place(place_id: int, db: Session = Depends(get_db)) -> PlaceRead:
 # Возвращает одно место по его slug.
 @router.get("/by-slug/{slug}", response_model=PlaceRead)
 def read_place_by_slug(slug: str, db: Session = Depends(get_db)) -> PlaceRead:
-    place = get_place_by_slug(db, slug)
+    place = get_place_by_slug(db, slug, public_only=True)
     if place is None:
         raise HTTPException(status_code=404, detail="Place not found")
     return build_place_read(db, place)
