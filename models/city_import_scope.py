@@ -25,7 +25,11 @@ class CityImportScope(Base):
     polygon: Mapped[dict[str, object] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     status: Mapped[str] = mapped_column(String(64), nullable=False, default="draft", index=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+
+    # New import scopes must participate in refresh pipelines by default. To stop an
+    # import scope, set status='paused' explicitly; enabled=False remains only a
+    # legacy/manual kill switch for old data and is repaired by the refresh workflow.
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
 
     # TODO(Data Foundation V2): import_profile должен зависеть от DestinationType:
     # city_tourist / nature_region / national_park / route_corridor / tourist_cluster.
