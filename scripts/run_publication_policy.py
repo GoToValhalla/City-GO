@@ -10,8 +10,6 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from sqlalchemy.orm import joinedload
-
 from db.session import SessionLocal
 from models.city import City
 from models.place import Place
@@ -23,6 +21,8 @@ from services.publication_policy import (
     evaluate_new_place,
 )
 from services.publication_policy_summary import get_publication_policy_summary
+
+BATCH_SIZE = 25
 
 
 def parse_args() -> argparse.Namespace:
@@ -47,14 +47,7 @@ def main() -> None:
 
     db = SessionLocal()
     try:
-        query = db.query(Place).options(joinedload(Place.city)).filter(
-            Place.is_published.is_(False),
-            Place.is_active.is_(True),
-        )
-        if args.city_slug:
-            query = query.join(City).filter(City.slug == args.city_slug)
-
-        places = query.order_by(Place.updated_at.desc()).limit(args.limit).all()
+        place_ids = _load_place_ids(db, city_slug=args.city_slug, limit=args.limit)
         run_summary = {
             "config": asdict(config),
             "evaluated": 0,
@@ -63,20 +56,40 @@ def main() -> None:
             "send_to_review": 0,
             "hidden": 0,
         }
+        print(f"publication_policy_candidates={len(place_ids)}", flush=True)
 
-        for place in places:
+        for place_id in place_ids:
+            place = db.get(Place, place_id)
+            if place is None:
+                continue
             decision = evaluate_new_place(place, config=config)
             apply_publication_decision(db, place, decision, config=config, actor="publication-policy-runner")
             run_summary["evaluated"] += 1
             run_summary[decision.decision] = int(run_summary.get(decision.decision, 0)) + 1
 
+            if run_summary["evaluated"] % BATCH_SIZE == 0:
+                db.commit()
+                db.expunge_all()
+                print(f"publication_policy_progress={run_summary['evaluated']}/{len(place_ids)}", flush=True)
+
         db.commit()
         summary = get_publication_policy_summary(db, days=7, city_slug=args.city_slug)
         output = {"run": run_summary, "last_7_days": summary}
-        print(json.dumps(output, ensure_ascii=False, sort_keys=True))
-        print("PUBLICATION_POLICY_SUMMARY_JSON=" + json.dumps(output, ensure_ascii=False, sort_keys=True))
+        print(json.dumps(output, ensure_ascii=False, sort_keys=True), flush=True)
+        print("PUBLICATION_POLICY_SUMMARY_JSON=" + json.dumps(output, ensure_ascii=False, sort_keys=True), flush=True)
     finally:
         db.close()
+
+
+def _load_place_ids(db, *, city_slug: str | None, limit: int) -> list[int]:
+    query = db.query(Place.id).filter(
+        Place.is_published.is_(False),
+        Place.is_active.is_(True),
+    )
+    if city_slug:
+        query = query.join(City, City.id == Place.city_id).filter(City.slug == city_slug)
+    rows = query.order_by(Place.updated_at.desc()).limit(limit).all()
+    return [int(row[0]) for row in rows]
 
 
 if __name__ == "__main__":
