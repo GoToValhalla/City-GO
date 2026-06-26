@@ -227,3 +227,27 @@ export type AdminVerificationSummary = {
   low_confidence: number
   verified_today: number
 }
+
+export type AdminPlaceChangeReview = {
+  id: number
+  city_slug: string
+  city_name: string
+  place_id: number
+  place_title: string
+  reason: string
+  severity: string
+  status: string
+  decision: string
+  changes: Record<string, { before: unknown; after: unknown }>
+  review_reasons: string[]
+  created_at: string
+  resolved_at: string | null
+  resolution: string | null
+}
+
+export type AdminPlaceChangeReviewsResponse = {
+  items: AdminPlaceChangeReview[]
+  total: number
+  limit: number
+  offset: number
+}
