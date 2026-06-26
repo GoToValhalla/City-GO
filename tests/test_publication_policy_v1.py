@@ -31,7 +31,7 @@ def _make_high_trust(place):
     return place
 
 
-@allure.title("Publication policy: shadow keeps high-trust place unpublished")
+@allure.title("Публикация: shadow mode не публикует место с высоким доверием")
 def test_publication_policy_shadow_keeps_high_trust_place_unpublished(db_session, place_factory):
     place = place_factory(is_published=False, is_visible_in_catalog=False, is_route_eligible=False, is_searchable=False, publication_status="draft")
     _make_high_trust(place)
@@ -49,7 +49,7 @@ def test_publication_policy_shadow_keeps_high_trust_place_unpublished(db_session
     assert db_session.query(PlacePublicationDecision).filter_by(place_id=place.id, decision=DECISION_SHADOW_AUTO_PUBLISH).count() == 1
 
 
-@allure.title("Publication policy: apply publishes only high-trust places")
+@allure.title("Публикация: apply mode публикует только место с высоким доверием")
 def test_publication_policy_apply_publishes_high_trust_place(db_session, place_factory):
     place = place_factory(is_published=False, is_visible_in_catalog=False, is_route_eligible=False, is_searchable=False, publication_status="draft")
     _make_high_trust(place)
@@ -69,7 +69,7 @@ def test_publication_policy_apply_publishes_high_trust_place(db_session, place_f
     assert db_session.query(PlaceSnapshot).filter_by(place_id=place.id, reason="pre_auto_publish").count() == 1
 
 
-@allure.title("Publication policy: critical change keeps published place visible and creates review")
+@allure.title("Публикация: критичное изменение оставляет место видимым и создаёт review")
 def test_publication_policy_critical_change_keeps_published_place_visible(db_session, place_factory):
     place = place_factory(title="Old Name", is_published=True, is_visible_in_catalog=True, is_route_eligible=True, is_searchable=True)
     _make_high_trust(place)
