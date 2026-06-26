@@ -71,6 +71,7 @@ async def cmd_menu(message: Message) -> None:
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
+    await _remove_reply_keyboard(message)
     await message.answer(renderers.help_text(), reply_markup=kb.back_to_menu())
 
 
@@ -80,6 +81,7 @@ async def location_message(message: Message) -> None:
         if not message.location:
             await message.answer("Не удалось получить геолокацию.", reply_markup=kb.back_to_menu())
             return
+        await _remove_reply_keyboard(message)
         pending = consume_pending_intent(session)
         save_temporary_location(session, message.location.latitude, message.location.longitude)
         save_session(db, session)
@@ -132,12 +134,13 @@ async def text_message(message: Message) -> None:
         if lowered == "использовать центр города":
             session.current_flow = None
             save_session(db, session)
-            await message.answer("Используем центр выбранного города.", reply_markup=kb.main_menu())
+            await _answer_main_menu(message, "Используем центр выбранного города.")
             return
         if lowered == "сменить город":
             await _show_city_select_message(message, facade, db=db, session=session)
             return
         if lowered in {"помощь", "что умеет бот"}:
+            await _remove_reply_keyboard(message)
             await message.answer(renderers.help_text(), reply_markup=kb.back_to_menu())
             return
         if session.current_flow == "city_select" or not session.selected_city_slug:
@@ -223,6 +226,7 @@ async def _start_flow(db: Session, session, facade: BotFacade, message: Message)
     if not cities:
         session.current_flow = "city_select"
         save_session(db, session)
+        await _remove_reply_keyboard(message)
         await message.answer(renderers.city_select_text(cities))
         return
     selected = facade.city(session.selected_city_slug)
@@ -242,6 +246,7 @@ async def _start_flow(db: Session, session, facade: BotFacade, message: Message)
     session.current_flow = "city_select"
     session.nav_stack = ["c:list"]
     save_session(db, session)
+    await _remove_reply_keyboard(message)
     await message.answer(renderers.start_text())
     await message.answer(renderers.city_select_text(cities), reply_markup=kb.city_list(cities))
 
@@ -257,14 +262,15 @@ async def _show_main_menu_message(db: Session, session, facade: BotFacade, messa
 
 
 async def _answer_main_menu(message: Message, text: str) -> None:
-    # Reply keyboards persist in Telegram until a message explicitly removes them.
-    # Remove the legacy keyboard on the same menu message, without a separate notice.
-    sent = await message.answer(text, reply_markup=ReplyKeyboardRemove())
-    try:
-        await sent.edit_reply_markup(reply_markup=kb.main_menu())
-    except Exception:
-        logger.exception("Failed to attach inline main menu after keyboard removal")
-        await message.answer("Открываю меню.", reply_markup=kb.main_menu())
+    await _remove_reply_keyboard(message)
+    await message.answer(text, reply_markup=kb.main_menu())
+
+
+async def _remove_reply_keyboard(message: Message) -> None:
+    with suppress(Exception):
+        cleanup = await message.answer("\u2063", reply_markup=ReplyKeyboardRemove())
+        with suppress(Exception):
+            await cleanup.delete()
 
 
 async def _show_main_menu_callback(callback: CallbackQuery, db: Session, session, facade: BotFacade) -> None:
@@ -283,6 +289,7 @@ async def _show_city_select_message(message: Message, facade: BotFacade, *, db: 
         session.current_flow = "city_select"
         if db is not None:
             save_session(db, session)
+    await _remove_reply_keyboard(message)
     if not cities:
         await message.answer(renderers.city_select_text(cities))
         return
@@ -306,12 +313,13 @@ async def _select_city_from_text(db: Session, session, facade: BotFacade, messag
         session.nav_stack = ["m:main"]
         save_session(db, session)
         log_event(db, session, "city_selected", entity_type="city", entity_id=city.slug)
-        await message.answer(renderers.main_menu_text(city), reply_markup=kb.main_menu())
+        await _answer_main_menu(message, renderers.main_menu_text(city))
         return
 
     cities = facade.published_cities()
     session.current_flow = "city_select"
     save_session(db, session)
+    await _remove_reply_keyboard(message)
     await message.answer(
         "Город не найден. Напиши название точнее или выбери из списка ниже.\n\n" + renderers.city_select_text(cities),
         reply_markup=kb.city_list(cities) if cities else None,
