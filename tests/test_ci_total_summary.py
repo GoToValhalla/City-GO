@@ -124,3 +124,25 @@ def test_total_report_shows_failed_stage_without_fake_test_failure() -> None:
     with then("этап отмечается отдельно от падений тестов"):
         assert "Этапы: Frontend build" in message
         assert "Тесты: 0 из 0 упали" in message
+
+
+def test_total_report_never_exposes_python_test_identifier_without_allure_title(tmp_path) -> None:
+    junit = tmp_path / "backend.xml"
+    junit.write_text(
+        """<testsuite>
+<testcase classname="tests.test_internal" name="test_internal_contract_breaks" time="0.1">
+  <failure message="AssertionError: expected value">AssertionError: expected value</failure>
+</testcase>
+</testsuite>""",
+        encoding="utf-8",
+    )
+
+    message = render_report(
+        TotalReport(
+            cases=parse_junit(junit, "backend"),
+            stages={"Backend tests": "failure"},
+        )
+    )
+
+    assert "Сценарий без названия в Allure: AssertionError: expected value" in message
+    assert "test_internal_contract_breaks" not in message
