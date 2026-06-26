@@ -6,7 +6,7 @@ from typing import Awaitable, Callable
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types import CallbackQuery, Message
 from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
@@ -61,13 +61,11 @@ CATEGORY_TITLES = {
 
 @router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
-    await _clear_legacy_reply_keyboard(message)
     await _with_session(message, _start_flow)
 
 
 @router.message(Command("menu"))
 async def cmd_menu(message: Message) -> None:
-    await _clear_legacy_reply_keyboard(message)
     await _with_session(message, _show_main_menu_message)
 
 
@@ -286,7 +284,6 @@ async def _show_city_select_callback(callback: CallbackQuery, facade: BotFacade,
         session.current_flow = "city_select"
         if db is not None:
             save_session(db, session)
-    await _clear_legacy_reply_keyboard_from_callback(callback)
     await _edit_or_answer(callback, renderers.city_select_text(cities), reply_markup=kb.city_list(cities) if cities else None)
 
 
@@ -747,18 +744,6 @@ def _should_push_nav(data: str, parsed: ParsedCallback) -> bool:
     if parsed.scope == "near" and parsed.action == "ask":
         return True
     return parsed.scope in {"m", "c", "r", "p", "near", "open", "help"}
-
-
-async def _clear_legacy_reply_keyboard(message: Message) -> None:
-    with suppress(Exception):
-        await message.answer("Обновляю меню City GO.", reply_markup=ReplyKeyboardRemove())
-
-
-async def _clear_legacy_reply_keyboard_from_callback(callback: CallbackQuery) -> None:
-    if callback.message is None:
-        return
-    with suppress(Exception):
-        await callback.message.answer("Убираю старую клавиатуру.", reply_markup=ReplyKeyboardRemove())
 
 
 async def _edit_or_answer(callback: CallbackQuery, text: str, *, reply_markup=None) -> None:
