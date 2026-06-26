@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import allure
+
 
 START_REPLACED_WARNING = "start_coordinates_replaced_with_city_center"
 
@@ -80,6 +82,7 @@ def test_tm_008_ultra_short_budget_remote_start_uses_single_point_new(client, ci
     assert "visit_time_clamped_to_fit_budget" in body["quality"]["warnings"]
 
 
+@allure.title("Администратор строит тестовый маршрут для неопубликованного города")
 def test_tm_007_admin_dry_run_bypasses_draft_city_status_new(client, city_factory, place_factory) -> None:
     city = city_factory(
         slug="tm-admin-draft-city",
