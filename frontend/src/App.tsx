@@ -31,6 +31,7 @@ import { AdminCityWorkspacePage } from './pages/admin/AdminCityWorkspacePage'
 import { AdminPlacesPage } from './pages/admin/AdminPlacesPage'
 import { AdminPlaceImagesPage } from './pages/admin/AdminPlaceImagesPage'
 import { AdminPlaceVerificationsPage } from './pages/admin/AdminPlaceVerificationsPage'
+import { AdminPlaceChangeReviewsPage } from './pages/admin/AdminPlaceChangeReviewsPage'
 import { AdminImportJobsPage } from './pages/admin/AdminImportJobsPage'
 import { AdminCoveragePage } from './pages/admin/AdminCoveragePage'
 import { AdminAuditLogPage } from './pages/admin/AdminAuditLogPage'
@@ -61,7 +62,7 @@ function App() {
     <Route path="/admin/places" element={<AdminPage><AdminPlacesPage /></AdminPage>} /><Route path="/admin/places/new" element={<AdminPage><AdminPlaceCreatePage /></AdminPage>} /><Route path="/admin/places/:id" element={<AdminPage><AdminPlaceDetailPage /></AdminPage>} />
     <Route path="/admin/taxonomy" element={<AdminPage><AdminTaxonomyPage /></AdminPage>} /><Route path="/admin/taxonomy/conflicts" element={<Navigate to="/admin/taxonomy?tab=conflicts" replace />} />
     <Route path="/admin/photos" element={<AdminPage><AdminPlaceImagesPage /></AdminPage>} /><Route path="/admin/place-images" element={<Navigate to="/admin/photos" replace />} />
-    <Route path="/admin/verification" element={<AdminPage><AdminPlaceVerificationsPage /></AdminPage>} /><Route path="/admin/place-verifications" element={<Navigate to="/admin/verification" replace />} />
+    <Route path="/admin/verification" element={<AdminPage><AdminPlaceVerificationsPage /></AdminPage>} /><Route path="/admin/place-verifications" element={<Navigate to="/admin/verification" replace />} /><Route path="/admin/place-changes" element={<AdminPage><AdminPlaceChangeReviewsPage /></AdminPage>} />
     <Route path="/admin/imports" element={<AdminPage><AdminImportJobsPage /></AdminPage>} /><Route path="/admin/import-jobs" element={<Navigate to="/admin/imports" replace />} />
     <Route path="/admin/coverage" element={<AdminPage><AdminCoveragePage /></AdminPage>} /><Route path="/admin/quality" element={<AdminPage><AdminQualityPage /></AdminPage>} />
     <Route path="/admin/routes/eligibility" element={<AdminPage><AdminRouteEligibilityPage /></AdminPage>} /><Route path="/admin/routes/dry-run" element={<AdminPage><AdminRouteDryRunPage /></AdminPage>} /><Route path="/admin/routes/data-quality" element={<AdminPage><AdminRouteDataQualityPage /></AdminPage>} />
