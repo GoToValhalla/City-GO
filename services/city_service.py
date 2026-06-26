@@ -3,7 +3,7 @@
 """
 
 from sqlalchemy import and_, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from models.city import City
 from models.place import Place
@@ -94,7 +94,7 @@ def _city_visible_to_users(db: Session, city_slug: str) -> bool:
 
 
 def _city_visible_to_users_for_city(city: City) -> bool:
-    db = Session.object_session(city)
+    db = object_session(city)
     if db is None:
         return True
     return _city_visible_to_users(db, city.slug)
