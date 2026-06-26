@@ -181,11 +181,16 @@ class CandidateRetrievalService:
         return db.execute(query).scalars().all()
 
     def _base_query(self, ctx: MergedContext, *, apply_user_exclusions: bool = True):
-        query = select(Place).where(*route_eligible_sql_conditions())
-        query = query.join(City, Place.city_id == City.id).where(
-            City.is_active.is_(True),
-            ~City.launch_status.in_(BLOCKED_CITY_LAUNCH_STATUSES),
+        admin_preview = bool(getattr(ctx, "is_admin", False))
+        query = select(Place).where(
+            *route_eligible_sql_conditions(require_published_city=not admin_preview)
         )
+        query = query.join(City, Place.city_id == City.id)
+        if not admin_preview:
+            query = query.where(
+                City.is_active.is_(True),
+                ~City.launch_status.in_(BLOCKED_CITY_LAUNCH_STATUSES),
+            )
         if ctx.city_id:
             query = query.where(City.slug == str(ctx.city_id))
 
@@ -260,12 +265,14 @@ class CandidateRetrievalService:
             select(Place)
             .join(City, Place.city_id == City.id)
             .where(
-                *public_route_place_conditions(),
+                *public_route_place_conditions(
+                    require_published_city=not bool(getattr(ctx, "is_admin", False))
+                ),
                 Place.lat.is_not(None),
                 Place.lng.is_not(None),
             )
         )
-        if require_active_city:
+        if require_active_city and not bool(getattr(ctx, "is_admin", False)):
             query = query.where(
                 City.is_active.is_(True),
                 ~City.launch_status.in_(BLOCKED_CITY_LAUNCH_STATUSES),
@@ -426,12 +433,14 @@ class CandidateRetrievalService:
             select(Place)
             .join(City, Place.city_id == City.id)
             .where(
-                *public_route_place_conditions(),
+                *public_route_place_conditions(
+                    require_published_city=not bool(getattr(ctx, "is_admin", False))
+                ),
                 Place.lat.is_not(None),
                 Place.lng.is_not(None),
             )
         )
-        if require_active_city:
+        if require_active_city and not bool(getattr(ctx, "is_admin", False)):
             query = query.where(
                 City.is_active.is_(True),
                 ~City.launch_status.in_(BLOCKED_CITY_LAUNCH_STATUSES),
