@@ -4,7 +4,7 @@ import allure
 import pytest
 
 from scripts.ci_total_summary import TotalReport, enrich_with_allure, parse_junit, render_report
-from tests.allure_support import given, scenario, then, when
+from tests.allure_support import given, readable_test_title, scenario, then, when
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
@@ -146,3 +146,11 @@ def test_total_report_never_exposes_python_test_identifier_without_allure_title(
 
     assert "Сценарий без названия в Allure: AssertionError: expected value" in message
     assert "test_internal_contract_breaks" not in message
+
+
+def test_readable_test_title_turns_technical_id_into_human_label() -> None:
+    assert (
+        readable_test_title("test_registry_and_available_cities")
+        == "Проверка: Реестр и доступные города"
+    )
+    assert "test_" not in readable_test_title("test_tm_007_admin_dry_run_bypasses_draft_city_status_new")
