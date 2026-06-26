@@ -71,7 +71,10 @@ def put_feature_toggle(
     db: Session = Depends(get_db),
 ) -> FeatureToggleRead:
     scope_id = city_slug if scope == "city" else None
-    row = update_toggle(db, key=key, scope=scope, scope_id=scope_id, value_bool=payload.value_bool, actor=auth.actor_id, reason=payload.reason)
+    try:
+        row = update_toggle(db, key=key, scope=scope, scope_id=scope_id, value_bool=payload.value_bool, actor=auth.actor_id, reason=payload.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return FeatureToggleRead(key=row.key, scope=row.scope, scope_id=row.scope_id, value_bool=row.value_bool, description=row.description, updated_by=row.updated_by, updated_at=row.updated_at)
 
 
