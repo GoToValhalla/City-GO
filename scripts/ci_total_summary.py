@@ -118,10 +118,9 @@ def _properties(case: ET.Element) -> dict[str, str]:
 
 
 def _fallback_title(name: str) -> str:
-    value = re.sub(r"^test_", "", name)
-    value = re.sub(r"_new$", "", value)
-    value = value.replace("_", " ").strip()
-    return value[:1].upper() + value[1:] if value else "Неизвестный тест"
+    if name.startswith("test_"):
+        return "Сценарий без названия в Allure"
+    return name.strip() or "Сценарий без названия в Allure"
 
 
 def _frontend_type(classname: str, name: str) -> str:
