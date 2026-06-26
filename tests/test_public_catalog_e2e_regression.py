@@ -1,6 +1,5 @@
 from models.place import Place
 from models.review_queue_item import ReviewQueueItem
-from services.place_change_review_service import reject_place_change_review
 from services.publication_reconciliation_service import (
     apply_publication_reconciliation,
     publication_reconciliation_snapshot,
@@ -96,7 +95,8 @@ def test_changed_public_place_disappears_everywhere_until_rejected_change_is_rol
     assert client.get(f"/places/{place.id}").status_code == 404
     assert BotFacade(db_session).place(place.id) is None
 
-    reject_place_change_review(db_session, review.id, actor="test-admin")
+    review_response = client.post(f"/admin/place-change-reviews/{review.id}/reject", json={"reason": "source is incorrect"})
+    assert review_response.status_code == 200
 
     assert client.get(f"/places/{place.id}").status_code == 200
     assert BotFacade(db_session).place(place.id) is not None
