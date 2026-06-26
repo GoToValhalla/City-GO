@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.place import Place
 from services.city_slug_resolver import resolve_city_by_slug
+from services.feature_toggle_service import is_toggle_enabled
 from services.place_public_visibility import public_place_conditions
 
 PUBLISHED = "published"
@@ -15,7 +16,7 @@ PUBLISHED = "published"
 
 # Возвращает список опубликованных городов из базы данных.
 def get_cities(db: Session) -> list[City]:
-    return db.query(City).filter(City.is_active.is_(True), City.launch_status == PUBLISHED).all()
+    return [city for city in db.query(City).filter(City.is_active.is_(True), City.launch_status == PUBLISHED).all() if _city_visible_to_users(db, city.slug)]
 
 
 def get_available_cities(db: Session, *, include_draft: bool = False) -> list[dict[str, object]]:
@@ -55,6 +56,7 @@ def get_available_cities(db: Session, *, include_draft: bool = False) -> list[di
     )
     if not include_draft:
         rows = [row for row in rows if row.launch_status == PUBLISHED]
+    rows = [row for row in rows if _city_visible_to_users(db, row.slug)]
     return [
         {
             "slug": row.slug,
@@ -78,4 +80,21 @@ def get_city_by_slug(db: Session, slug: str) -> City | None:
 
 
 def city_is_published(city: City | None) -> bool:
-    return bool(city and city.is_active and city.launch_status == PUBLISHED)
+    return bool(city and city.is_active and city.launch_status == PUBLISHED and _city_visible_to_users_for_city(city))
+
+
+def _city_visible_to_users(db: Session, city_slug: str) -> bool:
+    if not is_toggle_enabled(db, "city_visible_to_users", scope="city", scope_id=city_slug, default=True):
+        return False
+    if is_toggle_enabled(db, "admin_only_city", scope="city", scope_id=city_slug, default=False):
+        return False
+    if is_toggle_enabled(db, "test_city", scope="city", scope_id=city_slug, default=False):
+        return False
+    return True
+
+
+def _city_visible_to_users_for_city(city: City) -> bool:
+    db = Session.object_session(city)
+    if db is None:
+        return True
+    return _city_visible_to_users(db, city.slug)
