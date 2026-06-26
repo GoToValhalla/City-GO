@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Query
 
 from models.city import City
