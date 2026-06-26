@@ -26,10 +26,13 @@ import models.place_field_confidence  # noqa: F401
 import models.place_photo_candidate  # noqa: F401
 import models.place_verification  # noqa: F401
 import models.place  # noqa: F401
+import models.place_change_review  # noqa: F401
 import models.place_discovery_request  # noqa: F401
 import models.place_import_event  # noqa: F401
+import models.place_publication_decision  # noqa: F401
 import models.place_schedule  # noqa: F401
 import models.place_scope_link  # noqa: F401
+import models.place_snapshot  # noqa: F401
 import models.place_source_presence  # noqa: F401
 import models.place_tag  # noqa: F401
 import models.place_verification_task  # noqa: F401
