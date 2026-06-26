@@ -2,10 +2,11 @@
 
 import '@testing-library/jest-dom/vitest'
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { RouteHeroPreview } from './RouteHeroPreview'
 
 describe('RouteHeroPreview', () => {
+  afterEach(() => { document.body.innerHTML = '' })
   it('does not mention sea for cities without sea feature', () => {
     render(<RouteHeroPreview features={[]} />)
 
