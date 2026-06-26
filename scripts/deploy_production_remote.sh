@@ -30,6 +30,16 @@ run_compose() {
   run_compose_timeout 90s "$@"
 }
 
+compose_recreate_no_pull() {
+  # docker compose v2 supports `up --pull never`; legacy docker-compose v1 does not.
+  # Images are already pulled explicitly in the registry step, so v1 can safely omit it.
+  if [ "$COMPOSE_MODE" = "plugin" ]; then
+    run_compose up -d --no-deps --force-recreate --pull never "$@"
+  else
+    run_compose up -d --no-deps --force-recreate "$@"
+  fi
+}
+
 diagnose_runtime() {
   echo "=== production runtime diagnostics ==="
   run_compose ps || true
@@ -196,7 +206,7 @@ if [ "$SCHEMA_EXIT" != "0" ]; then
 fi
 
 echo "=== recreate backend ==="
-run_compose up -d --no-deps --force-recreate --pull never backend
+compose_recreate_no_pull backend
 if ! wait_for_backend_ready 30; then
   echo "ERROR: backend started without a working database connection."
   diagnose_runtime
@@ -205,7 +215,7 @@ fi
 
 echo "=== recreate frontend ==="
 run_compose rm -sf frontend || true
-run_compose up -d --no-deps --force-recreate --pull never frontend
+compose_recreate_no_pull frontend
 FRONTEND_OK=0
 for attempt in $(seq 1 20); do
   BUILD_JSON=$(curl -sf --connect-timeout 5 --max-time 10 http://localhost/build.json || true)
@@ -224,7 +234,7 @@ if [ "$FRONTEND_OK" != "1" ]; then
 fi
 
 echo "=== recreate background services ==="
-run_compose up -d --no-deps --force-recreate --pull never bot import-worker
+compose_recreate_no_pull bot import-worker
 BACKGROUND_OK=0
 for attempt in $(seq 1 10); do
   if run_compose ps bot 2>/dev/null | grep -q "Up" \
