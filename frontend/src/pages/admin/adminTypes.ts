@@ -238,6 +238,8 @@ export type AdminPlaceChangeReview = {
   severity: string
   status: string
   decision: string
+  source?: string | null
+  source_url?: string | null
   changes: Record<string, { before: unknown; after: unknown }>
   review_reasons: string[]
   created_at: string
