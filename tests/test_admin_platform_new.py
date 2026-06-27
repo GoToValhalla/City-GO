@@ -24,6 +24,24 @@ def test_quality_and_analytics_use_real_rows_new(client, db_session, city_factor
     assert analytics["metrics"]["place_views"] == 1
 
 
+def test_quality_uses_live_score_when_stored_readiness_is_zero_new(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="live-quality-city", name="Live Quality", readiness_score=0)
+    place_factory(
+        city_id=city.id,
+        image_url="https://example.com/photo.jpg",
+        address="Main street 1",
+        quality_score=100,
+        verification_status="verified",
+    )
+    db_session.commit()
+
+    row = client.get(f"/admin/quality?city_slug={city.slug}").json()["items"][0]
+
+    assert row["readiness_score"] == 100
+    assert row["stored_readiness_score"] == 0
+    assert row["primary_blocker"] is None
+
+
 def test_alert_lifecycle_is_idempotent_new(client, db_session):
     log = SystemLog(level="error", module="import", message="boom", request_id="req-1")
     db_session.add(log)
@@ -43,3 +61,21 @@ def test_workspace_contains_operational_summary_new(client, city_factory):
     payload = client.get(f"/admin/cities/by-slug/{city.slug}/workspace").json()
     assert "quality" in payload["operations"]
     assert "routes" in payload["operations"]
+
+
+def test_workspace_readiness_uses_live_quality_score_new(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="workspace-live-quality", readiness_score=0)
+    place_factory(
+        city_id=city.id,
+        image_url="https://example.com/photo.jpg",
+        address="Main street 1",
+        quality_score=100,
+        verification_status="verified",
+    )
+    db_session.commit()
+
+    payload = client.get(f"/admin/cities/by-slug/{city.slug}/workspace").json()
+
+    assert payload["readiness"]["readiness_score"] == 100
+    assert payload["readiness"]["stored_readiness_score"] == 0
+    assert payload["readiness"]["primary_blocker"] is None
