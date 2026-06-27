@@ -17,6 +17,7 @@ from services.admin_audit_service import write_admin_audit_log
 from services.admin_city_import_job_payload import _latest_job, normalize_reviewable_import_state, recover_failed_import_with_places
 from services.admin_city_import_tasks import mark_stalled_import_jobs
 from services.admin_extra_service import admin_coverage
+from services.admin_platform_quality import city_quality_row
 from services.place_service import get_place_by_id
 from services.route_service import get_route_by_id
 
@@ -106,12 +107,16 @@ def get_admin_city_workspace(db: Session, city_slug: str) -> dict[str, object] |
         return None
     city_payload = _city_payload(db, city)
     coverage = _workspace_coverage(db, city.id)
+    quality = city_quality_row(db, city)
     return {
         "city": city_payload,
         "readiness": {
-            "readiness_score": int(city.readiness_score or 0),
+            "readiness_score": quality["readiness_score"],
+            "stored_readiness_score": quality["stored_readiness_score"],
             "quality_status": city.quality_status,
             "status": city.quality_status,
+            "primary_blocker": quality["primary_blocker"],
+            "blockers": quality["blockers"],
         },
         "import_job": _import_job_payload(db, city),
         "coverage": coverage,
