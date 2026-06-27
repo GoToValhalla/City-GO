@@ -33,11 +33,14 @@ def query_places_for_enrichment(
     city_slug: str,
     limit: int,
     only_published: bool,
+    only_unpublished: bool = False,
     only_route_eligible: bool,
     missing_fields: list[str],
 ) -> list[Place]:
     q = db.query(Place).join(City).filter(City.slug == city_slug)
-    if only_published:
+    if only_unpublished:
+        q = q.filter(Place.is_published.is_(False))
+    elif only_published:
         q = q.filter(Place.is_published.is_(True))
     if only_route_eligible:
         q = q.filter(Place.is_route_eligible.is_(True))
