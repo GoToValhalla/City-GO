@@ -21,6 +21,7 @@ class PlaceEnrichmentExportRequest(BaseModel):
     only_unpublished: bool = False
     only_route_eligible: bool = False
     missing_fields: list[str] = Field(default_factory=list)
+    exclude_place_ids: list[int] = Field(default_factory=list)
     git_artifact: bool = True
 
 
