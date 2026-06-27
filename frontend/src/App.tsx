@@ -25,6 +25,7 @@ import { TelegramMapPage } from './pages/telegram/TelegramMapPage'
 import { AdminLoginPage } from './pages/admin/AdminLoginPage'
 import { AdminRouteGuard } from './pages/admin/AdminRouteGuard'
 import { AdminLayout } from './pages/admin/AdminLayout'
+import { AdminAIPage } from './pages/admin/AdminAIPage'
 import { AdminOverviewPage } from './pages/admin/AdminOverviewPage'
 import { AdminCitiesPage } from './pages/admin/AdminCitiesPage'
 import { AdminCityWorkspacePage } from './pages/admin/AdminCityWorkspacePage'
@@ -58,6 +59,7 @@ function App() {
     <Route path="/routes/generate" element={<GenerateRoutePage />} /><Route path="/routes/:slug" element={<RouteDetailPage />} /><Route path="/walk-route" element={<WalkRoutePage />} /><Route path="/telegram/map" element={<TelegramMapPage />} />
     <Route path="/admin/login" element={<AdminLoginPage />} /><Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
     <Route path="/admin/overview" element={<AdminPage><AdminOverviewPage /></AdminPage>} /><Route path="/admin/dashboard" element={<Navigate to="/admin/overview" replace />} />
+    <Route path="/admin/ai" element={<AdminPage><AdminAIPage /></AdminPage>} />
     <Route path="/admin/cities" element={<AdminPage><AdminCitiesPage /></AdminPage>} /><Route path="/admin/cities/:slug" element={<AdminPage><AdminCityWorkspacePage /></AdminPage>} />
     <Route path="/admin/places" element={<AdminPage><AdminPlacesPage /></AdminPage>} /><Route path="/admin/places/new" element={<AdminPage><AdminPlaceCreatePage /></AdminPage>} /><Route path="/admin/places/:id" element={<AdminPage><AdminPlaceDetailPage /></AdminPage>} />
     <Route path="/admin/taxonomy" element={<AdminPage><AdminTaxonomyPage /></AdminPage>} /><Route path="/admin/taxonomy/conflicts" element={<Navigate to="/admin/taxonomy?tab=conflicts" replace />} />
