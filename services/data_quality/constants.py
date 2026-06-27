@@ -9,6 +9,7 @@ ISSUE_CATEGORY_CONFLICT = "category_conflict"
 ISSUE_SOURCE_CONFLICT = "source_conflict"
 ISSUE_WEAK_DESCRIPTION = "weak_description"
 ISSUE_BROKEN_PHOTO = "broken_photo"
+ISSUE_POSSIBLE_DUPLICATE = "possible_duplicate"
 
 OPEN_STATUSES = {"open", "candidate_created", "deferred"}
 
@@ -24,6 +25,7 @@ SUMMARY_KEYS = {
     "low_confidence": ISSUE_LOW_CONFIDENCE,
     "requires_review": ISSUE_REQUIRES_REVIEW,
     "route_eligibility_suspicious": ISSUE_ROUTE_SUSPICIOUS,
+    "possible_duplicates": ISSUE_POSSIBLE_DUPLICATE,
 }
 
 BULK_ACTIONS = {
