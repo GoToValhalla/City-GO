@@ -24,6 +24,7 @@ export const PUB_STATUS_OPTIONS = [
   { value: 'hidden', label: 'Скрыто' },
   { value: 'unpublished', label: 'Снято с публикации' },
   { value: 'needs_review', label: 'На проверке' },
+  { value: 'rejected', label: 'Отклонено' },
 ]
 
 export const VERIFY_STATUS_OPTIONS = [
@@ -31,6 +32,7 @@ export const VERIFY_STATUS_OPTIONS = [
   { value: 'verified', label: 'Подтверждено' },
   { value: 'unverified', label: 'Не проверено' },
   { value: 'needs_recheck', label: 'Нужна перепроверка' },
+  { value: 'rejected', label: 'Отклонено' },
   { value: 'not_found', label: 'Не найдено' },
   { value: 'closed', label: 'Закрыто' },
 ]
