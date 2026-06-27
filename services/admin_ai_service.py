@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
@@ -345,7 +346,30 @@ def _result_items_notice(result: AdminAIRunResult) -> str:
 def _place_admin_url(place_id: int | None) -> str:
     if not place_id:
         return ""
-    base_url = (settings.telegram_mini_app_url or "").rstrip("/")
+    base_url = _public_admin_base_url()
     if not base_url:
         return ""
     return f"{base_url}/admin/places/{place_id}"
+
+
+def _public_admin_base_url() -> str:
+    candidates = [settings.telegram_mini_app_url, *_cors_origin_candidates(), settings.backend_base_url]
+    for value in candidates:
+        base_url = (value or "").strip().rstrip("/")
+        if _is_public_http_url(base_url):
+            return base_url
+    return ""
+
+
+def _cors_origin_candidates() -> list[str]:
+    return [item.strip() for item in (settings.cors_origins or "").split(",") if item.strip()]
+
+
+def _is_public_http_url(value: str) -> bool:
+    if not value:
+        return False
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+    host = parsed.hostname or ""
+    return host not in {"localhost", "127.0.0.1", "0.0.0.0"}
