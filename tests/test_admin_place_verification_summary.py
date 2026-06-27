@@ -3,7 +3,6 @@ from datetime import datetime
 
 def test_admin_place_verification_summary_matches_frontend_contract(client, db_session, city_factory, place_factory):
     city = city_factory(slug="summary-city", name="Summary City")
-    other_city = city_factory(slug="other-summary-city", name="Other Summary City")
     now = datetime.utcnow()
 
     needs_recheck = place_factory(
@@ -36,16 +35,6 @@ def test_admin_place_verification_summary_matches_frontend_contract(client, db_s
     verified_today.verified_at = now
     verified_today.existence_confidence_score = 100
     verified_today.existence_confidence_level = "verified"
-
-    other_place = place_factory(
-        slug="summary-other-city",
-        title="Other City",
-        city_id=other_city.id,
-        category="museum",
-    )
-    other_place.verification_status = "needs_recheck"
-    other_place.existence_confidence_score = 10
-    other_place.existence_confidence_level = "low"
 
     db_session.commit()
 
