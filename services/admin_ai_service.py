@@ -18,7 +18,7 @@ from schemas.admin_ai import (
 )
 from schemas.place_enrichment import EnrichmentAIRequest, PlaceEnrichmentExportRequest
 from services.admin_audit_service import write_admin_audit_log
-from services.openai_client import request_json_object
+from services.openai_client import OpenAIClientError, request_json_object
 from services.place_enrichment_ai_service import run_ai_batch_enrichment
 from services.place_enrichment_import_service import run_import_apply, run_import_preview
 from services.place_enrichment_service import run_enrichment_export
@@ -190,6 +190,8 @@ def _run_find_non_tourist(
     for place in places:
         try:
             payload = _classify_non_tourist(place, city=city, model=model)
+        except OpenAIClientError:
+            raise
         except Exception as exc:  # noqa: BLE001 - one bad row should not kill the whole report
             errors.append(f"place {place.id}: {exc}")
             continue
