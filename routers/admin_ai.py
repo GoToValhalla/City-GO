@@ -14,11 +14,20 @@ from schemas.admin_ai import (
     AIEstimateResponse,
     AIProviderRead,
     AITaskRead,
+    AITaskRunDetailRead,
     AITaskRunRead,
     AITaskRunRequest,
 )
 from services.ai.task_registry import allowed_providers_for_task, provider_specs, task_specs
-from services.ai.task_runner import estimate_task, list_candidates, list_task_runs, resolve_candidate, run_task
+from services.ai.task_runner import (
+    estimate_task,
+    get_task_run,
+    list_candidates,
+    list_candidates_for_task_run,
+    list_task_runs,
+    resolve_candidate,
+    run_task,
+)
 
 router = APIRouter(prefix="/admin/ai", tags=["admin-ai"])
 
@@ -68,6 +77,7 @@ def post_ai_estimate(
             task_type=body.task_type,
             provider_key=body.provider_key,
             review_queue_item_id=body.review_queue_item_id,
+            place_id=body.place_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -89,6 +99,7 @@ def post_ai_task_run(
             task_type=body.task_type,
             provider_key=body.provider_key,
             review_queue_item_id=body.review_queue_item_id,
+            place_id=body.place_id,
         )
     except ValueError as exc:
         db.rollback()
@@ -105,6 +116,20 @@ def get_ai_task_runs(
     db: Session = Depends(get_db),
 ) -> list[AITaskRunRead]:
     return [AITaskRunRead.model_validate(item) for item in list_task_runs(db, limit=limit)]
+
+
+@router.get("/task-runs/{task_run_id}", response_model=AITaskRunDetailRead)
+def get_ai_task_run_detail(
+    task_run_id: int,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> AITaskRunDetailRead:
+    task_run = get_task_run(db, task_run_id=task_run_id)
+    if task_run is None:
+        raise HTTPException(status_code=404, detail="AI task run not found")
+    detail = AITaskRunDetailRead.model_validate(task_run)
+    detail.candidates = [AICandidateRead.model_validate(item) for item in list_candidates_for_task_run(db, task_run_id=task_run_id)]
+    return detail
 
 
 @router.get("/candidates", response_model=list[AICandidateRead])
@@ -139,6 +164,9 @@ def post_reject_ai_candidate(
 def _resolve(db: Session, *, candidate_id: int, actor: str, resolution: str, note: str | None) -> AICandidateRead:
     try:
         candidate = resolve_candidate(db, candidate_id=candidate_id, actor=actor, resolution=resolution, note=note)
+    except NotImplementedError as exc:
+        db.rollback()
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if candidate is None:
