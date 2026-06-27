@@ -4,6 +4,9 @@ import { toAdminErrorMessage } from './shared/adminErrorMessage'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 const ADMIN_REQUEST_TIMEOUT_MS = 15_000
+const ADMIN_LONG_REQUEST_TIMEOUT_MS = 180_000
+
+type AdminRequestOptions = RequestInit & { timeoutMs?: number }
 
 const handleUnauthorized = (): never => {
   clearAdminSession()
@@ -11,7 +14,7 @@ const handleUnauthorized = (): never => {
   throw new Error('Сессия администратора завершена')
 }
 
-const timeoutMessage = 'Сервер не ответил за 15 секунд. Проверьте состояние базы данных и повторите запрос.'
+const timeoutMessage = (timeoutMs: number) => `Сервер не ответил за ${Math.round(timeoutMs / 1000)} секунд. Проверьте состояние базы данных и повторите запрос.`
 
 /**
  * Единый HTTP-клиент для admin API.
@@ -19,22 +22,23 @@ const timeoutMessage = 'Сервер не ответил за 15 секунд. �
  */
 export const adminRequest = async <T>(
   path: string,
-  options: RequestInit = {},
+  options: AdminRequestOptions = {},
 ): Promise<T> => {
+  const { timeoutMs = ADMIN_REQUEST_TIMEOUT_MS, ...requestOptions } = options
   const timeoutController = new AbortController()
-  const timeoutId = window.setTimeout(() => timeoutController.abort(), ADMIN_REQUEST_TIMEOUT_MS)
-  const externalSignal = options.signal
+  const timeoutId = window.setTimeout(() => timeoutController.abort(), timeoutMs)
+  const externalSignal = requestOptions.signal
   const abortFromExternalSignal = () => timeoutController.abort()
   externalSignal?.addEventListener('abort', abortFromExternalSignal, { once: true })
 
   try {
     const response = await fetch(`${API_BASE}${path}`, {
-      ...options,
+      ...requestOptions,
       signal: timeoutController.signal,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${requireAdminApiToken()}`,
-        ...(options.headers ?? {}),
+        ...(requestOptions.headers ?? {}),
       },
     })
 
@@ -51,7 +55,7 @@ export const adminRequest = async <T>(
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       if (externalSignal?.aborted) throw error
-      throw new Error(timeoutMessage)
+      throw new Error(timeoutMessage(timeoutMs))
     }
     throw error
   } finally {
@@ -64,6 +68,13 @@ export const adminGet = <T>(path: string) => adminRequest<T>(path)
 
 export const adminPost = <T>(path: string, body?: unknown) =>
   adminRequest<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined })
+
+export const adminPostLong = <T>(path: string, body?: unknown) =>
+  adminRequest<T>(path, {
+    method: 'POST',
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    timeoutMs: ADMIN_LONG_REQUEST_TIMEOUT_MS,
+  })
 
 export const adminPut = <T>(path: string, body?: unknown) =>
   adminRequest<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined })
