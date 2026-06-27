@@ -152,11 +152,10 @@ export const AdminAIPage = () => {
       </div>
       <p className="admin-muted">Следующий шаг: {result.next_action}</p>
       {result.errors.length > 0 && <div className="admin-state admin-state-error">{result.errors.join('; ')}</div>}
-      {result.items.length > 0 && <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Причина</th><th>Что сделать</th><th>Уверенность</th></tr></thead><tbody>{result.items.map((item) => <tr key={`${item.place_id}-${item.title}`}><td>{item.place_id ? <Link to={`/admin/places/${item.place_id}`}>{item.title}</Link> : item.title}</td><td>{item.summary}</td><td>{item.recommended_action}</td><td>{item.confidence != null ? `${Math.round(item.confidence * 100)}%` : '—'}</td></tr>)}</tbody></table></div>}
+      {result.items.length > 0 && <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Результат</th><th>Что сделать</th><th>Уверенность</th></tr></thead><tbody>{result.items.map((item) => <tr key={`${item.place_id}-${item.title}`}><td>{item.place_id ? <Link to={`/admin/places/${item.place_id}`}>{item.title}</Link> : item.title}</td><td>{item.summary}</td><td>{item.recommended_action}</td><td>{item.confidence != null ? `${Math.round(item.confidence * 100)}%` : '—'}</td></tr>)}</tbody></table></div>}
       <div className="admin-actions-cell" style={{ marginTop: 14 }}>
         <Link className="admin-btn admin-btn-sm" to={`/admin/places?city=${result.city_slug}`}>Открыть места</Link>
         <Link className="admin-btn admin-btn-sm" to={`/admin/audit?action=admin_ai_run&entity_id=${result.task_id}`}>Открыть аудит</Link>
-        {result.batch_id && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${result.city_slug}&batch=${result.batch_id}`}>Технический пакет</Link>}
       </div>
     </section>}
   </div>
