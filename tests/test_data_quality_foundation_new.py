@@ -7,6 +7,7 @@ from services.city_readiness import compute_city_readiness
 from services.data_quality.constants import (
     ISSUE_MISSING_ADDRESS,
     ISSUE_MISSING_PHOTO,
+    ISSUE_POSSIBLE_DUPLICATE,
     ISSUE_ROUTE_SUSPICIOUS,
 )
 from services.data_quality.refresh import refresh_data_quality_issues
@@ -38,6 +39,34 @@ def test_missing_address_issue_created_new(db_session, place_factory):
     issue = _issue(db_session, ISSUE_MISSING_ADDRESS)
     assert issue.place_id == place.id
     assert issue.reason == "address_missing"
+
+
+def test_possible_duplicate_issue_created_for_nearby_same_title_new(db_session, city_factory, place_factory):
+    city = city_factory(slug="duplicate-city")
+    first = place_factory(
+        city_id=city.id,
+        slug="dostyk-plaza-a",
+        title="Dostyk Plaza",
+        lat=43.2390,
+        lng=76.9450,
+        address="Самал-2, 111",
+        image_url="https://example.test/dostyk-a.jpg",
+    )
+    second = place_factory(
+        city_id=city.id,
+        slug="dostyk-plaza-b",
+        title="Dostyk Plaza",
+        lat=43.2395,
+        lng=76.9455,
+        address="Самал-2, 111",
+        image_url="https://example.test/dostyk-b.jpg",
+    )
+
+    refresh_data_quality_issues(db_session, city_id=city.id)
+
+    issues = db_session.query(DataQualityIssue).filter_by(issue_type=ISSUE_POSSIBLE_DUPLICATE).all()
+    assert {issue.place_id for issue in issues} == {first.id, second.id}
+    assert all(sorted(issue.evidence["duplicate_place_ids"]) == sorted([first.id, second.id]) for issue in issues)
 
 
 def test_route_eligibility_suspicious_issue_for_stoplist_category_new(db_session, place_factory):
