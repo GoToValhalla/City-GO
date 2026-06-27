@@ -38,8 +38,14 @@ def _export_to_batch(
     write_admin_audit_log(
         db, actor=actor, action="place_enrichment_export",
         entity_type="place_enrichment_batch", entity_id=batch_id,
-        new_value={"city_slug": req.city_slug, "limit": req.limit,
-                   "missing_fields": req.missing_fields, "total_exported": len(places)},
+        new_value={
+            "city_slug": req.city_slug,
+            "limit": req.limit,
+            "missing_fields": req.missing_fields,
+            "only_published": req.only_published,
+            "only_unpublished": req.only_unpublished,
+            "total_exported": len(places),
+        },
     )
     db.commit()
     return _batch_to_export_meta(batch_meta)
@@ -64,7 +70,8 @@ def run_enrichment_export(
     city_name = city.name if city else req.city_slug
     places = query_places_for_enrichment(
         db, city_slug=req.city_slug, limit=req.limit,
-        only_published=req.only_published, only_route_eligible=req.only_route_eligible,
+        only_published=req.only_published, only_unpublished=req.only_unpublished,
+        only_route_eligible=req.only_route_eligible,
         missing_fields=req.missing_fields,
     )
     # Legacy flat exports were removed; keep the public contract compatible by
