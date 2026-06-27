@@ -44,6 +44,7 @@ def _export_to_batch(
             "missing_fields": req.missing_fields,
             "only_published": req.only_published,
             "only_unpublished": req.only_unpublished,
+            "exclude_place_ids": req.exclude_place_ids,
             "total_exported": len(places),
         },
     )
@@ -73,6 +74,7 @@ def run_enrichment_export(
         only_published=req.only_published, only_unpublished=req.only_unpublished,
         only_route_eligible=req.only_route_eligible,
         missing_fields=req.missing_fields,
+        exclude_place_ids=req.exclude_place_ids,
     )
     # Legacy flat exports were removed; keep the public contract compatible by
     # always returning a batch artifact even when older clients send git_artifact=false.
