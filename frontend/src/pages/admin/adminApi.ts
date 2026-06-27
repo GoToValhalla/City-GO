@@ -4,7 +4,7 @@ import { toAdminErrorMessage } from './shared/adminErrorMessage'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 const ADMIN_REQUEST_TIMEOUT_MS = 15_000
-const ADMIN_LONG_REQUEST_TIMEOUT_MS = 180_000
+const ADMIN_LONG_REQUEST_TIMEOUT_MS = 600_000
 
 type AdminRequestOptions = RequestInit & { timeoutMs?: number }
 
