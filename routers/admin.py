@@ -61,6 +61,7 @@ from services.admin_service import (
     get_admin_routes,
     publish_place,
     publish_route,
+    reject_place,
     unpublish_place,
     unpublish_route,
     update_admin_place,
@@ -299,6 +300,19 @@ def unpublish_place_from_admin(
 ) -> PlaceRead:
     # actor из auth context; payload.actor игнорируется (deprecated)
     place = unpublish_place(db, place_id, actor=auth.actor_id, reason=payload.reason)
+    if place is None:
+        raise HTTPException(status_code=404, detail="Место не найдено")
+    return build_place_read(db, place)
+
+
+@router.post("/places/{place_id}/reject", response_model=PlaceRead)
+def reject_place_from_admin(
+    place_id: int,
+    payload: AdminUnpublishRequest,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> PlaceRead:
+    place = reject_place(db, place_id, actor=auth.actor_id, reason=payload.reason)
     if place is None:
         raise HTTPException(status_code=404, detail="Место не найдено")
     return build_place_read(db, place)
