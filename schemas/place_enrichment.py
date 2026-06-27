@@ -27,6 +27,7 @@ class EnrichmentAIRequest(BaseModel):
     limit: int = Field(default=20, ge=1, le=100)
     force: bool = False
     fields: list[str] = Field(default_factory=lambda: ["description"])
+    model: str | None = None
 
 
 class EnrichmentAIResult(BaseModel):
