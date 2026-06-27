@@ -60,6 +60,33 @@
 
 Все endpoints используют `admin_required`. Старые поля workspace сохранены; поле `operations` добавлено совместимо.
 
+## Data Quality Contract
+
+`City.readiness_score` больше не является источником истины для экранов качества. Это legacy/stored значение оставлено только как исторический след и diagnostic field в ответах `stored_readiness_score` / `stored_coverage_score`.
+
+Текущий источник истины для операционной готовности города:
+
+- `services.admin_platform_quality.city_quality_row` — live score по реальному состоянию мест;
+- `/admin/quality` — список городов с live `readiness_score`;
+- `/admin/cities/by-slug/{slug}/workspace` — тот же live score в workspace города;
+- `/admin/data-quality/summary` — live `coverage_score` в `by_city`.
+
+`services.data_quality.refresh.refresh_data_quality_issues` синхронизирует состояние issues:
+
+1. создаёт новые deterministic issues;
+2. обновляет существующие open issues;
+3. переоткрывает `resolved`, если проблема снова появилась;
+4. переводит stale open/candidate/deferred issues в `resolved`, если текущий refresh их больше не нашёл.
+
+Без явного `status` список `/admin/data-quality/issues` возвращает только актуальные статусы из `OPEN_STATUSES`. Исторические записи доступны через явный фильтр, например `status=resolved`.
+
+Historical cleanup 2026-06-28:
+
+- убран legacy alias `_city_row`; новый код должен использовать только `city_quality_row`;
+- `/admin/data-quality/summary` переведён с `City.readiness_score` на live score;
+- refresh перестал оставлять исправленные проблемы открытыми;
+- возможные дубли (`possible_duplicate`) остаются ручной очередью, без автоматического merge/delete.
+
 ## Data Coverage Assurance Contract
 
 Город нельзя считать готовым только по факту завершённого импорта. Must-have POI должны быть:
