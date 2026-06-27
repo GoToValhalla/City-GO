@@ -83,7 +83,14 @@ export type AdminTaxonomyResponse = {
 
 export type AdminCityWorkspaceResponse = {
   city: AdminCity
-  readiness: { readiness_score: number; quality_status: string; status: string }
+  readiness: {
+    readiness_score: number
+    stored_readiness_score?: number
+    quality_status: string
+    status: string
+    primary_blocker?: string | null
+    blockers?: Record<string, number>
+  }
   import_job: AdminImportJob
   coverage: AdminCoverageResponse | null
   operations?: {
