@@ -126,6 +126,11 @@ export const AdminPlaceDetailPage = () => {
     if (reason?.trim()) void action('unpublish', { reason: reason.trim() }, 'Место скрыто с сайта')
   }
 
+  const reject = () => {
+    const reason = window.prompt('Почему место отклоняем?')
+    if (reason?.trim()) void action('reject', { reason: reason.trim() }, 'Место отклонено')
+  }
+
   const refreshAddress = async () => {
     if (!id || !window.confirm('Поставить обновление адреса в очередь?')) return
     setBusy(true)
@@ -179,6 +184,7 @@ export const AdminPlaceDetailPage = () => {
           <section className="admin-action-toolbar">
             <button className="admin-btn admin-btn-ok" disabled={busy} onClick={() => void action('verify', {}, 'Место подтверждено')}>Подтвердить</button>
             <button className="admin-btn" disabled={busy || data.publication_status === 'published'} onClick={() => void action('publish', {}, 'Место опубликовано')}>Опубликовать</button>
+            <button className="admin-btn admin-btn-danger" disabled={busy || data.publication_status === 'rejected'} onClick={reject}>Отклонить</button>
             <button className="admin-btn admin-btn-danger" disabled={busy || data.publication_status !== 'published'} onClick={unpublish}>Скрыть с сайта</button>
             <button className="admin-btn" disabled={busy} onClick={() => void refreshAddress()}>Обновить адрес</button>
             <Link className="admin-btn" to={`/admin/audit?entity_id=${data.id}`}>Полный аудит</Link>
