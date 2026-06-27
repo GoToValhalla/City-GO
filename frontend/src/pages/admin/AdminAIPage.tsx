@@ -52,6 +52,30 @@ type AdminAIResult = {
 }
 
 const LIMIT_OPTIONS = [5, 10, 20, 50]
+const LAST_AI_RESULT_STORAGE_KEY = 'citygo.admin.ai.lastResult'
+
+const readStoredAIResult = (): AdminAIResult | null => {
+  try {
+    const raw = window.sessionStorage.getItem(LAST_AI_RESULT_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as AdminAIResult
+    return parsed && typeof parsed === 'object' && typeof parsed.task_id === 'string' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+const writeStoredAIResult = (result: AdminAIResult | null) => {
+  try {
+    if (result) {
+      window.sessionStorage.setItem(LAST_AI_RESULT_STORAGE_KEY, JSON.stringify(result))
+    } else {
+      window.sessionStorage.removeItem(LAST_AI_RESULT_STORAGE_KEY)
+    }
+  } catch {
+    // Ignore storage errors: the current in-memory result is still shown.
+  }
+}
 
 export const AdminAIPage = () => {
   const [tasks, setTasks] = useState<AdminAITask[]>([])
@@ -64,7 +88,7 @@ export const AdminAIPage = () => {
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<AdminAIResult | null>(null)
+  const [result, setResult] = useState<AdminAIResult | null>(() => readStoredAIResult())
 
   const selectedTask = useMemo(() => tasks.find((task) => task.id === taskId) ?? null, [tasks, taskId])
   const selectedModel = useMemo(() => models.find((model) => model.value === modelMode) ?? null, [models, modelMode])
@@ -77,12 +101,13 @@ export const AdminAIPage = () => {
         adminGet<AdminAITasksResponse>('/admin/ai/tasks'),
         adminGet<AdminCitiesResponse>('/admin/cities?limit=100'),
       ])
+      const storedResult = readStoredAIResult()
       setTasks(ai.tasks)
       setModels(ai.model_options)
-      setTaskId(ai.default_task_id)
+      setTaskId((current) => current || storedResult?.task_id || ai.default_task_id)
       setModelMode(ai.default_model_mode)
       setCities(cityResponse.items)
-      setCitySlug((current) => current || cityResponse.items[0]?.slug || '')
+      setCitySlug((current) => current || storedResult?.city_slug || cityResponse.items[0]?.slug || '')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить AI-раздел')
     } finally {
@@ -99,6 +124,7 @@ export const AdminAIPage = () => {
     setRunning(true)
     setError(null)
     setResult(null)
+    writeStoredAIResult(null)
     try {
       const response = await adminPostLong<AdminAIResult>('/admin/ai/run', {
         task_id: selectedTask.id,
@@ -108,6 +134,7 @@ export const AdminAIPage = () => {
         apply_safe_changes: true,
       })
       setResult(response)
+      writeStoredAIResult(response)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'AI-задача завершилась ошибкой')
     } finally {
