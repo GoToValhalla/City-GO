@@ -5,6 +5,7 @@ from datetime import datetime
 from functools import reduce
 from typing import Any
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.city import City
@@ -284,6 +285,37 @@ def place_verification_stats(db: Session, city_slug: str) -> dict[str, Any]:
         "not_found_count": not_found,
         "verified_percent": round((verified / total) * 100, 2) if total else 0.0,
         "categories": categories,
+    }
+
+
+def place_verification_summary(db: Session, city_slug: str | None = None) -> dict[str, int]:
+    query = db.query(Place)
+    if city_slug:
+        query = query.join(City, City.id == Place.city_id).filter(City.slug == city_slug)
+
+    queue_filter = or_(
+        Place.verification_status.in_(("needs_recheck", "unverified")),
+        Place.verification_status.is_(None),
+    )
+    unverified_filter = or_(
+        Place.verification_status == "unverified",
+        Place.verification_status.is_(None),
+    )
+    low_confidence_filter = or_(
+        Place.existence_confidence_level.in_(("low", "unknown")),
+        Place.existence_confidence_level.is_(None),
+    )
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    return {
+        "queue_total": query.filter(queue_filter).count(),
+        "needs_recheck": query.filter(Place.verification_status == "needs_recheck").count(),
+        "unverified": query.filter(unverified_filter).count(),
+        "low_confidence": query.filter(low_confidence_filter).count(),
+        "verified_today": query.filter(
+            Place.verification_status == "verified",
+            Place.verified_at >= today_start,
+        ).count(),
     }
 
 
