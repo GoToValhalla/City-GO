@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from routers.admin import router as admin_router
+from routers.admin_ai import router as admin_ai_router
 from routers.admin_bot_analytics import router as admin_bot_analytics_router
 from routers.admin_coverage_gaps import router as admin_coverage_gaps_router
 from routers.admin_import_jobs import router as admin_import_jobs_router
@@ -65,6 +66,7 @@ def include_app_routers(app: FastAPI) -> None:
 
 _ROOT_ROUTERS = (
     admin_router,
+    admin_ai_router,
     admin_bot_analytics_router,
     admin_coverage_gaps_router,
     admin_import_jobs_router,
