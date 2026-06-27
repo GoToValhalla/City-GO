@@ -59,10 +59,6 @@ def city_quality_row(db: Session, city: City, category: str | None = None) -> di
     }
 
 
-def _city_row(db: Session, city: City, category: str | None) -> dict[str, object]:
-    return city_quality_row(db, city, category)
-
-
 def _live_quality_score(total: int, blockers: dict[str, int]) -> int:
     if total <= 0:
         return 0
