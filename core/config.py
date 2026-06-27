@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     ai_monthly_stop_usd: float = 4.5
     ai_daily_budget_usd: float = 0.25
     ai_max_job_cost_usd: float = 0.10
+    ai_budget_reservation_ttl_seconds: int = 60
     ai_max_place_batch_size: int = 1
     ai_max_input_tokens_per_place: int = 1200
     ai_max_output_tokens_per_place: int = 300
