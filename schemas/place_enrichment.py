@@ -18,6 +18,7 @@ class PlaceEnrichmentExportRequest(BaseModel):
     city_slug: str
     limit: int = Field(default=100, ge=1, le=500)
     only_published: bool = True
+    only_unpublished: bool = False
     only_route_eligible: bool = False
     missing_fields: list[str] = Field(default_factory=list)
     git_artifact: bool = True
