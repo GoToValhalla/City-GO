@@ -19,7 +19,7 @@ def quality_summary(
         cities = cities.filter(City.slug == city_slug)
     if region:
         cities = cities.filter(City.region == region)
-    rows = [_city_row(db, city, category) for city in cities.order_by(City.name).all()]
+    rows = [city_quality_row(db, city, category) for city in cities.order_by(City.name).all()]
     filtered = [row for row in rows if not severity or row["severity"] == severity]
     return {
         "items": filtered,
@@ -32,7 +32,7 @@ def quality_summary(
     }
 
 
-def _city_row(db: Session, city: City, category: str | None) -> dict[str, object]:
+def city_quality_row(db: Session, city: City, category: str | None = None) -> dict[str, object]:
     query = db.query(Place).filter(Place.city_id == city.id)
     if category:
         query = query.filter(Place.category == category)
@@ -57,6 +57,10 @@ def _city_row(db: Session, city: City, category: str | None) -> dict[str, object
         "blockers": blockers,
         "primary_blocker": _primary_blocker(blockers),
     }
+
+
+def _city_row(db: Session, city: City, category: str | None) -> dict[str, object]:
+    return city_quality_row(db, city, category)
 
 
 def _live_quality_score(total: int, blockers: dict[str, int]) -> int:
