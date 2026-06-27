@@ -1,0 +1,81 @@
+name: Authenticated Admin API Watchdog
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/admin-api-watchdog.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: authenticated-admin-api-watchdog
+  cancel-in-progress: false
+
+jobs:
+  check-authenticated-admin-api:
+    name: Check authenticated production admin API
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve production base URL
+        id: resolve-url
+        shell: bash
+        env:
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          set -euo pipefail
+          BASE_URL="${PRODUCTION_BASE_URL:-}"
+          if [ -z "$BASE_URL" ] && [ -n "${SSH_HOST:-}" ]; then
+            BASE_URL="http://${SSH_HOST}"
+          fi
+          if [ -z "$BASE_URL" ]; then
+            echo "No production base URL secret is configured" >&2
+            exit 2
+          fi
+          echo "base_url=$BASE_URL" >> "$GITHUB_OUTPUT"
+          echo "Production base URL resolved"
+
+      - name: Check public and authenticated admin endpoints
+        shell: bash
+        env:
+          BASE_URL: ${{ steps.resolve-url.outputs.base_url }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_API_TOKEN:-}" ]; then
+            echo "ADMIN_API_TOKEN secret is empty" >&2
+            exit 2
+          fi
+          BASE_URL="${BASE_URL%/}"
+
+          check_status() {
+            local label="$1"
+            local path="$2"
+            local expected="$3"
+            local auth_mode="$4"
+            local status
+            if [ "$auth_mode" = "admin" ]; then
+              status=$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 12 \
+                -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+                "$BASE_URL$path" || true)
+            else
+              status=$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 5 --max-time 12 \
+                "$BASE_URL$path" || true)
+            fi
+            echo "$label status=$status expected=$expected"
+            test "$status" = "$expected"
+          }
+
+          check_status 'frontend build metadata' '/build.json' '200' 'public'
+          check_status 'backend health via proxy' '/api/health' '200' 'public'
+          check_status 'backend readiness via proxy' '/api/ready' '200' 'public'
+          check_status 'admin cities authenticated' '/api/admin/cities?limit=1' '200' 'admin'
+          check_status 'admin verification summary authenticated' '/api/admin/place-verifications/summary' '200' 'admin'
+          check_status 'admin data quality summary authenticated' '/api/admin/data-quality/summary' '200' 'admin'
