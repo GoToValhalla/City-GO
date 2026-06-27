@@ -176,7 +176,7 @@ def _collect_wikidata(place: Place) -> tuple[ProviderObservation, CandidateProfi
 
     entity_id = str(entity.get("id"))
     details = _fetch_wikidata_entity(entity_id)
-    description = _clean_description(_first_string(entity.get("description"), details.get("description")))
+    description = _clean_description(_wikidata_description(entity, details))
     profile = CandidateProfile(
         website=_first_url(details.get("official_website")),
         description=description,
@@ -267,7 +267,7 @@ def _apply_profile(
     _apply_text_field(db, city=city, place=place, field_name="atmosphere", value=profile.atmosphere, observation=observation, job_id=job_id, counters=counters)
     _apply_text_field(db, city=city, place=place, field_name="inside", value=profile.inside, observation=observation, job_id=job_id, counters=counters)
     _apply_text_field(db, city=city, place=place, field_name="best_for", value=profile.best_for, observation=observation, job_id=job_id, counters=counters)
-    if profile.image_url:
+    if profile.image_url and not _has_category_fallback_photo(place):
         candidate = add_photo_candidate(
             db,
             place_id=place.id,
@@ -495,8 +495,7 @@ def _fetch_wikidata_entity(entity_id: str) -> dict[str, Any]:
     description = None
     if isinstance(descriptions, dict):
         ru = descriptions.get("ru") if isinstance(descriptions.get("ru"), dict) else {}
-        en = descriptions.get("en") if isinstance(descriptions.get("en"), dict) else {}
-        description = _first_string(ru.get("value"), en.get("value"))
+        description = _first_string(ru.get("value"))
     return {
         "entity_url": f"https://www.wikidata.org/wiki/{entity_id}",
         "description": description,
@@ -647,6 +646,24 @@ def _fetch_text(url: str) -> str:
 
 def _request(url: str) -> urllib.request.Request:
     return urllib.request.Request(url, headers={"User-Agent": settings.place_address_geocoder_user_agent or "CityGoEnrichment/1.0"})
+
+
+def _wikidata_description(entity: dict[str, Any], details: dict[str, Any]) -> str | None:
+    detail_description = _first_string(details.get("description"))
+    if detail_description:
+        return detail_description
+    search_description = _first_string(entity.get("description"))
+    if search_description and _has_cyrillic(search_description):
+        return search_description
+    return None
+
+
+def _has_category_fallback_photo(place: Place) -> bool:
+    return bool(place.image_url) and (place.source or "").lower().startswith("category")
+
+
+def _has_cyrillic(value: str) -> bool:
+    return bool(re.search(r"[А-Яа-яЁё]", value or ""))
 
 
 def _first_string(*values: object) -> str | None:
