@@ -31,7 +31,7 @@ _TASKS = [
     AdminAITaskOption(
         id=FILL_DESCRIPTIONS,
         label="Заполнить описания мест",
-        description="Найдёт места без описания, сгенерирует короткий текст и применит безопасные изменения автоматически.",
+        description="Найдёт неопубликованные места без описания, сгенерирует короткий текст и даст ссылки на проверку карточек.",
         result_mode="auto_apply",
         risk_level="safe",
     ),
@@ -95,7 +95,8 @@ def _run_fill_descriptions(
         PlaceEnrichmentExportRequest(
             city_slug=city.slug,
             limit=req.limit,
-            only_published=True,
+            only_published=False,
+            only_unpublished=True,
             only_route_eligible=False,
             missing_fields=["description"],
             git_artifact=True,
@@ -114,7 +115,7 @@ def _run_fill_descriptions(
             rows_updated=0,
             applied=False,
             batch_id=batch_id,
-            message="В выбранном городе не найдено опубликованных мест без описания.",
+            message="В выбранном городе не найдено неопубликованных мест без описания.",
             next_action="Ничего делать не нужно.",
         )
         _audit_result(db, result, actor=actor)
@@ -128,18 +129,19 @@ def _run_fill_descriptions(
         notify=False,
     )
     preview = run_import_preview(db, batch_id)
+    items = _preview_items(preview.changes)
     if req.apply_safe_changes:
         apply = run_import_apply(db, batch_id, actor=actor)
         rows_updated = apply.rows_updated
         applied = True
-        message = f"AI подготовил и применил описания: {rows_updated} мест."
-        next_action = "Откройте список мест города и проверьте обновлённые карточки."
+        message = f"AI подготовил описания для неопубликованных мест и применил изменения: {rows_updated}."
+        next_action = "Откройте обработанные карточки: хорошие опубликуйте, неподходящие отклоните."
         errors = [*ai_result.errors, *preview.errors, *apply.errors]
     else:
         rows_updated = preview.rows_with_changes
         applied = False
-        message = f"AI подготовил описания: {rows_updated} мест. Изменения ждут проверки."
-        next_action = "Откройте пакет в низкоуровневом разделе обогащения и примените изменения."
+        message = f"AI подготовил описания для неопубликованных мест: {rows_updated}. Изменения ждут проверки."
+        next_action = "Откройте обработанные карточки и проверьте описания перед применением."
         errors = [*ai_result.errors, *preview.errors]
 
     result = AdminAIRunResult(
@@ -152,6 +154,7 @@ def _run_fill_descriptions(
         rows_updated=rows_updated,
         applied=applied,
         batch_id=batch_id,
+        items=items,
         errors=errors,
         message=message,
         next_action=next_action,
@@ -257,6 +260,28 @@ def _classify_non_tourist(place: Place, *, city: City, model: str) -> dict[str, 
     )
 
 
+def _preview_items(changes: list[Any]) -> list[AdminAIResultItem]:
+    items: list[AdminAIResultItem] = []
+    for change in changes[:100]:
+        description = _updated_description(change)
+        items.append(AdminAIResultItem(
+            place_id=getattr(change, "place_id", None),
+            title=str(getattr(change, "title", "Место")),
+            summary=description or "AI подготовил описание.",
+            recommended_action="Открыть карточку, проверить описание и нажать «Опубликовать» или «Отклонить».",
+            confidence=None,
+        ))
+    return items
+
+
+def _updated_description(change: Any) -> str:
+    updates = getattr(change, "updates", []) or []
+    for update in updates:
+        if getattr(update, "field", "") == "short_description":
+            return str(getattr(update, "new_value", "") or "")[:500]
+    return ""
+
+
 def _model_for_mode(mode: str) -> str:
     if mode == "quality":
         return settings.openai_quality_model
@@ -295,4 +320,32 @@ def _send_result_notice(result: AdminAIRunResult) -> None:
         f"Применено: {'да' if result.applied else 'нет'}\n"
         f"Ошибок: {len(result.errors)}\n"
         f"Итог: {result.message}"
+        f"{_result_items_notice(result)}"
     )
+
+
+def _result_items_notice(result: AdminAIRunResult) -> str:
+    if not result.items:
+        return ""
+    lines = ["", "Места:"]
+    for item in result.items[:10]:
+        title = item.title[:80]
+        url = _place_admin_url(item.place_id)
+        if url:
+            lines.append(f"- {title}: {url}")
+        elif item.place_id:
+            lines.append(f"- #{item.place_id} {title}")
+        else:
+            lines.append(f"- {title}")
+    if len(result.items) > 10:
+        lines.append(f"Еще: {len(result.items) - 10}")
+    return "\n" + "\n".join(lines)
+
+
+def _place_admin_url(place_id: int | None) -> str:
+    if not place_id:
+        return ""
+    base_url = (settings.telegram_mini_app_url or "").rstrip("/")
+    if not base_url:
+        return ""
+    return f"{base_url}/admin/places/{place_id}"
