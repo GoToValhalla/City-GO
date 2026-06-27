@@ -2,15 +2,14 @@
 """Check production admin API availability through the public frontend proxy.
 
 The public product can stay healthy while admin-only endpoints fail behind the
-same gateway. This script treats any admin 4xx/5xx/timeout as an operations
-incident and writes a Telegram-friendly report.
+same gateway. By default the report stores only status/path/timing, not response
+bodies, so it can be used safely from CI logs.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -54,7 +53,20 @@ def normalize_base_url(value: str) -> str:
     return base
 
 
-def request(check: Check, *, base_url: str, admin_token: str, timeout: float) -> Result:
+def read_detail(response, *, include_response_body: bool, fallback: str = "") -> str:
+    if not include_response_body:
+        return fallback
+    return response.read(700).decode("utf-8", errors="replace").strip() or fallback
+
+
+def request(
+    check: Check,
+    *,
+    base_url: str,
+    admin_token: str,
+    timeout: float,
+    include_response_body: bool,
+) -> Result:
     started = time.monotonic()
     url = urljoin(f"{base_url}/", check.path.lstrip("/"))
     headers = {"User-Agent": "city-go-admin-api-watchdog/1.0"}
@@ -64,15 +76,14 @@ def request(check: Check, *, base_url: str, admin_token: str, timeout: float) ->
     try:
         with urllib.request.urlopen(req, timeout=timeout) as response:  # noqa: S310
             status = response.status
-            raw = response.read(700).decode("utf-8", errors="replace").strip()
+            detail = read_detail(response, include_response_body=include_response_body, fallback=response.reason)
     except urllib.error.HTTPError as exc:
-        raw = exc.read(700).decode("utf-8", errors="replace").strip()
         return Result(
             check=check,
             ok=False,
             status=exc.code,
             elapsed_ms=round((time.monotonic() - started) * 1000),
-            detail=raw or exc.reason,
+            detail=read_detail(exc, include_response_body=include_response_body, fallback=exc.reason),
         )
     except (OSError, TimeoutError, urllib.error.URLError) as exc:
         return Result(
@@ -80,7 +91,7 @@ def request(check: Check, *, base_url: str, admin_token: str, timeout: float) ->
             ok=False,
             status=None,
             elapsed_ms=round((time.monotonic() - started) * 1000),
-            detail=f"{exc.__class__.__name__}: {exc}",
+            detail=f"{exc.__class__.__name__}",
         )
 
     return Result(
@@ -88,7 +99,7 @@ def request(check: Check, *, base_url: str, admin_token: str, timeout: float) ->
         ok=200 <= status < 300,
         status=status,
         elapsed_ms=round((time.monotonic() - started) * 1000),
-        detail=raw[:700],
+        detail=detail[:700],
     )
 
 
@@ -99,9 +110,7 @@ def status_text(result: Result) -> str:
     if result.ok:
         return line
     detail = " ".join(result.detail.split())
-    if len(detail) > 420:
-        detail = f"{detail[:420]}..."
-    return f"{line}\n  {detail}"
+    return f"{line}\n  {detail}" if detail else line
 
 
 def build_report(*, base_url: str, results: list[Result]) -> str:
@@ -129,6 +138,7 @@ def main() -> int:
     parser.add_argument("--admin-token", default=os.getenv("ADMIN_API_TOKEN", ""))
     parser.add_argument("--timeout", type=float, default=12.0)
     parser.add_argument("--output", type=Path, default=Path("admin-api-watchdog.txt"))
+    parser.add_argument("--include-response-body", action="store_true")
     args = parser.parse_args()
 
     try:
@@ -147,7 +157,16 @@ def main() -> int:
         print(args.output.read_text(encoding="utf-8"), end="")
         return 2
 
-    results = [request(check, base_url=base_url, admin_token=admin_token, timeout=args.timeout) for check in CHECKS]
+    results = [
+        request(
+            check,
+            base_url=base_url,
+            admin_token=admin_token,
+            timeout=args.timeout,
+            include_response_body=args.include_response_body,
+        )
+        for check in CHECKS
+    ]
     report = build_report(base_url=base_url, results=results)
     args.output.write_text(report, encoding="utf-8")
     print(report, end="")
