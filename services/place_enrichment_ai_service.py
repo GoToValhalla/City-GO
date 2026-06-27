@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,27 @@ from services.telegram_notifications import send_telegram_notification
 
 
 DESCRIPTION_FIELD = "description"
+DESCRIPTION_NOISE_MARKERS = (
+    "адрес",
+    "по адресу",
+    "расположен",
+    "расположено",
+    "расположена",
+    "район",
+    "улиц",
+    "ул.",
+    "проспект",
+    "переулок",
+    "площад",
+    "набережн",
+    "openstreetmap",
+    "osm",
+    "указано в данных",
+    "в данных openstreetmap",
+    "источник",
+    "url",
+    "координат",
+)
 
 
 def run_ai_batch_enrichment(
@@ -57,11 +79,11 @@ def run_ai_batch_enrichment(
                 continue
             rows_processed += 1
             payload = _generate_description(row, model=model)
-            short_description = str(payload.get("short_description") or "").strip()
+            short_description = _clean_generated_description(payload.get("short_description"))
             if not short_description:
-                errors.append(f"row {row.get('id') or '?'}: empty short_description")
+                errors.append(f"row {row.get('id') or '?'}: empty_or_location_only_short_description")
                 continue
-            row["suggested_short_description"] = short_description[:500]
+            row["suggested_short_description"] = short_description
             row["suggested_data_source"] = "openai"
             row["suggested_confidence"] = _format_confidence(payload.get("confidence"))
             row["suggested_comment"] = str(payload.get("comment") or "AI-generated description").strip()[:500]
@@ -144,19 +166,32 @@ def _generate_description(row: dict[str, str], *, model: str) -> dict[str, Any]:
 def _build_user_prompt(row: dict[str, str]) -> str:
     return (
         "Сгенерируй короткое описание места на русском для карточки туристического приложения.\n"
-        "Нужно вернуть JSON с полями: short_description, confidence, comment.\n"
-        "short_description: 1-2 предложения, до 500 символов, без рекламного тона.\n"
+        "Описание должно отвечать на два вопроса: что это за место и зачем человеку туда идти.\n"
+        "Пиши живо, но без рекламы, эмодзи и восклицаний.\n"
+        "Не пиши адрес, район, улицу, город, координаты, источник, OpenStreetMap, OSM или фразу «расположено по адресу».\n"
+        "Адрес показывается в карточке отдельным полем и не должен попадать в short_description.\n"
+        "Если данных мало, используй только очевидный тип места из категории или названия: кафе — кофе и перекус, музей — экспозиция, парк — прогулка.\n"
+        "Не выдумывай цены, часы работы, историю, интерьер, отзывы и конкретные услуги.\n"
+        "Если нельзя написать полезное описание без адреса и домыслов, верни пустой short_description и confidence 0.2.\n"
+        "Верни JSON с полями: short_description, confidence, comment.\n"
+        "short_description: 1-2 предложения, до 220 символов.\n"
         "confidence: число от 0 до 1.\n"
-        "comment: коротко объясни, на каких входных данных основан текст.\n\n"
+        "comment: коротко объясни, какие поля использованы.\n\n"
         f"Название: {row.get('title') or ''}\n"
         f"Категория: {row.get('category') or ''}\n"
-        f"Город: {row.get('city_name') or row.get('city_slug') or ''}\n"
-        f"Адрес: {row.get('current_address') or ''}\n"
-        f"Источник: {row.get('source') or ''}\n"
-        f"URL источника: {row.get('source_url') or ''}\n"
         f"Текущее описание: {row.get('current_short_description') or ''}\n"
         f"Заметки: {row.get('notes') or ''}"
     )
+
+
+def _clean_generated_description(value: object) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    if any(marker in lowered for marker in DESCRIPTION_NOISE_MARKERS):
+        return ""
+    return text[:280]
 
 
 def _format_confidence(value: object) -> str:
