@@ -5,6 +5,7 @@ import csv
 from pathlib import Path
 from typing import Any
 
+import httpx
 from sqlalchemy.orm import Session
 
 from core.config import settings
@@ -81,7 +82,7 @@ def run_ai_batch_enrichment(
         },
     )
     db.commit()
-    return EnrichmentAIResult(
+    result = EnrichmentAIResult(
         batch_id=batch_id,
         model=settings.openai_model,
         rows_processed=rows_processed,
@@ -89,6 +90,8 @@ def run_ai_batch_enrichment(
         errors=errors,
         enriched_csv_path=rel(enriched_path),
     )
+    _send_ai_enrichment_notice(result, city_slug=meta.city_slug)
+    return result
 
 
 def _read_rows(path: Path) -> list[dict[str, str]]:
@@ -159,3 +162,27 @@ def _format_confidence(value: object) -> str:
         numeric = 0.5
     numeric = max(0.0, min(1.0, numeric))
     return f"{numeric:.2f}"
+
+
+def _send_ai_enrichment_notice(result: EnrichmentAIResult, *, city_slug: str) -> None:
+    if not settings.telegram_bot_token or not settings.telegram_chat_id:
+        return
+    status_icon = "✅" if not result.errors else "⚠️"
+    text = (
+        f"{status_icon} City GO · AI обогащение\n"
+        f"Город: {city_slug}\n"
+        f"Пакет: {result.batch_id}\n"
+        f"Модель: {result.model}\n"
+        f"Обработано: {result.rows_processed}\n"
+        f"Подготовлено изменений: {result.rows_updated}\n"
+        f"Ошибок: {len(result.errors)}\n"
+        "Следующий шаг: открыть пакет в админке, проверить предпросмотр и применить."
+    )
+    try:
+        httpx.post(
+            f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+            json={"chat_id": settings.telegram_chat_id, "text": text},
+            timeout=8,
+        )
+    except httpx.HTTPError:
+        return
