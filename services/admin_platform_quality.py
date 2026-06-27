@@ -25,13 +25,9 @@ def quality_summary(
         "items": filtered,
         "total": len(filtered),
         "todo": [
-            "Модель: ежедневный CityQualitySnapshot с breakdown по категории и severity.",
-            "Endpoint: GET /admin/quality/history с периодом и группировкой.",
-            "Алгоритм: materialized daily aggregate без повторного подсчёта мест.",
-            "Индексы: city_id, category, severity, snapshot_date.",
-            "Фоновая задача: nightly snapshot и пересчёт после массовых действий.",
-            "Тесты: история, идемпотентность snapshot, timezone boundary.",
-            "Готовность: 30 дней данных, p95 ответа менее 500 мс, сверка с live count.",
+            "Главный экран качества теперь показывает live score, а не устаревшее поле City.readiness_score.",
+            "Следующий шаг: вынести breakdown в CityQualitySnapshot с историей по дням.",
+            "Следующий шаг: добавить отдельную очередь possible_duplicate для ручного merge/reject.",
         ],
     }
 
@@ -48,9 +44,41 @@ def _city_row(db: Session, city: City, category: str | None) -> dict[str, object
         "stale": query.filter(Place.verification_status == "needs_recheck").count(),
         "route_ineligible": query.filter(Place.is_route_eligible.is_(False)).count(),
     }
-    score = int(city.readiness_score or 0)
+    score = _live_quality_score(total, blockers)
     severity = "critical" if score < 40 else "warning" if score < 75 else "ok"
     return {
-        "city_slug": city.slug, "city_name": city.name, "region": city.region,
-        "readiness_score": score, "places_total": total, "severity": severity, "blockers": blockers,
+        "city_slug": city.slug,
+        "city_name": city.name,
+        "region": city.region,
+        "readiness_score": score,
+        "stored_readiness_score": int(city.readiness_score or 0),
+        "places_total": total,
+        "severity": severity,
+        "blockers": blockers,
+        "primary_blocker": _primary_blocker(blockers),
     }
+
+
+def _live_quality_score(total: int, blockers: dict[str, int]) -> int:
+    if total <= 0:
+        return 0
+    penalty = (
+        35 * _ratio(blockers["no_photo"], total)
+        + 25 * _ratio(blockers["no_address"], total)
+        + 20 * _ratio(blockers["low_quality"], total)
+        + 10 * _ratio(blockers["stale"], total)
+    )
+    # route_ineligible is shown as an operational count but is not a penalty:
+    # excluding pharmacies/banks/services from routes is often the correct state.
+    return max(0, min(100, round(100 - penalty)))
+
+
+def _ratio(value: int, total: int) -> float:
+    return min(1.0, max(0.0, value / total)) if total else 0.0
+
+
+def _primary_blocker(blockers: dict[str, int]) -> str | None:
+    candidates = {key: value for key, value in blockers.items() if key != "route_ineligible" and value > 0}
+    if not candidates:
+        return None
+    return max(candidates, key=candidates.get)
