@@ -32,6 +32,36 @@ def test_missing_photo_refresh_is_idempotent_new(db_session, place_factory):
     assert db_session.query(DataQualityIssue).filter_by(issue_type=ISSUE_MISSING_PHOTO).count() == 1
 
 
+def test_refresh_resolves_stale_issue_when_current_state_is_fixed_new(db_session, place_factory):
+    place = place_factory(address=None, image_url="https://example.test/photo.jpg")
+    refresh_data_quality_issues(db_session, city_id=place.city_id)
+    issue = _issue(db_session, ISSUE_MISSING_ADDRESS)
+    assert issue.status == "open"
+
+    place.address = "ул. Исправленная, 1"
+    db_session.commit()
+    second = refresh_data_quality_issues(db_session, city_id=place.city_id)
+    db_session.refresh(issue)
+
+    assert second.resolved == 1
+    assert issue.status == "resolved"
+    assert issue.resolved_at is not None
+
+
+def test_default_issue_list_hides_resolved_issues_new(client, db_session, place_factory):
+    place = place_factory(address=None, image_url="https://example.test/photo.jpg")
+    refresh_data_quality_issues(db_session, city_id=place.city_id)
+    place.address = "ул. Исправленная, 2"
+    db_session.commit()
+    refresh_data_quality_issues(db_session, city_id=place.city_id)
+
+    current = client.get("/admin/data-quality/issues").json()
+    resolved = client.get("/admin/data-quality/issues?status=resolved").json()
+
+    assert current["total"] == 0
+    assert resolved["total"] == 1
+
+
 def test_missing_address_issue_created_new(db_session, place_factory):
     place = place_factory(image_url="https://example.test/photo.jpg", address=None)
     refresh_data_quality_issues(db_session, city_id=place.city_id)
@@ -67,6 +97,26 @@ def test_possible_duplicate_issue_created_for_nearby_same_title_new(db_session, 
     issues = db_session.query(DataQualityIssue).filter_by(issue_type=ISSUE_POSSIBLE_DUPLICATE).all()
     assert {issue.place_id for issue in issues} == {first.id, second.id}
     assert all(sorted(issue.evidence["duplicate_place_ids"]) == sorted([first.id, second.id]) for issue in issues)
+
+
+def test_data_quality_summary_city_score_uses_live_quality_not_stored_readiness_new(
+    client, db_session, city_factory, place_factory,
+):
+    city = city_factory(slug="summary-live-score", readiness_score=0)
+    place_factory(
+        city_id=city.id,
+        address=None,
+        image_url="https://example.test/photo.jpg",
+        quality_score=100,
+        verification_status="verified",
+    )
+    refresh_data_quality_issues(db_session, city_id=city.id)
+
+    row = next(item for item in client.get("/admin/data-quality/summary").json()["by_city"] if item["city_slug"] == city.slug)
+
+    assert row["coverage_score"] > 0
+    assert row["stored_coverage_score"] == 0
+    assert row["primary_blocker"] == "no_address"
 
 
 def test_route_eligibility_suspicious_issue_for_stoplist_category_new(db_session, place_factory):
