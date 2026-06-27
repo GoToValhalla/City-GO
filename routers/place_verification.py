@@ -3,10 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
-from schemas.place_verification import PlaceNearbyConfirmRequest, PlaceVerificationEnqueueSummary, PlaceVerificationQueueResponse, PlaceVerificationRequest, PlaceVerificationResult, PlaceVerificationStats, PlaceVerificationTaskRead
+from schemas.place_verification import PlaceNearbyConfirmRequest, PlaceVerificationEnqueueSummary, PlaceVerificationQueueResponse, PlaceVerificationRequest, PlaceVerificationResult, PlaceVerificationStats, PlaceVerificationSummary, PlaceVerificationTaskRead
 from services.admin_audit_service import write_admin_audit_log
 from services.feature_toggle_guards import assert_verification_enabled
-from services.place_verification_service import apply_place_verification, confirm_place_nearby, enqueue_stale_places, get_place_verification_queue, pending_verification_tasks, place_verification_stats
+from services.place_verification_service import apply_place_verification, confirm_place_nearby, enqueue_stale_places, get_place_verification_queue, pending_verification_tasks, place_verification_stats, place_verification_summary
 from services.taxonomy_workflow_service import run_workflow
 
 router=APIRouter(prefix="/place-verification",tags=["place-verification"])
@@ -37,6 +37,9 @@ def post_admin_confirm_place_nearby(place_id:int,body:PlaceNearbyConfirmRequest,
  except LookupError as exc:raise HTTPException(404,str(exc)) from exc
  except ValueError as exc:raise HTTPException(400,str(exc)) from exc
  run_workflow(db,workflow="after_place_confirmation",request_id=uuid4().hex,idempotency_key=f"nearby:{place.id}:{place.verified_at}",entity_type="place",entity_id=str(place.id),payload={},actor=auth.actor_id);return _place_result(place)
+
+@admin_router.get("/summary",response_model=PlaceVerificationSummary)
+def get_admin_place_verification_summary(city_slug:str|None=Query(None),auth:AdminContext=Depends(admin_required),db:Session=Depends(get_db)):return PlaceVerificationSummary(**place_verification_summary(db,city_slug=city_slug))
 
 @admin_router.get("/stats",response_model=PlaceVerificationStats)
 def get_admin_place_verification_stats(city_slug:str|None=Query(None),auth:AdminContext=Depends(admin_required),db:Session=Depends(get_db)):return PlaceVerificationStats(**place_verification_stats(db,city_slug or "khanty-mansiysk"))
