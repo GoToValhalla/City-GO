@@ -49,6 +49,14 @@ class PlaceVerificationQueueResponse(BaseModel):
     offset: int
 
 
+class PlaceVerificationSummary(BaseModel):
+    queue_total: int
+    needs_recheck: int
+    unverified: int
+    low_confidence: int
+    verified_today: int
+
+
 class PlaceVerificationRequest(BaseModel):
     action: str = Field(pattern="^(exists|not_found|closed|moved|duplicate|needs_recheck)$")
     verifier: str | None = "local_admin"
