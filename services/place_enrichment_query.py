@@ -36,6 +36,7 @@ def query_places_for_enrichment(
     only_route_eligible: bool,
     missing_fields: list[str],
     only_unpublished: bool = False,
+    exclude_place_ids: list[int] | None = None,
 ) -> list[Place]:
     q = db.query(Place).join(City).filter(City.slug == city_slug)
     if only_unpublished:
@@ -44,6 +45,8 @@ def query_places_for_enrichment(
         q = q.filter(Place.is_published.is_(True))
     if only_route_eligible:
         q = q.filter(Place.is_route_eligible.is_(True))
+    if exclude_place_ids:
+        q = q.filter(Place.id.notin_(exclude_place_ids))
 
     candidates = q.limit(limit * 5).all()
 
