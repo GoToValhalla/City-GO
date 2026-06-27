@@ -1,0 +1,187 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050" role="img" aria-labelledby="title desc">
+  <title id="title">City GO Data Quality Operations Architecture</title>
+  <desc id="desc">Architecture diagram for Data Quality route eligibility cleanup flows: admin UI, API client, backend routers, services, database, issues and candidates.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f9fc; }
+      .panel { fill: #ffffff; stroke: #d6deea; stroke-width: 2; rx: 16; }
+      .box { fill: #ffffff; stroke: #8aa0bc; stroke-width: 2; rx: 14; }
+      .box-blue { fill: #e8f1ff; stroke: #3d6fb6; }
+      .box-green { fill: #e8f7ef; stroke: #2d8b57; }
+      .box-yellow { fill: #fff6df; stroke: #b98719; }
+      .box-red { fill: #ffefef; stroke: #c44f4f; }
+      .box-purple { fill: #f1ecff; stroke: #7657bf; }
+      .db { fill: #eef3f8; stroke: #657b94; stroke-width: 2; }
+      .title { font: 700 34px Arial, sans-serif; fill: #172033; }
+      .subtitle { font: 400 18px Arial, sans-serif; fill: #4c5a6d; }
+      .h2 { font: 700 20px Arial, sans-serif; fill: #172033; }
+      .txt { font: 400 17px Arial, sans-serif; fill: #203047; }
+      .small { font: 400 14px Arial, sans-serif; fill: #42526b; }
+      .tiny { font: 400 12px Arial, sans-serif; fill: #5d6b7d; }
+      .num { font: 700 14px Arial, sans-serif; fill: #ffffff; }
+      .label { font: 700 15px Arial, sans-serif; fill: #203047; }
+      .mono { font: 400 14px "Courier New", monospace; fill: #203047; }
+      .arrow { stroke: #42526b; stroke-width: 2.5; fill: none; marker-end: url(#arrow); }
+      .arrow-blue { stroke: #2f67b1; stroke-width: 3; fill: none; marker-end: url(#arrowBlue); }
+      .arrow-green { stroke: #26754d; stroke-width: 3; fill: none; marker-end: url(#arrowGreen); }
+      .arrow-red { stroke: #bc4545; stroke-width: 3; fill: none; marker-end: url(#arrowRed); stroke-dasharray: 8 7; }
+      .dash { stroke-dasharray: 8 7; }
+      .badge { fill: #2f67b1; }
+      .badge-green { fill: #26754d; }
+      .badge-red { fill: #bc4545; }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#42526b" />
+    </marker>
+    <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#2f67b1" />
+    </marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#26754d" />
+    </marker>
+    <marker id="arrowRed" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#bc4545" />
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1600" height="1050" />
+
+  <text x="64" y="62" class="title">City GO · Data Quality Operations Architecture</text>
+  <text x="64" y="92" class="subtitle">Очередь “Подозрительные для маршрутов”: issues → preview → candidates, без прямого изменения route eligibility</text>
+
+  <rect x="50" y="125" width="350" height="760" class="panel" />
+  <text x="78" y="165" class="h2">Frontend Admin</text>
+
+  <rect x="78" y="200" width="294" height="104" class="box box-blue" />
+  <text x="102" y="235" class="label">/admin/quality</text>
+  <text x="102" y="263" class="small">Карточки качества данных</text>
+  <text x="102" y="286" class="mono">summary + issues queue</text>
+
+  <rect x="78" y="344" width="294" height="116" class="box box-blue" />
+  <text x="102" y="379" class="label">Route Eligibility Queue</text>
+  <text x="102" y="407" class="small">issue_type=route_eligibility_suspicious</text>
+  <text x="102" y="430" class="small">фильтры: city, category, severity</text>
+
+  <rect x="78" y="500" width="294" height="132" class="box box-yellow" />
+  <text x="102" y="535" class="label">Bulk Panel</text>
+  <text x="102" y="563" class="small">1. Предпросмотр исключения</text>
+  <text x="102" y="586" class="small">2. Reason/comment</text>
+  <text x="102" y="609" class="small">3. Создать candidates</text>
+
+  <rect x="78" y="672" width="294" height="126" class="box box-purple" />
+  <text x="102" y="707" class="label">Error Boundary + Section Errors</text>
+  <text x="102" y="735" class="small">method / path / status</text>
+  <text x="102" y="758" class="small">requestId / message</text>
+  <text x="102" y="781" class="small">без общего “backend недоступен”</text>
+
+  <rect x="455" y="125" width="330" height="760" class="panel" />
+  <text x="483" y="165" class="h2">API Client Layer</text>
+
+  <rect x="483" y="220" width="274" height="140" class="box box-purple" />
+  <text x="507" y="255" class="label">adminApiFetch</text>
+  <text x="507" y="283" class="small">auth headers</text>
+  <text x="507" y="306" class="small">JSON parsing</text>
+  <text x="507" y="329" class="small">normalized AdminApiError</text>
+
+  <rect x="483" y="455" width="274" height="160" class="box box-purple" />
+  <text x="507" y="490" class="label">Independent Loading</text>
+  <text x="507" y="518" class="small">summary loading</text>
+  <text x="507" y="541" class="small">issues loading</text>
+  <text x="507" y="564" class="small">preview/apply loading</text>
+  <text x="507" y="587" class="small">allSettled / section states</text>
+
+  <rect x="840" y="125" width="330" height="760" class="panel" />
+  <text x="868" y="165" class="h2">FastAPI Backend</text>
+
+  <rect x="868" y="198" width="274" height="136" class="box box-green" />
+  <text x="892" y="233" class="label">Admin Data Quality Router</text>
+  <text x="892" y="261" class="mono">GET /summary</text>
+  <text x="892" y="284" class="mono">GET /issues</text>
+  <text x="892" y="307" class="mono">POST /refresh</text>
+
+  <rect x="868" y="374" width="274" height="136" class="box box-green" />
+  <text x="892" y="409" class="label">Bulk Actions Router</text>
+  <text x="892" y="437" class="mono">POST /preview</text>
+  <text x="892" y="460" class="mono">POST /apply</text>
+  <text x="892" y="483" class="small">action=propose_exclude_from_routes</text>
+
+  <rect x="868" y="550" width="274" height="132" class="box box-green" />
+  <text x="892" y="585" class="label">Data Quality Service</text>
+  <text x="892" y="613" class="small">deterministic refresh</text>
+  <text x="892" y="636" class="small">filter issues</text>
+  <text x="892" y="659" class="small">create candidates idempotently</text>
+
+  <rect x="868" y="722" width="274" height="106" class="box box-purple" />
+  <text x="892" y="757" class="label">Request/Error Middleware</text>
+  <text x="892" y="785" class="small">X-Request-ID</text>
+  <text x="892" y="808" class="small">JSON error contract</text>
+
+  <rect x="1225" y="125" width="325" height="760" class="panel" />
+  <text x="1253" y="165" class="h2">Database</text>
+
+  <path class="db" d="M1270 212 C1270 185 1505 185 1505 212 L1505 320 C1505 347 1270 347 1270 320 Z" />
+  <ellipse cx="1387.5" cy="212" rx="117.5" ry="27" class="db" />
+  <text x="1320" y="260" class="label">places</text>
+  <text x="1300" y="288" class="small">title, category</text>
+  <text x="1300" y="311" class="small">is_route_eligible</text>
+
+  <path class="db" d="M1270 398 C1270 371 1505 371 1505 398 L1505 522 C1505 549 1270 549 1270 522 Z" />
+  <ellipse cx="1387.5" cy="398" rx="117.5" ry="27" class="db" />
+  <text x="1312" y="448" class="label">data_quality_issues</text>
+  <text x="1300" y="476" class="small">route_eligibility_suspicious</text>
+  <text x="1300" y="499" class="small">status, severity, fingerprint</text>
+
+  <path class="db" d="M1270 596 C1270 569 1505 569 1505 596 L1505 720 C1505 747 1270 747 1270 720 Z" />
+  <ellipse cx="1387.5" cy="596" rx="117.5" ry="27" class="db" />
+  <text x="1300" y="646" class="label">data_quality_candidates</text>
+  <text x="1300" y="674" class="small">route_eligibility_change</text>
+  <text x="1300" y="697" class="small">pending review/apply</text>
+
+  <rect x="1228" y="770" width="318" height="72" class="box box-red" />
+  <text x="1252" y="804" class="label">Forbidden In Bulk Apply</text>
+  <text x="1252" y="827" class="small">No direct UPDATE places.is_route_eligible</text>
+
+  <line x1="372" y1="252" x2="483" y2="285" class="arrow-blue" />
+  <circle cx="415" cy="262" r="14" class="badge" />
+  <text x="410" y="267" class="num">1</text>
+  <text x="390" y="232" class="tiny">GET summary/issues</text>
+
+  <line x1="757" y1="285" x2="868" y2="266" class="arrow-blue" />
+  <circle cx="812" cy="267" r="14" class="badge" />
+  <text x="807" y="272" class="num">2</text>
+
+  <line x1="1142" y1="266" x2="1270" y2="266" class="arrow-blue" />
+  <circle cx="1202" cy="248" r="14" class="badge" />
+  <text x="1197" y="253" class="num">3</text>
+
+  <line x1="372" y1="566" x2="483" y2="535" class="arrow-green" />
+  <circle cx="420" cy="537" r="14" class="badge-green" />
+  <text x="415" y="542" class="num">4</text>
+  <text x="390" y="600" class="tiny">preview/apply</text>
+
+  <line x1="757" y1="535" x2="868" y2="442" class="arrow-green" />
+  <circle cx="810" cy="474" r="14" class="badge-green" />
+  <text x="805" y="479" class="num">5</text>
+
+  <line x1="1142" y1="442" x2="1270" y2="458" class="arrow-green" />
+  <circle cx="1200" cy="430" r="14" class="badge-green" />
+  <text x="1195" y="435" class="num">6</text>
+  <text x="1172" y="407" class="tiny">read issues</text>
+
+  <line x1="1142" y1="616" x2="1270" y2="660" class="arrow-green" />
+  <circle cx="1202" cy="620" r="14" class="badge-green" />
+  <text x="1197" y="625" class="num">7</text>
+  <text x="1168" y="650" class="tiny">insert candidates</text>
+
+  <path d="M1387 720 C1387 770 1270 770 1270 806" class="arrow-red" />
+  <circle cx="1360" cy="756" r="14" class="badge-red" />
+  <text x="1355" y="761" class="num">!</text>
+
+  <line x1="868" y1="775" x2="757" y2="535" class="arrow dash" />
+  <text x="770" y="720" class="tiny">errors include requestId</text>
+
+  <rect x="50" y="925" width="1500" height="86" class="box box-red" />
+  <text x="78" y="959" class="label">Safety invariant</text>
+  <text x="78" y="984" class="txt">Bulk apply only creates DataQualityCandidate(route_eligibility_change). Final route eligibility changes must go through review/apply lifecycle.</text>
+  <text x="78" y="1006" class="mono">Place.is_route_eligible must not be updated in this flow.</text>
+</svg>
