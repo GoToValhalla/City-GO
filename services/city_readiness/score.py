@@ -10,6 +10,7 @@ from models.city import City
 from models.data_foundation import CityQualitySnapshot
 from models.place import Place
 from models.route import Route
+from services.data_quality.readiness import diagnostic_gates
 from services.quality_scoring import apply_place_quality_scores
 from services.route_eligibility import route_eligible_sql_conditions
 
@@ -30,7 +31,7 @@ def compute_city_readiness_for_city(db: Session, *, city: City) -> dict[str, obj
     base = db.query(Place).filter(Place.city_id == city.id)
     total = base.count()
     if total == 0:
-        return _empty(city)
+        return _empty(db, city)
     metrics = _metrics(base, total, city.id)
     score = _weighted_score(metrics)
     return {
@@ -39,6 +40,7 @@ def compute_city_readiness_for_city(db: Session, *, city: City) -> dict[str, obj
         "readiness_score": score,
         "status": _status(score, int(metrics["eligible_places"]), metrics["coverage_pct"]),
         "components": metrics,
+        "data_quality_diagnostics": diagnostic_gates(db, city_id=city.id, city_slug=city.slug),
     }
 
 
@@ -212,7 +214,7 @@ def _published_routes(db: Session, city_id: int) -> int:
     return db.query(Route).filter(Route.city_id == city_id, Route.is_active.is_(True)).count()
 
 
-def _empty(city: City) -> dict[str, object]:
+def _empty(db: Session, city: City) -> dict[str, object]:
     return {
         "city_slug": city.slug,
         "city_name": city.name,
@@ -245,4 +247,5 @@ def _empty(city: City) -> dict[str, object]:
             "stale_places_pct": 0.0,
             "never_verified_pct": 0.0,
         },
+        "data_quality_diagnostics": diagnostic_gates(db, city_id=city.id, city_slug=city.slug),
     }

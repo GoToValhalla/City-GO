@@ -17,6 +17,7 @@ import models.city_scope_import_state  # noqa: F401
 import models.collection  # noqa: F401
 import models.collection_place  # noqa: F401
 import models.country  # noqa: F401
+import models.data_quality  # noqa: F401
 import models.data_foundation  # noqa: F401
 import models.import_batch  # noqa: F401
 import models.import_job_step  # noqa: F401

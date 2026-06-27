@@ -37,6 +37,7 @@ import models.category  # noqa: F401
 import models.city  # noqa: F401
 import models.city_start_point  # noqa: F401
 import models.city_import_scope  # noqa: F401
+import models.data_quality  # noqa: F401
 import models.import_batch  # noqa: F401
 import models.import_job_step  # noqa: F401
 import models.place_scope_link  # noqa: F401
@@ -227,6 +228,7 @@ def place_factory(db_session: Session, city_factory, category_factory):
         lat: float = 54.9611,
         lng: float = 20.4703,
         address: str | None = None,
+        image_url: str | None = None,
         price_level: int | None = None,
         dog_friendly: bool = False,
         family_friendly: bool = False,
@@ -261,6 +263,7 @@ def place_factory(db_session: Session, city_factory, category_factory):
             lat=lat,
             lng=lng,
             address=address,
+            image_url=image_url,
             price_level=price_level,
             dog_friendly=dog_friendly,
             family_friendly=family_friendly,

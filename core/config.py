@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     openai_quality_model: str = "gpt-4.1"
     openai_timeout_seconds: int = 45
 
+    # Data quality foundation: diagnostic by default, never a publication blocker unless explicitly enabled.
+    data_quality_low_confidence_threshold: float = 0.5
+    data_quality_hard_gates_enabled: bool = False
+
     # Nominatim User-Agent для backfill адресов. Без example.com и пустых значений.
     place_address_geocoder_user_agent: str = "CityGoAddressBackfill/1.0"
 
