@@ -9,6 +9,7 @@ from sqlalchemy.orm import Query, Session
 from models.city import City
 from models.data_quality import DataQualityIssue
 from models.place import Place
+from services.admin_platform_quality import city_quality_row
 from services.data_quality.constants import OPEN_STATUSES, SUMMARY_KEYS
 
 
@@ -42,9 +43,13 @@ def _issue_query(db: Session, filters: dict[str, object]) -> Query:
     query = db.query(DataQualityIssue)
     if filters.get("city_slug"):
         query = query.join(City, City.id == DataQualityIssue.city_id).filter(City.slug == filters["city_slug"])
-    for attr in ("city_id", "issue_type", "status", "severity"):
+    for attr in ("city_id", "issue_type", "severity"):
         if filters.get(attr) is not None:
             query = query.filter(getattr(DataQualityIssue, attr) == filters[attr])
+    if filters.get("status") is not None:
+        query = query.filter(DataQualityIssue.status == filters["status"])
+    else:
+        query = query.filter(DataQualityIssue.status.in_(tuple(OPEN_STATUSES)))
     if filters.get("published") is not None or filters.get("route_eligible") is not None:
         query = query.join(Place, Place.id == DataQualityIssue.place_id)
     if filters.get("published") is not None:
@@ -99,8 +104,22 @@ def _totals(rows: list[tuple[str, int | None]]) -> dict[str, int]:
 def _city_rows(db: Session, rows: list[tuple[str, int | None]]) -> list[dict[str, object]]:
     cities = {city.id: city for city in db.query(City).all()}
     city_ids = sorted({city_id for _, city_id in rows if city_id is not None})
-    return [{**_city_totals(city_id, rows), "coverage_score": cities[city_id].readiness_score,
-             "city_id": city_id, "city_slug": cities[city_id].slug, "city_name": cities[city_id].name} for city_id in city_ids]
+    result: list[dict[str, object]] = []
+    for city_id in city_ids:
+        city = cities.get(city_id)
+        if city is None:
+            continue
+        quality = city_quality_row(db, city)
+        result.append({
+            **_city_totals(city_id, rows),
+            "coverage_score": quality["readiness_score"],
+            "stored_coverage_score": quality["stored_readiness_score"],
+            "primary_blocker": quality["primary_blocker"],
+            "city_id": city_id,
+            "city_slug": city.slug,
+            "city_name": city.name,
+        })
+    return result
 
 
 def _city_totals(city_id: int, rows: list[tuple[str, int | None]]) -> dict[str, int]:
