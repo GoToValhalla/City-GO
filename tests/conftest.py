@@ -25,6 +25,8 @@ from tests.test_db_setup import apply_alembic_migrations
 import models.admin_audit_log  # noqa: F401
 import models.admin_alert  # noqa: F401
 import models.admin_operation  # noqa: F401
+import models.ai_budget  # noqa: F401
+import models.ai_candidate  # noqa: F401
 import models.feature_toggle  # noqa: F401
 import models.product_event  # noqa: F401
 import models.system_log  # noqa: F401

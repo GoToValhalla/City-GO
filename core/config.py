@@ -80,6 +80,23 @@ class Settings(BaseSettings):
     # В local/staging задаётся явно, без значения по умолчанию.
     admin_api_token: str = ""
 
+    # Controlled admin AI selector. Defaults are intentionally conservative:
+    # fake provider is available for zero-cost shadow checks, real calls require explicit env opt-in.
+    ai_enabled: bool = False
+    ai_shadow_mode: bool = True
+    ai_apply_mode: bool = False
+    ai_enabled_tasks: str = "explain_review_reason"
+    ai_openai_model: str = "gpt-5-nano"
+    openai_api_key: str = ""
+    ai_provider_timeout_seconds: int = 12
+    ai_monthly_budget_usd: float = 5.0
+    ai_monthly_stop_usd: float = 4.5
+    ai_daily_budget_usd: float = 0.25
+    ai_max_job_cost_usd: float = 0.10
+    ai_max_place_batch_size: int = 1
+    ai_max_input_tokens_per_place: int = 1200
+    ai_max_output_tokens_per_place: int = 300
+
     # Scheduled place re-verification enqueue — включается явно в окружении.
     verification_scheduler_enabled: bool = False
     verification_scheduler_interval_hours: int = 24
