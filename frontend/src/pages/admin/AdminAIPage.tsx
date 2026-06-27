@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { adminGet, adminPostLong } from './adminApi'
 import type { AdminCitiesResponse } from './adminTypes'
 import { AdminError, AdminLoading } from './shared/AdminStates'
+import './AdminAIPage.css'
 
 type AdminAITask = {
   id: string
