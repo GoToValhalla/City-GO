@@ -5,7 +5,6 @@ import csv
 from pathlib import Path
 from typing import Any
 
-import httpx
 from sqlalchemy.orm import Session
 
 from core.config import settings
@@ -15,6 +14,7 @@ from services.openai_client import request_json_object
 from services.place_enrichment_batch.meta import read_batch_meta, update_batch_status
 from services.place_enrichment_batch.paths import rel, resolve_batch_paths
 from services.place_enrichment_csv import ALL_COLUMNS
+from services.telegram_notifications import send_telegram_notification
 
 
 DESCRIPTION_FIELD = "description"
@@ -25,6 +25,8 @@ def run_ai_batch_enrichment(
     batch_id: str,
     req: EnrichmentAIRequest,
     actor: str,
+    *,
+    notify: bool = True,
 ) -> EnrichmentAIResult:
     meta = read_batch_meta(batch_id)
     if meta is None:
@@ -38,6 +40,7 @@ def run_ai_batch_enrichment(
     if not export_path.exists():
         raise FileNotFoundError(f"export.csv missing for batch {batch_id}")
 
+    model = req.model or settings.openai_model
     rows = _read_rows(export_path)
     errors: list[str] = []
     rows_processed = 0
@@ -53,7 +56,7 @@ def run_ai_batch_enrichment(
             if not _needs_description(row, force=req.force):
                 continue
             rows_processed += 1
-            payload = _generate_description(row)
+            payload = _generate_description(row, model=model)
             short_description = str(payload.get("short_description") or "").strip()
             if not short_description:
                 errors.append(f"row {row.get('id') or '?'}: empty short_description")
@@ -75,7 +78,7 @@ def run_ai_batch_enrichment(
         entity_id=batch_id,
         new_value={
             "batch_id": batch_id,
-            "model": settings.openai_model,
+            "model": model,
             "rows_processed": rows_processed,
             "rows_updated": rows_updated,
             "errors": errors,
@@ -84,13 +87,14 @@ def run_ai_batch_enrichment(
     db.commit()
     result = EnrichmentAIResult(
         batch_id=batch_id,
-        model=settings.openai_model,
+        model=model,
         rows_processed=rows_processed,
         rows_updated=rows_updated,
         errors=errors,
         enriched_csv_path=rel(enriched_path),
     )
-    _send_ai_enrichment_notice(result, city_slug=meta.city_slug)
+    if notify:
+        _send_ai_enrichment_notice(result, city_slug=meta.city_slug)
     return result
 
 
@@ -116,7 +120,7 @@ def _needs_description(row: dict[str, str], *, force: bool) -> bool:
     return not current and not suggested
 
 
-def _generate_description(row: dict[str, str]) -> dict[str, Any]:
+def _generate_description(row: dict[str, str], *, model: str) -> dict[str, Any]:
     return request_json_object(
         messages=[
             {
@@ -132,7 +136,7 @@ def _generate_description(row: dict[str, str]) -> dict[str, Any]:
                 "content": _build_user_prompt(row),
             },
         ],
-        model=settings.openai_model,
+        model=model,
         temperature=0.2,
     )
 
@@ -165,10 +169,8 @@ def _format_confidence(value: object) -> str:
 
 
 def _send_ai_enrichment_notice(result: EnrichmentAIResult, *, city_slug: str) -> None:
-    if not settings.telegram_bot_token or not settings.telegram_chat_id:
-        return
     status_icon = "✅" if not result.errors else "⚠️"
-    text = (
+    send_telegram_notification(
         f"{status_icon} City GO · AI обогащение\n"
         f"Город: {city_slug}\n"
         f"Пакет: {result.batch_id}\n"
@@ -178,11 +180,3 @@ def _send_ai_enrichment_notice(result: EnrichmentAIResult, *, city_slug: str) ->
         f"Ошибок: {len(result.errors)}\n"
         "Следующий шаг: открыть пакет в админке, проверить предпросмотр и применить."
     )
-    try:
-        httpx.post(
-            f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-            json={"chat_id": settings.telegram_chat_id, "text": text},
-            timeout=8,
-        )
-    except httpx.HTTPError:
-        return
