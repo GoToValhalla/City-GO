@@ -124,7 +124,7 @@ def _possible_duplicate_drafts(places: list[Place]) -> list[IssueDraft]:
     by_key: dict[tuple[int, str], list[Place]] = defaultdict(list)
     for place in places:
         normalized = _normalized_title(place.title)
-        if normalized:
+        if normalized and _has_coordinates(place):
             by_key[(place.city_id, normalized)].append(place)
 
     drafts: list[IssueDraft] = []
@@ -181,7 +181,13 @@ def _normalized_title(value: str | None) -> str | None:
     return re.sub(r"\s+", " ", title)
 
 
+def _has_coordinates(place: Place) -> bool:
+    return place.lat is not None and place.lng is not None
+
+
 def _distance_meters(a: Place, b: Place) -> float:
+    if not _has_coordinates(a) or not _has_coordinates(b):
+        return math.inf
     radius = 6371000.0
     phi1 = math.radians(a.lat)
     phi2 = math.radians(b.lat)
