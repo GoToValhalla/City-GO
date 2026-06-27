@@ -7,7 +7,7 @@ locks, but the same code path is still useful for service tests.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -49,6 +49,7 @@ def reserve_budget(
     day_key = now.strftime("%Y-%m-%d")
     month_key = now.strftime("%Y-%m")
     _lock_budget(db, day_key=day_key, month_key=month_key)
+    reap_expired_reservations(db, now=now)
     daily = _ledger(db, scope="daily", period_key=day_key)
     monthly = _ledger(db, scope="monthly", period_key=month_key)
 
@@ -65,6 +66,7 @@ def reserve_budget(
         estimated_cost_usd=estimated_cost_usd,
         day_key=day_key,
         month_key=month_key,
+        expires_at=now + timedelta(seconds=settings.ai_budget_reservation_ttl_seconds),
     )
     db.add_all([daily, monthly, reservation])
     db.flush()
@@ -85,13 +87,14 @@ def commit_budget(
     status: str = "committed",
 ) -> float:
     cost = reservation.estimated_cost_usd if actual_cost_usd is None else max(0.0, actual_cost_usd)
+    if not _transition_reserved_reservation(db, reservation=reservation, new_status=status):
+        return 0.0
     daily = _ledger(db, scope="daily", period_key=reservation.day_key)
     monthly = _ledger(db, scope="monthly", period_key=reservation.month_key)
     for ledger in (daily, monthly):
         ledger.reserved_usd = round(max(0.0, ledger.reserved_usd - reservation.estimated_cost_usd), 8)
         ledger.spent_usd = round(ledger.spent_usd + cost, 8)
         db.add(ledger)
-    reservation.status = status
     reservation.actual_cost_usd = cost
     db.add(reservation)
     db.flush()
@@ -99,15 +102,63 @@ def commit_budget(
 
 
 def release_budget(db: Session, *, reservation: AIBudgetReservation) -> None:
+    if not _transition_reserved_reservation(db, reservation=reservation, new_status="released"):
+        return
     daily = _ledger(db, scope="daily", period_key=reservation.day_key)
     monthly = _ledger(db, scope="monthly", period_key=reservation.month_key)
     for ledger in (daily, monthly):
         ledger.reserved_usd = round(max(0.0, ledger.reserved_usd - reservation.estimated_cost_usd), 8)
         db.add(ledger)
-    reservation.status = "released"
     reservation.actual_cost_usd = 0.0
     db.add(reservation)
     db.flush()
+
+
+def reap_expired_reservations(db: Session, *, now: datetime | None = None) -> int:
+    now = now or datetime.utcnow()
+    reservations = (
+        db.query(AIBudgetReservation)
+        .filter(AIBudgetReservation.status == "reserved", AIBudgetReservation.expires_at < now)
+        .with_for_update()
+        .all()
+    )
+    expired_count = 0
+    for reservation in reservations:
+        if not _transition_reserved_reservation(db, reservation=reservation, new_status="expired"):
+            continue
+        daily = _ledger(db, scope="daily", period_key=reservation.day_key)
+        monthly = _ledger(db, scope="monthly", period_key=reservation.month_key)
+        for ledger in (daily, monthly):
+            ledger.reserved_usd = round(max(0.0, ledger.reserved_usd - reservation.estimated_cost_usd), 8)
+            db.add(ledger)
+        reservation.actual_cost_usd = 0.0
+        db.add(reservation)
+        expired_count += 1
+    db.flush()
+    return expired_count
+
+
+def _transition_reserved_reservation(
+    db: Session,
+    *,
+    reservation: AIBudgetReservation,
+    new_status: str,
+) -> bool:
+    current = (
+        db.query(AIBudgetReservation)
+        .filter(AIBudgetReservation.id == reservation.id)
+        .with_for_update()
+        .first()
+    )
+    if current is None or current.status != "reserved":
+        if current is not None:
+            db.refresh(reservation)
+        return False
+    current.status = new_status
+    reservation.status = new_status
+    db.add(current)
+    db.flush()
+    return True
 
 
 def _ledger(db: Session, *, scope: str, period_key: str) -> AIBudgetLedger:
