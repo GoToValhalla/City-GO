@@ -193,10 +193,10 @@ def default_checks() -> list[CheckSpec]:
         CheckSpec("admin_coverage_proxy", "Админка: покрытие данных", "GET", "/api/admin/coverage/summary?limit=5", "admin"),
         CheckSpec("admin_verification_proxy", "Админка: очередь проверки", "GET", "/api/admin/place-verifications/summary", "admin"),
         CheckSpec("admin_route_eligibility_proxy", "Админка: готовность мест к маршрутам", "GET", "/api/admin/routes/eligibility?limit=1", "admin"),
-        CheckSpec("admin_route_readiness_proxy", "Админка: готовность маршрутов", "GET", "/api/admin/routes/readiness?limit=10", "admin"),
+        CheckSpec("admin_route_readiness_proxy", "Админка: готовность маршрутов", "GET", "/api/admin/routes/readiness?limit=1", "admin"),
         CheckSpec("admin_overview_backend", "Backend: обзор админки напрямую", "GET", ":8000/admin/overview", "admin"),
         CheckSpec("admin_coverage_backend", "Backend: покрытие напрямую", "GET", ":8000/admin/coverage/summary?limit=5", "admin"),
-        CheckSpec("admin_route_readiness_backend", "Backend: готовность маршрутов напрямую", "GET", ":8000/admin/routes/readiness?limit=10", "admin"),
+        CheckSpec("admin_route_readiness_backend", "Backend: готовность маршрутов напрямую", "GET", ":8000/admin/routes/readiness?limit=1", "admin"),
         CheckSpec("route_preview_yerevan_proxy", "Route preview через nginx", "POST", "/api/v1/user-routes/preview", body=route_body),
         CheckSpec("route_preview_yerevan_backend", "Route preview backend напрямую", "POST", ":8000/v1/user-routes/preview", body=route_body),
     ]

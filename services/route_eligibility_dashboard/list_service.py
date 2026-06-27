@@ -51,7 +51,21 @@ def list_eligibility_places(
         query, category=category, no_photo=no_photo, no_address=no_address,
         no_description=no_description, unpublished=unpublished, inactive=inactive,
     )
-    rows = query.order_by(Place.id.desc()).all()
+    query = query.order_by(Place.id.desc())
+
+    if not _requires_computed_filters(
+        eligible=eligible,
+        issue=issue,
+        readiness=readiness,
+        quality=quality,
+        min_quality_score=min_quality_score,
+        placeholder_name=placeholder_name,
+    ):
+        total = query.count()
+        rows = query.offset(offset).limit(min(limit, 200)).all()
+        return [_row(place, city) for place in rows], total
+
+    rows = query.all()
     items = [_row(place, city) for place in rows]
     items = _apply_computed_filters(
         items,
@@ -118,6 +132,21 @@ def _apply_filters(
     if inactive:
         query = query.filter(or_(Place.is_active.is_(False), Place.status != "active"))
     return query
+
+
+def _requires_computed_filters(
+    *,
+    eligible: bool | None,
+    issue: str | None,
+    readiness: str | None,
+    quality: str | None,
+    min_quality_score: int | None,
+    placeholder_name: bool | None,
+) -> bool:
+    return any(
+        value is not None
+        for value in (eligible, issue, readiness, quality, min_quality_score, placeholder_name)
+    )
 
 
 def _apply_computed_filters(
