@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from core.config import settings
+from models.admin_audit_log import AdminAuditLog
 from models.city import City
 from models.place import Place
 from schemas.admin_ai import (
@@ -91,6 +92,7 @@ def _run_fill_descriptions(
     actor: str,
     model: str,
 ) -> AdminAIRunResult:
+    already_processed_place_ids = _previous_fill_description_place_ids(db, city_slug=city.slug)
     export = run_enrichment_export(
         db,
         PlaceEnrichmentExportRequest(
@@ -100,6 +102,7 @@ def _run_fill_descriptions(
             only_unpublished=True,
             only_route_eligible=False,
             missing_fields=[],
+            exclude_place_ids=already_processed_place_ids,
             git_artifact=True,
         ),
         actor=actor,
@@ -116,8 +119,8 @@ def _run_fill_descriptions(
             rows_updated=0,
             applied=False,
             batch_id=batch_id,
-            message="В выбранном городе не найдено неопубликованных мест на проверку.",
-            next_action="Ничего делать не нужно.",
+            message="В выбранном городе не найдено новых неопубликованных мест на проверку.",
+            next_action="Проверьте предыдущие AI-результаты: обработанные карточки нужно опубликовать или отклонить.",
         )
         _audit_result(db, result, actor=actor)
         return result
@@ -281,6 +284,32 @@ def _updated_description(change: Any) -> str:
         if getattr(update, "field", "") == "short_description":
             return str(getattr(update, "new_value", "") or "")[:500]
     return ""
+
+
+def _previous_fill_description_place_ids(db: Session, *, city_slug: str) -> list[int]:
+    logs = (
+        db.query(AdminAuditLog)
+        .filter(AdminAuditLog.action == "admin_ai_run")
+        .filter(AdminAuditLog.entity_type == "admin_ai_task")
+        .filter(AdminAuditLog.entity_id == FILL_DESCRIPTIONS)
+        .order_by(AdminAuditLog.created_at.desc())
+        .limit(500)
+        .all()
+    )
+    place_ids: set[int] = set()
+    for log in logs:
+        payload = log.new_value or {}
+        if str(payload.get("city_slug") or "") != city_slug:
+            continue
+        for item in payload.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            place_id = item.get("place_id")
+            try:
+                place_ids.add(int(place_id))
+            except (TypeError, ValueError):
+                continue
+    return sorted(place_ids)
 
 
 def _model_for_mode(mode: str) -> str:
