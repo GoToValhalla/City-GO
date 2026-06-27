@@ -1,31 +1,143 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
-import { VERIFY_STATUS_OPTIONS } from './adminPlacesPresets'
 import { AdminCategorySelect } from './AdminCategorySelect'
-import { categoryText } from './adminRouteCopy'
 import { verificationStatusText } from './adminHumanText'
+import { VERIFY_STATUS_OPTIONS } from './adminPlacesPresets'
+import { categoryText } from './adminRouteCopy'
 import type { AdminCitiesResponse, AdminVerificationQueue, AdminVerificationSummary, AdminVerificationTask } from './adminTypes'
-import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
+import { AdminEmpty, AdminLoading, AdminSectionError } from './shared/AdminStates'
 
-const PAGE_SIZES = [20, 50, 100]; const DEFAULT_PAGE_SIZE = 50
+const PAGE_SIZES = [20, 50, 100]
+const DEFAULT_PAGE_SIZE = 50
 const pageSizeFromQuery = (value: string | null) => PAGE_SIZES.includes(Number(value)) ? Number(value) : DEFAULT_PAGE_SIZE
 const offsetFromQuery = (value: string | null) => Number.isInteger(Number(value)) && Number(value) >= 0 ? Number(value) : 0
 const confidenceText = (value: number) => value <= 1 ? `${Math.round(value * 100)}%` : `${Math.round(value)}%`
+const errorText = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback
 
 export const AdminPlaceVerificationsPage = () => {
-  const [searchParams, setSearchParams] = useSearchParams(); const citySlug = searchParams.get('city') ?? ''; const status = searchParams.get('status') ?? ''; const category = searchParams.get('category') ?? ''; const limit = pageSizeFromQuery(searchParams.get('limit')); const offset = offsetFromQuery(searchParams.get('offset'))
-  const [tasks, setTasks] = useState<AdminVerificationTask[]>([]); const [total, setTotal] = useState(0); const [stats, setStats] = useState<AdminVerificationSummary | null>(null); const [cities, setCities] = useState<AdminCitiesResponse['items']>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState<number | null>(null); const requestSequence = useRef(0)
-  const updateFilters = useCallback((changes: Record<string, string | number | null>) => { const next = new URLSearchParams(searchParams); Object.entries(changes).forEach(([key, value]) => { const normalized = value === null ? '' : String(value); const isDefault = (key === 'limit' && normalized === String(DEFAULT_PAGE_SIZE)) || (key === 'offset' && normalized === '0'); if (!normalized || isDefault) next.delete(key); else next.set(key, normalized) }); setSearchParams(next, { replace: true }) }, [searchParams, setSearchParams])
-  const load = useCallback(async (showLoading = true) => { const requestId = ++requestSequence.current; if (showLoading) setLoading(true); setError(null); const q = new URLSearchParams({ limit: String(limit), offset: String(offset) }); if (citySlug) q.set('city_slug', citySlug); if (status) q.set('status', status); if (category) q.set('category', category); try { const [queue, summary, cityResponse] = await Promise.all([adminGet<AdminVerificationQueue>(`/admin/place-verifications/queue?${q}`), adminGet<AdminVerificationSummary>('/admin/place-verifications/summary'), adminGet<AdminCitiesResponse>('/admin/cities?limit=100')]); if (requestId !== requestSequence.current) return; setTasks(queue.items); setTotal(queue.total); setStats(summary); setCities(cityResponse.items) } catch (e) { if (requestId === requestSequence.current) setError(e instanceof Error ? e.message : 'Не удалось загрузить очередь проверки') } finally { if (requestId === requestSequence.current) setLoading(false) } }, [citySlug, status, category, limit, offset])
-  useEffect(() => { void load(); return () => { requestSequence.current += 1 } }, [load])
-  const verify = async (placeId: number, action: string) => { if (!window.confirm(`${action === 'exists' ? 'Подтвердить место' : 'Исключить как не найденное'} для места #${placeId}?`)) return; setBusy(placeId); setError(null); try { await adminPost(`/admin/place-verifications/places/${placeId}/verify`, { action }); setTasks((current) => current.filter((task) => task.place_id !== placeId)); setTotal((current) => Math.max(0, current - 1)); await load(false) } catch (e) { setError(e instanceof Error ? e.message : 'Не удалось сохранить результат проверки') } finally { setBusy(null) } }
-  const metric = (value: number, label: string, filter: Record<string, string>) => <button type="button" className="admin-metric-card" onClick={() => updateFilters({ ...filter, offset: 0 })}><div className="admin-metric-value">{value}</div><div className="admin-metric-label">{label}</div><span className="admin-muted">Открыть выборку →</span></button>
-  const page = Math.floor(offset / limit) + 1; const pages = Math.max(1, Math.ceil(total / limit))
+  const [searchParams, setSearchParams] = useSearchParams()
+  const citySlug = searchParams.get('city') ?? ''
+  const status = searchParams.get('status') ?? ''
+  const category = searchParams.get('category') ?? ''
+  const limit = pageSizeFromQuery(searchParams.get('limit'))
+  const offset = offsetFromQuery(searchParams.get('offset'))
+  const [tasks, setTasks] = useState<AdminVerificationTask[]>([])
+  const [total, setTotal] = useState(0)
+  const [stats, setStats] = useState<AdminVerificationSummary | null>(null)
+  const [cities, setCities] = useState<AdminCitiesResponse['items']>([])
+  const [queueLoading, setQueueLoading] = useState(true)
+  const [summaryLoading, setSummaryLoading] = useState(true)
+  const [citiesLoading, setCitiesLoading] = useState(true)
+  const [queueError, setQueueError] = useState<string | null>(null)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+  const [filtersError, setFiltersError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<number | null>(null)
+  const requestSequence = useRef(0)
+
+  const updateFilters = useCallback((changes: Record<string, string | number | null>) => {
+    const next = new URLSearchParams(searchParams)
+    Object.entries(changes).forEach(([key, value]) => {
+      const normalized = value === null ? '' : String(value)
+      const isDefault = (key === 'limit' && normalized === String(DEFAULT_PAGE_SIZE)) || (key === 'offset' && normalized === '0')
+      if (!normalized || isDefault) next.delete(key); else next.set(key, normalized)
+    })
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
+  const loadQueue = useCallback(async (requestId: number) => {
+    setQueueLoading(true); setQueueError(null)
+    const query = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+    if (citySlug) query.set('city_slug', citySlug)
+    if (status) query.set('status', status)
+    if (category) query.set('category', category)
+    try {
+      const queue = await adminGet<AdminVerificationQueue>(`/admin/place-verifications/queue?${query}`)
+      if (requestId !== requestSequence.current) return
+      setTasks(queue.items); setTotal(queue.total)
+    } catch (error) {
+      if (requestId === requestSequence.current) setQueueError(errorText(error, 'Не удалось загрузить очередь проверки мест'))
+    } finally {
+      if (requestId === requestSequence.current) setQueueLoading(false)
+    }
+  }, [citySlug, status, category, limit, offset])
+
+  const loadSummary = useCallback(async (requestId: number) => {
+    setSummaryLoading(true); setSummaryError(null)
+    try {
+      const summary = await adminGet<AdminVerificationSummary>('/admin/place-verifications/summary')
+      if (requestId === requestSequence.current) setStats(summary)
+    } catch (error) {
+      if (requestId === requestSequence.current) setSummaryError(errorText(error, 'Не удалось загрузить сводку проверки мест'))
+    } finally {
+      if (requestId === requestSequence.current) setSummaryLoading(false)
+    }
+  }, [])
+
+  const loadCities = useCallback(async (requestId: number) => {
+    setCitiesLoading(true); setFiltersError(null)
+    try {
+      const response = await adminGet<AdminCitiesResponse>('/admin/cities?limit=100')
+      if (requestId === requestSequence.current) setCities(response.items)
+    } catch (error) {
+      if (requestId === requestSequence.current) setFiltersError(errorText(error, 'Не удалось загрузить список городов'))
+    } finally {
+      if (requestId === requestSequence.current) setCitiesLoading(false)
+    }
+  }, [])
+
+  const load = useCallback(() => {
+    const requestId = ++requestSequence.current
+    setActionError(null)
+    void loadQueue(requestId)
+    void loadSummary(requestId)
+    void loadCities(requestId)
+  }, [loadQueue, loadSummary, loadCities])
+
+  useEffect(() => { load(); return () => { requestSequence.current += 1 } }, [load])
+
+  const verify = async (placeId: number, action: string) => {
+    if (!window.confirm(`${action === 'exists' ? 'Подтвердить место' : 'Исключить как не найденное'} для места #${placeId}?`)) return
+    setBusy(placeId); setActionError(null)
+    try {
+      await adminPost(`/admin/place-verifications/places/${placeId}/verify`, { action })
+      setTasks((current) => current.filter((task) => task.place_id !== placeId))
+      setTotal((current) => Math.max(0, current - 1))
+      void loadQueue(++requestSequence.current)
+      void loadSummary(requestSequence.current)
+    } catch (error) {
+      setActionError(errorText(error, 'Не удалось сохранить результат проверки'))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const metric = (value: number, label: string, filter: Record<string, string>) => (
+    <button type="button" className="admin-metric-card" onClick={() => updateFilters({ ...filter, offset: 0 })}>
+      <div className="admin-metric-value">{value}</div><div className="admin-metric-label">{label}</div>
+      <span className="admin-muted">Открыть выборку →</span>
+    </button>
+  )
+  const page = Math.floor(offset / limit) + 1
+  const pages = Math.max(1, Math.ceil(total / limit))
   return <div>
-    <h2 className="admin-page-title">Проверка мест ({total})</h2><p className="admin-page-subtitle">Сводные показатели открывают соответствующие очереди. Название места ведёт в его карточку.</p>
-    {stats && <div className="admin-metrics-grid admin-metrics-small">{metric(stats.queue_total, 'В очереди', { status: '' })}{metric(stats.verified_today, 'Проверено сегодня', { status: 'verified_today' })}{metric(stats.needs_recheck, 'Нужна перепроверка', { status: 'needs_recheck' })}{metric(stats.low_confidence, 'Низкая уверенность', { status: 'low_confidence' })}</div>}
-    <section className="admin-filter-card"><div className="admin-help-title">Фильтры проверки</div><div className="admin-filters"><select aria-label="Город" value={citySlug} onChange={(e) => updateFilters({ city: e.target.value, offset: 0 })}><option value="">Все города</option>{cities.map((city) => <option key={city.id} value={city.slug}>{city.name}</option>)}</select><select aria-label="Статус проверки" value={status} onChange={(e) => updateFilters({ status: e.target.value, offset: 0 })}>{VERIFY_STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><AdminCategorySelect value={category} citySlug={citySlug || undefined} onChange={(value) => updateFilters({ category: value, offset: 0 })} includeAll /><select aria-label="Размер страницы" value={limit} onChange={(e) => updateFilters({ limit: Number(e.target.value), offset: 0 })}>{PAGE_SIZES.map((size) => <option key={size} value={size}>{size} на страницу</option>)}</select></div></section>
-    {error && <AdminError message={error} />}{loading ? <AdminLoading /> : tasks.length === 0 ? <AdminEmpty message="Очередь пуста по выбранным фильтрам" /> : <><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Город</th><th>Категория</th><th>Адрес</th><th>Статус</th><th>Уверенность</th><th>Действия</th></tr></thead><tbody>{tasks.map((task) => <tr key={task.place_id}><td><Link to={`/admin/places/${task.place_id}`}>{task.title}</Link></td><td>{task.city_slug ? <Link to={`/admin/cities/${task.city_slug}?tab=verification`}>{task.city_slug}</Link> : '—'}</td><td>{categoryText(task.category)}</td><td>{task.address ?? '—'}</td><td>{verificationStatusText(task.verification_status)}</td><td>{confidenceText(task.existence_confidence_score)}</td><td><button type="button" disabled={busy === task.place_id} onClick={() => void verify(task.place_id, 'exists')} className="admin-btn admin-btn-ok admin-btn-sm">Подтвердить место</button><button type="button" disabled={busy === task.place_id} onClick={() => void verify(task.place_id, 'not_found')} className="admin-btn admin-btn-danger admin-btn-sm">Исключить</button></td></tr>)}</tbody></table></div><div className="admin-actions-cell"><button type="button" className="admin-btn admin-btn-sm" disabled={offset === 0} onClick={() => updateFilters({ offset: Math.max(0, offset - limit) })}>Назад</button><span className="admin-muted">Стр. {page} / {pages} · всего {total}</span><button type="button" className="admin-btn admin-btn-sm" disabled={offset + limit >= total} onClick={() => updateFilters({ offset: offset + limit })}>Вперёд</button></div></>}
+    <h2 className="admin-page-title">Проверка мест ({total})</h2>
+    <p className="admin-page-subtitle">Сводные показатели открывают соответствующие очереди. Название места ведёт в его карточку.</p>
+    <section className="admin-section">
+      {summaryLoading && !stats && <AdminLoading message="Загрузка сводки проверки…" />}
+      {summaryError && <AdminSectionError title="Не удалось загрузить сводку проверки мест" message={summaryError} onRetry={() => void loadSummary(++requestSequence.current)} />}
+      {stats && <div className="admin-metrics-grid admin-metrics-small">{metric(stats.queue_total, 'В очереди', { status: '' })}{metric(stats.verified_today, 'Проверено сегодня', { status: 'verified_today' })}{metric(stats.needs_recheck, 'Нужна перепроверка', { status: 'needs_recheck' })}{metric(stats.low_confidence, 'Низкая уверенность', { status: 'low_confidence' })}</div>}
+    </section>
+    <section className="admin-filter-card">
+      <div className="admin-help-title">Фильтры проверки</div>
+      {filtersError && <AdminSectionError title="Не удалось загрузить фильтры" message={filtersError} onRetry={() => void loadCities(++requestSequence.current)} />}
+      <div className="admin-filters"><select aria-label="Город" value={citySlug} disabled={citiesLoading && cities.length === 0} onChange={(e) => updateFilters({ city: e.target.value, offset: 0 })}><option value="">Все города</option>{cities.map((city) => <option key={city.id} value={city.slug}>{city.name}</option>)}</select><select aria-label="Статус проверки" value={status} onChange={(e) => updateFilters({ status: e.target.value, offset: 0 })}>{VERIFY_STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><AdminCategorySelect value={category} citySlug={citySlug || undefined} onChange={(value) => updateFilters({ category: value, offset: 0 })} includeAll /><select aria-label="Размер страницы" value={limit} onChange={(e) => updateFilters({ limit: Number(e.target.value), offset: 0 })}>{PAGE_SIZES.map((size) => <option key={size} value={size}>{size} на страницу</option>)}</select></div>
+    </section>
+    {actionError && <AdminSectionError title="Не удалось сохранить результат проверки" message={actionError} />}
+    <section className="admin-section">
+      {queueError && <AdminSectionError title="Не удалось загрузить очередь проверки мест" message={queueError} onRetry={() => void loadQueue(++requestSequence.current)} />}
+      {queueLoading && tasks.length === 0 ? <AdminLoading message="Загрузка очереди проверки…" /> : tasks.length === 0 && !queueError ? <AdminEmpty message="Очередь пуста по выбранным фильтрам" /> : <><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Город</th><th>Категория</th><th>Адрес</th><th>Статус</th><th>Уверенность</th><th>Действия</th></tr></thead><tbody>{tasks.map((task) => <tr key={task.place_id}><td><Link to={`/admin/places/${task.place_id}`}>{task.title}</Link></td><td>{task.city_slug ? <Link to={`/admin/cities/${task.city_slug}?tab=verification`}>{task.city_slug}</Link> : '—'}</td><td>{categoryText(task.category)}</td><td>{task.address ?? '—'}</td><td>{verificationStatusText(task.verification_status)}</td><td>{confidenceText(task.existence_confidence_score)}</td><td><button type="button" disabled={busy === task.place_id} onClick={() => void verify(task.place_id, 'exists')} className="admin-btn admin-btn-ok admin-btn-sm">Подтвердить место</button><button type="button" disabled={busy === task.place_id} onClick={() => void verify(task.place_id, 'not_found')} className="admin-btn admin-btn-danger admin-btn-sm">Исключить</button></td></tr>)}</tbody></table></div><div className="admin-actions-cell"><button type="button" className="admin-btn admin-btn-sm" disabled={offset === 0} onClick={() => updateFilters({ offset: Math.max(0, offset - limit) })}>Назад</button><span className="admin-muted">Стр. {page} / {pages} · всего {total}</span><button type="button" className="admin-btn admin-btn-sm" disabled={offset + limit >= total} onClick={() => updateFilters({ offset: offset + limit })}>Вперёд</button></div></>}
+    </section>
   </div>
 }

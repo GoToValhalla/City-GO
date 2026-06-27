@@ -60,5 +60,7 @@ def test_verification_filters_are_url_backed_and_refresh_is_awaited_new() -> Non
     assert "searchParams.get('status')" in source
     assert "searchParams.get('category')" in source
     assert "searchParams.get('limit')" in source
-    assert "await load(false)" in source
+    assert "void loadQueue(++requestSequence.current)" in source
+    assert "void loadSummary(requestSequence.current)" in source
+    assert "Promise.all([" not in source
     assert "setTasks((current) => current.filter" in source

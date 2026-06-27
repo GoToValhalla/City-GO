@@ -121,6 +121,16 @@ describe('adminApi', () => {
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
     const { adminGet } = await import('./adminApi')
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('Not found', { status: 404 }))
-    await expect(adminGet('/admin/missing')).rejects.toThrow('Данные не найдены.')
+    await expect(adminGet('/admin/missing')).rejects.toThrow('Данные не найдены. · GET /admin/missing · HTTP 404')
+  })
+
+  it('keeps endpoint, status and request id on HTTP 500', async () => {
+    vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
+    const { adminGet } = await import('./adminApi')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ detail: 'broken', request_id: 'req-500' }),
+      { status: 500, headers: { 'x-request-id': 'req-500' } },
+    ))
+    await expect(adminGet('/admin/broken')).rejects.toThrow('broken · GET /admin/broken · HTTP 500 · requestId: req-500')
   })
 })

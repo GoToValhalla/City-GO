@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { clearAdminSession } from './adminSession'
+import { AdminErrorBoundary } from './AdminErrorBoundary'
 import { ADMIN_NAV_ITEMS, ADMIN_NAV_SECTION_LABELS } from './adminNavItems'
 import './Admin.css'
 import './AdminResponsive.css'
@@ -52,7 +53,7 @@ export const AdminLayout = ({ children }: Props) => {
           <span className="admin-topbar-label">Операционная панель</span>
           <button type="button" onClick={logout} className="admin-btn admin-btn-logout">Выйти</button>
         </header>
-        <div className="admin-content">{children}</div>
+        <div className="admin-content"><AdminErrorBoundary>{children}</AdminErrorBoundary></div>
       </div>
     </div>
   )

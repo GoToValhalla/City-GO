@@ -158,6 +158,41 @@ ADMIN_API_TOKEN=dev-local-token-change-me
 
 Каждое admin write-действие записывает событие в таблицу `admin_audit_logs`.
 
+---
+
+## Admin API Error Contract
+
+Каждый HTTP-ответ проходит через request logging middleware и получает заголовок:
+
+```http
+X-Request-ID: <request-id>
+```
+
+Если клиент передал `X-Request-ID`, backend сохраняет его. Иначе генерируется новый идентификатор.
+
+Unhandled backend errors возвращаются как JSON, а не HTML:
+
+```json
+{
+  "error": "unhandled_request_exception",
+  "request_id": "req-123",
+  "method": "GET",
+  "path": "/admin/example",
+  "exception_type": "RuntimeError",
+  "message": "..."
+}
+```
+
+Frontend admin client обязан показывать:
+
+- HTTP method;
+- endpoint;
+- status;
+- requestId, если он есть в header/body;
+- короткое сообщение backend.
+
+Сообщение “backend недоступен” допустимо только для network error без HTTP-ответа.
+
 ### Структура события
 
 | Поле          | Описание                                          |

@@ -143,6 +143,6 @@ describe('AdminRouteEligibilityPage quality gates', () => {
     fireEvent.click(screen.getByLabelText('Выбрать Краеведческий музей'))
     fireEvent.click(screen.getByRole('button', { name: 'Подтвердить для маршрутов' }))
 
-    await waitFor(() => expect(screen.getByText('bulk failed')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/bulk failed .*POST \/admin\/places\/bulk\/apply .*HTTP 500/)).toBeTruthy())
   })
 })

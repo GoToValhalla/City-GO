@@ -47,6 +47,17 @@ def test_verification_summary_new(client: TestClient) -> None:
     assert "queue_total" in response.json()
 
 
+def test_verification_queue_shape_new(client: TestClient, place_factory) -> None:
+    place = place_factory(title="Парк")
+    place.verification_status = "unverified"
+    response = client.get("/admin/place-verifications/queue", headers=_HEADERS)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert {"items", "total", "limit", "offset"} <= set(body)
+    assert any(item["place_id"] == place.id and item["title"] == "Парк" for item in body["items"])
+
+
 def test_verification_stats_optional_city_new(client: TestClient, city_factory) -> None:
     city_factory(slug="khanty-mansiysk", name="Ханты-Мансийск")
     response = client.get("/admin/place-verifications/stats", headers=_HEADERS)

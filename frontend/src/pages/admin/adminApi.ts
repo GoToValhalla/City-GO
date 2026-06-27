@@ -1,12 +1,49 @@
 import { clearAdminSession } from './adminSession'
 import { requireAdminApiToken } from './adminToken'
-import { toAdminErrorMessage } from './shared/adminErrorMessage'
+import { toAdminEndpointErrorMessage } from './shared/adminErrorMessage'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 const ADMIN_REQUEST_TIMEOUT_MS = 15_000
 const ADMIN_LONG_REQUEST_TIMEOUT_MS = 600_000
 
 type AdminRequestOptions = RequestInit & { timeoutMs?: number }
+
+export class AdminApiError extends Error {
+  method: string
+  endpoint: string
+  status?: number
+  statusText?: string
+  responseText?: string
+  requestId?: string | null
+  cause?: unknown
+
+  constructor(details: {
+    method: string
+    endpoint: string
+    status?: number
+    statusText?: string
+    responseText?: string
+    requestId?: string | null
+    cause?: unknown
+  }) {
+    super(toAdminEndpointErrorMessage({
+      method: details.method,
+      endpoint: details.endpoint,
+      status: details.status,
+      statusText: details.statusText,
+      raw: details.responseText,
+      requestId: details.requestId,
+    }))
+    this.name = 'AdminApiError'
+    this.method = details.method
+    this.endpoint = details.endpoint
+    this.status = details.status
+    this.statusText = details.statusText
+    this.responseText = details.responseText
+    this.requestId = details.requestId
+    this.cause = details.cause
+  }
+}
 
 const handleUnauthorized = (): never => {
   clearAdminSession()
@@ -30,6 +67,7 @@ export const adminRequest = async <T>(
   const externalSignal = requestOptions.signal
   const abortFromExternalSignal = () => timeoutController.abort()
   externalSignal?.addEventListener('abort', abortFromExternalSignal, { once: true })
+  const method = (requestOptions.method ?? 'GET').toString().toUpperCase()
 
   try {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -48,14 +86,32 @@ export const adminRequest = async <T>(
 
     if (!response.ok) {
       const text = await response.text().catch(() => response.statusText)
-      throw new Error(toAdminErrorMessage(response.status, text))
+      throw new AdminApiError({
+        method,
+        endpoint: path,
+        status: response.status,
+        statusText: response.statusText,
+        responseText: text,
+        requestId: response.headers.get('x-request-id'),
+      })
     }
 
     return response.json() as Promise<T>
   } catch (error) {
+    if (error instanceof AdminApiError) {
+      console.error('Admin API error', error)
+      throw error
+    }
     if (error instanceof DOMException && error.name === 'AbortError') {
       if (externalSignal?.aborted) throw error
-      throw new Error(timeoutMessage(timeoutMs))
+      const timeoutError = new AdminApiError({ method, endpoint: path, responseText: timeoutMessage(timeoutMs), cause: error })
+      console.error('Admin API timeout', timeoutError)
+      throw timeoutError
+    }
+    if (error instanceof TypeError) {
+      const networkError = new AdminApiError({ method, endpoint: path, responseText: error.message, cause: error })
+      console.error('Admin API network error', networkError)
+      throw networkError
     }
     throw error
   } finally {

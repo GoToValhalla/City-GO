@@ -95,7 +95,7 @@ describe('AdminPlaceEnrichmentPage', () => {
       .mockResolvedValueOnce(new Response('{"detail":"batch list failed"}', { status: 500 }))
     renderPage()
 
-    await waitFor(() => expect(screen.getByText('batch list failed')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/batch list failed .*GET \/admin\/place-enrichment\/batches .*HTTP 500/)).toBeTruthy())
   })
 
   it('shows ChatGPT path hint after export', async () => {
