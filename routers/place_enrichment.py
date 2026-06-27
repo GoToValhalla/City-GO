@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
 from schemas.place_enrichment import (
+    EnrichmentAIRequest,
+    EnrichmentAIResult,
     EnrichmentBatchListResponse,
     EnrichmentExportListResponse,
     EnrichmentExportMeta,
@@ -15,6 +17,8 @@ from schemas.place_enrichment import (
     ImportPreviewResult,
     PlaceEnrichmentExportRequest,
 )
+from services.openai_client import OpenAIClientError
+from services.place_enrichment_ai_service import run_ai_batch_enrichment
 from services.place_enrichment_import_service import run_import_apply, run_import_preview
 from services.place_enrichment_service import (
     get_batch_file_path,
@@ -66,6 +70,21 @@ def download_batch_file(batch_id: str, filename: str, auth: AdminContext = Depen
         raise HTTPException(status_code=404, detail="File not found")
     media = "application/json" if filename.endswith(".json") else "text/csv"
     return FileResponse(path=str(path), media_type=media, filename=filename)
+
+
+@router.post("/batches/{batch_id}/ai-enrich", response_model=EnrichmentAIResult)
+def ai_enrich_batch(
+    batch_id: str,
+    req: EnrichmentAIRequest | None = None,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> EnrichmentAIResult:
+    try:
+        return run_ai_batch_enrichment(db, batch_id, req or EnrichmentAIRequest(), actor=auth.actor_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OpenAIClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.post("/batches/{batch_id}/preview", response_model=ImportPreviewResult)
