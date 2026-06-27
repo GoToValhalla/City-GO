@@ -36,6 +36,7 @@ class AIEstimateRequest(BaseModel):
     task_type: str
     provider_key: str
     review_queue_item_id: int | None = None
+    place_id: int | None = None
 
 
 class AIEstimateResponse(BaseModel):
@@ -95,6 +96,10 @@ class AICandidateRead(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AITaskRunDetailRead(AITaskRunRead):
+    candidates: list[AICandidateRead] = Field(default_factory=list)
 
 
 class AICandidateResolveRequest(BaseModel):
