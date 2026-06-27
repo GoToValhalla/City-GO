@@ -32,6 +32,7 @@ class AIBudgetReservation(Base):
     actual_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     day_key: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     month_key: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     failure_policy: Mapped[str] = mapped_column(String(32), nullable=False, default="spend_reserved_on_unknown")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
