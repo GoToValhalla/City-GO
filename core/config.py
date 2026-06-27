@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     geoapify_api_key: str = ""
     geocoding_timeout_seconds: int = 10
 
+    # OpenAI API for controlled admin AI enrichment. Key is runtime-only and must not be committed.
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4.1-mini"
+    openai_timeout_seconds: int = 45
+
     # Nominatim User-Agent для backfill адресов. Без example.com и пустых значений.
     place_address_geocoder_user_agent: str = "CityGoAddressBackfill/1.0"
 
