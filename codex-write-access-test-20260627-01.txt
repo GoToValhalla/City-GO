@@ -1,2 +1,0 @@
-Temporary write-access test created by Codex on 2026-06-27.
-This file should be deleted immediately in the next commit.
