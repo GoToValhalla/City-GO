@@ -3,6 +3,7 @@ export type AdminNavItem = { path: string; label: string; section?: string }
 export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { path: '/admin/overview', label: 'Обзор', section: 'main' },
   { path: '/admin/cities', label: 'Города', section: 'main' },
+  { path: '/admin/ai', label: 'AI', section: 'main' },
   { path: '/admin/places', label: 'Места', section: 'data' },
   { path: '/admin/taxonomy', label: 'Таксономия', section: 'data' },
   { path: '/admin/coverage', label: 'Покрытие данных', section: 'data' },
