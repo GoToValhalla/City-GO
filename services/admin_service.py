@@ -171,6 +171,40 @@ def unpublish_place(db: Session, place_id: int, *, actor: str, reason: str) -> P
     return place
 
 
+def reject_place(db: Session, place_id: int, *, actor: str, reason: str) -> Place | None:
+    place = get_place_by_id(db, place_id)
+    if place is None:
+        return None
+    old_value = _place_publication_snapshot(place)
+    old_value["verification_status"] = place.verification_status
+    place.is_active = False
+    place.status = "inactive"
+    place.is_published = False
+    place.is_visible_in_catalog = False
+    place.is_searchable = False
+    place.is_route_eligible = False
+    place.publication_status = "rejected"
+    place.publication_comment = reason
+    place.verification_status = "rejected"
+    place.verification_comment = reason
+    place.unpublished_at = datetime.utcnow()
+    new_value = _place_publication_snapshot(place)
+    new_value["verification_status"] = place.verification_status
+    write_admin_audit_log(
+        db,
+        actor=actor,
+        action="reject_place",
+        entity_type="place",
+        entity_id=place.id,
+        old_value=old_value,
+        new_value=new_value,
+        reason=reason,
+    )
+    db.commit()
+    db.refresh(place)
+    return place
+
+
 def verify_place(db: Session, place_id: int, *, actor: str, reason: str | None = None) -> Place | None:
     place = get_place_by_id(db, place_id)
     if place is None:
