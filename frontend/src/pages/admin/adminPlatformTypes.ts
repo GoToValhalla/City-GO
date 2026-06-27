@@ -3,9 +3,11 @@ export type QualityCity = {
   city_name: string
   region: string | null
   readiness_score: number
+  stored_readiness_score?: number
   places_total: number
   severity: string
   blockers: Record<string, number>
+  primary_blocker?: string | null
 }
 
 export type ServiceHealth = {
