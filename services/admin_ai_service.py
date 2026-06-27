@@ -31,7 +31,7 @@ _TASKS = [
     AdminAITaskOption(
         id=FILL_DESCRIPTIONS,
         label="Заполнить описания мест",
-        description="Найдёт неопубликованные места без описания, сгенерирует короткий текст и даст ссылки на проверку карточек.",
+        description="Возьмёт неопубликованные места на проверку, подготовит короткое описание и даст ссылки на карточки.",
         result_mode="auto_apply",
         risk_level="safe",
     ),
@@ -98,7 +98,7 @@ def _run_fill_descriptions(
             only_published=False,
             only_unpublished=True,
             only_route_eligible=False,
-            missing_fields=["description"],
+            missing_fields=[],
             git_artifact=True,
         ),
         actor=actor,
@@ -115,7 +115,7 @@ def _run_fill_descriptions(
             rows_updated=0,
             applied=False,
             batch_id=batch_id,
-            message="В выбранном городе не найдено неопубликованных мест без описания.",
+            message="В выбранном городе не найдено неопубликованных мест на проверку.",
             next_action="Ничего делать не нужно.",
         )
         _audit_result(db, result, actor=actor)
@@ -124,7 +124,7 @@ def _run_fill_descriptions(
     ai_result = run_ai_batch_enrichment(
         db,
         batch_id,
-        EnrichmentAIRequest(limit=req.limit, force=False, fields=["description"], model=model),
+        EnrichmentAIRequest(limit=req.limit, force=True, fields=["description"], model=model),
         actor=actor,
         notify=False,
     )
@@ -134,13 +134,13 @@ def _run_fill_descriptions(
         apply = run_import_apply(db, batch_id, actor=actor)
         rows_updated = apply.rows_updated
         applied = True
-        message = f"AI подготовил описания для неопубликованных мест и применил изменения: {rows_updated}."
+        message = f"AI обработал неопубликованные места и применил изменения: {rows_updated}."
         next_action = "Откройте обработанные карточки: хорошие опубликуйте, неподходящие отклоните."
         errors = [*ai_result.errors, *preview.errors, *apply.errors]
     else:
         rows_updated = preview.rows_with_changes
         applied = False
-        message = f"AI подготовил описания для неопубликованных мест: {rows_updated}. Изменения ждут проверки."
+        message = f"AI обработал неопубликованные места: {ai_result.rows_processed}. Изменения ждут проверки."
         next_action = "Откройте обработанные карточки и проверьте описания перед применением."
         errors = [*ai_result.errors, *preview.errors]
 
