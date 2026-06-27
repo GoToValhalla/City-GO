@@ -77,6 +77,12 @@ const writeStoredAIResult = (result: AdminAIResult | null) => {
   }
 }
 
+const resultModeLabel = (task: AdminAITask) => (
+  task.result_mode === 'auto_apply'
+    ? 'подготовит изменения и покажет результат'
+    : 'только отчёт и ручная проверка'
+)
+
 export const AdminAIPage = () => {
   const [tasks, setTasks] = useState<AdminAITask[]>([])
   const [models, setModels] = useState<AdminAIModelOption[]>([])
@@ -146,32 +152,32 @@ export const AdminAIPage = () => {
 
   return <div>
     <h2 className="admin-page-title">AI</h2>
-    <p className="admin-page-subtitle">Выберите, что нужно сделать. Технические шаги вроде CSV, preview и batch скрыты внутри системы.</p>
+    <p className="admin-page-subtitle">Выберите задачу, город и лимит. Результат останется на экране после перехода в карточки.</p>
     {error && <AdminError message={error} />}
-    <section className="admin-action-grid" style={{ marginTop: 16 }}>
-      {tasks.map((task) => <button key={task.id} type="button" disabled={!task.enabled || running} className={`admin-action-card ${taskId === task.id ? 'admin-row-highlight' : ''}`} onClick={() => setTaskId(task.id)}>
+    <section className="admin-action-grid admin-ai-task-grid" style={{ marginTop: 16 }}>
+      {tasks.map((task) => <button key={task.id} type="button" disabled={!task.enabled || running} className={`admin-action-card admin-ai-task-card ${taskId === task.id ? 'admin-row-highlight' : ''}`} onClick={() => setTaskId(task.id)}>
         <strong>{task.label}</strong>
-        <div className="admin-muted" style={{ marginTop: 6 }}>{task.description}</div>
-        <span className={`admin-badge ${task.risk_level === 'safe' ? 'pub-published' : 'pub-needs_review'}`}>{task.result_mode === 'auto_apply' ? 'автоматически применит безопасные изменения' : 'только отчёт и ручная проверка'}</span>
+        <span className="admin-muted">{task.description}</span>
+        <span className={`admin-badge ${task.risk_level === 'safe' ? 'pub-published' : 'pub-needs_review'}`}>{resultModeLabel(task)}</span>
       </button>)}
     </section>
-    <section className="admin-filter-card" style={{ marginTop: 16 }}>
+    <section className="admin-filter-card admin-ai-settings-card" style={{ marginTop: 16 }}>
       <div className="admin-help-title">Минимальные настройки</div>
-      <div className="admin-filter-grid">
+      <div className="admin-filter-grid admin-ai-settings-grid">
         <label className="admin-field">Город<select value={citySlug} onChange={(e) => setCitySlug(e.target.value)}>{cities.map((city) => <option key={city.slug} value={city.slug}>{city.name}</option>)}</select></label>
         <label className="admin-field">Модель<select value={modelMode} onChange={(e) => setModelMode(e.target.value)}>{models.map((model) => <option key={model.value} value={model.value}>{model.label} · {model.model}</option>)}</select></label>
         <label className="admin-field">Лимит<select value={limit} onChange={(e) => setLimit(Number(e.target.value))}>{LIMIT_OPTIONS.map((value) => <option key={value} value={value}>{value} мест</option>)}</select></label>
       </div>
       {selectedModel && <p className="admin-muted" style={{ marginTop: 10 }}>{selectedModel.description}</p>}
-      <div className="admin-actions-cell" style={{ marginTop: 14 }}>
+      <div className="admin-actions-cell admin-ai-primary-actions" style={{ marginTop: 14 }}>
         <button type="button" className="admin-btn admin-btn-primary" disabled={running || !selectedTask || !citySlug} onClick={() => void run()}>{running ? 'AI работает…' : 'Запустить'}</button>
         {citySlug && <Link className="admin-btn" to={`/admin/places?city=${citySlug}`}>Открыть места города</Link>}
       </div>
     </section>
-    {result && <section className="admin-detail-panel">
+    {result && <section className="admin-detail-panel admin-ai-result-panel">
       <h3>{result.task_label}</h3>
       <p>{result.message}</p>
-      <div className="admin-metrics-grid admin-metrics-small">
+      <div className="admin-metrics-grid admin-metrics-small admin-ai-metrics">
         <div className="admin-metric-card"><div className="admin-metric-value">{result.rows_processed}</div><div className="admin-metric-label">обработано</div></div>
         <div className="admin-metric-card"><div className="admin-metric-value">{result.rows_updated}</div><div className="admin-metric-label">изменено</div></div>
         <div className="admin-metric-card"><div className="admin-metric-value">{result.applied ? 'Да' : 'Нет'}</div><div className="admin-metric-label">применено</div></div>
@@ -179,8 +185,19 @@ export const AdminAIPage = () => {
       </div>
       <p className="admin-muted">Следующий шаг: {result.next_action}</p>
       {result.errors.length > 0 && <div className="admin-state admin-state-error">{result.errors.join('; ')}</div>}
-      {result.items.length > 0 && <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Результат</th><th>Что сделать</th><th>Уверенность</th></tr></thead><tbody>{result.items.map((item) => <tr key={`${item.place_id}-${item.title}`}><td>{item.place_id ? <Link to={`/admin/places/${item.place_id}`}>{item.title}</Link> : item.title}</td><td>{item.summary}</td><td>{item.recommended_action}</td><td>{item.confidence != null ? `${Math.round(item.confidence * 100)}%` : '—'}</td></tr>)}</tbody></table></div>}
-      <div className="admin-actions-cell" style={{ marginTop: 14 }}>
+      {result.items.length > 0 && <div className="admin-ai-result-list">
+        {result.items.map((item) => <article className="admin-ai-result-card" key={`${item.place_id}-${item.title}`}>
+          <div className="admin-ai-result-place">
+            {item.place_id ? <Link to={`/admin/places/${item.place_id}`}>{item.title}</Link> : item.title}
+            {item.confidence != null && <span>{Math.round(item.confidence * 100)}%</span>}
+          </div>
+          <div className="admin-ai-result-body">
+            <p>{item.summary}</p>
+            <small>{item.recommended_action}</small>
+          </div>
+        </article>)}
+      </div>}
+      <div className="admin-actions-cell admin-ai-primary-actions" style={{ marginTop: 14 }}>
         <Link className="admin-btn admin-btn-sm" to={`/admin/places?city=${result.city_slug}`}>Открыть места</Link>
         <Link className="admin-btn admin-btn-sm" to={`/admin/audit?action=admin_ai_run&entity_id=${result.task_id}`}>Открыть аудит</Link>
       </div>
