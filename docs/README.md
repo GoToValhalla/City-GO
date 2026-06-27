@@ -15,6 +15,7 @@
 |---|---|
 | [`admin_guide.md`](admin_guide.md) | Запуск и рабочие процессы интегрированной админки. |
 | [`admin_operational_center.md`](admin_operational_center.md) | City Workspace, мониторинг, аналитика и alerts. |
+| [`data_quality_foundation.md`](data_quality_foundation.md) | Data Quality issues/candidates, bulk safety и контракты проверки мест. |
 | [`architecture/taxonomy_automation_center.md`](architecture/taxonomy_automation_center.md) | Модели, rule engine, Quality Score V2, workflows и bulk. |
 | [`reference/category_dictionary.md`](reference/category_dictionary.md) | Иерархия, русские названия и таблица решений. |
 | [`reference/taxonomy_api.md`](reference/taxonomy_api.md) | Admin API Taxonomy Center. |
