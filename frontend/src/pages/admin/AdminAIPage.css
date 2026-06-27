@@ -1,0 +1,163 @@
+.admin-ai-task-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.admin-ai-task-card {
+  display: grid;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-ai-task-card strong {
+  font-size: 16px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.admin-ai-task-card .admin-muted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.admin-ai-task-card .admin-badge {
+  width: fit-content;
+  max-width: 100%;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.admin-ai-settings-grid {
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) minmax(120px, .55fr);
+}
+
+.admin-ai-result-panel {
+  overflow: hidden;
+}
+
+.admin-ai-metrics {
+  margin-top: 12px;
+}
+
+.admin-ai-result-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.admin-ai-result-card {
+  display: grid;
+  grid-template-columns: minmax(120px, .38fr) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--admin-border);
+  border-radius: 8px;
+}
+
+.admin-ai-result-place {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+  font-weight: 750;
+}
+
+.admin-ai-result-place a,
+.admin-ai-result-body p,
+.admin-ai-result-body small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.admin-ai-result-place span {
+  width: fit-content;
+  padding: 2px 7px;
+  color: #176d3a;
+  background: #d9f3e4;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.admin-ai-result-body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.admin-ai-result-body p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.admin-ai-result-body small {
+  color: var(--admin-muted);
+  line-height: 1.35;
+}
+
+@media (max-width: 768px) {
+  .admin-menu-toggle {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .admin-content {
+    padding: 14px 12px;
+  }
+
+  .admin-content > div {
+    width: 100%;
+  }
+
+  .admin-page-subtitle {
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  .admin-ai-task-grid,
+  .admin-ai-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-ai-task-grid {
+    gap: 10px;
+  }
+
+  .admin-ai-task-card {
+    padding: 14px;
+  }
+
+  .admin-ai-primary-actions > .admin-btn {
+    flex: 1 1 100%;
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .admin-ai-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-ai-result-card {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-ai-result-place {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 390px) {
+  .admin-ai-metrics {
+    grid-template-columns: 1fr;
+  }
+}
