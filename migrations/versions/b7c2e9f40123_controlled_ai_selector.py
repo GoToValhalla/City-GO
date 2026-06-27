@@ -47,6 +47,7 @@ def upgrade() -> None:
         sa.Column("actual_cost_usd", sa.Float(), nullable=True),
         sa.Column("day_key", sa.String(16), nullable=False),
         sa.Column("month_key", sa.String(16), nullable=False),
+        sa.Column("expires_at", sa.DateTime(), nullable=False),
         sa.Column("failure_policy", sa.String(32), nullable=False, server_default="spend_reserved_on_unknown"),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
@@ -57,6 +58,7 @@ def upgrade() -> None:
     op.create_index("ix_ai_budget_reservations_status", "ai_budget_reservations", ["status"])
     op.create_index("ix_ai_budget_reservations_day_key", "ai_budget_reservations", ["day_key"])
     op.create_index("ix_ai_budget_reservations_month_key", "ai_budget_reservations", ["month_key"])
+    op.create_index("ix_ai_budget_reservations_expires_at", "ai_budget_reservations", ["expires_at"])
 
     op.create_table(
         "ai_task_runs",
