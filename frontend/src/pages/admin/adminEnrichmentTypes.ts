@@ -36,6 +36,17 @@ export type EnrichmentExportMeta = {
   next_action?: string | null
 }
 
+export type EnrichmentAIResult = {
+  batch_id: string
+  status: string
+  model: string
+  rows_processed: number
+  rows_updated: number
+  errors: string[]
+  enriched_csv_path: string
+  next_action: string
+}
+
 export type ImportPreviewResult = {
   batch_id: string
   rows_with_changes: number
