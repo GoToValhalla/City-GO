@@ -15,7 +15,7 @@ from models.place import Place
 from models.place_field_confidence import PlaceFieldConfidence
 from models.review_queue_item import ReviewQueueItem
 from models.source_observation import SourceObservation
-from services.data_quality.constants import ISSUE_POSSIBLE_DUPLICATE
+from services.data_quality.constants import ISSUE_POSSIBLE_DUPLICATE, OPEN_STATUSES
 from services.data_quality.detect import detect_place_issues
 from services.data_quality.fingerprint import issue_fingerprint
 from services.data_quality.types import IssueDraft, RefreshSummary
@@ -32,6 +32,7 @@ def refresh_data_quality_issues(
 ) -> RefreshSummary:
     places = _places(db, city_id=city_id, limit=limit)
     duplicate_drafts = _group_drafts_by_place(_possible_duplicate_drafts(places))
+    active_fingerprints: set[str] = set()
     counters: Counter[str] = Counter()
     summary = Counter({"scanned": len(places), "created": 0, "updated": 0, "unchanged": 0})
     for place in places:
@@ -45,17 +46,26 @@ def refresh_data_quality_issues(
             ),
             *duplicate_drafts.get(place.id, []),
         ]
+        active_fingerprints.update(draft.fingerprint for draft in drafts)
         counters.update(draft.issue_type for draft in drafts)
         if not dry_run:
             summary.update(_persist_drafts(db, drafts))
+    resolved = 0
     if not dry_run:
+        resolved = _resolve_stale_issues(
+            db,
+            places=places,
+            city_id=city_id,
+            limit=limit,
+            active_fingerprints=active_fingerprints,
+        )
         db.commit()
     return RefreshSummary(
         scanned=summary["scanned"],
         created=summary["created"],
         updated=summary["updated"],
         unchanged=summary["unchanged"],
-        resolved=0,
+        resolved=resolved,
         by_issue_type=dict(counters),
     )
 
@@ -90,6 +100,34 @@ def _update_issue(issue: DataQualityIssue, draft: IssueDraft, now: datetime) -> 
         issue.status = "open"
         issue.resolved_at = None
     return before != (issue.severity, issue.status, issue.reason, issue.evidence)
+
+
+def _resolve_stale_issues(
+    db: Session,
+    *,
+    places: list[Place],
+    city_id: int | None,
+    limit: int | None,
+    active_fingerprints: set[str],
+) -> int:
+    query = db.query(DataQualityIssue).filter(DataQualityIssue.status.in_(tuple(OPEN_STATUSES)))
+    if city_id is not None:
+        query = query.filter(DataQualityIssue.city_id == city_id)
+    if active_fingerprints:
+        query = query.filter(~DataQualityIssue.fingerprint.in_(tuple(active_fingerprints)))
+    if limit is not None:
+        scanned_place_ids = {place.id for place in places if place.id is not None}
+        if not scanned_place_ids:
+            return 0
+        query = query.filter(DataQualityIssue.place_id.in_(tuple(scanned_place_ids)))
+    now = datetime.utcnow()
+    stale = query.all()
+    for issue in stale:
+        issue.status = "resolved"
+        issue.resolved_at = now
+        issue.last_seen_at = now
+        db.add(issue)
+    return len(stale)
 
 
 def _places(db: Session, *, city_id: int | None, limit: int | None) -> list[Place]:
