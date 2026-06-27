@@ -23,6 +23,23 @@ class PlaceEnrichmentExportRequest(BaseModel):
     git_artifact: bool = True
 
 
+class EnrichmentAIRequest(BaseModel):
+    limit: int = Field(default=20, ge=1, le=100)
+    force: bool = False
+    fields: list[str] = Field(default_factory=lambda: ["description"])
+
+
+class EnrichmentAIResult(BaseModel):
+    batch_id: str
+    status: str = "enriched"
+    model: str
+    rows_processed: int
+    rows_updated: int
+    errors: list[str]
+    enriched_csv_path: str
+    next_action: str = "preview_import"
+
+
 class EnrichmentBatchMeta(BaseModel):
     batch_id: str
     status: str = "exported"
