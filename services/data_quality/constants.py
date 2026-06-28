@@ -30,6 +30,7 @@ SUMMARY_KEYS = {
 
 BULK_ACTIONS = {
     "propose_exclude_from_routes",
+    "propose_duplicate_review",
     "defer_issues",
     "ignore_issues",
     "mark_resolved_if_current_state_ok",
