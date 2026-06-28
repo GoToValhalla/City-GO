@@ -99,6 +99,39 @@ def test_possible_duplicate_issue_created_for_nearby_same_title_new(db_session, 
     assert all(sorted(issue.evidence["duplicate_place_ids"]) == sorted([first.id, second.id]) for issue in issues)
 
 
+def test_possible_duplicate_groups_endpoint_returns_review_groups_new(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="duplicate-groups-city", name="Duplicate Groups")
+    first = place_factory(
+        city_id=city.id,
+        slug="mega-a",
+        title="Mega Center",
+        lat=43.2641,
+        lng=76.9292,
+        address="Розыбакиева, 247А",
+        image_url="https://example.test/mega-a.jpg",
+    )
+    second = place_factory(
+        city_id=city.id,
+        slug="mega-b",
+        title="Mega Center",
+        lat=43.2644,
+        lng=76.9295,
+        address="Розыбакиева, 247А",
+        image_url="https://example.test/mega-b.jpg",
+    )
+    refresh_data_quality_issues(db_session, city_id=city.id)
+
+    payload = client.get(f"/admin/data-quality/duplicates?city_slug={city.slug}").json()
+
+    assert payload["total"] == 1
+    group = payload["items"][0]
+    assert group["city_slug"] == city.slug
+    assert group["normalized_title"] == "mega center"
+    assert group["issues_count"] == 2
+    assert set(group["place_ids"]) == {first.id, second.id}
+    assert {place["slug"] for place in group["places"]} == {"mega-a", "mega-b"}
+
+
 def test_data_quality_summary_city_score_uses_live_quality_not_stored_readiness_new(
     client, db_session, city_factory, place_factory,
 ):
@@ -199,6 +232,7 @@ def test_summary_counters_match_created_issues_new(client, db_session, place_fac
 def test_data_quality_admin_routes_require_admin_dependency_new():
     expected = {
         "/admin/data-quality/summary",
+        "/admin/data-quality/duplicates",
         "/admin/data-quality/issues",
         "/admin/data-quality/issues/refresh",
         "/admin/data-quality/bulk-actions/preview",
