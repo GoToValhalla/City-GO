@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from models.category import Category
@@ -19,14 +19,14 @@ from services.route_policy_service import evaluate_category_policy
 from services.taxonomy_rule_engine import ClassificationResult, classify_place, persist_decision
 
 
-def category_dict(row: Category) -> dict[str, object]:
+def category_dict(row: Category, *, places_count: int | None = None) -> dict[str, object]:
     return {"id": row.id, "code": row.code, "name": row.name, "display_name": row.display_name, "description": row.description,
         "parent_id": row.parent_id, "icon": row.icon, "color_token": row.color_token, "sort_order": row.sort_order,
         "is_active": row.is_active, "is_catalog_visible": row.is_catalog_visible, "is_searchable": row.is_searchable,
         "is_route_eligible": row.is_route_eligible, "default_visit_duration_minutes": row.default_visit_duration_minutes,
         "indoor_default": row.indoor_default, "outdoor_default": row.outdoor_default, "user_name": row.user_name,
         "admin_name": row.admin_name, "route_policy": row.route_policy, "route_contexts": row.route_contexts or [],
-        "places_count": len(row.places), "archived_at": row.archived_at.isoformat() if row.archived_at else None}
+        "places_count": int(places_count or 0), "archived_at": row.archived_at.isoformat() if row.archived_at else None}
 
 
 def list_categories(db: Session, *, search: str | None, active: bool | None, parent_id: int | None, route_policy: str | None, offset: int, limit: int) -> dict[str, object]:
@@ -37,7 +37,8 @@ def list_categories(db: Session, *, search: str | None, active: bool | None, par
     if route_policy: query = query.filter(Category.route_policy == route_policy)
     total = query.count()
     rows = query.order_by(Category.sort_order, Category.name).offset(offset).limit(limit).all()
-    return {"items": [category_dict(row) for row in rows], "total": total, "offset": offset, "limit": limit}
+    counts = _category_place_counts(db, [row.id for row in rows])
+    return {"items": [category_dict(row, places_count=counts.get(row.id, 0)) for row in rows], "total": total, "offset": offset, "limit": limit}
 
 
 def create_category(db: Session, *, data: dict[str, object], actor: str) -> Category:
@@ -45,17 +46,17 @@ def create_category(db: Session, *, data: dict[str, object], actor: str) -> Cate
     _validate_parent(db, None, data.get("parent_id"))
     row = Category(**data)
     db.add(row); db.flush()
-    write_admin_audit_log(db, actor=actor, action="taxonomy.category.created", entity_type="category", entity_id=row.id, new_value=category_dict(row))
+    write_admin_audit_log(db, actor=actor, action="taxonomy.category.created", entity_type="category", entity_id=row.id, new_value=category_dict(row, places_count=0))
     db.commit(); db.refresh(row); return row
 
 
 def update_category(db: Session, *, row: Category, data: dict[str, object], actor: str) -> Category:
-    old = category_dict(row)
+    old = category_dict(row, places_count=_category_place_count(db, row.id))
     _validate_parent(db, row.id, data.get("parent_id"))
     for key, value in data.items(): setattr(row, key, value)
     if data.get("is_active") is False: row.archived_at = datetime.utcnow()
     if data.get("is_active") is True: row.archived_at = None
-    write_admin_audit_log(db, actor=actor, action="taxonomy.category.updated", entity_type="category", entity_id=row.id, old_value=old, new_value=category_dict(row))
+    write_admin_audit_log(db, actor=actor, action="taxonomy.category.updated", entity_type="category", entity_id=row.id, old_value=old, new_value=category_dict(row, places_count=old["places_count"]))
     db.commit(); db.refresh(row); return row
 
 
@@ -65,17 +66,19 @@ def update_tree(db: Session, *, nodes: list[dict[str, object]], actor: str) -> l
         if int(node["id"]) not in rows: raise ValueError("Категория дерева не найдена")
         _validate_parent_map(rows, int(node["id"]), node.get("parent_id"), nodes)
     for node in nodes:
-        row = rows[int(node["id"])]; row.parent_id = node.get("parent_id"); row.sort_order = int(node.get("sort_order", 0)); db.add(row)
+        row = rows[int(node["id"]);] if False else rows[int(node["id"])]
+        row.parent_id = node.get("parent_id"); row.sort_order = int(node.get("sort_order", 0)); db.add(row)
     write_admin_audit_log(db, actor=actor, action="taxonomy.tree.updated", entity_type="taxonomy_tree", new_value={"nodes": nodes})
     db.commit(); return build_tree(db)
 
 
 def build_tree(db: Session) -> list[dict[str, object]]:
     rows = db.query(Category).order_by(Category.sort_order, Category.name).all(); children: dict[int | None, list[Category]] = {}
+    counts = _category_place_counts(db, [row.id for row in rows])
     for row in rows: children.setdefault(row.parent_id, []).append(row)
     def node(row: Category, crumbs: list[str]) -> dict[str, object]:
         names = crumbs + [row.display_name]
-        return {**category_dict(row), "breadcrumb": " / ".join(names), "children": [node(child, names) for child in children.get(row.id, [])]}
+        return {**category_dict(row, places_count=counts.get(row.id, 0)), "breadcrumb": " / ".join(names), "children": [node(child, names) for child in children.get(row.id, [])]}
     return [node(row, []) for row in children.get(None, [])]
 
 
@@ -145,6 +148,22 @@ def _filtered_places(db: Session, filters: dict[str, object]):
     if filters.get("source"): query = query.filter(Place.source == filters["source"])
     if filters.get("route_eligible") is not None: query = query.filter(Place.is_route_eligible == filters["route_eligible"])
     return query
+
+
+def _category_place_count(db: Session, category_id: int) -> int:
+    return int(db.query(func.count(Place.id)).filter(Place.category_id == category_id).scalar() or 0)
+
+
+def _category_place_counts(db: Session, category_ids: list[int]) -> dict[int, int]:
+    if not category_ids:
+        return {}
+    rows = (
+        db.query(Place.category_id, func.count(Place.id))
+        .filter(Place.category_id.in_(category_ids))
+        .group_by(Place.category_id)
+        .all()
+    )
+    return {int(category_id): int(count or 0) for category_id, count in rows if category_id is not None}
 
 
 def _validate_parent(db: Session, category_id: int | None, parent_id: object) -> None:
