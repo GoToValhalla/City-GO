@@ -30,6 +30,7 @@ from services.data_quality.critical_coverage import (
     build_city_critical_coverage,
     list_city_critical_coverage_places,
 )
+from services.data_quality.critical_coverage_state import refresh_city_critical_coverage_state
 
 router = APIRouter(prefix="/admin/data-quality", tags=["admin-data-quality"])
 
@@ -50,6 +51,20 @@ def get_city_critical_coverage(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     payload = build_city_critical_coverage(db, city_slug=city_slug, category=category)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Город не найден")
+    return payload
+
+
+@router.post("/cities/{city_slug}/critical-coverage/refresh")
+def refresh_city_critical_coverage(
+    city_slug: str,
+    category: str | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=100_000),
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    payload = refresh_city_critical_coverage_state(db, city_slug=city_slug, category=category, limit=limit)
     if payload is None:
         raise HTTPException(status_code=404, detail="Город не найден")
     return payload
