@@ -3,7 +3,7 @@
 ## Экраны
 
 - `/admin/cities/:citySlug?tab=...` — workspace города с десятью вкладками.
-- `/admin/quality` — live quality summary и очередь возможных дублей.
+- `/admin/quality` — live quality summary, безопасный автопилот и очередь возможных дублей.
 - `/admin/coverage` — покрытие данных по городам.
 - `/admin/coverage?tab=gaps` — Data Coverage Assurance: must-have POI gaps, причины и действия.
 - `/admin/system-health` — сервисы, очереди и persisted alert lifecycle.
@@ -53,6 +53,9 @@
 - `POST /admin/data-quality/issues/refresh`
 - `POST /admin/data-quality/bulk-actions/preview`
 - `POST /admin/data-quality/bulk-actions/apply`
+- `POST /admin/data-quality/automation/preview`
+- `POST /admin/data-quality/automation/apply`
+- `POST /admin/data-quality/automation/rollback`
 - `GET /admin/system-health`
 - `GET /admin/system-health/alerts`
 - `POST /admin/system-health/alerts/{log_id}`
@@ -92,6 +95,36 @@ Stoplist категории (`pharmacy`, `bank`, `atm`, `bus_stop`, `transit_sto
 
 Этот контракт нужен, чтобы город с тысячами аптек, банков, остановок и сервисных POI не выглядел как ручная работа оператора. Оператор должен видеть только `data_gap` / `review_candidate`, а автоматические исключения должны быть прозрачной статистикой.
 
+### Data Quality Autopilot
+
+Stage 1 автопилота — только безопасное и обратимое исключение очевидных stoplist мест из маршрутов.
+
+Разрешённое действие:
+
+- `auto_exclude_stoplist_from_routes` берёт только open `route_eligibility_suspicious` issues;
+- место должно быть `is_route_eligible=true`;
+- stoplist категория должна подтверждаться issue evidence или текущей категорией места;
+- `preview` ничего не меняет, а возвращает `affected_count`, `blocked_count`, sample, warnings и proposed patch;
+- `apply` требует `confirm=true`;
+- `rollback` требует `candidate_ids` и `confirm=true`.
+
+Guardrails:
+
+- если после применения в городе осталось бы меньше `8` route-eligible мест, запись блокируется как `route_inventory_guard`;
+- blocked записи не мутируются и остаются в очереди;
+- автопилот не удаляет места, не снимает публикацию, не merge-ит дубли и не генерирует фото/адреса/описания;
+- каждое применение создаёт `DataQualityCandidate(candidate_type=route_eligibility_auto_exclusion, status=auto_applied)`;
+- `Place.is_route_eligible` меняется на `false`, `route_exclusion_reason` на `non_tourist_category_policy`;
+- source issue переводится в `auto_applied`;
+- rollback восстанавливает `Place.is_route_eligible` и `route_exclusion_reason` из `rollback_patch`, candidate переводит в `rolled_back`, issue открывает обратно.
+
+UI-контракт `/admin/quality`:
+
+- блок `Безопасный автопилот` показывает, сколько можно применить и сколько заблокировано guardrail;
+- кнопка disabled, если применимых записей нет или уже идёт действие;
+- результат применения показывается рядом с кнопкой автопилота;
+- сообщения по дублям показываются отдельно в секции дублей.
+
 `services.data_quality.refresh.refresh_data_quality_issues` синхронизирует состояние issues:
 
 1. создаёт новые deterministic issues;
@@ -119,6 +152,7 @@ Historical cleanup 2026-06-28:
 - `/admin/data-quality/summary` переведён с `City.readiness_score` на live score;
 - refresh перестал оставлять исправленные проблемы открытыми;
 - `/admin/quality` считает ручной процент по `review_universe_total`, а stoplist/служебные места выводит как `excluded_by_design`;
+- добавлен Stage 1 `Data Quality Autopilot`: preview/apply/rollback для обратимого auto-exclude stoplist мест из маршрутов;
 - возможные дубли (`possible_duplicate`) остаются ручной очередью, без автоматического merge/delete.
 
 ## Data Coverage Assurance Contract
@@ -172,7 +206,7 @@ Health center использует реальные jobs, queues, logs и route 
 
 ## Следующие доработки
 
-- Data Quality Autopilot: preview/apply safe reversible actions by confidence tier.
+- Expand Data Quality Autopilot: confidence tiers for more reversible actions after preview/apply/rollback coverage.
 - Dedupe scorer tiers: auto-dismiss low-confidence, one-click candidates for high confidence, manual only for ambiguous cases.
 - Paginated raw product events с privacy-safe полями.
 - Daily `CityQualitySnapshot`, history endpoint и nightly aggregation.
