@@ -10,6 +10,7 @@ const ADMIN_GET_CACHE_MAX_ENTRIES = 80
 
 type AdminRequestOptions = RequestInit & { timeoutMs?: number }
 type AdminGetOptions = { cache?: boolean }
+type AdminWriteOptions = { invalidateCache?: boolean }
 type AdminGetCacheEntry = {
   expiresAt: number
   data?: unknown
@@ -83,6 +84,10 @@ const rememberAdminGet = <T>(path: string, promise: Promise<T>): Promise<T> => {
     adminGetCache.delete(path)
     throw error
   })
+}
+
+const invalidateAdminGetCache = (options: AdminWriteOptions = {}) => {
+  if (options.invalidateCache !== false) clearAdminGetCache()
 }
 
 const handleUnauthorized = (): never => {
@@ -171,13 +176,13 @@ export const adminGet = <T>(path: string, options: AdminGetOptions = {}) => {
   return rememberAdminGet(path, adminRequest<T>(path))
 }
 
-export const adminPost = <T>(path: string, body?: unknown) => {
-  clearAdminGetCache()
+export const adminPost = <T>(path: string, body?: unknown, options?: AdminWriteOptions) => {
+  invalidateAdminGetCache(options)
   return adminRequest<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined })
 }
 
-export const adminPostLong = <T>(path: string, body?: unknown) => {
-  clearAdminGetCache()
+export const adminPostLong = <T>(path: string, body?: unknown, options?: AdminWriteOptions) => {
+  invalidateAdminGetCache(options)
   return adminRequest<T>(path, {
     method: 'POST',
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -185,12 +190,12 @@ export const adminPostLong = <T>(path: string, body?: unknown) => {
   })
 }
 
-export const adminPut = <T>(path: string, body?: unknown) => {
-  clearAdminGetCache()
+export const adminPut = <T>(path: string, body?: unknown, options?: AdminWriteOptions) => {
+  invalidateAdminGetCache(options)
   return adminRequest<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined })
 }
 
-export const adminPatch = <T>(path: string, body?: unknown) => {
-  clearAdminGetCache()
+export const adminPatch = <T>(path: string, body?: unknown, options?: AdminWriteOptions) => {
+  invalidateAdminGetCache(options)
   return adminRequest<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined })
 }
