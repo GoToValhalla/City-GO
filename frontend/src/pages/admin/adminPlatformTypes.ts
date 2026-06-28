@@ -84,8 +84,14 @@ export type CriticalCoverageRefreshResponse = {
   unchanged: number
   resolved: number
   by_bucket: Record<string, number>
+  snapshot: {
+    created: number
+    updated: number
+    unchanged: number
+  }
   generated_at: string
   issue_type: string
+  snapshot_issue_type: string
   source: string
 }
 
