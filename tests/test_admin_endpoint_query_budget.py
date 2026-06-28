@@ -57,6 +57,18 @@ def test_taxonomy_categories_uses_batched_place_counts(db_session, category_fact
     assert len(statements) <= 3
 
 
+def test_admin_taxonomy_route_returns_manager_payload(client, category_factory):
+    category_factory(code="tax-route-contract", name="Tax Route Contract")
+
+    response = client.get("/admin/taxonomy/categories?search=tax-route-contract&limit=200")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "items" in payload
+    assert "categories" not in payload
+    assert payload["items"][0]["code"] == "tax-route-contract"
+
+
 def test_place_verification_summary_and_queue_are_paged_in_database(db_session, city_factory, place_factory):
     city = city_factory(slug="verification-perf-city", name="Verification Perf")
     for idx in range(80):
