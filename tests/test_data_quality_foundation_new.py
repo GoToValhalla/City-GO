@@ -73,24 +73,7 @@ def test_missing_address_issue_created_new(db_session, place_factory):
 
 def test_possible_duplicate_issue_created_for_nearby_same_title_new(db_session, city_factory, place_factory):
     city = city_factory(slug="duplicate-city")
-    first = place_factory(
-        city_id=city.id,
-        slug="dostyk-plaza-a",
-        title="Dostyk Plaza",
-        lat=43.2390,
-        lng=76.9450,
-        address="Самал-2, 111",
-        image_url="https://example.test/dostyk-a.jpg",
-    )
-    second = place_factory(
-        city_id=city.id,
-        slug="dostyk-plaza-b",
-        title="Dostyk Plaza",
-        lat=43.2395,
-        lng=76.9455,
-        address="Самал-2, 111",
-        image_url="https://example.test/dostyk-b.jpg",
-    )
+    first, second = _create_duplicate_pair(place_factory, city.id, title="Dostyk Plaza", slug_prefix="dostyk-plaza")
 
     refresh_data_quality_issues(db_session, city_id=city.id)
 
@@ -101,24 +84,7 @@ def test_possible_duplicate_issue_created_for_nearby_same_title_new(db_session, 
 
 def test_possible_duplicate_groups_endpoint_returns_review_groups_new(client, db_session, city_factory, place_factory):
     city = city_factory(slug="duplicate-groups-city", name="Duplicate Groups")
-    first = place_factory(
-        city_id=city.id,
-        slug="mega-a",
-        title="Mega Center",
-        lat=43.2641,
-        lng=76.9292,
-        address="Розыбакиева, 247А",
-        image_url="https://example.test/mega-a.jpg",
-    )
-    second = place_factory(
-        city_id=city.id,
-        slug="mega-b",
-        title="Mega Center",
-        lat=43.2644,
-        lng=76.9295,
-        address="Розыбакиева, 247А",
-        image_url="https://example.test/mega-b.jpg",
-    )
+    first, second = _create_duplicate_pair(place_factory, city.id)
     refresh_data_quality_issues(db_session, city_id=city.id)
 
     payload = client.get(f"/admin/data-quality/duplicates?city_slug={city.slug}").json()
@@ -130,6 +96,48 @@ def test_possible_duplicate_groups_endpoint_returns_review_groups_new(client, db
     assert group["issues_count"] == 2
     assert set(group["place_ids"]) == {first.id, second.id}
     assert {place["slug"] for place in group["places"]} == {"mega-a", "mega-b"}
+
+
+def test_duplicate_review_bulk_action_creates_manual_candidates_new(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="duplicate-review-city", name="Duplicate Review")
+    first, second = _create_duplicate_pair(place_factory, city.id)
+    refresh_data_quality_issues(db_session, city_id=city.id)
+    group = client.get(f"/admin/data-quality/duplicates?city_slug={city.slug}").json()["items"][0]
+
+    response = client.post("/admin/data-quality/bulk-actions/apply", json={
+        "action_type": "propose_duplicate_review",
+        "issue_ids": group["issue_ids"],
+        "confirm": True,
+        "reason": "ручная проверка дубля",
+    })
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["affected_count"] == 2
+    assert payload["created_candidates"] == 2
+    candidates = db_session.query(DataQualityCandidate).filter_by(candidate_type="duplicate_review").all()
+    assert len(candidates) == 2
+    assert all(candidate.status == "pending" for candidate in candidates)
+    assert all(sorted(candidate.proposed_patch["duplicate_place_ids"]) == sorted([first.id, second.id]) for candidate in candidates)
+    assert {issue.status for issue in db_session.query(DataQualityIssue).filter_by(issue_type=ISSUE_POSSIBLE_DUPLICATE).all()} == {"candidate_created"}
+
+
+def test_duplicate_ignore_action_removes_group_from_active_queue_new(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="duplicate-ignore-city", name="Duplicate Ignore")
+    _create_duplicate_pair(place_factory, city.id)
+    refresh_data_quality_issues(db_session, city_id=city.id)
+    group = client.get(f"/admin/data-quality/duplicates?city_slug={city.slug}").json()["items"][0]
+
+    response = client.post("/admin/data-quality/bulk-actions/apply", json={
+        "action_type": "ignore_issues",
+        "issue_ids": group["issue_ids"],
+        "confirm": True,
+        "reason": "проверено, это разные места",
+    })
+
+    assert response.status_code == 200
+    assert client.get(f"/admin/data-quality/duplicates?city_slug={city.slug}").json()["total"] == 0
+    assert {issue.status for issue in db_session.query(DataQualityIssue).filter_by(issue_type=ISSUE_POSSIBLE_DUPLICATE).all()} == {"ignored"}
 
 
 def test_data_quality_summary_city_score_uses_live_quality_not_stored_readiness_new(
@@ -242,6 +250,28 @@ def test_data_quality_admin_routes_require_admin_dependency_new():
 
     assert {route.path for route in routes} == expected
     assert all(any(dep.call is admin_required for dep in route.dependant.dependencies) for route in routes)
+
+
+def _create_duplicate_pair(place_factory, city_id: int, *, title: str = "Mega Center", slug_prefix: str = "mega"):
+    first = place_factory(
+        city_id=city_id,
+        slug=f"{slug_prefix}-a",
+        title=title,
+        lat=43.2641,
+        lng=76.9292,
+        address="Розыбакиева, 247А",
+        image_url=f"https://example.test/{slug_prefix}-a.jpg",
+    )
+    second = place_factory(
+        city_id=city_id,
+        slug=f"{slug_prefix}-b",
+        title=title,
+        lat=43.2644,
+        lng=76.9295,
+        address="Розыбакиева, 247А",
+        image_url=f"https://example.test/{slug_prefix}-b.jpg",
+    )
+    return first, second
 
 
 def _issue(db_session, issue_type: str) -> DataQualityIssue:
