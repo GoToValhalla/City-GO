@@ -14,7 +14,7 @@ from models.place import Place
 from models.review_queue_item import ReviewQueueItem
 from models.source_observation import SourceObservation
 from services.admin_audit_service import write_admin_audit_log
-from services.data_quality.constants import BULK_ACTIONS
+from services.data_quality.constants import BULK_ACTIONS, ISSUE_POSSIBLE_DUPLICATE
 from services.data_quality.detect import detect_place_issues
 from services.data_quality.fingerprint import candidate_fingerprint
 from services.data_quality.query import _issue_payload, _issue_query
@@ -81,6 +81,8 @@ def _apply_action(
 ) -> int:
     if action == "propose_exclude_from_routes":
         return _create_route_candidates(db, issues, actor=actor, reason=reason)
+    if action == "propose_duplicate_review":
+        return _create_duplicate_review_candidates(db, issues, actor=actor, reason=reason)
     if action in {"defer_issues", "ignore_issues"}:
         return _set_status(issues, "deferred" if action == "defer_issues" else "ignored")
     if action == "mark_resolved_if_current_state_ok":
@@ -104,6 +106,58 @@ def _create_route_candidates(db: Session, issues: list[DataQualityIssue], *, act
             created += 1
         issue.status = "candidate_created"
     return created
+
+
+def _create_duplicate_review_candidates(db: Session, issues: list[DataQualityIssue], *, actor: str, reason: str) -> int:
+    created = 0
+    for issue in issues:
+        if issue.issue_type != ISSUE_POSSIBLE_DUPLICATE:
+            continue
+        evidence = issue.evidence or {}
+        duplicate_place_ids = _duplicate_place_ids(issue)
+        patch = {
+            "action": "manual_duplicate_review",
+            "duplicate_place_ids": duplicate_place_ids,
+            "reason": reason,
+        }
+        fingerprint = candidate_fingerprint(issue_id=issue.id, candidate_type="duplicate_review", patch=patch)
+        existing = db.query(DataQualityCandidate).filter(DataQualityCandidate.fingerprint == fingerprint).first()
+        if existing is None:
+            db.add(DataQualityCandidate(
+                issue_id=issue.id,
+                place_id=issue.place_id,
+                city_id=issue.city_id,
+                candidate_type="duplicate_review",
+                proposed_patch=patch,
+                evidence={
+                    "issue_type": issue.issue_type,
+                    "actor": actor,
+                    "title": evidence.get("title"),
+                    "normalized_title": evidence.get("normalized_title"),
+                    "duplicate_place_ids": duplicate_place_ids,
+                },
+                source="deterministic",
+                confidence=0.85,
+                status="pending",
+                fingerprint=fingerprint,
+            ))
+            created += 1
+        issue.status = "candidate_created"
+    return created
+
+
+def _duplicate_place_ids(issue: DataQualityIssue) -> list[int]:
+    raw_ids = (issue.evidence or {}).get("duplicate_place_ids") or []
+    ids: set[int] = set()
+    if isinstance(raw_ids, list):
+        for raw_id in raw_ids:
+            try:
+                ids.add(int(raw_id))
+            except (TypeError, ValueError):
+                continue
+    if issue.place_id is not None:
+        ids.add(issue.place_id)
+    return sorted(ids)
 
 
 def _set_status(issues: list[DataQualityIssue], status: str) -> int:
@@ -150,11 +204,19 @@ def _group_value(db: Session, issue: DataQualityIssue, kind: str) -> str | None:
 
 
 def _warnings(action: str) -> list[str]:
-    return ["Будут созданы предложения, места не изменятся."] if action == "propose_exclude_from_routes" else []
+    if action == "propose_exclude_from_routes":
+        return ["Будут созданы предложения, места не изменятся."]
+    if action == "propose_duplicate_review":
+        return ["Будут созданы предложения ручной проверки дублей, места не изменятся."]
+    return []
 
 
 def _patch_summary(action: str, payload: dict[str, object]) -> dict[str, object]:
-    return {"is_route_eligible": False, "reason": payload.get("reason")} if action == "propose_exclude_from_routes" else {}
+    if action == "propose_exclude_from_routes":
+        return {"is_route_eligible": False, "reason": payload.get("reason")}
+    if action == "propose_duplicate_review":
+        return {"action": "manual_duplicate_review", "reason": payload.get("reason")}
+    return {}
 
 
 def _preview_key(action: str, payload: dict[str, object]) -> str:
