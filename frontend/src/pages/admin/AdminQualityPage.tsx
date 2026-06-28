@@ -10,6 +10,7 @@ const BLOCKER_LABELS: Record<string, string> = {
   low_quality: 'низкое качество',
   stale: 'перепроверка',
   route_ineligible: 'исключены из маршрутов',
+  excluded_by_design: 'исключено правилами',
 }
 
 type BulkActionResponse = {
@@ -21,7 +22,7 @@ type BulkActionResponse = {
 
 const primaryBlockerText = (item: QualityCity) => {
   const key = item.primary_blocker
-  if (!key) return 'Критичных блокеров нет'
+  if (!key) return 'Ручных блокеров нет'
   return `Главное: ${BLOCKER_LABELS[key] ?? key} (${item.blockers[key] ?? 0})`
 }
 
@@ -30,12 +31,18 @@ const blockerLine = (item: QualityCity) => [
   ['no_address', item.blockers.no_address ?? 0],
   ['low_quality', item.blockers.low_quality ?? 0],
   ['stale', item.blockers.stale ?? 0],
-  ['route_ineligible', item.blockers.route_ineligible ?? 0],
 ]
   .filter(([, value]) => Number(value) > 0)
   .slice(0, 3)
   .map(([key, value]) => `${BLOCKER_LABELS[String(key)] ?? key}: ${value}`)
   .join(' · ')
+
+const routeUniverseLine = (item: QualityCity) => {
+  const reviewTotal = item.review_universe_total ?? item.places_total
+  const manualTotal = item.manual_review_total ?? 0
+  const excludedTotal = item.auto_excluded_total ?? item.blockers.excluded_by_design ?? 0
+  return `К ручной проверке: ${manualTotal} из ${reviewTotal} туристических кандидатов · исключено правилами: ${excludedTotal}`
+}
 
 const duplicateTitle = (group: DuplicateGroup) => group.title || group.normalized_title || 'Без названия'
 
@@ -126,7 +133,7 @@ export const AdminQualityPage = () => {
   }
   return <div>
     <h2 className="admin-page-title">Качество данных</h2>
-    <p className="admin-page-subtitle">Live score считается по текущим блокерам: фото, адреса, низкое качество и перепроверка. Исключённые из маршрутов показаны отдельно и не штрафуют город.</p>
+    <p className="admin-page-subtitle">Live score считает ручную проверку по туристическим кандидатам. Аптеки, банки, остановки и сервисные POI исключаются правилами и не раздувают очередь.</p>
     <div className="admin-filter-card admin-filter-grid">
       <label className="admin-field"><span>Город</span><input value={params.get('city_slug') ?? ''} onChange={(e) => update('city_slug', e.target.value)} /></label>
       <label className="admin-field"><span>Регион</span><input value={params.get('region') ?? ''} onChange={(e) => update('region', e.target.value)} /></label>
@@ -139,6 +146,7 @@ export const AdminQualityPage = () => {
         <strong>{item.city_name}</strong>
         <div className="admin-action-count">{item.readiness_score}%</div>
         <span>{item.places_total} мест</span>
+        <span className="admin-muted">{routeUniverseLine(item)}</span>
         <span className="admin-muted">{primaryBlockerText(item)}</span>
         {details && <span className="admin-muted">{details}</span>}
       </Link>
