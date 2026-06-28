@@ -1,6 +1,6 @@
 """Cross-city quality dashboard aggregate."""
 
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Query, Session
 
 from models.city import City
@@ -69,15 +69,13 @@ def city_quality_row(db: Session, city: City, category: str | None = None) -> di
 
 def _route_review_query(query: Query) -> Query:
     stoplist = tuple(STOPLIST_CATEGORIES)
-    return query.filter(
-        ~or_(
-            Place.category.in_(stoplist),
-            Place.canonical_category.in_(stoplist),
-            Place.is_spam_poi.is_(True),
-            Place.lifecycle_status.in_(("archived", "deleted", "spam")),
-            Place.publication_status.in_(("archived", "duplicate_hidden", "rejected")),
-        ),
-    )
+    return query.filter(and_(
+        or_(Place.category.is_(None), ~Place.category.in_(stoplist)),
+        or_(Place.canonical_category.is_(None), ~Place.canonical_category.in_(stoplist)),
+        Place.is_spam_poi.is_(False),
+        ~Place.lifecycle_status.in_(("archived", "deleted", "spam")),
+        ~Place.publication_status.in_(("archived", "duplicate_hidden", "rejected")),
+    ))
 
 
 def _live_quality_score(review_total: int, blockers: dict[str, int]) -> int:
