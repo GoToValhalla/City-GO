@@ -32,6 +32,20 @@ const qualityStats = (item: QualityCity) => {
   return { reviewTotal, manualTotal, excludedTotal }
 }
 
+const criticalStats = (item: QualityCity) => ({
+  routeReady: safeCount(item.route_ready_total),
+  routeCandidates: safeCount(item.route_candidate_total),
+  routeBlockers: safeCount(item.route_blockers_total),
+  cardBlockers: safeCount(item.card_blockers_total),
+  autoEnrichment: safeCount(item.auto_enrichment_total),
+  manualReview: safeCount(item.critical_manual_review_total),
+})
+
+const coveragePct = (item: QualityCity, key: string) => {
+  const metric = item.critical_coverage?.coverage?.[key]
+  return typeof metric?.pct === 'number' ? `${metric.pct}%` : '—'
+}
+
 const primaryBlockerText = (item: QualityCity) => {
   const key = item.primary_blocker
   if (!key) return 'Ручных блокеров нет'
@@ -203,6 +217,7 @@ export const AdminQualityPage = () => {
     {error && <AdminError message={error} />}{loading ? <AdminLoading /> : !items.length ? <AdminEmpty message="Нет данных по выбранным фильтрам" /> : <div className="admin-action-grid admin-quality-grid">{items.map((item) => {
       const details = blockerLine(item)
       const stats = qualityStats(item)
+      const critical = criticalStats(item)
       return <Link className={`admin-action-card admin-quality-card admin-severity-${item.severity === 'critical' ? 'red' : item.severity === 'warning' ? 'yellow' : 'green'}`} to={`/admin/cities/${item.city_slug}?tab=quality`} key={item.city_slug}>
         <strong className="admin-quality-card-title">{item.city_name}</strong>
         <div className="admin-action-count">{item.readiness_score}%</div>
@@ -214,6 +229,12 @@ export const AdminQualityPage = () => {
           <span>{primaryBlockerText(item)}</span>
           {details && <span>{details}</span>}
         </div>
+        {item.critical_coverage && <div className="admin-quality-triage">
+          <span>Маршрут: готово {critical.routeReady}/{critical.routeCandidates} · блокеров {critical.routeBlockers}</span>
+          <span>Карточки: блокеров {critical.cardBlockers} · автообогащение {critical.autoEnrichment} · ручная {critical.manualReview}</span>
+          <span>Покрытие: фото {coveragePct(item, 'has_approved_photo')} · часы {coveragePct(item, 'has_opening_hours')}</span>
+          <span>Адреса {coveragePct(item, 'has_address')} · описания {coveragePct(item, 'has_description')}</span>
+        </div>}
       </Link>
     })}</div>}
     {!loading && !error && <section className="admin-card admin-quality-autopilot">
