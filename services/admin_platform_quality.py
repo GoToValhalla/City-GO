@@ -28,8 +28,8 @@ def quality_summary(
         "total": len(filtered),
         "todo": [
             "Live score считает ручную проверку только по маршруто-релевантным местам.",
-            "Аптеки, банки, остановки и сервисные POI выводятся как excluded_by_design, а не как ручная работа.",
-            "Следующий шаг: Data Quality Autopilot для безопасных auto-apply кандидатов и rollback.",
+            "Stage 1 автопилота уже включён: safe stoplist auto-exclude доступен через preview/apply/rollback.",
+            "Следующий шаг: фото/enrichment triage, чтобы не отправлять все missing-photo места в ручную проверку.",
         ],
     }
 
@@ -59,7 +59,7 @@ def city_quality_row(db: Session, city: City, category: str | None = None) -> di
         "stored_readiness_score": int(city.readiness_score or 0),
         "places_total": total,
         "review_universe_total": review_total,
-        "manual_review_total": _manual_review_total(blockers),
+        "manual_review_total": _manual_review_total(review_query),
         "auto_excluded_total": blockers["excluded_by_design"],
         "severity": severity,
         "blockers": blockers,
@@ -93,8 +93,13 @@ def _live_quality_score(review_total: int, blockers: dict[str, int]) -> int:
     return max(0, min(100, round(100 - penalty)))
 
 
-def _manual_review_total(blockers: dict[str, int]) -> int:
-    return int(blockers["no_photo"] + blockers["no_address"] + blockers["low_quality"] + blockers["stale"])
+def _manual_review_total(review_query: Query) -> int:
+    return review_query.filter(or_(
+        Place.image_url.is_(None),
+        Place.address.is_(None),
+        Place.quality_score < 50,
+        Place.verification_status == "needs_recheck",
+    )).count()
 
 
 def _ratio(value: int, total: int) -> float:
