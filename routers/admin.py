@@ -20,7 +20,6 @@ from schemas.admin import (
     AdminPlaceImageCreateRequest,
     AdminPlaceImageRead,
     AdminPlaceListResponse,
-    AdminTaxonomyResponse,
     AdminPlaceUpdate,
     AdminRouteCreateRequest,
     AdminRouteListResponse,
@@ -52,7 +51,6 @@ from services.admin_extended_service import (
     update_admin_route,
 )
 from services.admin_city_import_tasks import run_import_job_background
-from services.admin_taxonomy_service import admin_category_taxonomy
 from services.admin_service import (
     create_admin_place,
     create_city_and_queue_import,
@@ -69,6 +67,7 @@ from services.admin_service import (
 )
 from services.place_read_service import build_place_read, build_place_reads
 from services.route_service import build_route_points
+from services.taxonomy_admin_service import list_categories
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -97,13 +96,26 @@ def read_admin_cities(
     return AdminCityListResponse(items=[AdminCityRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)
 
 
-@router.get("/taxonomy/categories", response_model=AdminTaxonomyResponse)
+@router.get("/taxonomy/categories")
 def read_admin_taxonomy_categories(
-    city_slug: str | None = Query(default=None, min_length=1),
+    search: str | None = Query(default=None),
+    active: bool | None = Query(default=None),
+    parent_id: int | None = Query(default=None),
+    route_policy: str | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
-) -> AdminTaxonomyResponse:
-    return AdminTaxonomyResponse(categories=admin_category_taxonomy(db, city_slug=city_slug))
+) -> dict[str, object]:
+    return list_categories(
+        db,
+        search=search,
+        active=active,
+        parent_id=parent_id,
+        route_policy=route_policy,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.get("/cities/by-slug/{city_slug}/workspace", response_model=AdminCityWorkspaceResponse)
