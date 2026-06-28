@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { adminGet } from './adminApi'
+import { adminGet, adminPost } from './adminApi'
 import type { DuplicateGroup, DuplicateGroupsResponse, QualityCity } from './adminPlatformTypes'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 
@@ -10,6 +10,13 @@ const BLOCKER_LABELS: Record<string, string> = {
   low_quality: 'низкое качество',
   stale: 'перепроверка',
   route_ineligible: 'исключены из маршрутов',
+}
+
+type BulkActionResponse = {
+  action_type: string
+  affected_count: number
+  created_candidates?: number | null
+  status?: string | null
 }
 
 const primaryBlockerText = (item: QualityCity) => {
@@ -40,6 +47,21 @@ const duplicateQuery = (params: URLSearchParams) => {
   return next.toString()
 }
 
+const actionCopy: Record<string, { reason: string; done: string }> = {
+  propose_duplicate_review: {
+    reason: 'ручная проверка дубля',
+    done: 'Группа поставлена в ручную проверку.',
+  },
+  ignore_issues: {
+    reason: 'проверено, это разные места',
+    done: 'Группа скрыта из активных дублей как не дубль.',
+  },
+  defer_issues: {
+    reason: 'отложено до ручной проверки источников',
+    done: 'Группа отложена.',
+  },
+}
+
 export const AdminQualityPage = () => {
   const [params, setParams] = useSearchParams()
   const [items, setItems] = useState<QualityCity[]>([])
@@ -47,6 +69,8 @@ export const AdminQualityPage = () => {
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([])
   const [duplicateTotal, setDuplicateTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
     setLoading(true); setError(null)
@@ -68,6 +92,25 @@ export const AdminQualityPage = () => {
     if (value) next.set(key, value)
     else next.delete(key)
     setParams(next)
+  }
+  const applyDuplicateAction = async (group: DuplicateGroup, actionType: keyof typeof actionCopy) => {
+    const copy = actionCopy[actionType]
+    setActionLoading(`${actionType}:${group.group_key}`)
+    setActionMessage(null)
+    try {
+      const result = await adminPost<BulkActionResponse>('/admin/data-quality/bulk-actions/apply', {
+        action_type: actionType,
+        issue_ids: group.issue_ids,
+        confirm: true,
+        reason: copy.reason,
+      })
+      setActionMessage(`${copy.done} Затронуто: ${result.affected_count}.`)
+      load()
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : 'Не удалось применить действие')
+    } finally {
+      setActionLoading(null)
+    }
   }
   return <div>
     <h2 className="admin-page-title">Качество данных</h2>
@@ -91,16 +134,29 @@ export const AdminQualityPage = () => {
     {!loading && !error && <section className="admin-card">
       <strong>Возможные дубли</strong>
       <p className="admin-muted">Группы с одинаковым названием рядом. Система только показывает кандидатов, merge/delete выполняется вручную после проверки.</p>
+      {actionMessage && <p className="admin-muted">{actionMessage}</p>}
       {duplicateTotal === 0 ? <p className="admin-muted">Активных дублей по выбранному городу нет.</p> : <table className="admin-table">
-        <thead><tr><th>Город</th><th>Название</th><th>Места</th><th>Открыть</th></tr></thead>
-        <tbody>{duplicateGroups.map((group) => (
-          <tr key={group.group_key}>
+        <thead><tr><th>Город</th><th>Название</th><th>Места</th><th>Открыть</th><th>Действия</th></tr></thead>
+        <tbody>{duplicateGroups.map((group) => {
+          const actionKey = (actionType: string) => `${actionType}:${group.group_key}`
+          return <tr key={group.group_key}>
             <td>{group.city_name ?? group.city_slug ?? '—'}</td>
-            <td>{duplicateTitle(group)}</td>
+            <td>{duplicateTitle(group)}<br /><span className="admin-muted">issues: {group.issues_count}</span></td>
             <td>{group.places.map((place) => place.title).join(' · ')}</td>
             <td>{group.places.map((place) => <Link key={place.id} className="admin-btn admin-btn-sm" to={`/admin/places/${place.id}`}>#{place.id}</Link>)}</td>
+            <td>
+              <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void applyDuplicateAction(group, 'propose_duplicate_review')}>
+                {actionLoading === actionKey('propose_duplicate_review') ? 'Ставлю...' : 'В проверку'}
+              </button>
+              <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void applyDuplicateAction(group, 'ignore_issues')}>
+                {actionLoading === actionKey('ignore_issues') ? 'Скрываю...' : 'Не дубль'}
+              </button>
+              <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void applyDuplicateAction(group, 'defer_issues')}>
+                {actionLoading === actionKey('defer_issues') ? 'Откладываю...' : 'Отложить'}
+              </button>
+            </td>
           </tr>
-        ))}</tbody>
+        })}</tbody>
       </table>}
       {duplicateTotal > duplicateGroups.length && <p className="admin-muted">Показаны первые {duplicateGroups.length} из {duplicateTotal}. Уточните город, чтобы разобрать очередь.</p>}
     </section>}
