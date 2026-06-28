@@ -13,6 +13,20 @@ export type QualityCity = {
   primary_blocker?: string | null
 }
 
+export type AutomationPreviewResponse = {
+  action_type: string
+  affected_count: number
+  status?: string | null
+  blocked_count?: number | null
+  candidate_ids?: number[] | null
+  sample?: Array<Record<string, unknown>> | null
+  blocked_sample?: Array<Record<string, unknown>> | null
+  grouped_by_city?: Record<string, number> | null
+  grouped_by_category?: Record<string, number> | null
+  warnings?: string[] | null
+  proposed_patch?: Record<string, unknown> | null
+}
+
 export type DuplicatePlace = {
   id: number
   slug: string
