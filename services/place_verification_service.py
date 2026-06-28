@@ -5,7 +5,7 @@ from datetime import datetime
 from functools import reduce
 from typing import Any
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import and_, case, func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from models.city import City
@@ -313,7 +313,7 @@ def place_verification_summary(db: Session, city_slug: str | None = None) -> dic
         func.sum(case((Place.verification_status == "needs_recheck", 1), else_=0)).label("needs_recheck"),
         func.sum(case((unverified_filter, 1), else_=0)).label("unverified"),
         func.sum(case((low_confidence_filter, 1), else_=0)).label("low_confidence"),
-        func.sum(case((Place.verification_status == "verified", Place.verified_at >= today_start, 1), else_=0)).label("verified_today"),
+        func.sum(case((and_(Place.verification_status == "verified", Place.verified_at >= today_start), 1), else_=0)).label("verified_today"),
     ).one()
 
     return {
