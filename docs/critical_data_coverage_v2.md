@@ -11,9 +11,9 @@ The contract separates two different questions:
 
 A place can be route-ready and still have an incomplete card. Missing photo or weak description must not collapse a city route to 0-1 points.
 
-## Stage 1 Implementation
+## Implemented Stages
 
-Stage 1 is read-only and deterministic.
+### Stage 1: Read-Only Deterministic Triage
 
 Code:
 
@@ -23,7 +23,7 @@ Code:
 - `/admin/quality`
 - `frontend/src/pages/admin/AdminQualityPage.tsx`
 
-No database mutation happens in this stage. The triage result is returned in `critical_coverage` and mirrored into top-level summary fields:
+The triage result is returned in `critical_coverage` and mirrored into top-level summary fields:
 
 - `route_candidate_total`
 - `route_ready_total`
@@ -35,7 +35,37 @@ No database mutation happens in this stage. The triage result is returned in `cr
 - `optional_gaps_total`
 - `not_applicable_total`
 
-This shape is intentionally compatible with a future materialized `Place.quality_bucket` / `PlaceQualityState` implementation.
+### Stage 2: Drill-Down and Real Admin Actions
+
+`/admin/quality` counters are actionable:
+
+- route/card/auto/manual counters open the place drill-down endpoint with preserved city/category filters;
+- place rows link to the exact admin place page;
+- auto-enrichment rows link to the enrichment/review workspace;
+- manual-review rows link to the same review workspace;
+- photo work links to the photo moderation screen;
+- the city pipeline button calls `POST /admin/place-enrichment/pipeline/{city_slug}/run` and queues the real import-worker enrichment job.
+
+### Stage 3: No-Migration Materialization
+
+Code:
+
+- `services/data_quality/critical_coverage_state.py`
+- `POST /admin/data-quality/cities/{city_slug}/critical-coverage/refresh`
+
+This stage deliberately avoids an Alembic migration while the rules are still being validated on real cities. It persists the current per-place Critical Coverage state into existing `data_quality_issues` rows:
+
+- `issue_type = critical_coverage_state`
+- `source = critical_coverage_v2`
+- `reason = state`
+- `status = current`
+- `evidence.bucket = route_blocker|card_blocker|auto_enrichment_candidate|manual_review|optional_gap|not_applicable|ready`
+
+The refresh is idempotent. Re-running it without data changes does not create duplicate rows and reports unchanged rows separately from real updates.
+
+When category is omitted, stale materialized states for the city are resolved. Category-limited refreshes are safe for inspection and do not resolve unrelated categories.
+
+A future dedicated `PlaceQualityState` table can replace this without changing the triage contract.
 
 ## Endpoints
 
@@ -66,6 +96,23 @@ Supported buckets:
 - `route_excluded`
 
 Every visible counter in the admin UI must be able to open this endpoint or a more specific queue. A counter without a list is not actionable.
+
+### Materialized Refresh
+
+```text
+POST /admin/data-quality/cities/{city_slug}/critical-coverage/refresh?category=<category>&limit=<limit>
+```
+
+Returns:
+
+- `scanned`
+- `created`
+- `updated`
+- `unchanged`
+- `resolved`
+- `by_bucket`
+- `issue_type`
+- `source`
 
 ## Category Profiles
 
@@ -210,7 +257,7 @@ Requires explicit admin action:
 
 ## Admin UI Contract
 
-`/admin/quality` must show separate operational counters:
+`/admin/quality` shows separate operational counters:
 
 - route blockers;
 - card blockers;
@@ -220,11 +267,18 @@ Requires explicit admin action:
 
 The mobile card must be readable in one column and must not imply that import completion equals launch readiness.
 
+Operator actions from the card:
+
+- `Запустить enrichment` queues the existing city pipeline;
+- `Фото` opens photo moderation for the city;
+- `Review queue` opens enrichment/review queue;
+- `Материализовать` persists the current Critical Coverage state into `data_quality_issues`.
+
 ## Future Stage
 
-After validating Stage 1 metrics on real cities, materialize the same contract:
+After validating materialized `critical_coverage_state` on real cities, introduce a dedicated indexed state table:
 
-- `Place.quality_bucket` or `PlaceQualityState`;
+- `PlaceQualityState` or `Place.quality_bucket`;
 - composite index by `city_id`, `quality_bucket`;
 - `CityQualitySnapshot` for history/trends;
 - async recalculation after import/enrichment/photo approval/review resolution;
