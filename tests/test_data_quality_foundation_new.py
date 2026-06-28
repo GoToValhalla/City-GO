@@ -109,8 +109,6 @@ def test_data_quality_summary_city_score_uses_live_quality_not_stored_readiness_
         city_id=city.id,
         address=None,
         image_url="https://example.test/photo.jpg",
-        quality_score=100,
-        verification_status="verified",
     )
     refresh_data_quality_issues(db_session, city_id=city.id)
 
