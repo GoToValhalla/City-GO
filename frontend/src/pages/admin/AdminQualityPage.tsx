@@ -229,8 +229,11 @@ export const AdminQualityPage = () => {
     setOperationsLoading(true)
     try {
       const [automation, duplicates] = await Promise.all([
-        adminPost<Partial<AutomationPreviewResponse>>('/admin/data-quality/automation/preview', automationPayload(selectedCitySlug))
-          .catch(() => emptyAutomationResponse),
+        adminPost<Partial<AutomationPreviewResponse>>(
+          '/admin/data-quality/automation/preview',
+          automationPayload(selectedCitySlug),
+          { invalidateCache: false },
+        ).catch(() => emptyAutomationResponse),
         adminGet<Partial<DuplicateGroupsResponse>>(`/admin/data-quality/duplicates?${duplicateQuery(selectedCitySlug)}`)
           .catch(() => emptyDuplicateResponse),
       ])
