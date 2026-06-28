@@ -40,3 +40,31 @@ class DataQualityBulkResponse(BaseModel):
     warnings: list[str] | None = None
     proposed_patch: dict[str, Any] | None = None
     preview_token: str | None = None
+
+
+class DataQualityAutomationRequest(BaseModel):
+    city_id: int | None = None
+    city_slug: str | None = None
+    limit: int | None = Field(default=500, ge=1, le=10_000)
+    confirm: bool = False
+    reason: str | None = None
+
+
+class DataQualityAutomationRollbackRequest(BaseModel):
+    candidate_ids: list[int] = Field(default_factory=list)
+    confirm: bool = False
+    reason: str | None = None
+
+
+class DataQualityAutomationResponse(BaseModel):
+    action_type: str
+    affected_count: int
+    status: str | None = None
+    blocked_count: int | None = None
+    candidate_ids: list[int] | None = None
+    sample: list[dict[str, Any]] | None = None
+    blocked_sample: list[dict[str, Any]] | None = None
+    grouped_by_city: dict[str, int] | None = None
+    grouped_by_category: dict[str, int] | None = None
+    warnings: list[str] | None = None
+    proposed_patch: dict[str, Any] | None = None
