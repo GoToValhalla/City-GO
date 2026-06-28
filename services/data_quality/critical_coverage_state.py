@@ -55,7 +55,7 @@ def refresh_city_critical_coverage_state(
             source=SOURCE_CRITICAL_COVERAGE_V2,
         )
         active_fingerprints.add(fingerprint)
-        evidence = {
+        stable_evidence = {
             "bucket": bucket,
             "profile_key": item["profile_key"],
             "is_tourist_eligible": item["is_tourist_eligible"],
@@ -68,8 +68,8 @@ def refresh_city_critical_coverage_state(
             "optional_gaps": item["optional_gaps"],
             "confidence_flags": item["confidence_flags"],
             "place_snapshot": place,
-            "generated_at": now.isoformat(),
         }
+        evidence = {**stable_evidence, "generated_at": now.isoformat()}
         issue = db.query(DataQualityIssue).filter(DataQualityIssue.fingerprint == fingerprint).first()
         if issue is None:
             issue = DataQualityIssue(
@@ -88,7 +88,11 @@ def refresh_city_critical_coverage_state(
             db.add(issue)
             created += 1
             continue
-        before = (issue.severity, issue.status, issue.evidence)
+        before = (
+            issue.severity,
+            issue.status,
+            _stable_evidence(issue.evidence),
+        )
         issue.severity = _severity(bucket)
         issue.status = "current"
         issue.reason = "state"
@@ -96,7 +100,7 @@ def refresh_city_critical_coverage_state(
         issue.evidence = evidence
         issue.last_seen_at = now
         issue.resolved_at = None
-        if before == (issue.severity, issue.status, issue.evidence):
+        if before == (issue.severity, issue.status, stable_evidence):
             unchanged += 1
         else:
             updated += 1
@@ -157,3 +161,9 @@ def _severity(bucket: str) -> str:
     if bucket in {"card_blocker", "manual_review"}:
         return "warning"
     return "info"
+
+
+def _stable_evidence(evidence: dict[str, Any] | None) -> dict[str, Any] | None:
+    if evidence is None:
+        return None
+    return {key: value for key, value in evidence.items() if key != "generated_at"}
