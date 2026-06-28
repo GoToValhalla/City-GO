@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy.orm import Query, Session
 
+from models.city import City
 from models.place import Place
 from models.place_field_confidence import PlaceFieldConfidence
 from models.place_photo_candidate import PlacePhotoCandidate
@@ -83,6 +84,7 @@ class PlaceTriageResult:
     optional_gaps: list[FieldIssue] = field(default_factory=list)
     has_pending_photo_candidates: bool = False
     has_open_review_queue_items: bool = False
+    has_opening_hours: bool = False
     confidence_flags: list[str] = field(default_factory=list)
 
 
@@ -200,6 +202,66 @@ PHOTO_CANDIDATE_OPEN_STATUSES = {"candidate", "pending", "needs_review", "open"}
 CRITICAL_CONFIDENCE_FIELDS = {"name", "canonical_category", "lat", "lng", "opening_hours"}
 
 
+def build_city_critical_coverage(
+    db: Session,
+    *,
+    city_slug: str,
+    category: str | None = None,
+) -> dict[str, Any] | None:
+    city = db.query(City).filter(City.slug == city_slug).first()
+    if city is None:
+        return None
+    query = _city_places_query(db, city.id, category)
+    summary = compute_city_critical_coverage(db, query)
+    return {
+        "city_id": city.id,
+        "city_slug": city.slug,
+        "city_name": city.name,
+        "category": category,
+        **summary,
+    }
+
+
+def list_city_critical_coverage_places(
+    db: Session,
+    *,
+    city_slug: str,
+    category: str | None = None,
+    bucket: str | None = None,
+    reason: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict[str, Any] | None:
+    city = db.query(City).filter(City.slug == city_slug).first()
+    if city is None:
+        return None
+    places = _city_places_query(db, city.id, category).all()
+    contexts = _load_contexts(db, [place.id for place in places])
+    rows = [
+        (place, triage_place(place, contexts.get(place.id, PlaceTriageContext())))
+        for place in places
+    ]
+    filtered = [
+        (place, result)
+        for place, result in rows
+        if _matches_bucket(result, bucket) and _matches_reason(result, reason)
+    ]
+    filtered.sort(key=lambda item: _sort_key(item[1]))
+    paged = filtered[offset: offset + limit]
+    return {
+        "city_id": city.id,
+        "city_slug": city.slug,
+        "city_name": city.name,
+        "bucket": bucket,
+        "reason": reason,
+        "category": category,
+        "items": [_place_result_payload(place, result) for place, result in paged],
+        "total": len(filtered),
+        "limit": limit,
+        "offset": offset,
+    }
+
+
 def compute_city_critical_coverage(db: Session, places_query: Query) -> dict[str, Any]:
     places = places_query.all()
     contexts = _load_contexts(db, [place.id for place in places])
@@ -303,6 +365,7 @@ def triage_place(place: Place, context: PlaceTriageContext | None = None) -> Pla
         optional_gaps=_dedupe_issues(optional_gaps),
         has_pending_photo_candidates=ctx.has_pending_photo_candidates,
         has_open_review_queue_items=bool(ctx.open_review_items),
+        has_opening_hours=_has_hours(place, ctx),
         confidence_flags=sorted(set(confidence_flags)),
     )
 
@@ -372,6 +435,13 @@ def aggregate_triage_results(results: list[PlaceTriageResult], places: list[Plac
     }
 
 
+def _city_places_query(db: Session, city_id: int, category: str | None = None) -> Query:
+    query = db.query(Place).filter(Place.city_id == city_id)
+    if category:
+        query = query.filter(Place.category == category)
+    return query
+
+
 def _load_contexts(db: Session, place_ids: list[int]) -> dict[int, PlaceTriageContext]:
     contexts = {place_id: PlaceTriageContext() for place_id in place_ids}
     if not place_ids:
@@ -402,6 +472,95 @@ def _load_contexts(db: Session, place_ids: list[int]) -> dict[int, PlaceTriageCo
         contexts[row.place_id].open_review_items.append(row)
 
     return contexts
+
+
+def _matches_bucket(result: PlaceTriageResult, bucket: str | None) -> bool:
+    if not bucket:
+        return True
+    normalized = bucket.strip().lower()
+    return {
+        "route_blocker": result.route_status == TriageBucket.ROUTE_BLOCKER,
+        "route_ready": result.route_status == TriageBucket.ROUTE_READY,
+        "card_blocker": result.card_status == TriageBucket.CARD_BLOCKER,
+        "card_ready": result.card_status == TriageBucket.CARD_READY,
+        "auto_enrichment_candidate": bool(result.auto_enrichment_candidates),
+        "manual_review": bool(result.manual_review_items),
+        "manual_review_required": bool(result.manual_review_items),
+        "optional_gap": bool(result.optional_gaps),
+        "not_applicable": not result.is_tourist_eligible,
+        "route_excluded": result.route_status == TriageBucket.ROUTE_EXCLUDED,
+    }.get(normalized, True)
+
+
+def _matches_reason(result: PlaceTriageResult, reason: str | None) -> bool:
+    if not reason:
+        return True
+    expected = reason.strip().lower()
+    return any(issue.reason.lower() == expected for issue in _all_issues(result))
+
+
+def _all_issues(result: PlaceTriageResult) -> list[FieldIssue]:
+    return [
+        *result.route_blockers,
+        *result.card_blockers,
+        *result.auto_enrichment_candidates,
+        *result.manual_review_items,
+        *result.optional_gaps,
+    ]
+
+
+def _sort_key(result: PlaceTriageResult) -> tuple[int, str, int]:
+    priority = 0
+    if result.route_status == TriageBucket.ROUTE_BLOCKER:
+        priority = 1
+    elif result.card_status == TriageBucket.CARD_BLOCKER:
+        priority = 2
+    elif result.manual_review_items:
+        priority = 3
+    elif result.auto_enrichment_candidates:
+        priority = 4
+    elif not result.is_tourist_eligible:
+        priority = 9
+    return (priority, result.place_name.lower(), result.place_id)
+
+
+def _place_result_payload(place: Place, result: PlaceTriageResult) -> dict[str, Any]:
+    return {
+        "place": {
+            "id": place.id,
+            "slug": place.slug,
+            "title": place.title,
+            "category": place.category,
+            "canonical_category": place.canonical_category,
+            "address": place.address,
+            "image_url": place.image_url,
+            "is_route_eligible": place.is_route_eligible,
+            "publication_status": place.publication_status,
+            "has_photo": _has_photo(place),
+            "has_address": not _field_missing(place, "address", PlaceTriageContext()),
+            "has_opening_hours": result.has_opening_hours,
+            "has_description": not _field_missing(place, "short_description", PlaceTriageContext()),
+        },
+        "profile_key": result.profile_key,
+        "is_tourist_eligible": result.is_tourist_eligible,
+        "route_status": result.route_status.value,
+        "card_status": result.card_status.value,
+        "route_blockers": [_issue_payload(item) for item in result.route_blockers],
+        "card_blockers": [_issue_payload(item) for item in result.card_blockers],
+        "auto_enrichment_candidates": [_issue_payload(item) for item in result.auto_enrichment_candidates],
+        "manual_review_items": [_issue_payload(item) for item in result.manual_review_items],
+        "optional_gaps": [_issue_payload(item) for item in result.optional_gaps],
+        "confidence_flags": result.confidence_flags,
+    }
+
+
+def _issue_payload(item: FieldIssue) -> dict[str, Any]:
+    return {
+        "field_name": item.field_name,
+        "bucket": item.bucket.value,
+        "reason": item.reason,
+        "auto_action": item.auto_action,
+    }
 
 
 def _category_key(place: Place) -> str | None:
@@ -533,7 +692,7 @@ def _manual_counter(rows: list[PlaceTriageResult]) -> Counter[str]:
 
 def _coverage(rows: list[PlaceTriageResult], place_by_id: dict[int, Place]) -> dict[str, dict[str, float | int]]:
     tourist_places = [place_by_id[row.place_id] for row in rows]
-    hours_places = [place_by_id[row.place_id] for row in rows if _hours_applicable(row.profile_key)]
+    hours_rows = [row for row in rows if _hours_applicable(row.profile_key)]
     contextless = PlaceTriageContext()
     return {
         "has_approved_photo": _metric(sum(1 for place in tourist_places if _has_photo(place)), len(tourist_places)),
@@ -542,7 +701,7 @@ def _coverage(rows: list[PlaceTriageResult], place_by_id: dict[int, Place]) -> d
             sum(1 for place in tourist_places if not _field_missing(place, "short_description", contextless)),
             len(tourist_places),
         ),
-        "has_opening_hours": _metric(sum(1 for place in hours_places if bool(getattr(place, "opening_hours", None))), len(hours_places)),
+        "has_opening_hours": _metric(sum(1 for row in hours_rows if row.has_opening_hours), len(hours_rows)),
     }
 
 
