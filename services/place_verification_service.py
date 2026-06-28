@@ -5,8 +5,8 @@ from datetime import datetime
 from functools import reduce
 from typing import Any
 
-from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy import case, func, or_
+from sqlalchemy.orm import Session, joinedload
 
 from models.city import City
 from models.place import Place
@@ -67,7 +67,7 @@ def get_place_verification_queue(
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict[str, Any]], int]:
-    query = db.query(Place).join(City, City.id == Place.city_id)
+    query = _verification_base_query(db)
 
     if city_slug:
         query = query.filter(City.slug == city_slug)
@@ -80,21 +80,22 @@ def get_place_verification_queue(
     if category:
         query = query.filter(Place.category == category)
 
-    rows = query.all()
-    items = [_place_queue_payload(place, lat=lat, lng=lng) for place in rows]
-
     if radius_meters is not None and lat is not None and lng is not None:
-        items = [item for item in items if item["distance_meters"] is not None and item["distance_meters"] <= radius_meters]
+        return _distance_filtered_queue(query, lat=lat, lng=lng, radius_meters=radius_meters, limit=limit, offset=offset)
 
-    items.sort(key=lambda item: (
-        0 if item["verification_status"] == "needs_recheck" else 1,
-        item["existence_confidence_score"],
-        item["distance_meters"] if item["distance_meters"] is not None else 10**12,
-        item["place_id"],
-    ))
-
-    total = len(items)
-    return items[offset : offset + limit], total
+    total = query.count()
+    rows = (
+        query.options(joinedload(Place.city))
+        .order_by(
+            case((Place.verification_status == "needs_recheck", 0), else_=1),
+            func.coalesce(Place.existence_confidence_score, 0).asc(),
+            Place.id.asc(),
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return [_place_queue_payload(place, lat=lat, lng=lng) for place in rows], total
 
 
 def apply_place_verification(
@@ -307,16 +308,39 @@ def place_verification_summary(db: Session, city_slug: str | None = None) -> dic
     )
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
+    row = query.with_entities(
+        func.sum(case((queue_filter, 1), else_=0)).label("queue_total"),
+        func.sum(case((Place.verification_status == "needs_recheck", 1), else_=0)).label("needs_recheck"),
+        func.sum(case((unverified_filter, 1), else_=0)).label("unverified"),
+        func.sum(case((low_confidence_filter, 1), else_=0)).label("low_confidence"),
+        func.sum(case((Place.verification_status == "verified", Place.verified_at >= today_start, 1), else_=0)).label("verified_today"),
+    ).one()
+
     return {
-        "queue_total": query.filter(queue_filter).count(),
-        "needs_recheck": query.filter(Place.verification_status == "needs_recheck").count(),
-        "unverified": query.filter(unverified_filter).count(),
-        "low_confidence": query.filter(low_confidence_filter).count(),
-        "verified_today": query.filter(
-            Place.verification_status == "verified",
-            Place.verified_at >= today_start,
-        ).count(),
+        "queue_total": int(row.queue_total or 0),
+        "needs_recheck": int(row.needs_recheck or 0),
+        "unverified": int(row.unverified or 0),
+        "low_confidence": int(row.low_confidence or 0),
+        "verified_today": int(row.verified_today or 0),
     }
+
+
+def _verification_base_query(db: Session):
+    return db.query(Place).join(City, City.id == Place.city_id)
+
+
+def _distance_filtered_queue(query, *, lat: float, lng: float, radius_meters: float, limit: int, offset: int) -> tuple[list[dict[str, Any]], int]:
+    rows = query.options(joinedload(Place.city)).all()
+    items = [_place_queue_payload(place, lat=lat, lng=lng) for place in rows]
+    items = [item for item in items if item["distance_meters"] is not None and item["distance_meters"] <= radius_meters]
+    items.sort(key=lambda item: (
+        0 if item["verification_status"] == "needs_recheck" else 1,
+        item["existence_confidence_score"],
+        item["distance_meters"] if item["distance_meters"] is not None else 10**12,
+        item["place_id"],
+    ))
+    total = len(items)
+    return items[offset : offset + limit], total
 
 
 def _place_queue_payload(place: Place, *, lat: float | None, lng: float | None) -> dict[str, Any]:
