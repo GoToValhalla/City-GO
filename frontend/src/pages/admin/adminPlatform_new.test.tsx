@@ -14,6 +14,7 @@ describe('admin platform screens', () => {
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'token')
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
+      if (url.includes('/admin/data-quality/duplicates')) return response({ items: [], total: 0, limit: 5, offset: 0 })
       if (url.includes('/admin/quality')) return response({
         items: [{ city_slug: 'test', city_name: 'Тест', region: 'Регион', readiness_score: 70, places_total: 10, severity: 'warning', blockers: {} }],
         todo: ['Добавить snapshots'],
