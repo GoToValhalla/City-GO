@@ -25,6 +25,70 @@ export type CriticalCoverage = {
   city_readiness: Record<string, unknown>
 }
 
+export type CriticalCoverageIssue = {
+  field_name: string
+  bucket: string
+  reason: string
+  auto_action?: string | null
+}
+
+export type CriticalCoveragePlace = {
+  place: {
+    id: number
+    slug: string
+    title: string
+    category: string | null
+    canonical_category: string | null
+    address: string | null
+    image_url: string | null
+    is_route_eligible: boolean
+    publication_status: string
+    has_photo: boolean
+    has_address: boolean
+    has_opening_hours: boolean
+    has_description: boolean
+  }
+  profile_key: string
+  is_tourist_eligible: boolean
+  route_status: string
+  card_status: string
+  route_blockers: CriticalCoverageIssue[]
+  card_blockers: CriticalCoverageIssue[]
+  auto_enrichment_candidates: CriticalCoverageIssue[]
+  manual_review_items: CriticalCoverageIssue[]
+  optional_gaps: CriticalCoverageIssue[]
+  confidence_flags: string[]
+}
+
+export type CriticalCoveragePlacesResponse = {
+  city_id: number
+  city_slug: string
+  city_name: string
+  bucket?: string | null
+  reason?: string | null
+  category?: string | null
+  items: CriticalCoveragePlace[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export type CriticalCoverageRefreshResponse = {
+  city_id: number
+  city_slug: string
+  city_name: string
+  category?: string | null
+  scanned: number
+  created: number
+  updated: number
+  unchanged: number
+  resolved: number
+  by_bucket: Record<string, number>
+  generated_at: string
+  issue_type: string
+  source: string
+}
+
 export type QualityCity = {
   city_slug: string
   city_name: string
@@ -48,6 +112,14 @@ export type QualityCity = {
   severity: string
   blockers: Record<string, number>
   primary_blocker?: string | null
+}
+
+export type PipelineRunResponse = {
+  job_id: number
+  city_slug: string
+  status: string
+  message?: string | null
+  counters?: Record<string, number>
 }
 
 export type AutomationPreviewResponse = {
