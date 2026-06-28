@@ -194,6 +194,10 @@ def _stable_evidence(evidence: dict[str, Any] | None) -> dict[str, Any] | None:
     return {key: value for key, value in evidence.items() if key != "generated_at"}
 
 
+def _stable_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in summary.items() if key != "generated_at"}
+
+
 def _upsert_city_snapshot(
     db: Session,
     *,
@@ -204,7 +208,7 @@ def _upsert_city_snapshot(
     scanned: int,
     generated_at: datetime,
 ) -> dict[str, Any]:
-    summary = build_city_critical_coverage(db, city_slug=city_slug, category=category) or {}
+    summary = _stable_summary(build_city_critical_coverage(db, city_slug=city_slug, category=category) or {})
     reason = f"snapshot:{category}" if category else "snapshot"
     fingerprint = issue_fingerprint(
         place_id=None,
