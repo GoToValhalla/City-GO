@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
-import type { AutomationPreviewResponse, DuplicateGroup, DuplicateGroupsResponse, QualityCity } from './adminPlatformTypes'
+import type {
+  AutomationPreviewResponse,
+  CriticalCoverageIssue,
+  CriticalCoveragePlacesResponse,
+  CriticalCoverageRefreshResponse,
+  DuplicateGroup,
+  DuplicateGroupsResponse,
+  PipelineRunResponse,
+  QualityCity,
+} from './adminPlatformTypes'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 import './AdminQuality.css'
 
@@ -12,6 +21,15 @@ const BLOCKER_LABELS: Record<string, string> = {
   stale: 'перепроверка',
   route_ineligible: 'исключены из маршрутов',
   excluded_by_design: 'исключено правилами',
+}
+
+const BUCKET_LABELS: Record<string, string> = {
+  route_blocker: 'Блокеры маршрута',
+  card_blocker: 'Блокеры карточек',
+  auto_enrichment_candidate: 'Можно автообогатить',
+  manual_review: 'Ручная проверка',
+  optional_gap: 'Необязательные пробелы',
+  not_applicable: 'Не применимо к маршрутам',
 }
 
 type BulkActionResponse = {
@@ -81,6 +99,20 @@ const duplicateQuery = (params: URLSearchParams) => {
   return next.toString()
 }
 
+const criticalDrilldownPath = (params: URLSearchParams) => {
+  const citySlug = params.get('city_slug')
+  const bucket = params.get('critical_bucket')
+  if (!citySlug || !bucket) return null
+  const query = new URLSearchParams()
+  query.set('bucket', bucket)
+  const reason = params.get('critical_reason')
+  const category = params.get('category')
+  if (reason) query.set('reason', reason)
+  if (category) query.set('category', category)
+  query.set('limit', '50')
+  return `/admin/data-quality/cities/${citySlug}/critical-coverage/places?${query}`
+}
+
 const automationPayload = (params: URLSearchParams) => {
   const citySlug = params.get('city_slug')
   return { ...(citySlug ? { city_slug: citySlug } : {}), limit: 500 }
@@ -131,6 +163,10 @@ const actionCopy: Record<string, { reason: string; done: string }> = {
   },
 }
 
+const issueText = (items: CriticalCoverageIssue[]) => (
+  items.length ? items.map((item) => `${item.field_name}: ${item.reason}`).join(' · ') : 'Нет'
+)
+
 export const AdminQualityPage = () => {
   const [params, setParams] = useSearchParams()
   const [items, setItems] = useState<QualityCity[]>([])
@@ -138,27 +174,32 @@ export const AdminQualityPage = () => {
   const [automationPreview, setAutomationPreview] = useState<AutomationPreviewResponse>(emptyAutomationResponse)
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([])
   const [duplicateTotal, setDuplicateTotal] = useState(0)
+  const [criticalPlaces, setCriticalPlaces] = useState<CriticalCoveragePlacesResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [automationMessage, setAutomationMessage] = useState<string | null>(null)
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null)
+  const [criticalMessage, setCriticalMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
     setLoading(true); setError(null)
+    const drilldownPath = criticalDrilldownPath(params)
     Promise.all([
       adminGet<{ items: QualityCity[]; todo: string[] }>(`/admin/quality?${params}`),
       adminPost<Partial<AutomationPreviewResponse>>('/admin/data-quality/automation/preview', automationPayload(params))
         .catch(() => emptyAutomationResponse),
       adminGet<Partial<DuplicateGroupsResponse>>(`/admin/data-quality/duplicates?${duplicateQuery(params)}`)
         .catch(() => emptyDuplicateResponse),
+      drilldownPath ? adminGet<CriticalCoveragePlacesResponse>(drilldownPath).catch(() => null) : Promise.resolve(null),
     ])
-      .then(([row, automation, duplicates]) => {
+      .then(([row, automation, duplicates, critical]) => {
         const duplicateItems = safeDuplicateItems(duplicates)
         setItems(Array.isArray(row.items) ? row.items : [])
         setTodo(Array.isArray(row.todo) ? row.todo : [])
         setAutomationPreview(safeAutomation(automation))
         setDuplicateGroups(duplicateItems)
         setDuplicateTotal(safeDuplicateTotal(duplicates, duplicateItems))
+        setCriticalPlaces(critical)
       })
       .catch((e: Error) => setError(e.message)).finally(() => setLoading(false))
   }, [params])
@@ -167,6 +208,20 @@ export const AdminQualityPage = () => {
     const next = new URLSearchParams(params)
     if (value) next.set(key, value)
     else next.delete(key)
+    setParams(next)
+  }
+  const openCritical = (citySlug: string, bucket: string, reason?: string) => {
+    const next = new URLSearchParams(params)
+    next.set('city_slug', citySlug)
+    next.set('critical_bucket', bucket)
+    if (reason) next.set('critical_reason', reason)
+    else next.delete('critical_reason')
+    setParams(next)
+  }
+  const closeCritical = () => {
+    const next = new URLSearchParams(params)
+    next.delete('critical_bucket')
+    next.delete('critical_reason')
     setParams(next)
   }
   const applyAutomation = async () => {
@@ -182,6 +237,32 @@ export const AdminQualityPage = () => {
       load()
     } catch (e) {
       setAutomationMessage(e instanceof Error ? e.message : 'Не удалось применить автопилот')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+  const runCityPipeline = async (citySlug: string) => {
+    setActionLoading(`pipeline:${citySlug}`)
+    setCriticalMessage(null)
+    try {
+      const result = await adminPost<PipelineRunResponse>(`/admin/place-enrichment/pipeline/${citySlug}/run`)
+      setCriticalMessage(`Сбор и обогащение поставлены в очередь: job #${result.job_id}.`)
+      load()
+    } catch (e) {
+      setCriticalMessage(e instanceof Error ? e.message : 'Не удалось запустить обогащение')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+  const materializeCity = async (citySlug: string) => {
+    setActionLoading(`materialize:${citySlug}`)
+    setCriticalMessage(null)
+    try {
+      const result = await adminPost<CriticalCoverageRefreshResponse>(`/admin/data-quality/cities/${citySlug}/critical-coverage/refresh`)
+      setCriticalMessage(`Материализовано: создано ${result.created}, обновлено ${result.updated}, без изменений ${result.unchanged}.`)
+      load()
+    } catch (e) {
+      setCriticalMessage(e instanceof Error ? e.message : 'Не удалось материализовать состояние')
     } finally {
       setActionLoading(null)
     }
@@ -214,12 +295,13 @@ export const AdminQualityPage = () => {
       <label className="admin-field"><span>Категория</span><input value={params.get('category') ?? ''} onChange={(e) => update('category', e.target.value)} /></label>
       <label className="admin-field"><span>Важность</span><select value={params.get('severity') ?? ''} onChange={(e) => update('severity', e.target.value)}><option value="">Любая</option><option value="critical">Критично</option><option value="warning">Внимание</option><option value="ok">Норма</option></select></label>
     </div>
+    {criticalMessage && <p className="admin-muted">{criticalMessage}</p>}
     {error && <AdminError message={error} />}{loading ? <AdminLoading /> : !items.length ? <AdminEmpty message="Нет данных по выбранным фильтрам" /> : <div className="admin-action-grid admin-quality-grid">{items.map((item) => {
       const details = blockerLine(item)
       const stats = qualityStats(item)
       const critical = criticalStats(item)
-      return <Link className={`admin-action-card admin-quality-card admin-severity-${item.severity === 'critical' ? 'red' : item.severity === 'warning' ? 'yellow' : 'green'}`} to={`/admin/cities/${item.city_slug}?tab=quality`} key={item.city_slug}>
-        <strong className="admin-quality-card-title">{item.city_name}</strong>
+      return <article className={`admin-action-card admin-quality-card admin-severity-${item.severity === 'critical' ? 'red' : item.severity === 'warning' ? 'yellow' : 'green'}`} key={item.city_slug}>
+        <Link to={`/admin/cities/${item.city_slug}?tab=quality`}><strong className="admin-quality-card-title">{item.city_name}</strong></Link>
         <div className="admin-action-count">{item.readiness_score}%</div>
         <span className="admin-quality-total">{item.places_total} мест всего</span>
         <div className="admin-quality-lines">
@@ -230,13 +312,31 @@ export const AdminQualityPage = () => {
           {details && <span>{details}</span>}
         </div>
         {item.critical_coverage && <div className="admin-quality-triage">
-          <span>Маршрут: готово {critical.routeReady}/{critical.routeCandidates} · блокеров {critical.routeBlockers}</span>
-          <span>Карточки: блокеров {critical.cardBlockers} · автообогащение {critical.autoEnrichment} · ручная {critical.manualReview}</span>
+          <button type="button" className="admin-quality-link" onClick={() => openCritical(item.city_slug, 'route_blocker')}>Маршрут: готово {critical.routeReady}/{critical.routeCandidates} · блокеров {critical.routeBlockers}</button>
+          <button type="button" className="admin-quality-link" onClick={() => openCritical(item.city_slug, 'card_blocker')}>Карточки: блокеров {critical.cardBlockers}</button>
+          <button type="button" className="admin-quality-link" onClick={() => openCritical(item.city_slug, 'auto_enrichment_candidate')}>Автообогащение: {critical.autoEnrichment}</button>
+          <button type="button" className="admin-quality-link" onClick={() => openCritical(item.city_slug, 'manual_review')}>Ручная проверка: {critical.manualReview}</button>
           <span>Покрытие: фото {coveragePct(item, 'has_approved_photo')} · часы {coveragePct(item, 'has_opening_hours')}</span>
           <span>Адреса {coveragePct(item, 'has_address')} · описания {coveragePct(item, 'has_description')}</span>
         </div>}
-      </Link>
+        <div className="admin-quality-actions">
+          <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null || critical.autoEnrichment <= 0} onClick={() => void runCityPipeline(item.city_slug)}>{actionLoading === `pipeline:${item.city_slug}` ? 'Запускаю...' : 'Запустить enrichment'}</button>
+          <Link className="admin-btn admin-btn-sm" to={`/admin/photos?city=${item.city_slug}`}>Фото</Link>
+          <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${item.city_slug}`}>Review queue</Link>
+          <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void materializeCity(item.city_slug)}>{actionLoading === `materialize:${item.city_slug}` ? 'Сохраняю...' : 'Материализовать'}</button>
+        </div>
+      </article>
     })}</div>}
+    {!loading && !error && criticalPlaces && <section className="admin-card admin-quality-drilldown">
+      <div className="admin-quality-drilldown-head"><strong>{BUCKET_LABELS[criticalPlaces.bucket ?? ''] ?? criticalPlaces.bucket}: {criticalPlaces.city_name}</strong><button type="button" className="admin-btn admin-btn-sm" onClick={closeCritical}>Закрыть</button></div>
+      <p className="admin-muted">Показано {criticalPlaces.items.length} из {criticalPlaces.total}. Фильтр: {criticalPlaces.bucket ?? 'любой'}{criticalPlaces.reason ? ` · ${criticalPlaces.reason}` : ''}</p>
+      {!criticalPlaces.items.length ? <AdminEmpty message="Мест по выбранному bucket нет" /> : <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Статусы</th><th>Проблемы</th><th>Действия</th></tr></thead><tbody>{criticalPlaces.items.map((row) => <tr key={row.place.id}>
+        <td><Link to={`/admin/places/${row.place.id}`}>{row.place.title}</Link><br /><span className="admin-muted">{row.place.category ?? row.place.canonical_category ?? row.profile_key}</span></td>
+        <td>Маршрут: {row.route_status}<br />Карточка: {row.card_status}</td>
+        <td><span>{issueText(row.route_blockers)}</span><br /><span>{issueText(row.card_blockers)}</span><br />{row.manual_review_items.length > 0 && <span>Review: {issueText(row.manual_review_items)}</span>}</td>
+        <td><Link className="admin-btn admin-btn-sm" to={`/admin/places/${row.place.id}`}>Открыть</Link>{row.auto_enrichment_candidates.length > 0 && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${criticalPlaces.city_slug}`}>Enrichment</Link>}{row.manual_review_items.length > 0 && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${criticalPlaces.city_slug}`}>Review</Link>}</td>
+      </tr>)}</tbody></table></div>}
+    </section>}
     {!loading && !error && <section className="admin-card admin-quality-autopilot">
       <strong>Безопасный автопилот</strong>
       <p className="admin-muted">Автоматически исключает из маршрутов только очевидные stoplist категории. Публикацию и данные места не трогает, откат доступен по созданным candidates.</p>
