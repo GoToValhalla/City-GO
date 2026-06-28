@@ -32,8 +32,6 @@ def test_quality_uses_live_score_when_stored_readiness_is_zero_new(client, db_se
         city_id=city.id,
         image_url="https://example.com/photo.jpg",
         address="Main street 1",
-        quality_score=100,
-        verification_status="verified",
     )
     db_session.commit()
 
@@ -73,8 +71,6 @@ def test_workspace_readiness_uses_live_quality_score_new(client, db_session, cit
         city_id=city.id,
         image_url="https://example.com/photo.jpg",
         address="Main street 1",
-        quality_score=100,
-        verification_status="verified",
     )
     db_session.commit()
 
