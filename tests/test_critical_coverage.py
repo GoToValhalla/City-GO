@@ -1,5 +1,6 @@
 from datetime import time
 
+from models.data_quality import DataQualityIssue
 from models.place_photo_candidate import PlacePhotoCandidate
 from models.place_schedule import PlaceSchedule
 
@@ -222,3 +223,48 @@ def test_normalized_schedule_counts_as_hours_coverage(client, db_session, city_f
     assert payload["route_ready_total"] == 1
     assert payload["coverage"]["has_opening_hours"]["count"] == 1
     assert payload["coverage"]["has_opening_hours"]["pct"] == 100.0
+
+
+def test_critical_coverage_refresh_materializes_idempotent_state(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="critical-materialize-city", name="Critical Materialize")
+    place = place_factory(
+        city_id=city.id,
+        category="museum",
+        image_url=None,
+        address="Museum street 1",
+    )
+    _set_quality_fields(
+        db_session,
+        place,
+        canonical_category="museum",
+        short_description="A useful description for a museum.",
+    )
+
+    first = client.post(f"/admin/data-quality/cities/{city.slug}/critical-coverage/refresh").json()
+
+    assert first["created"] == 1
+    assert first["updated"] == 0
+    assert first["unchanged"] == 0
+    assert first["by_bucket"]["route_blocker"] == 1
+
+    issues = db_session.query(DataQualityIssue).filter(
+        DataQualityIssue.city_id == city.id,
+        DataQualityIssue.issue_type == "critical_coverage_state",
+        DataQualityIssue.source == "critical_coverage_v2",
+    ).all()
+    assert len(issues) == 1
+    assert issues[0].status == "current"
+    assert issues[0].severity == "critical"
+    assert issues[0].evidence["bucket"] == "route_blocker"
+    assert issues[0].evidence["route_blockers"][0]["reason"] == "missing_opening_hours"
+
+    second = client.post(f"/admin/data-quality/cities/{city.slug}/critical-coverage/refresh").json()
+
+    assert second["created"] == 0
+    assert second["updated"] == 0
+    assert second["unchanged"] == 1
+    assert db_session.query(DataQualityIssue).filter(
+        DataQualityIssue.city_id == city.id,
+        DataQualityIssue.issue_type == "critical_coverage_state",
+        DataQualityIssue.source == "critical_coverage_v2",
+    ).count() == 1
