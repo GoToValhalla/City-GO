@@ -19,6 +19,7 @@ Code:
 
 - `services/data_quality/critical_coverage.py`
 - `services/admin_platform_quality.py`
+- `routers/admin_data_quality.py`
 - `/admin/quality`
 - `frontend/src/pages/admin/AdminQualityPage.tsx`
 
@@ -35,6 +36,36 @@ No database mutation happens in this stage. The triage result is returned in `cr
 - `not_applicable_total`
 
 This shape is intentionally compatible with a future materialized `Place.quality_bucket` / `PlaceQualityState` implementation.
+
+## Endpoints
+
+### City Summary
+
+```text
+GET /admin/data-quality/cities/{city_slug}/critical-coverage?category=<category>
+```
+
+Returns city-level route/card/auto/manual buckets, coverage, breakdowns and `next_actions`.
+
+### Place Drill-Down
+
+```text
+GET /admin/data-quality/cities/{city_slug}/critical-coverage/places?bucket=<bucket>&reason=<reason>&category=<category>&limit=50&offset=0
+```
+
+Supported buckets:
+
+- `route_blocker`
+- `route_ready`
+- `card_blocker`
+- `card_ready`
+- `auto_enrichment_candidate`
+- `manual_review`
+- `optional_gap`
+- `not_applicable`
+- `route_excluded`
+
+Every visible counter in the admin UI must be able to open this endpoint or a more specific queue. A counter without a list is not actionable.
 
 ## Category Profiles
 
@@ -152,6 +183,8 @@ Opening hours are route-critical for museums, galleries, paid attractions, resta
 Opening hours are not route-critical for landmarks, monuments, viewpoints, and open squares.
 
 For parks, beaches, and promenades hours are optional in Stage 1 unless future source rules identify a fenced/paid place.
+
+`PlaceSchedule` rows count as hours coverage even when legacy `Place.opening_hours` JSON is empty.
 
 ## Auto-Enrichment Policy
 
