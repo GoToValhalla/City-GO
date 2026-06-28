@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
 from typing import Any
 
@@ -13,7 +13,7 @@ from models.city import City
 from models.data_quality import DataQualityCandidate, DataQualityIssue
 from models.place import Place
 from services.admin_audit_service import write_admin_audit_log
-from services.data_quality.constants import ISSUE_ROUTE_SUSPICIOUS, OPEN_STATUSES, STOPLIST_CATEGORIES
+from services.data_quality.constants import ISSUE_ROUTE_SUSPICIOUS, STOPLIST_CATEGORIES
 from services.data_quality.fingerprint import candidate_fingerprint
 
 AUTOMATION_ACTION = "auto_exclude_stoplist_from_routes"
@@ -178,7 +178,7 @@ def _select_route_exclusion_items(db: Session, payload: dict[str, Any]) -> dict[
     limit = int(payload.get("limit") or 500)
     query = db.query(DataQualityIssue, Place).join(Place, Place.id == DataQualityIssue.place_id).filter(
         DataQualityIssue.issue_type == ISSUE_ROUTE_SUSPICIOUS,
-        DataQualityIssue.status.in_(tuple(OPEN_STATUSES)),
+        DataQualityIssue.status == "open",
         Place.is_route_eligible.is_(True),
     )
     city_id = payload.get("city_id")
