@@ -1,9 +1,11 @@
 """Cross-city quality dashboard aggregate."""
 
-from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from sqlalchemy.orm import Query, Session
 
 from models.city import City
 from models.place import Place
+from services.data_quality.constants import STOPLIST_CATEGORIES
 
 
 def quality_summary(
@@ -25,9 +27,9 @@ def quality_summary(
         "items": filtered,
         "total": len(filtered),
         "todo": [
-            "Главный экран качества теперь показывает live score, а не устаревшее поле City.readiness_score.",
-            "Следующий шаг: вынести breakdown в CityQualitySnapshot с историей по дням.",
-            "Следующий шаг: добавить отдельную очередь possible_duplicate для ручного merge/reject.",
+            "Live score считает ручную проверку только по маршруто-релевантным местам.",
+            "Аптеки, банки, остановки и сервисные POI выводятся как excluded_by_design, а не как ручная работа.",
+            "Следующий шаг: Data Quality Autopilot для безопасных auto-apply кандидатов и rollback.",
         ],
     }
 
@@ -37,14 +39,17 @@ def city_quality_row(db: Session, city: City, category: str | None = None) -> di
     if category:
         query = query.filter(Place.category == category)
     total = query.count()
+    review_query = _route_review_query(query)
+    review_total = review_query.count()
     blockers = {
-        "no_photo": query.filter(Place.image_url.is_(None)).count(),
-        "no_address": query.filter(Place.address.is_(None)).count(),
-        "low_quality": query.filter(Place.quality_score < 50).count(),
-        "stale": query.filter(Place.verification_status == "needs_recheck").count(),
+        "no_photo": review_query.filter(Place.image_url.is_(None)).count(),
+        "no_address": review_query.filter(Place.address.is_(None)).count(),
+        "low_quality": review_query.filter(Place.quality_score < 50).count(),
+        "stale": review_query.filter(Place.verification_status == "needs_recheck").count(),
         "route_ineligible": query.filter(Place.is_route_eligible.is_(False)).count(),
+        "excluded_by_design": total - review_total,
     }
-    score = _live_quality_score(total, blockers)
+    score = _live_quality_score(review_total, blockers)
     severity = "critical" if score < 40 else "warning" if score < 75 else "ok"
     return {
         "city_slug": city.slug,
@@ -53,24 +58,45 @@ def city_quality_row(db: Session, city: City, category: str | None = None) -> di
         "readiness_score": score,
         "stored_readiness_score": int(city.readiness_score or 0),
         "places_total": total,
+        "review_universe_total": review_total,
+        "manual_review_total": _manual_review_total(blockers),
+        "auto_excluded_total": blockers["excluded_by_design"],
         "severity": severity,
         "blockers": blockers,
         "primary_blocker": _primary_blocker(blockers),
     }
 
 
-def _live_quality_score(total: int, blockers: dict[str, int]) -> int:
-    if total <= 0:
-        return 0
-    penalty = (
-        35 * _ratio(blockers["no_photo"], total)
-        + 25 * _ratio(blockers["no_address"], total)
-        + 20 * _ratio(blockers["low_quality"], total)
-        + 10 * _ratio(blockers["stale"], total)
+def _route_review_query(query: Query) -> Query:
+    stoplist = tuple(STOPLIST_CATEGORIES)
+    return query.filter(
+        ~or_(
+            Place.category.in_(stoplist),
+            Place.canonical_category.in_(stoplist),
+            Place.is_spam_poi.is_(True),
+            Place.lifecycle_status.in_(("archived", "deleted", "spam")),
+            Place.publication_status.in_(("archived", "duplicate_hidden", "rejected")),
+        ),
     )
-    # route_ineligible is shown as an operational count but is not a penalty:
-    # excluding pharmacies/banks/services from routes is often the correct state.
+
+
+def _live_quality_score(review_total: int, blockers: dict[str, int]) -> int:
+    if review_total <= 0:
+        return 100
+    penalty = (
+        35 * _ratio(blockers["no_photo"], review_total)
+        + 25 * _ratio(blockers["no_address"], review_total)
+        + 20 * _ratio(blockers["low_quality"], review_total)
+        + 10 * _ratio(blockers["stale"], review_total)
+    )
+    # route_ineligible and excluded_by_design are shown as operational counts but
+    # are not penalties: excluding pharmacies/banks/services from routes is the
+    # correct state, not manual work.
     return max(0, min(100, round(100 - penalty)))
+
+
+def _manual_review_total(blockers: dict[str, int]) -> int:
+    return int(blockers["no_photo"] + blockers["no_address"] + blockers["low_quality"] + blockers["stale"])
 
 
 def _ratio(value: int, total: int) -> float:
@@ -78,7 +104,11 @@ def _ratio(value: int, total: int) -> float:
 
 
 def _primary_blocker(blockers: dict[str, int]) -> str | None:
-    candidates = {key: value for key, value in blockers.items() if key != "route_ineligible" and value > 0}
+    candidates = {
+        key: value
+        for key, value in blockers.items()
+        if key not in {"route_ineligible", "excluded_by_design"} and value > 0
+    }
     if not candidates:
         return None
     return max(candidates, key=candidates.get)
