@@ -40,13 +40,14 @@ def recover_failed_import_with_places(
     city: City,
     *,
     places_total: int | None = None,
+    job: CityAdminImportJob | None = None,
     actor_id: str = "admin-panel-read",
 ) -> bool:
     """Move failed imports with saved places into manual review instead of dead error state."""
     total = places_total if places_total is not None else db.query(Place).filter(Place.city_id == city.id).count()
     if total <= 0:
         return False
-    job = _latest_job(db, city.id)
+    job = job or _latest_job(db, city.id)
     if job is None:
         return False
     if city.launch_status != "import_failed" and str(job.status or "") not in FAILED_IMPORT_STATUSES:
