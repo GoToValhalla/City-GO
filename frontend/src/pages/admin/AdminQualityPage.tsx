@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
 import type { AutomationPreviewResponse, DuplicateGroup, DuplicateGroupsResponse, QualityCity } from './adminPlatformTypes'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
+import './AdminQuality.css'
 
 const BLOCKER_LABELS: Record<string, string> = {
   no_photo: 'без фото',
