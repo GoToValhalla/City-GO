@@ -93,6 +93,9 @@
 - `GET /admin/data-quality/duplicates` возвращает сгруппированные дубли по городу, нормализованному названию и набору place IDs.
 - Группа содержит `issue_ids`, `place_ids`, `places`, `status_counts`, evidence и временные метки.
 - `/admin/quality` показывает первые группы дублей и ссылки на карточки мест.
+- Кнопка `В проверку` вызывает `propose_duplicate_review`, создаёт `DataQualityCandidate(candidate_type=duplicate_review)` и переводит issues в `candidate_created`; сами места не меняются.
+- Кнопка `Не дубль` вызывает `ignore_issues` и убирает группу из активной очереди.
+- Кнопка `Отложить` вызывает `defer_issues`; группа остаётся видимой как deferred, чтобы её можно было вернуться и разобрать позже.
 - Оператор должен открыть места, сравнить адреса/координаты/фото/источники и только после этого принимать решение о merge/delete/reject.
 
 Historical cleanup 2026-06-28:
