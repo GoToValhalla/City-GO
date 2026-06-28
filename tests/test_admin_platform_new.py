@@ -42,6 +42,34 @@ def test_quality_uses_live_score_when_stored_readiness_is_zero_new(client, db_se
     assert row["primary_blocker"] is None
 
 
+def test_quality_score_ignores_stoplist_places_in_manual_review_universe_new(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="stoplist-quality-city", name="Stoplist Quality")
+    place_factory(
+        city_id=city.id,
+        category="museum",
+        canonical_category="museum",
+        image_url="https://example.com/museum.jpg",
+        address="Museum street 1",
+    )
+    place_factory(
+        city_id=city.id,
+        category="pharmacy",
+        canonical_category="pharmacy",
+        image_url=None,
+        address=None,
+    )
+    db_session.commit()
+
+    row = client.get(f"/admin/quality?city_slug={city.slug}").json()["items"][0]
+
+    assert row["readiness_score"] == 100
+    assert row["review_universe_total"] == 1
+    assert row["manual_review_total"] == 0
+    assert row["auto_excluded_total"] == 1
+    assert row["blockers"]["excluded_by_design"] == 1
+    assert row["primary_blocker"] is None
+
+
 def test_alert_lifecycle_is_idempotent_new(client, db_session):
     log = SystemLog(level="error", module="import", message="boom", request_id="req-1")
     db_session.add(log)
