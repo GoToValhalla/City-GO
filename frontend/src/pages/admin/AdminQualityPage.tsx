@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
-import type { DuplicateGroup, DuplicateGroupsResponse, QualityCity } from './adminPlatformTypes'
+import type { AutomationPreviewResponse, DuplicateGroup, DuplicateGroupsResponse, QualityCity } from './adminPlatformTypes'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 
 const BLOCKER_LABELS: Record<string, string> = {
@@ -54,7 +54,18 @@ const duplicateQuery = (params: URLSearchParams) => {
   return next.toString()
 }
 
+const automationPayload = (params: URLSearchParams) => {
+  const citySlug = params.get('city_slug')
+  return { ...(citySlug ? { city_slug: citySlug } : {}), limit: 500 }
+}
+
 const emptyDuplicateResponse = { items: [], total: 0, limit: 5, offset: 0 }
+const emptyAutomationResponse: AutomationPreviewResponse = {
+  action_type: 'auto_exclude_stoplist_from_routes',
+  affected_count: 0,
+  blocked_count: 0,
+  status: 'preview',
+}
 
 const safeDuplicateItems = (payload: Partial<DuplicateGroupsResponse> | null | undefined): DuplicateGroup[] => (
   Array.isArray(payload?.items) ? payload.items : []
@@ -63,6 +74,20 @@ const safeDuplicateItems = (payload: Partial<DuplicateGroupsResponse> | null | u
 const safeDuplicateTotal = (payload: Partial<DuplicateGroupsResponse> | null | undefined, items: DuplicateGroup[]) => (
   typeof payload?.total === 'number' ? payload.total : items.length
 )
+
+const safeAutomation = (payload: Partial<AutomationPreviewResponse> | null | undefined): AutomationPreviewResponse => ({
+  action_type: typeof payload?.action_type === 'string' ? payload.action_type : emptyAutomationResponse.action_type,
+  affected_count: typeof payload?.affected_count === 'number' ? payload.affected_count : 0,
+  blocked_count: typeof payload?.blocked_count === 'number' ? payload.blocked_count : 0,
+  candidate_ids: Array.isArray(payload?.candidate_ids) ? payload.candidate_ids : null,
+  sample: Array.isArray(payload?.sample) ? payload.sample : null,
+  blocked_sample: Array.isArray(payload?.blocked_sample) ? payload.blocked_sample : null,
+  grouped_by_city: payload?.grouped_by_city ?? null,
+  grouped_by_category: payload?.grouped_by_category ?? null,
+  warnings: Array.isArray(payload?.warnings) ? payload.warnings : null,
+  proposed_patch: payload?.proposed_patch ?? null,
+  status: payload?.status ?? 'preview',
+})
 
 const actionCopy: Record<string, { reason: string; done: string }> = {
   propose_duplicate_review: {
@@ -83,6 +108,7 @@ export const AdminQualityPage = () => {
   const [params, setParams] = useSearchParams()
   const [items, setItems] = useState<QualityCity[]>([])
   const [todo, setTodo] = useState<string[]>([])
+  const [automationPreview, setAutomationPreview] = useState<AutomationPreviewResponse>(emptyAutomationResponse)
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([])
   const [duplicateTotal, setDuplicateTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -93,13 +119,16 @@ export const AdminQualityPage = () => {
     setLoading(true); setError(null)
     Promise.all([
       adminGet<{ items: QualityCity[]; todo: string[] }>(`/admin/quality?${params}`),
+      adminPost<Partial<AutomationPreviewResponse>>('/admin/data-quality/automation/preview', automationPayload(params))
+        .catch(() => emptyAutomationResponse),
       adminGet<Partial<DuplicateGroupsResponse>>(`/admin/data-quality/duplicates?${duplicateQuery(params)}`)
         .catch(() => emptyDuplicateResponse),
     ])
-      .then(([row, duplicates]) => {
+      .then(([row, automation, duplicates]) => {
         const duplicateItems = safeDuplicateItems(duplicates)
         setItems(Array.isArray(row.items) ? row.items : [])
         setTodo(Array.isArray(row.todo) ? row.todo : [])
+        setAutomationPreview(safeAutomation(automation))
         setDuplicateGroups(duplicateItems)
         setDuplicateTotal(safeDuplicateTotal(duplicates, duplicateItems))
       })
@@ -111,6 +140,23 @@ export const AdminQualityPage = () => {
     if (value) next.set(key, value)
     else next.delete(key)
     setParams(next)
+  }
+  const applyAutomation = async () => {
+    setActionLoading('automation')
+    setActionMessage(null)
+    try {
+      const result = await adminPost<AutomationPreviewResponse>('/admin/data-quality/automation/apply', {
+        ...automationPayload(params),
+        confirm: true,
+        reason: 'safe stoplist route exclusion from admin quality page',
+      })
+      setActionMessage(`Автопилот применён. Из маршрутов исключено: ${result.affected_count}.`)
+      load()
+    } catch (e) {
+      setActionMessage(e instanceof Error ? e.message : 'Не удалось применить автопилот')
+    } finally {
+      setActionLoading(null)
+    }
   }
   const applyDuplicateAction = async (group: DuplicateGroup, actionType: keyof typeof actionCopy) => {
     const copy = actionCopy[actionType]
@@ -151,6 +197,15 @@ export const AdminQualityPage = () => {
         {details && <span className="admin-muted">{details}</span>}
       </Link>
     })}</div>}
+    {!loading && !error && <section className="admin-card">
+      <strong>Безопасный автопилот</strong>
+      <p className="admin-muted">Автоматически исключает из маршрутов только очевидные stoplist категории. Публикацию и данные места не трогает, откат доступен по созданным candidates.</p>
+      <p className="admin-muted">Можно применить: {automationPreview.affected_count} · заблокировано guardrail: {automationPreview.blocked_count ?? 0}</p>
+      {automationPreview.warnings?.map((warning) => <p key={warning} className="admin-muted">{warning}</p>)}
+      <button type="button" className="admin-btn" disabled={actionLoading !== null || automationPreview.affected_count <= 0} onClick={() => void applyAutomation()}>
+        {actionLoading === 'automation' ? 'Применяю...' : 'Автоисправить безопасное'}
+      </button>
+    </section>}
     {!loading && !error && <section className="admin-card">
       <strong>Возможные дубли</strong>
       <p className="admin-muted">Группы с одинаковым названием рядом. Система только показывает кандидатов, merge/delete выполняется вручную после проверки.</p>
