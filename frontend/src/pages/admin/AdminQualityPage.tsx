@@ -20,6 +20,17 @@ type BulkActionResponse = {
   status?: string | null
 }
 
+const safeCount = (value: unknown) => (
+  typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0
+)
+
+const qualityStats = (item: QualityCity) => {
+  const reviewTotal = safeCount(item.review_universe_total ?? item.places_total)
+  const manualTotal = Math.min(safeCount(item.manual_review_total), reviewTotal)
+  const excludedTotal = safeCount(item.auto_excluded_total ?? item.blockers.excluded_by_design)
+  return { reviewTotal, manualTotal, excludedTotal }
+}
+
 const primaryBlockerText = (item: QualityCity) => {
   const key = item.primary_blocker
   if (!key) return 'Ручных блокеров нет'
@@ -37,11 +48,12 @@ const blockerLine = (item: QualityCity) => [
   .map(([key, value]) => `${BLOCKER_LABELS[String(key)] ?? key}: ${value}`)
   .join(' · ')
 
-const routeUniverseLine = (item: QualityCity) => {
-  const reviewTotal = item.review_universe_total ?? item.places_total
-  const manualTotal = item.manual_review_total ?? 0
-  const excludedTotal = item.auto_excluded_total ?? item.blockers.excluded_by_design ?? 0
-  return `К ручной проверке: ${manualTotal} из ${reviewTotal} туристических кандидатов · исключено правилами: ${excludedTotal}`
+const automationStatusText = (preview: AutomationPreviewResponse) => {
+  const affected = safeCount(preview.affected_count)
+  const blocked = safeCount(preview.blocked_count)
+  if (affected > 0) return `Можно применить: ${affected} · заблокировано guardrail: ${blocked}`
+  if (blocked > 0) return `Безопасных автоисправлений нет · заблокировано guardrail: ${blocked}`
+  return 'Безопасных автоисправлений сейчас нет: stoplist уже исключён или нужен refresh качества.'
 }
 
 const duplicateTitle = (group: DuplicateGroup) => group.title || group.normalized_title || 'Без названия'
@@ -187,21 +199,26 @@ export const AdminQualityPage = () => {
       <label className="admin-field"><span>Категория</span><input value={params.get('category') ?? ''} onChange={(e) => update('category', e.target.value)} /></label>
       <label className="admin-field"><span>Важность</span><select value={params.get('severity') ?? ''} onChange={(e) => update('severity', e.target.value)}><option value="">Любая</option><option value="critical">Критично</option><option value="warning">Внимание</option><option value="ok">Норма</option></select></label>
     </div>
-    {error && <AdminError message={error} />}{loading ? <AdminLoading /> : !items.length ? <AdminEmpty message="Нет данных по выбранным фильтрам" /> : <div className="admin-action-grid">{items.map((item) => {
+    {error && <AdminError message={error} />}{loading ? <AdminLoading /> : !items.length ? <AdminEmpty message="Нет данных по выбранным фильтрам" /> : <div className="admin-action-grid admin-quality-grid">{items.map((item) => {
       const details = blockerLine(item)
-      return <Link className={`admin-action-card admin-severity-${item.severity === 'critical' ? 'red' : item.severity === 'warning' ? 'yellow' : 'green'}`} to={`/admin/cities/${item.city_slug}?tab=quality`} key={item.city_slug}>
-        <strong>{item.city_name}</strong>
+      const stats = qualityStats(item)
+      return <Link className={`admin-action-card admin-quality-card admin-severity-${item.severity === 'critical' ? 'red' : item.severity === 'warning' ? 'yellow' : 'green'}`} to={`/admin/cities/${item.city_slug}?tab=quality`} key={item.city_slug}>
+        <strong className="admin-quality-card-title">{item.city_name}</strong>
         <div className="admin-action-count">{item.readiness_score}%</div>
-        <span>{item.places_total} мест</span>
-        <span className="admin-muted">{routeUniverseLine(item)}</span>
-        <span className="admin-muted">{primaryBlockerText(item)}</span>
-        {details && <span className="admin-muted">{details}</span>}
+        <span className="admin-quality-total">{item.places_total} мест всего</span>
+        <div className="admin-quality-lines">
+          <span>К ручной проверке: {stats.manualTotal} из {stats.reviewTotal}</span>
+          <span>Туристических кандидатов: {stats.reviewTotal}</span>
+          <span>Исключено правилами: {stats.excludedTotal}</span>
+          <span>{primaryBlockerText(item)}</span>
+          {details && <span>{details}</span>}
+        </div>
       </Link>
     })}</div>}
-    {!loading && !error && <section className="admin-card">
+    {!loading && !error && <section className="admin-card admin-quality-autopilot">
       <strong>Безопасный автопилот</strong>
       <p className="admin-muted">Автоматически исключает из маршрутов только очевидные stoplist категории. Публикацию и данные места не трогает, откат доступен по созданным candidates.</p>
-      <p className="admin-muted">Можно применить: {automationPreview.affected_count} · заблокировано guardrail: {automationPreview.blocked_count ?? 0}</p>
+      <p className="admin-muted">{automationStatusText(automationPreview)}</p>
       {automationPreview.warnings?.map((warning) => <p key={warning} className="admin-muted">{warning}</p>)}
       {automationMessage && <p className="admin-muted">{automationMessage}</p>}
       <button type="button" className="admin-btn" disabled={actionLoading !== null || automationPreview.affected_count <= 0} onClick={() => void applyAutomation()}>
@@ -212,7 +229,7 @@ export const AdminQualityPage = () => {
       <strong>Возможные дубли</strong>
       <p className="admin-muted">Группы с одинаковым названием рядом. Система только показывает кандидатов, merge/delete выполняется вручную после проверки.</p>
       {duplicateMessage && <p className="admin-muted">{duplicateMessage}</p>}
-      {duplicateTotal === 0 ? <p className="admin-muted">Активных дублей по выбранному городу нет.</p> : <table className="admin-table">
+      {duplicateTotal === 0 ? <p className="admin-muted">Активных дублей по выбранному городу нет.</p> : <div className="admin-table-wrap"><table className="admin-table">
         <thead><tr><th>Город</th><th>Название</th><th>Места</th><th>Открыть</th><th>Действия</th></tr></thead>
         <tbody>{duplicateGroups.map((group) => {
           const places = Array.isArray(group.places) ? group.places : []
@@ -235,7 +252,7 @@ export const AdminQualityPage = () => {
             </td>
           </tr>
         })}</tbody>
-      </table>}
+      </table></div>}
       {duplicateTotal > duplicateGroups.length && <p className="admin-muted">Показаны первые {duplicateGroups.length} из {duplicateTotal}. Уточните город, чтобы разобрать очередь.</p>}
     </section>}
     <section className="admin-help-panel"><strong>Следующий этап</strong><ul>{todo.map((text) => <li key={text}>{text}</li>)}</ul></section>
