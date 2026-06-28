@@ -1,3 +1,8 @@
+.admin-quality-page {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .admin-card {
   display: grid;
   gap: 10px;
@@ -142,12 +147,36 @@
 }
 
 @media (max-width: 768px) {
+  .admin-quality-page {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .admin-quality-page .admin-page-title {
+    color: var(--admin-text);
+  }
+
+  .admin-quality-page .admin-page-subtitle {
+    font-size: 13px;
+  }
+
+  .admin-quality-page .admin-quality-filter-card {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-quality-page .admin-field,
+  .admin-quality-page .admin-field input,
+  .admin-quality-page .admin-field select {
+    min-width: 0;
+  }
+
   .admin-quality-grid {
     grid-template-columns: 1fr;
   }
 
   .admin-quality-card {
-    padding: 16px;
+    padding: 14px;
   }
 
   .admin-quality-tabs,
@@ -166,5 +195,53 @@
   .admin-quality-drilldown-head {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .admin-quality-page .admin-table-wrap {
+    overflow: visible;
+    box-shadow: none;
+  }
+
+  .admin-quality-page .admin-table,
+  .admin-quality-page .admin-table tbody,
+  .admin-quality-page .admin-table tr,
+  .admin-quality-page .admin-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .admin-quality-page .admin-table thead {
+    display: none;
+  }
+
+  .admin-quality-page .admin-table tr {
+    padding: 10px 0;
+    border-top: 1px solid var(--admin-border);
+  }
+
+  .admin-quality-page .admin-table tr:first-child {
+    border-top: 0;
+  }
+
+  .admin-quality-page .admin-table td {
+    padding: 7px 0;
+    border-top: 0;
+  }
+
+  .admin-quality-page .admin-table td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    color: var(--admin-muted);
+    font-size: 11px;
+    font-weight: 750;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+
+  .admin-quality-page .admin-table td .admin-btn {
+    width: 100%;
+    margin: 4px 0 0;
   }
 }
