@@ -113,7 +113,8 @@ export const AdminQualityPage = () => {
   const [duplicateTotal, setDuplicateTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [automationMessage, setAutomationMessage] = useState<string | null>(null)
+  const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
     setLoading(true); setError(null)
@@ -143,17 +144,17 @@ export const AdminQualityPage = () => {
   }
   const applyAutomation = async () => {
     setActionLoading('automation')
-    setActionMessage(null)
+    setAutomationMessage(null)
     try {
       const result = await adminPost<AutomationPreviewResponse>('/admin/data-quality/automation/apply', {
         ...automationPayload(params),
         confirm: true,
         reason: 'safe stoplist route exclusion from admin quality page',
       })
-      setActionMessage(`Автопилот применён. Из маршрутов исключено: ${result.affected_count}.`)
+      setAutomationMessage(`Автопилот применён. Из маршрутов исключено: ${result.affected_count}.`)
       load()
     } catch (e) {
-      setActionMessage(e instanceof Error ? e.message : 'Не удалось применить автопилот')
+      setAutomationMessage(e instanceof Error ? e.message : 'Не удалось применить автопилот')
     } finally {
       setActionLoading(null)
     }
@@ -161,7 +162,7 @@ export const AdminQualityPage = () => {
   const applyDuplicateAction = async (group: DuplicateGroup, actionType: keyof typeof actionCopy) => {
     const copy = actionCopy[actionType]
     setActionLoading(`${actionType}:${group.group_key}`)
-    setActionMessage(null)
+    setDuplicateMessage(null)
     try {
       const result = await adminPost<BulkActionResponse>('/admin/data-quality/bulk-actions/apply', {
         action_type: actionType,
@@ -169,10 +170,10 @@ export const AdminQualityPage = () => {
         confirm: true,
         reason: copy.reason,
       })
-      setActionMessage(`${copy.done} Затронуто: ${result.affected_count}.`)
+      setDuplicateMessage(`${copy.done} Затронуто: ${result.affected_count}.`)
       load()
     } catch (e) {
-      setActionMessage(e instanceof Error ? e.message : 'Не удалось применить действие')
+      setDuplicateMessage(e instanceof Error ? e.message : 'Не удалось применить действие')
     } finally {
       setActionLoading(null)
     }
@@ -202,6 +203,7 @@ export const AdminQualityPage = () => {
       <p className="admin-muted">Автоматически исключает из маршрутов только очевидные stoplist категории. Публикацию и данные места не трогает, откат доступен по созданным candidates.</p>
       <p className="admin-muted">Можно применить: {automationPreview.affected_count} · заблокировано guardrail: {automationPreview.blocked_count ?? 0}</p>
       {automationPreview.warnings?.map((warning) => <p key={warning} className="admin-muted">{warning}</p>)}
+      {automationMessage && <p className="admin-muted">{automationMessage}</p>}
       <button type="button" className="admin-btn" disabled={actionLoading !== null || automationPreview.affected_count <= 0} onClick={() => void applyAutomation()}>
         {actionLoading === 'automation' ? 'Применяю...' : 'Автоисправить безопасное'}
       </button>
@@ -209,7 +211,7 @@ export const AdminQualityPage = () => {
     {!loading && !error && <section className="admin-card">
       <strong>Возможные дубли</strong>
       <p className="admin-muted">Группы с одинаковым названием рядом. Система только показывает кандидатов, merge/delete выполняется вручную после проверки.</p>
-      {actionMessage && <p className="admin-muted">{actionMessage}</p>}
+      {duplicateMessage && <p className="admin-muted">{duplicateMessage}</p>}
       {duplicateTotal === 0 ? <p className="admin-muted">Активных дублей по выбранному городу нет.</p> : <table className="admin-table">
         <thead><tr><th>Город</th><th>Название</th><th>Места</th><th>Открыть</th><th>Действия</th></tr></thead>
         <tbody>{duplicateGroups.map((group) => {
