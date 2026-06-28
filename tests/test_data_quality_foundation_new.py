@@ -186,6 +186,74 @@ def test_route_eligibility_audit_candidate_does_not_mutate_place_new(client, db_
     assert db_session.query(DataQualityCandidate).count() == 1
 
 
+def test_automation_preview_excludes_safe_stoplist_routes_new(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="automation-preview-city")
+    _create_route_inventory(place_factory, city.id)
+    place = place_factory(category="pharmacy", city_id=city.id, address="ул. Аптечная, 4", image_url="https://example.test/p.jpg")
+    refresh_data_quality_issues(db_session, city_id=city.id)
+
+    payload = client.post("/admin/data-quality/automation/preview", json={"city_slug": city.slug}).json()
+
+    assert payload["action_type"] == "auto_exclude_stoplist_from_routes"
+    assert payload["affected_count"] == 1
+    assert payload["blocked_count"] == 0
+    assert payload["sample"][0]["place_id"] == place.id
+    assert payload["proposed_patch"]["reversible"] is True
+
+
+def test_automation_apply_and_rollback_route_exclusion_new(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="automation-apply-city")
+    _create_route_inventory(place_factory, city.id)
+    place = place_factory(category="bank", city_id=city.id, address="ул. Банковская, 4", image_url="https://example.test/p.jpg")
+    refresh_data_quality_issues(db_session, city_id=city.id)
+
+    applied = client.post("/admin/data-quality/automation/apply", json={
+        "city_slug": city.slug,
+        "confirm": True,
+        "reason": "safe stoplist automation",
+    })
+
+    payload = applied.json()
+    assert applied.status_code == 200
+    assert payload["affected_count"] == 1
+    candidate_id = payload["candidate_ids"][0]
+    db_session.refresh(place)
+    assert place.is_route_eligible is False
+    assert place.route_exclusion_reason == "non_tourist_category_policy"
+    candidate = db_session.query(DataQualityCandidate).filter_by(id=candidate_id).first()
+    assert candidate.candidate_type == "route_eligibility_auto_exclusion"
+    assert candidate.status == "auto_applied"
+    issue = _issue(db_session, ISSUE_ROUTE_SUSPICIOUS)
+    assert issue.status == "auto_applied"
+
+    rolled_back = client.post("/admin/data-quality/automation/rollback", json={
+        "candidate_ids": [candidate_id],
+        "confirm": True,
+        "reason": "rollback test",
+    })
+
+    assert rolled_back.status_code == 200
+    db_session.refresh(place)
+    db_session.refresh(candidate)
+    db_session.refresh(issue)
+    assert place.is_route_eligible is True
+    assert place.route_exclusion_reason is None
+    assert candidate.status == "rolled_back"
+    assert issue.status == "open"
+
+
+def test_automation_guard_blocks_route_inventory_collapse_new(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="automation-guard-city")
+    place_factory(category="pharmacy", city_id=city.id, address="ул. Аптечная, 5", image_url="https://example.test/p.jpg")
+    refresh_data_quality_issues(db_session, city_id=city.id)
+
+    payload = client.post("/admin/data-quality/automation/preview", json={"city_slug": city.slug}).json()
+
+    assert payload["affected_count"] == 0
+    assert payload["blocked_count"] == 1
+    assert payload["blocked_sample"][0]["blocked_reason"] == "route_inventory_guard"
+
+
 def test_bulk_preview_returns_affected_count_and_sample_new(client, db_session, place_factory):
     place = place_factory(category="bank", address="ул. Банковская, 1", image_url="https://example.test/p.jpg")
     refresh_data_quality_issues(db_session, city_id=place.city_id)
@@ -245,11 +313,25 @@ def test_data_quality_admin_routes_require_admin_dependency_new():
         "/admin/data-quality/issues/refresh",
         "/admin/data-quality/bulk-actions/preview",
         "/admin/data-quality/bulk-actions/apply",
+        "/admin/data-quality/automation/preview",
+        "/admin/data-quality/automation/apply",
+        "/admin/data-quality/automation/rollback",
     }
     routes = [route for route in app.routes if isinstance(route, APIRoute) and route.path in expected]
 
     assert {route.path for route in routes} == expected
     assert all(any(dep.call is admin_required for dep in route.dependant.dependencies) for route in routes)
+
+
+def _create_route_inventory(place_factory, city_id: int, count: int = 8) -> None:
+    for index in range(count):
+        place_factory(
+            city_id=city_id,
+            category="museum",
+            title=f"Museum {index}",
+            address=f"Museum street {index}",
+            image_url=f"https://example.test/museum-{index}.jpg",
+        )
 
 
 def _create_duplicate_pair(place_factory, city_id: int, *, title: str = "Mega Center", slug_prefix: str = "mega"):
