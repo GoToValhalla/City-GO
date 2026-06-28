@@ -53,7 +53,9 @@ Code:
 - `services/data_quality/critical_coverage_state.py`
 - `POST /admin/data-quality/cities/{city_slug}/critical-coverage/refresh`
 
-This stage deliberately avoids an Alembic migration while the rules are still being validated on real cities. It persists the current per-place Critical Coverage state into existing `data_quality_issues` rows:
+This stage deliberately avoids an Alembic migration while the rules are still being validated on real cities. It persists the current Critical Coverage state into existing `data_quality_issues` rows.
+
+Per-place state:
 
 - `issue_type = critical_coverage_state`
 - `source = critical_coverage_v2`
@@ -61,11 +63,20 @@ This stage deliberately avoids an Alembic migration while the rules are still be
 - `status = current`
 - `evidence.bucket = route_blocker|card_blocker|auto_enrichment_candidate|manual_review|optional_gap|not_applicable|ready`
 
+City current snapshot:
+
+- `issue_type = critical_coverage_city_snapshot`
+- `source = critical_coverage_v2`
+- `reason = snapshot` or `snapshot:{category}`
+- `status = current`
+- `evidence.by_bucket` contains the persisted bucket totals
+- `evidence.summary` contains the current city-level Critical Coverage summary without volatile timestamps
+
 The refresh is idempotent. Re-running it without data changes does not create duplicate rows and reports unchanged rows separately from real updates.
 
-When category is omitted, stale materialized states for the city are resolved. Category-limited refreshes are safe for inspection and do not resolve unrelated categories.
+When category is omitted, stale materialized place states for the city are resolved. Category-limited refreshes are safe for inspection and do not resolve unrelated categories.
 
-A future dedicated `PlaceQualityState` table can replace this without changing the triage contract.
+A future dedicated `PlaceQualityState` / `CityQualitySnapshot` implementation can replace this without changing the triage contract.
 
 ## Endpoints
 
@@ -111,7 +122,9 @@ Returns:
 - `unchanged`
 - `resolved`
 - `by_bucket`
+- `snapshot`
 - `issue_type`
+- `snapshot_issue_type`
 - `source`
 
 ## Category Profiles
@@ -276,7 +289,7 @@ Operator actions from the card:
 
 ## Future Stage
 
-After validating materialized `critical_coverage_state` on real cities, introduce a dedicated indexed state table:
+After validating materialized `critical_coverage_state` and `critical_coverage_city_snapshot` on real cities, introduce dedicated indexed state/history tables:
 
 - `PlaceQualityState` or `Place.quality_bucket`;
 - composite index by `city_id`, `quality_bucket`;
