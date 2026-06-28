@@ -26,6 +26,10 @@ from services.data_quality import (
     refresh_data_quality_issues,
     rollback_automation,
 )
+from services.data_quality.critical_coverage import (
+    build_city_critical_coverage,
+    list_city_critical_coverage_places,
+)
 
 router = APIRouter(prefix="/admin/data-quality", tags=["admin-data-quality"])
 
@@ -36,6 +40,44 @@ def get_data_quality_summary(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     return build_data_quality_summary(db)
+
+
+@router.get("/cities/{city_slug}/critical-coverage")
+def get_city_critical_coverage(
+    city_slug: str,
+    category: str | None = Query(default=None),
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    payload = build_city_critical_coverage(db, city_slug=city_slug, category=category)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Город не найден")
+    return payload
+
+
+@router.get("/cities/{city_slug}/critical-coverage/places")
+def get_city_critical_coverage_places(
+    city_slug: str,
+    category: str | None = Query(default=None),
+    bucket: str | None = Query(default=None),
+    reason: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> dict[str, object]:
+    payload = list_city_critical_coverage_places(
+        db,
+        city_slug=city_slug,
+        category=category,
+        bucket=bucket,
+        reason=reason,
+        limit=limit,
+        offset=offset,
+    )
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Город не найден")
+    return payload
 
 
 @router.get("/duplicates")
