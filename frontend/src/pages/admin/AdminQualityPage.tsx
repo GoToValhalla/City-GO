@@ -24,12 +24,22 @@ const BLOCKER_LABELS: Record<string, string> = {
 }
 
 const BUCKET_LABELS: Record<string, string> = {
-  route_blocker: 'Блокеры маршрута',
-  card_blocker: 'Блокеры карточек',
-  auto_enrichment_candidate: 'Можно автообогатить',
-  manual_review: 'Ручная проверка',
-  optional_gap: 'Необязательные пробелы',
-  not_applicable: 'Не применимо к маршрутам',
+  route_blocker: 'Блокеры',
+  card_blocker: 'Карточки',
+  auto_enrichment_candidate: 'Авто',
+  manual_review: 'Проверка',
+  optional_gap: 'Пробелы',
+  not_applicable: 'Не маршрут',
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  route_blocker: 'блокер',
+  route_ready: 'готов',
+  route_excluded: 'исключён',
+  card_blocker: 'блокер',
+  card_ready: 'готова',
+  optional_gap: 'не критично',
+  not_applicable: 'не применимо',
 }
 
 type BulkActionResponse = {
@@ -167,6 +177,8 @@ const issueText = (items: CriticalCoverageIssue[]) => (
   items.length ? items.map((item) => `${item.field_name}: ${item.reason}`).join(' · ') : 'Нет'
 )
 
+const statusText = (value: string) => STATUS_LABELS[value] ?? value
+
 export const AdminQualityPage = () => {
   const [params, setParams] = useSearchParams()
   const [items, setItems] = useState<QualityCity[]>([])
@@ -246,7 +258,7 @@ export const AdminQualityPage = () => {
     setCriticalMessage(null)
     try {
       const result = await adminPost<PipelineRunResponse>(`/admin/place-enrichment/pipeline/${citySlug}/run`)
-      setCriticalMessage(`Сбор и обогащение поставлены в очередь: job #${result.job_id}.`)
+      setCriticalMessage(`Обогащение в очереди: job #${result.job_id}.`)
       load()
     } catch (e) {
       setCriticalMessage(e instanceof Error ? e.message : 'Не удалось запустить обогащение')
@@ -259,10 +271,10 @@ export const AdminQualityPage = () => {
     setCriticalMessage(null)
     try {
       const result = await adminPost<CriticalCoverageRefreshResponse>(`/admin/data-quality/cities/${citySlug}/critical-coverage/refresh`)
-      setCriticalMessage(`Материализовано: создано ${result.created}, обновлено ${result.updated}, без изменений ${result.unchanged}.`)
+      setCriticalMessage(`Снимок: +${result.created}, обновлено ${result.updated}, без изменений ${result.unchanged}.`)
       load()
     } catch (e) {
-      setCriticalMessage(e instanceof Error ? e.message : 'Не удалось материализовать состояние')
+      setCriticalMessage(e instanceof Error ? e.message : 'Не удалось сохранить снимок')
     } finally {
       setActionLoading(null)
     }
@@ -288,7 +300,7 @@ export const AdminQualityPage = () => {
   }
   return <div>
     <h2 className="admin-page-title">Качество данных</h2>
-    <p className="admin-page-subtitle">Live score считает ручную проверку по туристическим кандидатам. Аптеки, банки, остановки и сервисные POI исключаются правилами и не раздувают очередь.</p>
+    <p className="admin-page-subtitle">Live score считает ручную проверку по туристическим кандидатам. Сервисные POI исключаются правилами и не раздувают очередь.</p>
     <div className="admin-filter-card admin-filter-grid">
       <label className="admin-field"><span>Город</span><input value={params.get('city_slug') ?? ''} onChange={(e) => update('city_slug', e.target.value)} /></label>
       <label className="admin-field"><span>Регион</span><input value={params.get('region') ?? ''} onChange={(e) => update('region', e.target.value)} /></label>
@@ -305,51 +317,55 @@ export const AdminQualityPage = () => {
         <div className="admin-action-count">{item.readiness_score}%</div>
         <span className="admin-quality-total">{item.places_total} мест всего</span>
         <div className="admin-quality-lines">
-          <span>К ручной проверке: {stats.manualTotal} из {stats.reviewTotal}</span>
-          <span>Туристических кандидатов: {stats.reviewTotal}</span>
-          <span>Исключено правилами: {stats.excludedTotal}</span>
+          <span>К проверке: {stats.manualTotal} из {stats.reviewTotal}</span>
+          <span>Туристических: {stats.reviewTotal} · исключено: {stats.excludedTotal}</span>
           <span>{primaryBlockerText(item)}</span>
           {details && <span>{details}</span>}
         </div>
-        {item.critical_coverage && <div className="admin-quality-triage">
-          <button type="button" className="admin-quality-link" onClick={() => openCritical(item.city_slug, 'route_blocker')}>Маршрут: готово {critical.routeReady}/{critical.routeCandidates} · блокеров {critical.routeBlockers}</button>
-          <button type="button" className="admin-quality-link" onClick={() => openCritical(item.city_slug, 'card_blocker')}>Карточки: блокеров {critical.cardBlockers}</button>
-          <button type="button" className="admin-quality-link" onClick={() => openCritical(item.city_slug, 'auto_enrichment_candidate')}>Автообогащение: {critical.autoEnrichment}</button>
-          <button type="button" className="admin-quality-link" onClick={() => openCritical(item.city_slug, 'manual_review')}>Ручная проверка: {critical.manualReview}</button>
-          <span>Покрытие: фото {coveragePct(item, 'has_approved_photo')} · часы {coveragePct(item, 'has_opening_hours')}</span>
-          <span>Адреса {coveragePct(item, 'has_address')} · описания {coveragePct(item, 'has_description')}</span>
-        </div>}
-        <div className="admin-quality-actions">
-          <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null || critical.autoEnrichment <= 0} onClick={() => void runCityPipeline(item.city_slug)}>{actionLoading === `pipeline:${item.city_slug}` ? 'Запускаю...' : 'Запустить enrichment'}</button>
+        {item.critical_coverage && <>
+          <div className="admin-quality-tabs" aria-label={`Вкладки качества ${item.city_name}`}>
+            <button type="button" className="admin-quality-tab" onClick={() => openCritical(item.city_slug, 'route_blocker')}><span>Блокеры</span><strong>{critical.routeBlockers}</strong></button>
+            <button type="button" className="admin-quality-tab" onClick={() => openCritical(item.city_slug, 'card_blocker')}><span>Карточки</span><strong>{critical.cardBlockers}</strong></button>
+            <button type="button" className="admin-quality-tab" onClick={() => openCritical(item.city_slug, 'auto_enrichment_candidate')}><span>Авто</span><strong>{critical.autoEnrichment}</strong></button>
+            <button type="button" className="admin-quality-tab" onClick={() => openCritical(item.city_slug, 'manual_review')}><span>Проверка</span><strong>{critical.manualReview}</strong></button>
+          </div>
+          <div className="admin-quality-coverage">
+            <span>Маршрут: {critical.routeReady}/{critical.routeCandidates}</span>
+            <span>Фото {coveragePct(item, 'has_approved_photo')} · часы {coveragePct(item, 'has_opening_hours')}</span>
+            <span>Адреса {coveragePct(item, 'has_address')} · описания {coveragePct(item, 'has_description')}</span>
+          </div>
+        </>}
+        <div className="admin-quality-actions" aria-label={`Действия ${item.city_name}`}>
+          <button type="button" className="admin-btn admin-btn-sm" title="Запустить обогащение" disabled={actionLoading !== null || critical.autoEnrichment <= 0} onClick={() => void runCityPipeline(item.city_slug)}>{actionLoading === `pipeline:${item.city_slug}` ? 'Запуск...' : 'Обогащение'}</button>
           <Link className="admin-btn admin-btn-sm" to={`/admin/photos?city=${item.city_slug}`}>Фото</Link>
-          <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${item.city_slug}`}>Review queue</Link>
-          <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void materializeCity(item.city_slug)}>{actionLoading === `materialize:${item.city_slug}` ? 'Сохраняю...' : 'Материализовать'}</button>
+          <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${item.city_slug}`}>Очередь</Link>
+          <button type="button" className="admin-btn admin-btn-sm" title="Сохранить снимок качества" disabled={actionLoading !== null} onClick={() => void materializeCity(item.city_slug)}>{actionLoading === `materialize:${item.city_slug}` ? 'Сохр...' : 'Снимок'}</button>
         </div>
       </article>
     })}</div>}
     {!loading && !error && criticalPlaces && <section className="admin-card admin-quality-drilldown">
-      <div className="admin-quality-drilldown-head"><strong>{BUCKET_LABELS[criticalPlaces.bucket ?? ''] ?? criticalPlaces.bucket}: {criticalPlaces.city_name}</strong><button type="button" className="admin-btn admin-btn-sm" onClick={closeCritical}>Закрыть</button></div>
-      <p className="admin-muted">Показано {criticalPlaces.items.length} из {criticalPlaces.total}. Фильтр: {criticalPlaces.bucket ?? 'любой'}{criticalPlaces.reason ? ` · ${criticalPlaces.reason}` : ''}</p>
-      {!criticalPlaces.items.length ? <AdminEmpty message="Мест по выбранному bucket нет" /> : <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Статусы</th><th>Проблемы</th><th>Действия</th></tr></thead><tbody>{criticalPlaces.items.map((row) => <tr key={row.place.id}>
+      <div className="admin-quality-drilldown-head"><strong>{BUCKET_LABELS[criticalPlaces.bucket ?? ''] ?? criticalPlaces.bucket}: {criticalPlaces.city_name}</strong><button type="button" className="admin-btn admin-btn-sm" onClick={closeCritical}>Назад</button></div>
+      <p className="admin-muted">Показано {criticalPlaces.items.length} из {criticalPlaces.total}{criticalPlaces.reason ? ` · ${criticalPlaces.reason}` : ''}</p>
+      {!criticalPlaces.items.length ? <AdminEmpty message="Мест по выбранной вкладке нет" /> : <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Статус</th><th>Проблемы</th><th>Действия</th></tr></thead><tbody>{criticalPlaces.items.map((row) => <tr key={row.place.id}>
         <td><Link to={`/admin/places/${row.place.id}`}>{row.place.title}</Link><br /><span className="admin-muted">{row.place.category ?? row.place.canonical_category ?? row.profile_key}</span></td>
-        <td>Маршрут: {row.route_status}<br />Карточка: {row.card_status}</td>
-        <td><span>{issueText(row.route_blockers)}</span><br /><span>{issueText(row.card_blockers)}</span><br />{row.manual_review_items.length > 0 && <span>Review: {issueText(row.manual_review_items)}</span>}</td>
-        <td><Link className="admin-btn admin-btn-sm" to={`/admin/places/${row.place.id}`}>Открыть</Link>{row.auto_enrichment_candidates.length > 0 && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${criticalPlaces.city_slug}`}>Enrichment</Link>}{row.manual_review_items.length > 0 && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${criticalPlaces.city_slug}`}>Review</Link>}</td>
+        <td>Маршрут: {statusText(row.route_status)}<br />Карточка: {statusText(row.card_status)}</td>
+        <td><span>{issueText(row.route_blockers)}</span><br /><span>{issueText(row.card_blockers)}</span><br />{row.manual_review_items.length > 0 && <span>Проверка: {issueText(row.manual_review_items)}</span>}</td>
+        <td><Link className="admin-btn admin-btn-sm" to={`/admin/places/${row.place.id}`}>Место</Link>{row.auto_enrichment_candidates.length > 0 && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${criticalPlaces.city_slug}`}>Обогащение</Link>}{row.manual_review_items.length > 0 && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${criticalPlaces.city_slug}`}>Проверка</Link>}</td>
       </tr>)}</tbody></table></div>}
     </section>}
     {!loading && !error && <section className="admin-card admin-quality-autopilot">
       <strong>Безопасный автопилот</strong>
-      <p className="admin-muted">Автоматически исключает из маршрутов только очевидные stoplist категории. Публикацию и данные места не трогает, откат доступен по созданным candidates.</p>
+      <p className="admin-muted">Исключает из маршрутов только очевидные stoplist категории. Публикацию и данные места не трогает.</p>
       <p className="admin-muted">{automationStatusText(automationPreview)}</p>
       {automationPreview.warnings?.map((warning) => <p key={warning} className="admin-muted">{warning}</p>)}
       {automationMessage && <p className="admin-muted">{automationMessage}</p>}
       <button type="button" className="admin-btn" disabled={actionLoading !== null || automationPreview.affected_count <= 0} onClick={() => void applyAutomation()}>
-        {actionLoading === 'automation' ? 'Применяю...' : 'Автоисправить безопасное'}
+        {actionLoading === 'automation' ? 'Применяю...' : 'Автоисправить'}
       </button>
     </section>}
     {!loading && !error && <section className="admin-card">
       <strong>Возможные дубли</strong>
-      <p className="admin-muted">Группы с одинаковым названием рядом. Система только показывает кандидатов, merge/delete выполняется вручную после проверки.</p>
+      <p className="admin-muted">Группы с одинаковым названием рядом. Merge/delete выполняется вручную после проверки.</p>
       {duplicateMessage && <p className="admin-muted">{duplicateMessage}</p>}
       {duplicateTotal === 0 ? <p className="admin-muted">Активных дублей по выбранному городу нет.</p> : <div className="admin-table-wrap"><table className="admin-table">
         <thead><tr><th>Город</th><th>Название</th><th>Места</th><th>Открыть</th><th>Действия</th></tr></thead>
