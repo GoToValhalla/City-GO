@@ -5,8 +5,19 @@ import { toAdminEndpointErrorMessage } from './shared/adminErrorMessage'
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
 const ADMIN_REQUEST_TIMEOUT_MS = 15_000
 const ADMIN_LONG_REQUEST_TIMEOUT_MS = 600_000
+const ADMIN_GET_CACHE_TTL_MS = 20_000
+const ADMIN_GET_CACHE_MAX_ENTRIES = 80
 
 type AdminRequestOptions = RequestInit & { timeoutMs?: number }
+type AdminGetOptions = { cache?: boolean }
+type AdminGetCacheEntry = {
+  expiresAt: number
+  data?: unknown
+  hasData?: boolean
+  promise?: Promise<unknown>
+}
+
+const adminGetCache = new Map<string, AdminGetCacheEntry>()
 
 export class AdminApiError extends Error {
   method: string
@@ -43,6 +54,35 @@ export class AdminApiError extends Error {
     this.requestId = details.requestId
     this.cause = details.cause
   }
+}
+
+const clearExpiredAdminGetCache = () => {
+  const now = Date.now()
+  for (const [key, entry] of adminGetCache.entries()) {
+    if (entry.expiresAt <= now) adminGetCache.delete(key)
+  }
+}
+
+export const clearAdminGetCache = () => adminGetCache.clear()
+
+const rememberAdminGet = <T>(path: string, promise: Promise<T>): Promise<T> => {
+  clearExpiredAdminGetCache()
+  if (adminGetCache.size >= ADMIN_GET_CACHE_MAX_ENTRIES) {
+    const firstKey = adminGetCache.keys().next().value
+    if (firstKey) adminGetCache.delete(firstKey)
+  }
+  adminGetCache.set(path, { expiresAt: Date.now() + ADMIN_GET_CACHE_TTL_MS, promise })
+  return promise.then((data) => {
+    adminGetCache.set(path, {
+      data,
+      hasData: true,
+      expiresAt: Date.now() + ADMIN_GET_CACHE_TTL_MS,
+    })
+    return data
+  }).catch((error) => {
+    adminGetCache.delete(path)
+    throw error
+  })
 }
 
 const handleUnauthorized = (): never => {
@@ -120,20 +160,37 @@ export const adminRequest = async <T>(
   }
 }
 
-export const adminGet = <T>(path: string) => adminRequest<T>(path)
+export const adminGet = <T>(path: string, options: AdminGetOptions = {}) => {
+  if (options.cache === false) return adminRequest<T>(path)
+  clearExpiredAdminGetCache()
+  const cached = adminGetCache.get(path)
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.hasData) return Promise.resolve(cached.data as T)
+    if (cached.promise) return cached.promise as Promise<T>
+  }
+  return rememberAdminGet(path, adminRequest<T>(path))
+}
 
-export const adminPost = <T>(path: string, body?: unknown) =>
-  adminRequest<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined })
+export const adminPost = <T>(path: string, body?: unknown) => {
+  clearAdminGetCache()
+  return adminRequest<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined })
+}
 
-export const adminPostLong = <T>(path: string, body?: unknown) =>
-  adminRequest<T>(path, {
+export const adminPostLong = <T>(path: string, body?: unknown) => {
+  clearAdminGetCache()
+  return adminRequest<T>(path, {
     method: 'POST',
     body: body !== undefined ? JSON.stringify(body) : undefined,
     timeoutMs: ADMIN_LONG_REQUEST_TIMEOUT_MS,
   })
+}
 
-export const adminPut = <T>(path: string, body?: unknown) =>
-  adminRequest<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined })
+export const adminPut = <T>(path: string, body?: unknown) => {
+  clearAdminGetCache()
+  return adminRequest<T>(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined })
+}
 
-export const adminPatch = <T>(path: string, body?: unknown) =>
-  adminRequest<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined })
+export const adminPatch = <T>(path: string, body?: unknown) => {
+  clearAdminGetCache()
+  return adminRequest<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined })
+}
