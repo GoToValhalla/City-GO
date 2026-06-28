@@ -55,8 +55,8 @@ def test_default_issue_list_hides_resolved_issues_new(client, db_session, place_
     db_session.commit()
     refresh_data_quality_issues(db_session, city_id=place.city_id)
 
-    current = client.get("/admin/data-quality/issues").json()
-    resolved = client.get("/admin/data-quality/issues?status=resolved").json()
+    current = client.get(f"/admin/data-quality/issues?issue_type={ISSUE_MISSING_ADDRESS}").json()
+    resolved = client.get(f"/admin/data-quality/issues?issue_type={ISSUE_MISSING_ADDRESS}&status=resolved").json()
 
     assert current["total"] == 0
     assert resolved["total"] == 1
@@ -102,7 +102,9 @@ def test_possible_duplicate_issue_created_for_nearby_same_title_new(db_session, 
 def test_data_quality_summary_city_score_uses_live_quality_not_stored_readiness_new(
     client, db_session, city_factory, place_factory,
 ):
-    city = city_factory(slug="summary-live-score", readiness_score=0)
+    city = city_factory(slug="summary-live-score")
+    city.readiness_score = 0
+    db_session.add(city)
     place_factory(
         city_id=city.id,
         address=None,
