@@ -1,3 +1,30 @@
+export type CoverageMetric = {
+  count: number
+  total: number
+  pct: number
+}
+
+export type CriticalCoverage = {
+  places_total: number
+  tourist_places: Record<string, number>
+  route_candidate_total: number
+  route_ready_total: number
+  route_blockers_total: number
+  card_ready_total: number
+  card_blockers_total: number
+  auto_enrichment_total: number
+  manual_review_total: number
+  optional_gaps_total: number
+  not_applicable_total: number
+  route_blockers_breakdown: Record<string, number>
+  card_blockers_breakdown: Record<string, number>
+  auto_enrichment_queue: Record<string, number>
+  manual_review_queue: Record<string, number>
+  coverage: Record<string, CoverageMetric>
+  next_actions: Array<Record<string, unknown>>
+  city_readiness: Record<string, unknown>
+}
+
 export type QualityCity = {
   city_slug: string
   city_name: string
@@ -8,6 +35,16 @@ export type QualityCity = {
   review_universe_total?: number
   manual_review_total?: number
   auto_excluded_total?: number
+  route_candidate_total?: number
+  route_ready_total?: number
+  route_blockers_total?: number
+  card_ready_total?: number
+  card_blockers_total?: number
+  auto_enrichment_total?: number
+  critical_manual_review_total?: number
+  optional_gaps_total?: number
+  not_applicable_total?: number
+  critical_coverage?: CriticalCoverage
   severity: string
   blockers: Record<string, number>
   primary_blocker?: string | null
