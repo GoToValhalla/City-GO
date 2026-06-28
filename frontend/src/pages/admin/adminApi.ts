@@ -7,6 +7,7 @@ const ADMIN_REQUEST_TIMEOUT_MS = 15_000
 const ADMIN_LONG_REQUEST_TIMEOUT_MS = 600_000
 const ADMIN_GET_CACHE_TTL_MS = 20_000
 const ADMIN_GET_CACHE_MAX_ENTRIES = 80
+const ADMIN_GET_CACHE_ENABLED = import.meta.env.MODE !== 'test'
 
 type AdminRequestOptions = RequestInit & { timeoutMs?: number }
 type AdminGetOptions = { cache?: boolean }
@@ -166,7 +167,7 @@ export const adminRequest = async <T>(
 }
 
 export const adminGet = <T>(path: string, options: AdminGetOptions = {}) => {
-  if (options.cache === false) return adminRequest<T>(path)
+  if (!ADMIN_GET_CACHE_ENABLED || options.cache === false) return adminRequest<T>(path)
   clearExpiredAdminGetCache()
   const cached = adminGetCache.get(path)
   if (cached && cached.expiresAt > Date.now()) {
