@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from models.city import City
@@ -31,21 +32,25 @@ PUBLISHABLE_CITY_STATUSES = {
     "unpublished",
 }
 
+CityCounters = dict[str, int]
+
 
 def get_admin_cities(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, object]], int]:
     _mark_stalled_imports_before_read(db)
     query = db.query(City).order_by(City.updated_at.desc(), City.id.desc())
     total = query.count()
     cities = query.offset(offset).limit(limit).all()
-    return [_city_payload(db, city) for city in cities], total
+    counters = _city_counters(db, [city.id for city in cities])
+    return [_city_payload(db, city, counters=counters.get(city.id)) for city in cities], total
 
 
-def _city_payload(db: Session, city: City) -> dict[str, object]:
-    places_query = db.query(Place).filter(Place.city_id == city.id)
-    places_total = places_query.count()
+def _city_payload(db: Session, city: City, *, counters: CityCounters | None = None) -> dict[str, object]:
+    if counters is None:
+        counters = _city_counters(db, [city.id]).get(city.id, _empty_city_counters())
+    places_total = counters["places_total"]
     recover_failed_import_with_places(db, city, places_total=places_total)
     normalize_reviewable_import_state(db, city, _latest_job(db, city.id), places_total)
-    places_published = places_query.filter(Place.is_published.is_(True)).count()
+    places_published = counters["places_published"]
     return {
         "id": city.id,
         "slug": city.slug,
@@ -59,12 +64,7 @@ def _city_payload(db: Session, city: City) -> dict[str, object]:
         "is_active": city.is_active,
         "places_total": places_total,
         "places_published": places_published,
-        "pending_photos": (
-            db.query(PlaceImage)
-            .join(Place, Place.id == PlaceImage.place_id)
-            .filter(Place.city_id == city.id, PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW)
-            .count()
-        ),
+        "pending_photos": counters["pending_photos"],
         "can_publish": _can_publish_city(city, places_total),
         "can_unpublish": _can_unpublish_city(city),
     }
@@ -145,6 +145,37 @@ def _import_job_payload(db: Session, city: City) -> dict[str, object]:
 
 def _mark_stalled_imports_before_read(db: Session) -> None:
     mark_stalled_import_jobs(db, actor_id="admin-panel-read")
+
+
+def _empty_city_counters() -> CityCounters:
+    return {"places_total": 0, "places_published": 0, "pending_photos": 0}
+
+
+def _city_counters(db: Session, city_ids: list[int]) -> dict[int, CityCounters]:
+    counters = {city_id: _empty_city_counters() for city_id in city_ids}
+    if not city_ids:
+        return counters
+    for city_id, places_total, places_published in (
+        db.query(
+            Place.city_id,
+            func.count(Place.id),
+            func.sum(case((Place.is_published.is_(True), 1), else_=0)),
+        )
+        .filter(Place.city_id.in_(city_ids))
+        .group_by(Place.city_id)
+        .all()
+    ):
+        counters[int(city_id)]["places_total"] = int(places_total or 0)
+        counters[int(city_id)]["places_published"] = int(places_published or 0)
+    for city_id, pending_photos in (
+        db.query(Place.city_id, func.count(PlaceImage.id))
+        .join(Place, Place.id == PlaceImage.place_id)
+        .filter(Place.city_id.in_(city_ids), PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW)
+        .group_by(Place.city_id)
+        .all()
+    ):
+        counters[int(city_id)]["pending_photos"] = int(pending_photos or 0)
+    return counters
 
 
 def _can_publish_city(city: City, places_total: int) -> bool:
