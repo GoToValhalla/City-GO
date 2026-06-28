@@ -7,18 +7,24 @@ from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
 from models.city import City
 from schemas.data_quality import (
+    DataQualityAutomationRequest,
+    DataQualityAutomationResponse,
+    DataQualityAutomationRollbackRequest,
     DataQualityBulkRequest,
     DataQualityBulkResponse,
     DataQualityIssueListResponse,
     DataQualityRefreshRequest,
 )
 from services.data_quality import (
+    apply_automation,
     apply_bulk_action,
     build_data_quality_summary,
     list_data_quality_issues,
     list_possible_duplicate_groups,
+    preview_automation,
     preview_bulk_action,
     refresh_data_quality_issues,
+    rollback_automation,
 )
 
 router = APIRouter(prefix="/admin/data-quality", tags=["admin-data-quality"])
@@ -106,6 +112,45 @@ def apply_data_quality_bulk_action(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return DataQualityBulkResponse.model_validate(result)
+
+
+@router.post("/automation/preview", response_model=DataQualityAutomationResponse)
+def preview_data_quality_automation(
+    payload: DataQualityAutomationRequest | None = None,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> DataQualityAutomationResponse:
+    body = payload or DataQualityAutomationRequest()
+    try:
+        return DataQualityAutomationResponse.model_validate(preview_automation(db, body.model_dump()))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/automation/apply", response_model=DataQualityAutomationResponse)
+def apply_data_quality_automation(
+    payload: DataQualityAutomationRequest,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> DataQualityAutomationResponse:
+    try:
+        result = apply_automation(db, payload.model_dump(), actor=auth.actor_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return DataQualityAutomationResponse.model_validate(result)
+
+
+@router.post("/automation/rollback", response_model=DataQualityAutomationResponse)
+def rollback_data_quality_automation(
+    payload: DataQualityAutomationRollbackRequest,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> DataQualityAutomationResponse:
+    try:
+        result = rollback_automation(db, payload.model_dump(), actor=auth.actor_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return DataQualityAutomationResponse.model_validate(result)
 
 
 def _ensure_city_exists(db: Session, city_id: int | None) -> None:
