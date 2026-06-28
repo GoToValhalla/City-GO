@@ -1,0 +1,54 @@
+.admin-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  margin: 16px 0;
+  background: var(--admin-panel);
+  border: 1px solid var(--admin-border);
+  border-radius: var(--admin-radius);
+  box-shadow: var(--admin-shadow);
+}
+
+.admin-quality-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin-bottom: 16px;
+}
+
+.admin-quality-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.admin-quality-card-title {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.admin-quality-total {
+  font-weight: 650;
+}
+
+.admin-quality-lines {
+  display: grid;
+  gap: 4px;
+  color: var(--admin-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.admin-quality-autopilot .admin-btn {
+  justify-self: start;
+}
+
+@media (max-width: 768px) {
+  .admin-quality-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-quality-card {
+    padding: 18px;
+  }
+}
