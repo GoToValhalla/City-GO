@@ -1,4 +1,7 @@
+from datetime import time
+
 from models.place_photo_candidate import PlacePhotoCandidate
+from models.place_schedule import PlaceSchedule
 
 
 def _set_quality_fields(db_session, place, *, canonical_category=None, short_description=None, opening_hours=None):
@@ -124,3 +127,98 @@ def test_pending_photo_candidate_requires_photo_review_not_silent_auto_apply(cli
     assert row["card_blockers_total"] == 1
     assert coverage["manual_review_queue"]["pending_photo_review"] == 1
     assert coverage["manual_review_total"] == 1
+
+
+def test_critical_coverage_city_endpoint_returns_actionable_summary(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="critical-endpoint-city", name="Critical Endpoint")
+    place = place_factory(
+        city_id=city.id,
+        category="museum",
+        image_url=None,
+        address="Museum street 1",
+    )
+    _set_quality_fields(
+        db_session,
+        place,
+        canonical_category="museum",
+        short_description="A useful description for a museum.",
+    )
+
+    payload = client.get(f"/admin/data-quality/cities/{city.slug}/critical-coverage").json()
+
+    assert payload["city_slug"] == city.slug
+    assert payload["route_blockers_total"] == 1
+    assert payload["card_blockers_total"] == 1
+    assert payload["route_blockers_breakdown"]["missing_opening_hours"] == 1
+    assert payload["coverage"]["has_opening_hours"]["pct"] == 0.0
+    assert payload["next_actions"][0]["type"] == "resolve_route_blockers"
+
+
+def test_critical_coverage_places_endpoint_filters_by_bucket_and_reason(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="critical-drilldown-city", name="Critical Drilldown")
+    blocked = place_factory(
+        city_id=city.id,
+        title="Museum Without Hours",
+        category="museum",
+        image_url="https://example.com/museum.jpg",
+        address="Museum street 1",
+    )
+    _set_quality_fields(
+        db_session,
+        blocked,
+        canonical_category="museum",
+        short_description="A useful description for a museum.",
+    )
+    ready = place_factory(
+        city_id=city.id,
+        title="Ready Monument",
+        category="monument",
+        image_url="https://example.com/monument.jpg",
+        address="Square 1",
+    )
+    _set_quality_fields(
+        db_session,
+        ready,
+        canonical_category="monument",
+        short_description="A complete landmark description for a walking route.",
+    )
+
+    payload = client.get(
+        f"/admin/data-quality/cities/{city.slug}/critical-coverage/places"
+        "?bucket=route_blocker&reason=missing_opening_hours"
+    ).json()
+
+    assert payload["total"] == 1
+    assert payload["items"][0]["place"]["title"] == "Museum Without Hours"
+    assert payload["items"][0]["route_status"] == "route_blocker"
+    assert payload["items"][0]["route_blockers"][0]["reason"] == "missing_opening_hours"
+
+
+def test_normalized_schedule_counts_as_hours_coverage(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="critical-schedule-city", name="Critical Schedule")
+    place = place_factory(
+        city_id=city.id,
+        category="museum",
+        image_url="https://example.com/museum.jpg",
+        address="Museum street 1",
+    )
+    _set_quality_fields(
+        db_session,
+        place,
+        canonical_category="museum",
+        short_description="A useful description for a museum.",
+    )
+    db_session.add(PlaceSchedule(
+        place_id=place.id,
+        weekday="mon",
+        open_time=time(10, 0),
+        close_time=time(18, 0),
+        is_closed=False,
+    ))
+    db_session.commit()
+
+    payload = client.get(f"/admin/data-quality/cities/{city.slug}/critical-coverage").json()
+
+    assert payload["route_ready_total"] == 1
+    assert payload["coverage"]["has_opening_hours"]["count"] == 1
+    assert payload["coverage"]["has_opening_hours"]["pct"] == 100.0
