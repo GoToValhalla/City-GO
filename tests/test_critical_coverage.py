@@ -246,6 +246,7 @@ def test_critical_coverage_refresh_materializes_idempotent_state(client, db_sess
     assert first["updated"] == 0
     assert first["unchanged"] == 0
     assert first["by_bucket"]["route_blocker"] == 1
+    assert first["snapshot"]["created"] == 1
 
     issues = db_session.query(DataQualityIssue).filter(
         DataQualityIssue.city_id == city.id,
@@ -258,11 +259,22 @@ def test_critical_coverage_refresh_materializes_idempotent_state(client, db_sess
     assert issues[0].evidence["bucket"] == "route_blocker"
     assert issues[0].evidence["route_blockers"][0]["reason"] == "missing_opening_hours"
 
+    snapshots = db_session.query(DataQualityIssue).filter(
+        DataQualityIssue.city_id == city.id,
+        DataQualityIssue.issue_type == "critical_coverage_city_snapshot",
+        DataQualityIssue.source == "critical_coverage_v2",
+    ).all()
+    assert len(snapshots) == 1
+    assert snapshots[0].status == "current"
+    assert snapshots[0].evidence["by_bucket"]["route_blocker"] == 1
+    assert snapshots[0].evidence["summary"]["route_blockers_total"] == 1
+
     second = client.post(f"/admin/data-quality/cities/{city.slug}/critical-coverage/refresh").json()
 
     assert second["created"] == 0
     assert second["updated"] == 0
     assert second["unchanged"] == 1
+    assert second["snapshot"]["unchanged"] == 1
     assert db_session.query(DataQualityIssue).filter(
         DataQualityIssue.city_id == city.id,
         DataQualityIssue.issue_type == "critical_coverage_state",
