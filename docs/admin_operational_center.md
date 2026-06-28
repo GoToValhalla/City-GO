@@ -27,6 +27,7 @@
 9. Инцидент открывает логи по module, request ID и городу.
 10. Внешний источник фото или обогащения хранится как отдельная безопасная ссылка.
 11. Must-have coverage metric открывает `/admin/coverage?tab=gaps` с сохранённым городом, статусом и причиной.
+12. Critical coverage metric открывает `/admin/data-quality/cities/{city_slug}/critical-coverage/places` с `bucket` и `reason`.
 
 Рекомендуемые URL:
 
@@ -38,6 +39,8 @@
 /admin/enrichment?city=<slug>&batch=<batch_id>
 /admin/coverage?tab=gaps&city_slug=<slug>&status=critical
 /admin/coverage?tab=gaps&city_slug=<slug>&gap_reason=not_route_eligible
+/admin/data-quality/cities/<slug>/critical-coverage/places?bucket=route_blocker
+/admin/data-quality/cities/<slug>/critical-coverage/places?bucket=card_blocker&reason=missing_image_url
 /admin/system-logs?request_id=<request_id>
 /admin/audit?entity_type=<type>&entity_id=<id>
 ```
@@ -48,6 +51,8 @@
 
 - `GET /admin/quality`
 - `GET /admin/data-quality/summary`
+- `GET /admin/data-quality/cities/{city_slug}/critical-coverage`
+- `GET /admin/data-quality/cities/{city_slug}/critical-coverage/places`
 - `GET /admin/data-quality/duplicates`
 - `GET /admin/data-quality/issues`
 - `POST /admin/data-quality/issues/refresh`
@@ -94,6 +99,35 @@ Stoplist категории (`pharmacy`, `bank`, `atm`, `bus_stop`, `transit_sto
 - `blockers.excluded_by_design` — тот же счётчик внутри breakdown.
 
 Этот контракт нужен, чтобы город с тысячами аптек, банков, остановок и сервисных POI не выглядел как ручная работа оператора. Оператор должен видеть только `data_gap` / `review_candidate`, а автоматические исключения должны быть прозрачной статистикой.
+
+### Critical Data Coverage v2
+
+`services.data_quality.critical_coverage` разделяет маршрутную готовность и полноту карточки.
+
+`/admin/quality` возвращает summary поля:
+
+- `route_candidate_total` — туристические/маршрутные кандидаты;
+- `route_ready_total` — места без route blockers;
+- `route_blockers_total` — места, которые нельзя безопасно использовать в маршруте;
+- `card_ready_total` — места с достаточной карточкой;
+- `card_blockers_total` — места с user-facing gaps;
+- `auto_enrichment_total` — места, которые можно отправить в enrichment;
+- `critical_manual_review_total` — места с конфликтом, pending photo candidate или ручной очередью;
+- `critical_coverage` — полный breakdown по route/card/auto/manual/coverage/next_actions.
+
+Drill-down endpoints:
+
+- `GET /admin/data-quality/cities/{city_slug}/critical-coverage` — city-level summary.
+- `GET /admin/data-quality/cities/{city_slug}/critical-coverage/places?bucket=route_blocker|card_blocker|auto_enrichment_candidate|manual_review|optional_gap|not_applicable&reason=<reason>` — paginated list of places behind the counter.
+
+Rules:
+
+- photo gaps block card readiness, not route readiness;
+- pending photo candidates require manual review and must not be silently approved;
+- opening hours are route-critical for museums/galleries/paid attractions/restaurants/cafes/bars;
+- opening hours are not route-critical for landmarks, monuments, viewpoints and open squares;
+- normalized `PlaceSchedule` rows count as hours coverage;
+- service/utility categories are `not_applicable` for tourist routes by default.
 
 ### Data Quality Autopilot
 
@@ -153,6 +187,7 @@ Historical cleanup 2026-06-28:
 - refresh перестал оставлять исправленные проблемы открытыми;
 - `/admin/quality` считает ручной процент по `review_universe_total`, а stoplist/служебные места выводит как `excluded_by_design`;
 - добавлен Stage 1 `Data Quality Autopilot`: preview/apply/rollback для обратимого auto-exclude stoplist мест из маршрутов;
+- добавлен `Critical Data Coverage / Quality Rules v2` read-only triage и drill-down endpoints для route/card/auto/manual buckets;
 - возможные дубли (`possible_duplicate`) остаются ручной очередью, без автоматического merge/delete.
 
 ## Data Coverage Assurance Contract
@@ -206,6 +241,8 @@ Health center использует реальные jobs, queues, logs и route 
 
 ## Следующие доработки
 
+- Materialize `quality_bucket` / `PlaceQualityState` after validating Critical Data Coverage v2 numbers on real cities.
+- Add bucket filters to `/admin/places` and direct UI links from quality counters.
 - Expand Data Quality Autopilot: confidence tiers for more reversible actions after preview/apply/rollback coverage.
 - Dedupe scorer tiers: auto-dismiss low-confidence, one-click candidates for high confidence, manual only for ambiguous cases.
 - Paginated raw product events с privacy-safe полями.
