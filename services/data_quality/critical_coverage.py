@@ -250,8 +250,7 @@ def triage_place(place: Place, context: PlaceTriageContext | None = None) -> Pla
 
         if conflicted and requirement in {FieldRequirement.ROUTE_CRITICAL, FieldRequirement.CARD_REQUIRED}:
             reason = "source_conflict_unresolved"
-            item = _issue(field_name, TriageBucket.MANUAL_REVIEW_REQUIRED, reason)
-            manual_items.append(item)
+            manual_items.append(_issue(field_name, TriageBucket.MANUAL_REVIEW_REQUIRED, reason))
             confidence_flags.append(f"conflict:{field_name}")
             if requirement == FieldRequirement.ROUTE_CRITICAL:
                 route_blockers.append(_issue(field_name, TriageBucket.ROUTE_BLOCKER, reason))
@@ -534,25 +533,22 @@ def _manual_counter(rows: list[PlaceTriageResult]) -> Counter[str]:
 
 def _coverage(rows: list[PlaceTriageResult], place_by_id: dict[int, Place]) -> dict[str, dict[str, float | int]]:
     tourist_places = [place_by_id[row.place_id] for row in rows]
-    photo_denominator = len(tourist_places)
-    address_denominator = len(tourist_places)
-    description_denominator = len(tourist_places)
-    hours_places = [
-        place_by_id[row.place_id]
-        for row in rows
-        if CATEGORY_PROFILES.get(row.profile_key, CATEGORY_PROFILES["landmark"]).fields.get("opening_hours")
-        not in {None, FieldRequirement.NOT_APPLICABLE}
-    ]
+    hours_places = [place_by_id[row.place_id] for row in rows if _hours_applicable(row.profile_key)]
     contextless = PlaceTriageContext()
     return {
-        "has_approved_photo": _metric(sum(1 for place in tourist_places if _has_photo(place)), photo_denominator),
-        "has_address": _metric(sum(1 for place in tourist_places if not _field_missing(place, "address", contextless)), address_denominator),
+        "has_approved_photo": _metric(sum(1 for place in tourist_places if _has_photo(place)), len(tourist_places)),
+        "has_address": _metric(sum(1 for place in tourist_places if not _field_missing(place, "address", contextless)), len(tourist_places)),
         "has_description": _metric(
             sum(1 for place in tourist_places if not _field_missing(place, "short_description", contextless)),
-            description_denominator,
+            len(tourist_places),
         ),
         "has_opening_hours": _metric(sum(1 for place in hours_places if bool(getattr(place, "opening_hours", None))), len(hours_places)),
     }
+
+
+def _hours_applicable(profile_key: str) -> bool:
+    requirement = CATEGORY_PROFILES.get(profile_key, CATEGORY_PROFILES["landmark"]).fields.get("opening_hours")
+    return requirement not in {None, FieldRequirement.NOT_APPLICABLE}
 
 
 def _metric(count: int, total: int) -> dict[str, float | int]:
