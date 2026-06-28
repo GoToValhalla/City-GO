@@ -47,14 +47,12 @@ def test_quality_score_ignores_stoplist_places_in_manual_review_universe_new(cli
     place_factory(
         city_id=city.id,
         category="museum",
-        canonical_category="museum",
         image_url="https://example.com/museum.jpg",
         address="Museum street 1",
     )
     place_factory(
         city_id=city.id,
         category="pharmacy",
-        canonical_category="pharmacy",
         image_url=None,
         address=None,
     )
