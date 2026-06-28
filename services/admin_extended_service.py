@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from sqlalchemy import case, func
+from sqlalchemy import and_, case, func
 from sqlalchemy.orm import Session
 
 from models.city import City
+from models.city_admin_import_job import CityAdminImportJob
 from models.place import Place
 from models.place_image import PLACE_IMAGE_STATUS_NEEDS_REVIEW, PlaceImage
 from models.route import Route
@@ -40,16 +41,29 @@ def get_admin_cities(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[
     query = db.query(City).order_by(City.updated_at.desc(), City.id.desc())
     total = query.count()
     cities = query.offset(offset).limit(limit).all()
-    counters = _city_counters(db, [city.id for city in cities])
-    return [_city_payload(db, city, counters=counters.get(city.id)) for city in cities], total
+    city_ids = [city.id for city in cities]
+    counters = _city_counters(db, city_ids)
+    latest_jobs = _latest_import_jobs(db, city_ids)
+    return [
+        _city_payload(db, city, counters=counters.get(city.id), latest_job=latest_jobs.get(city.id))
+        for city in cities
+    ], total
 
 
-def _city_payload(db: Session, city: City, *, counters: CityCounters | None = None) -> dict[str, object]:
+def _city_payload(
+    db: Session,
+    city: City,
+    *,
+    counters: CityCounters | None = None,
+    latest_job: CityAdminImportJob | None = None,
+) -> dict[str, object]:
     if counters is None:
         counters = _city_counters(db, [city.id]).get(city.id, _empty_city_counters())
+        latest_job = latest_job or _latest_job(db, city.id)
     places_total = counters["places_total"]
-    recover_failed_import_with_places(db, city, places_total=places_total)
-    normalize_reviewable_import_state(db, city, _latest_job(db, city.id), places_total)
+    if latest_job is not None:
+        recover_failed_import_with_places(db, city, places_total=places_total, job=latest_job)
+        normalize_reviewable_import_state(db, city, latest_job, places_total)
     places_published = counters["places_published"]
     return {
         "id": city.id,
@@ -176,6 +190,36 @@ def _city_counters(db: Session, city_ids: list[int]) -> dict[int, CityCounters]:
     ):
         counters[int(city_id)]["pending_photos"] = int(pending_photos or 0)
     return counters
+
+
+def _latest_import_jobs(db: Session, city_ids: list[int]) -> dict[int, CityAdminImportJob]:
+    if not city_ids:
+        return {}
+    latest_created = (
+        db.query(
+            CityAdminImportJob.city_id.label("city_id"),
+            func.max(CityAdminImportJob.created_at).label("created_at"),
+        )
+        .filter(CityAdminImportJob.city_id.in_(city_ids))
+        .group_by(CityAdminImportJob.city_id)
+        .subquery()
+    )
+    rows = (
+        db.query(CityAdminImportJob)
+        .join(
+            latest_created,
+            and_(
+                CityAdminImportJob.city_id == latest_created.c.city_id,
+                CityAdminImportJob.created_at == latest_created.c.created_at,
+            ),
+        )
+        .order_by(CityAdminImportJob.city_id, CityAdminImportJob.id.desc())
+        .all()
+    )
+    jobs: dict[int, CityAdminImportJob] = {}
+    for job in rows:
+        jobs.setdefault(int(job.city_id), job)
+    return jobs
 
 
 def _can_publish_city(city: City, places_total: int) -> bool:
