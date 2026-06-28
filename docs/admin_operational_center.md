@@ -3,7 +3,7 @@
 ## Экраны
 
 - `/admin/cities/:citySlug?tab=...` — workspace города с десятью вкладками.
-- `/admin/quality` — live quality summary.
+- `/admin/quality` — live quality summary и очередь возможных дублей.
 - `/admin/coverage` — покрытие данных по городам.
 - `/admin/coverage?tab=gaps` — Data Coverage Assurance: must-have POI gaps, причины и действия.
 - `/admin/system-health` — сервисы, очереди и persisted alert lifecycle.
@@ -47,6 +47,12 @@
 ## API
 
 - `GET /admin/quality`
+- `GET /admin/data-quality/summary`
+- `GET /admin/data-quality/duplicates`
+- `GET /admin/data-quality/issues`
+- `POST /admin/data-quality/issues/refresh`
+- `POST /admin/data-quality/bulk-actions/preview`
+- `POST /admin/data-quality/bulk-actions/apply`
 - `GET /admin/system-health`
 - `GET /admin/system-health/alerts`
 - `POST /admin/system-health/alerts/{log_id}`
@@ -79,6 +85,15 @@
 4. переводит stale open/candidate/deferred issues в `resolved`, если текущий refresh их больше не нашёл.
 
 Без явного `status` список `/admin/data-quality/issues` возвращает только актуальные статусы из `OPEN_STATUSES`. Исторические записи доступны через явный фильтр, например `status=resolved`.
+
+### Possible Duplicate Review
+
+`possible_duplicate` — ручная очередь проверки, а не автоматическое удаление или merge.
+
+- `GET /admin/data-quality/duplicates` возвращает сгруппированные дубли по городу, нормализованному названию и набору place IDs.
+- Группа содержит `issue_ids`, `place_ids`, `places`, `status_counts`, evidence и временные метки.
+- `/admin/quality` показывает первые группы дублей и ссылки на карточки мест.
+- Оператор должен открыть места, сравнить адреса/координаты/фото/источники и только после этого принимать решение о merge/delete/reject.
 
 Historical cleanup 2026-06-28:
 
