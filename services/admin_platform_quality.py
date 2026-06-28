@@ -6,6 +6,7 @@ from sqlalchemy.orm import Query, Session
 from models.city import City
 from models.place import Place
 from services.data_quality.constants import STOPLIST_CATEGORIES
+from services.data_quality.critical_coverage import compute_city_critical_coverage
 
 
 def quality_summary(
@@ -29,7 +30,8 @@ def quality_summary(
         "todo": [
             "Live score считает ручную проверку только по маршруто-релевантным местам.",
             "Stage 1 автопилота уже включён: safe stoplist auto-exclude доступен через preview/apply/rollback.",
-            "Следующий шаг: фото/enrichment triage, чтобы не отправлять все missing-photo места в ручную проверку.",
+            "Quality Rules v2 включён read-only: фото, часы, адреса и описания разложены на route/card/auto/manual корзины.",
+            "Следующий шаг: материализовать quality_bucket/snapshot после проверки формулы на реальных городах.",
         ],
     }
 
@@ -51,6 +53,7 @@ def city_quality_row(db: Session, city: City, category: str | None = None) -> di
     }
     score = _live_quality_score(review_total, blockers)
     severity = "critical" if score < 40 else "warning" if score < 75 else "ok"
+    critical_coverage = compute_city_critical_coverage(db, query)
     return {
         "city_slug": city.slug,
         "city_name": city.name,
@@ -64,6 +67,16 @@ def city_quality_row(db: Session, city: City, category: str | None = None) -> di
         "severity": severity,
         "blockers": blockers,
         "primary_blocker": _primary_blocker(blockers),
+        "route_candidate_total": critical_coverage["route_candidate_total"],
+        "route_ready_total": critical_coverage["route_ready_total"],
+        "route_blockers_total": critical_coverage["route_blockers_total"],
+        "card_ready_total": critical_coverage["card_ready_total"],
+        "card_blockers_total": critical_coverage["card_blockers_total"],
+        "auto_enrichment_total": critical_coverage["auto_enrichment_total"],
+        "critical_manual_review_total": critical_coverage["manual_review_total"],
+        "optional_gaps_total": critical_coverage["optional_gaps_total"],
+        "not_applicable_total": critical_coverage["not_applicable_total"],
+        "critical_coverage": critical_coverage,
     }
 
 
