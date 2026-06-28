@@ -11,7 +11,7 @@ import type {
   PipelineRunResponse,
   QualityCity,
 } from './adminPlatformTypes'
-import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
+import { AdminEmpty, AdminError, AdminLoading, AdminSectionError } from './shared/AdminStates'
 import './AdminQuality.css'
 
 const BLOCKER_LABELS: Record<string, string> = {
@@ -101,10 +101,16 @@ const automationStatusText = (preview: AutomationPreviewResponse) => {
 
 const duplicateTitle = (group: DuplicateGroup) => group.title || group.normalized_title || 'Без названия'
 
-const duplicateQuery = (params: URLSearchParams) => {
+const qualityQuery = (params: URLSearchParams) => {
+  const next = new URLSearchParams(params)
+  next.delete('critical_bucket')
+  next.delete('critical_reason')
+  return next.toString()
+}
+
+const duplicateQuery = (citySlug: string) => {
   const next = new URLSearchParams()
-  const citySlug = params.get('city_slug')
-  if (citySlug) next.set('city_slug', citySlug)
+  next.set('city_slug', citySlug)
   next.set('limit', '5')
   return next.toString()
 }
@@ -123,10 +129,7 @@ const criticalDrilldownPath = (params: URLSearchParams) => {
   return `/admin/data-quality/cities/${citySlug}/critical-coverage/places?${query}`
 }
 
-const automationPayload = (params: URLSearchParams) => {
-  const citySlug = params.get('city_slug')
-  return { ...(citySlug ? { city_slug: citySlug } : {}), limit: 500 }
-}
+const automationPayload = (citySlug: string) => ({ city_slug: citySlug, limit: 500 })
 
 const emptyDuplicateResponse = { items: [], total: 0, limit: 5, offset: 0 }
 const emptyAutomationResponse: AutomationPreviewResponse = {
@@ -181,6 +184,9 @@ const statusText = (value: string) => STATUS_LABELS[value] ?? value
 
 export const AdminQualityPage = () => {
   const [params, setParams] = useSearchParams()
+  const selectedCitySlug = params.get('city_slug') ?? ''
+  const currentQualityQuery = qualityQuery(params)
+  const currentDrilldownPath = criticalDrilldownPath(params)
   const [items, setItems] = useState<QualityCity[]>([])
   const [todo, setTodo] = useState<string[]>([])
   const [automationPreview, setAutomationPreview] = useState<AutomationPreviewResponse>(emptyAutomationResponse)
@@ -188,38 +194,84 @@ export const AdminQualityPage = () => {
   const [duplicateTotal, setDuplicateTotal] = useState(0)
   const [criticalPlaces, setCriticalPlaces] = useState<CriticalCoveragePlacesResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const [operationsLoading, setOperationsLoading] = useState(false)
+  const [criticalLoading, setCriticalLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [automationMessage, setAutomationMessage] = useState<string | null>(null)
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null)
   const [criticalMessage, setCriticalMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const load = useCallback(() => {
-    setLoading(true); setError(null)
-    const drilldownPath = criticalDrilldownPath(params)
-    Promise.all([
-      adminGet<{ items: QualityCity[]; todo: string[] }>(`/admin/quality?${params}`),
-      adminPost<Partial<AutomationPreviewResponse>>('/admin/data-quality/automation/preview', automationPayload(params))
-        .catch(() => emptyAutomationResponse),
-      adminGet<Partial<DuplicateGroupsResponse>>(`/admin/data-quality/duplicates?${duplicateQuery(params)}`)
-        .catch(() => emptyDuplicateResponse),
-      drilldownPath ? adminGet<CriticalCoveragePlacesResponse>(drilldownPath).catch(() => null) : Promise.resolve(null),
-    ])
-      .then(([row, automation, duplicates, critical]) => {
-        const duplicateItems = safeDuplicateItems(duplicates)
-        setItems(Array.isArray(row.items) ? row.items : [])
-        setTodo(Array.isArray(row.todo) ? row.todo : [])
-        setAutomationPreview(safeAutomation(automation))
-        setDuplicateGroups(duplicateItems)
-        setDuplicateTotal(safeDuplicateTotal(duplicates, duplicateItems))
-        setCriticalPlaces(critical)
-      })
-      .catch((e: Error) => setError(e.message)).finally(() => setLoading(false))
-  }, [params])
-  useEffect(() => { void Promise.resolve().then(load) }, [load])
+  const [operationsError, setOperationsError] = useState<string | null>(null)
+  const [criticalError, setCriticalError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const row = await adminGet<{ items: QualityCity[]; todo: string[] }>(`/admin/quality?${currentQualityQuery}`)
+      setItems(Array.isArray(row.items) ? row.items : [])
+      setTodo(Array.isArray(row.todo) ? row.todo : [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Не удалось загрузить качество')
+    } finally {
+      setLoading(false)
+    }
+  }, [currentQualityQuery])
+
+  const loadOperations = useCallback(async () => {
+    setOperationsError(null)
+    if (!selectedCitySlug) {
+      setAutomationPreview(emptyAutomationResponse)
+      setDuplicateGroups([])
+      setDuplicateTotal(0)
+      return
+    }
+    setOperationsLoading(true)
+    try {
+      const [automation, duplicates] = await Promise.all([
+        adminPost<Partial<AutomationPreviewResponse>>('/admin/data-quality/automation/preview', automationPayload(selectedCitySlug))
+          .catch(() => emptyAutomationResponse),
+        adminGet<Partial<DuplicateGroupsResponse>>(`/admin/data-quality/duplicates?${duplicateQuery(selectedCitySlug)}`)
+          .catch(() => emptyDuplicateResponse),
+      ])
+      const duplicateItems = safeDuplicateItems(duplicates)
+      setAutomationPreview(safeAutomation(automation))
+      setDuplicateGroups(duplicateItems)
+      setDuplicateTotal(safeDuplicateTotal(duplicates, duplicateItems))
+    } catch (e) {
+      setOperationsError(e instanceof Error ? e.message : 'Не удалось загрузить действия')
+    } finally {
+      setOperationsLoading(false)
+    }
+  }, [selectedCitySlug])
+
+  const loadCritical = useCallback(async () => {
+    setCriticalError(null)
+    if (!currentDrilldownPath) {
+      setCriticalPlaces(null)
+      return
+    }
+    setCriticalLoading(true)
+    try {
+      setCriticalPlaces(await adminGet<CriticalCoveragePlacesResponse>(currentDrilldownPath))
+    } catch (e) {
+      setCriticalPlaces(null)
+      setCriticalError(e instanceof Error ? e.message : 'Не удалось загрузить места')
+    } finally {
+      setCriticalLoading(false)
+    }
+  }, [currentDrilldownPath])
+
+  useEffect(() => { void load() }, [load])
+  useEffect(() => { void loadOperations() }, [loadOperations])
+  useEffect(() => { void loadCritical() }, [loadCritical])
+
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(params)
     if (value) next.set(key, value)
     else next.delete(key)
+    next.delete('critical_bucket')
+    next.delete('critical_reason')
     setParams(next)
   }
   const openCritical = (citySlug: string, bucket: string, reason?: string) => {
@@ -237,16 +289,18 @@ export const AdminQualityPage = () => {
     setParams(next)
   }
   const applyAutomation = async () => {
+    if (!selectedCitySlug) return
     setActionLoading('automation')
     setAutomationMessage(null)
     try {
       const result = await adminPost<AutomationPreviewResponse>('/admin/data-quality/automation/apply', {
-        ...automationPayload(params),
+        ...automationPayload(selectedCitySlug),
         confirm: true,
         reason: 'safe stoplist route exclusion from admin quality page',
       })
       setAutomationMessage(`Автопилот применён. Из маршрутов исключено: ${result.affected_count}.`)
-      load()
+      void load()
+      void loadOperations()
     } catch (e) {
       setAutomationMessage(e instanceof Error ? e.message : 'Не удалось применить автопилот')
     } finally {
@@ -259,7 +313,8 @@ export const AdminQualityPage = () => {
     try {
       const result = await adminPost<PipelineRunResponse>(`/admin/place-enrichment/pipeline/${citySlug}/run`)
       setCriticalMessage(`Обогащение в очереди: job #${result.job_id}.`)
-      load()
+      void load()
+      void loadOperations()
     } catch (e) {
       setCriticalMessage(e instanceof Error ? e.message : 'Не удалось запустить обогащение')
     } finally {
@@ -272,7 +327,8 @@ export const AdminQualityPage = () => {
     try {
       const result = await adminPost<CriticalCoverageRefreshResponse>(`/admin/data-quality/cities/${citySlug}/critical-coverage/refresh`)
       setCriticalMessage(`Снимок: +${result.created}, обновлено ${result.updated}, без изменений ${result.unchanged}.`)
-      load()
+      void load()
+      void loadCritical()
     } catch (e) {
       setCriticalMessage(e instanceof Error ? e.message : 'Не удалось сохранить снимок')
     } finally {
@@ -291,18 +347,18 @@ export const AdminQualityPage = () => {
         reason: copy.reason,
       })
       setDuplicateMessage(`${copy.done} Затронуто: ${result.affected_count}.`)
-      load()
+      void loadOperations()
     } catch (e) {
       setDuplicateMessage(e instanceof Error ? e.message : 'Не удалось применить действие')
     } finally {
       setActionLoading(null)
     }
   }
-  return <div>
-    <h2 className="admin-page-title">Качество данных</h2>
-    <p className="admin-page-subtitle">Live score считает ручную проверку по туристическим кандидатам. Сервисные POI исключаются правилами и не раздувают очередь.</p>
-    <div className="admin-filter-card admin-filter-grid">
-      <label className="admin-field"><span>Город</span><input value={params.get('city_slug') ?? ''} onChange={(e) => update('city_slug', e.target.value)} /></label>
+  return <div className="admin-quality-page">
+    <h2 className="admin-page-title">Качество</h2>
+    <p className="admin-page-subtitle">Покрытие и блокеры по городам.</p>
+    <div className="admin-filter-card admin-filter-grid admin-quality-filter-card">
+      <label className="admin-field"><span>Город</span><input value={selectedCitySlug} onChange={(e) => update('city_slug', e.target.value)} /></label>
       <label className="admin-field"><span>Регион</span><input value={params.get('region') ?? ''} onChange={(e) => update('region', e.target.value)} /></label>
       <label className="admin-field"><span>Категория</span><input value={params.get('category') ?? ''} onChange={(e) => update('category', e.target.value)} /></label>
       <label className="admin-field"><span>Важность</span><select value={params.get('severity') ?? ''} onChange={(e) => update('severity', e.target.value)}><option value="">Любая</option><option value="critical">Критично</option><option value="warning">Внимание</option><option value="ok">Норма</option></select></label>
@@ -343,56 +399,62 @@ export const AdminQualityPage = () => {
         </div>
       </article>
     })}</div>}
-    {!loading && !error && criticalPlaces && <section className="admin-card admin-quality-drilldown">
+    {!loading && !error && criticalLoading && <section className="admin-card admin-quality-drilldown"><AdminLoading message="Гружу места…" /></section>}
+    {!loading && !error && criticalError && <AdminSectionError title="Не удалось загрузить места" message={criticalError} onRetry={() => void loadCritical()} />}
+    {!loading && !error && !criticalLoading && criticalPlaces && <section className="admin-card admin-quality-drilldown">
       <div className="admin-quality-drilldown-head"><strong>{BUCKET_LABELS[criticalPlaces.bucket ?? ''] ?? criticalPlaces.bucket}: {criticalPlaces.city_name}</strong><button type="button" className="admin-btn admin-btn-sm" onClick={closeCritical}>Назад</button></div>
       <p className="admin-muted">Показано {criticalPlaces.items.length} из {criticalPlaces.total}{criticalPlaces.reason ? ` · ${criticalPlaces.reason}` : ''}</p>
       {!criticalPlaces.items.length ? <AdminEmpty message="Мест по выбранной вкладке нет" /> : <div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Статус</th><th>Проблемы</th><th>Действия</th></tr></thead><tbody>{criticalPlaces.items.map((row) => <tr key={row.place.id}>
-        <td><Link to={`/admin/places/${row.place.id}`}>{row.place.title}</Link><br /><span className="admin-muted">{row.place.category ?? row.place.canonical_category ?? row.profile_key}</span></td>
-        <td>Маршрут: {statusText(row.route_status)}<br />Карточка: {statusText(row.card_status)}</td>
-        <td><span>{issueText(row.route_blockers)}</span><br /><span>{issueText(row.card_blockers)}</span><br />{row.manual_review_items.length > 0 && <span>Проверка: {issueText(row.manual_review_items)}</span>}</td>
-        <td><Link className="admin-btn admin-btn-sm" to={`/admin/places/${row.place.id}`}>Место</Link>{row.auto_enrichment_candidates.length > 0 && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${criticalPlaces.city_slug}`}>Обогащение</Link>}{row.manual_review_items.length > 0 && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${criticalPlaces.city_slug}`}>Проверка</Link>}</td>
+        <td data-label="Место"><Link to={`/admin/places/${row.place.id}`}>{row.place.title}</Link><br /><span className="admin-muted">{row.place.category ?? row.place.canonical_category ?? row.profile_key}</span></td>
+        <td data-label="Статус">Маршрут: {statusText(row.route_status)}<br />Карточка: {statusText(row.card_status)}</td>
+        <td data-label="Проблемы"><span>{issueText(row.route_blockers)}</span><br /><span>{issueText(row.card_blockers)}</span><br />{row.manual_review_items.length > 0 && <span>Проверка: {issueText(row.manual_review_items)}</span>}</td>
+        <td data-label="Действия"><Link className="admin-btn admin-btn-sm" to={`/admin/places/${row.place.id}`}>Место</Link>{row.auto_enrichment_candidates.length > 0 && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${criticalPlaces.city_slug}`}>Обогащение</Link>}{row.manual_review_items.length > 0 && <Link className="admin-btn admin-btn-sm" to={`/admin/enrichment?city=${criticalPlaces.city_slug}`}>Проверка</Link>}</td>
       </tr>)}</tbody></table></div>}
     </section>}
-    {!loading && !error && <section className="admin-card admin-quality-autopilot">
+    {!loading && !error && selectedCitySlug && <section className="admin-card admin-quality-autopilot">
       <strong>Безопасный автопилот</strong>
-      <p className="admin-muted">Исключает из маршрутов только очевидные stoplist категории. Публикацию и данные места не трогает.</p>
-      <p className="admin-muted">{automationStatusText(automationPreview)}</p>
-      {automationPreview.warnings?.map((warning) => <p key={warning} className="admin-muted">{warning}</p>)}
-      {automationMessage && <p className="admin-muted">{automationMessage}</p>}
-      <button type="button" className="admin-btn" disabled={actionLoading !== null || automationPreview.affected_count <= 0} onClick={() => void applyAutomation()}>
-        {actionLoading === 'automation' ? 'Применяю...' : 'Автоисправить'}
-      </button>
+      {operationsLoading ? <AdminLoading message="Гружу действия…" /> : operationsError ? <AdminSectionError title="Не удалось загрузить действия" message={operationsError} onRetry={() => void loadOperations()} /> : <>
+        <p className="admin-muted">Исключает из маршрутов только очевидные stoplist категории. Публикацию и данные места не трогает.</p>
+        <p className="admin-muted">{automationStatusText(automationPreview)}</p>
+        {automationPreview.warnings?.map((warning) => <p key={warning} className="admin-muted">{warning}</p>)}
+        {automationMessage && <p className="admin-muted">{automationMessage}</p>}
+        <button type="button" className="admin-btn" disabled={actionLoading !== null || automationPreview.affected_count <= 0} onClick={() => void applyAutomation()}>
+          {actionLoading === 'automation' ? 'Применяю...' : 'Автоисправить'}
+        </button>
+      </>}
     </section>}
-    {!loading && !error && <section className="admin-card">
+    {!loading && !error && selectedCitySlug && <section className="admin-card">
       <strong>Возможные дубли</strong>
-      <p className="admin-muted">Группы с одинаковым названием рядом. Merge/delete выполняется вручную после проверки.</p>
-      {duplicateMessage && <p className="admin-muted">{duplicateMessage}</p>}
-      {duplicateTotal === 0 ? <p className="admin-muted">Активных дублей по выбранному городу нет.</p> : <div className="admin-table-wrap"><table className="admin-table">
-        <thead><tr><th>Город</th><th>Название</th><th>Места</th><th>Открыть</th><th>Действия</th></tr></thead>
-        <tbody>{duplicateGroups.map((group) => {
-          const places = Array.isArray(group.places) ? group.places : []
-          const actionKey = (actionType: string) => `${actionType}:${group.group_key}`
-          return <tr key={group.group_key}>
-            <td>{group.city_name ?? group.city_slug ?? '—'}</td>
-            <td>{duplicateTitle(group)}<br /><span className="admin-muted">issues: {group.issues_count}</span></td>
-            <td>{places.map((place) => place.title).join(' · ')}</td>
-            <td>{places.map((place) => <Link key={place.id} className="admin-btn admin-btn-sm" to={`/admin/places/${place.id}`}>#{place.id}</Link>)}</td>
-            <td>
-              <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void applyDuplicateAction(group, 'propose_duplicate_review')}>
-                {actionLoading === actionKey('propose_duplicate_review') ? 'Ставлю...' : 'В проверку'}
-              </button>
-              <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void applyDuplicateAction(group, 'ignore_issues')}>
-                {actionLoading === actionKey('ignore_issues') ? 'Скрываю...' : 'Не дубль'}
-              </button>
-              <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void applyDuplicateAction(group, 'defer_issues')}>
-                {actionLoading === actionKey('defer_issues') ? 'Откладываю...' : 'Отложить'}
-              </button>
-            </td>
-          </tr>
-        })}</tbody>
-      </table></div>}
-      {duplicateTotal > duplicateGroups.length && <p className="admin-muted">Показаны первые {duplicateGroups.length} из {duplicateTotal}. Уточните город, чтобы разобрать очередь.</p>}
+      {operationsLoading ? <AdminLoading message="Гружу дубли…" /> : operationsError ? <AdminSectionError title="Не удалось загрузить дубли" message={operationsError} onRetry={() => void loadOperations()} /> : <>
+        <p className="admin-muted">Группы с одинаковым названием рядом. Merge/delete выполняется вручную после проверки.</p>
+        {duplicateMessage && <p className="admin-muted">{duplicateMessage}</p>}
+        {duplicateTotal === 0 ? <p className="admin-muted">Активных дублей по выбранному городу нет.</p> : <div className="admin-table-wrap"><table className="admin-table">
+          <thead><tr><th>Город</th><th>Название</th><th>Места</th><th>Открыть</th><th>Действия</th></tr></thead>
+          <tbody>{duplicateGroups.map((group) => {
+            const places = Array.isArray(group.places) ? group.places : []
+            const actionKey = (actionType: string) => `${actionType}:${group.group_key}`
+            return <tr key={group.group_key}>
+              <td data-label="Город">{group.city_name ?? group.city_slug ?? '—'}</td>
+              <td data-label="Название">{duplicateTitle(group)}<br /><span className="admin-muted">issues: {group.issues_count}</span></td>
+              <td data-label="Места">{places.map((place) => place.title).join(' · ')}</td>
+              <td data-label="Открыть">{places.map((place) => <Link key={place.id} className="admin-btn admin-btn-sm" to={`/admin/places/${place.id}`}>#{place.id}</Link>)}</td>
+              <td data-label="Действия">
+                <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void applyDuplicateAction(group, 'propose_duplicate_review')}>
+                  {actionLoading === actionKey('propose_duplicate_review') ? 'Ставлю...' : 'В проверку'}
+                </button>
+                <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void applyDuplicateAction(group, 'ignore_issues')}>
+                  {actionLoading === actionKey('ignore_issues') ? 'Скрываю...' : 'Не дубль'}
+                </button>
+                <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void applyDuplicateAction(group, 'defer_issues')}>
+                  {actionLoading === actionKey('defer_issues') ? 'Откладываю...' : 'Отложить'}
+                </button>
+              </td>
+            </tr>
+          })}</tbody>
+        </table></div>}
+        {duplicateTotal > duplicateGroups.length && <p className="admin-muted">Показаны первые {duplicateGroups.length} из {duplicateTotal}. Уточните город, чтобы разобрать очередь.</p>}
+      </>}
     </section>}
-    <section className="admin-help-panel"><strong>Следующий этап</strong><ul>{todo.map((text) => <li key={text}>{text}</li>)}</ul></section>
+    {!loading && !error && todo.length > 0 && <section className="admin-help-panel"><strong>Следующий этап</strong><ul>{todo.map((text) => <li key={text}>{text}</li>)}</ul></section>}
   </div>
 }
