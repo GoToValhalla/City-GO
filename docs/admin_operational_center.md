@@ -72,10 +72,25 @@
 
 Текущий источник истины для операционной готовности города:
 
-- `services.admin_platform_quality.city_quality_row` — live score по реальному состоянию мест;
+- `services.admin_platform_quality.city_quality_row` — live score по реальному состоянию маршруто-релевантных мест;
 - `/admin/quality` — список городов с live `readiness_score`;
 - `/admin/cities/by-slug/{slug}/workspace` — тот же live score в workspace города;
 - `/admin/data-quality/summary` — live `coverage_score` в `by_city`.
+
+### Route Review Universe
+
+Операционная готовность больше не равна качеству всех импортированных объектов. Ручная проверка считается только по `review_universe_total` — местам, которые могут быть туристическими или маршрутными кандидатами.
+
+Stoplist категории (`pharmacy`, `bank`, `atm`, `bus_stop`, `transit_stop`, `parking`, `toilets`, `hospital`, `clinic`, `police`, `service` и другие инфраструктурные категории) попадают в `excluded_by_design` / `auto_excluded_total` и не раздувают процент `нужно проверить`.
+
+`/admin/quality` возвращает дополнительные поля:
+
+- `review_universe_total` — сколько мест реально участвует в ручной оценке качества;
+- `manual_review_total` — сколько ручных блокеров найдено внутри этой вселенной;
+- `auto_excluded_total` — сколько мест исключено правилами как не маршрутные точки;
+- `blockers.excluded_by_design` — тот же счётчик внутри breakdown.
+
+Этот контракт нужен, чтобы город с тысячами аптек, банков, остановок и сервисных POI не выглядел как ручная работа оператора. Оператор должен видеть только `data_gap` / `review_candidate`, а автоматические исключения должны быть прозрачной статистикой.
 
 `services.data_quality.refresh.refresh_data_quality_issues` синхронизирует состояние issues:
 
@@ -94,7 +109,7 @@
 - Группа содержит `issue_ids`, `place_ids`, `places`, `status_counts`, evidence и временные метки.
 - `/admin/quality` показывает первые группы дублей и ссылки на карточки мест.
 - Кнопка `В проверку` вызывает `propose_duplicate_review`, создаёт `DataQualityCandidate(candidate_type=duplicate_review)` и переводит issues в `candidate_created`; сами места не меняются.
-- Кнопка `Не дубль` вызывает `ignore_issues` и убирает группу из активной очереди.
+- Кнопка `Не дубль` вызывает `ignore_issues` и убирает группу из активных дублей как не дубль.
 - Кнопка `Отложить` вызывает `defer_issues`; группа остаётся видимой как deferred, чтобы её можно было вернуться и разобрать позже.
 - Оператор должен открыть места, сравнить адреса/координаты/фото/источники и только после этого принимать решение о merge/delete/reject.
 
@@ -103,6 +118,7 @@ Historical cleanup 2026-06-28:
 - убран legacy alias `_city_row`; новый код должен использовать только `city_quality_row`;
 - `/admin/data-quality/summary` переведён с `City.readiness_score` на live score;
 - refresh перестал оставлять исправленные проблемы открытыми;
+- `/admin/quality` считает ручной процент по `review_universe_total`, а stoplist/служебные места выводит как `excluded_by_design`;
 - возможные дубли (`possible_duplicate`) остаются ручной очередью, без автоматического merge/delete.
 
 ## Data Coverage Assurance Contract
@@ -156,6 +172,8 @@ Health center использует реальные jobs, queues, logs и route 
 
 ## Следующие доработки
 
+- Data Quality Autopilot: preview/apply safe reversible actions by confidence tier.
+- Dedupe scorer tiers: auto-dismiss low-confidence, one-click candidates for high confidence, manual only for ambiguous cases.
 - Paginated raw product events с privacy-safe полями.
 - Daily `CityQualitySnapshot`, history endpoint и nightly aggregation.
 - Historical analytics comparison и CSV export.
