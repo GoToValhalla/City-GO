@@ -5,6 +5,9 @@ export type QualityCity = {
   readiness_score: number
   stored_readiness_score?: number
   places_total: number
+  review_universe_total?: number
+  manual_review_total?: number
+  auto_excluded_total?: number
   severity: string
   blockers: Record<string, number>
   primary_blocker?: string | null
