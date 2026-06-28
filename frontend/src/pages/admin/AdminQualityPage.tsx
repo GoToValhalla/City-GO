@@ -47,6 +47,16 @@ const duplicateQuery = (params: URLSearchParams) => {
   return next.toString()
 }
 
+const emptyDuplicateResponse = { items: [], total: 0, limit: 5, offset: 0 }
+
+const safeDuplicateItems = (payload: Partial<DuplicateGroupsResponse> | null | undefined): DuplicateGroup[] => (
+  Array.isArray(payload?.items) ? payload.items : []
+)
+
+const safeDuplicateTotal = (payload: Partial<DuplicateGroupsResponse> | null | undefined, items: DuplicateGroup[]) => (
+  typeof payload?.total === 'number' ? payload.total : items.length
+)
+
 const actionCopy: Record<string, { reason: string; done: string }> = {
   propose_duplicate_review: {
     reason: 'ручная проверка дубля',
@@ -76,13 +86,15 @@ export const AdminQualityPage = () => {
     setLoading(true); setError(null)
     Promise.all([
       adminGet<{ items: QualityCity[]; todo: string[] }>(`/admin/quality?${params}`),
-      adminGet<DuplicateGroupsResponse>(`/admin/data-quality/duplicates?${duplicateQuery(params)}`),
+      adminGet<Partial<DuplicateGroupsResponse>>(`/admin/data-quality/duplicates?${duplicateQuery(params)}`)
+        .catch(() => emptyDuplicateResponse),
     ])
       .then(([row, duplicates]) => {
-        setItems(row.items)
-        setTodo(row.todo)
-        setDuplicateGroups(duplicates.items)
-        setDuplicateTotal(duplicates.total)
+        const duplicateItems = safeDuplicateItems(duplicates)
+        setItems(Array.isArray(row.items) ? row.items : [])
+        setTodo(Array.isArray(row.todo) ? row.todo : [])
+        setDuplicateGroups(duplicateItems)
+        setDuplicateTotal(safeDuplicateTotal(duplicates, duplicateItems))
       })
       .catch((e: Error) => setError(e.message)).finally(() => setLoading(false))
   }, [params])
@@ -138,12 +150,13 @@ export const AdminQualityPage = () => {
       {duplicateTotal === 0 ? <p className="admin-muted">Активных дублей по выбранному городу нет.</p> : <table className="admin-table">
         <thead><tr><th>Город</th><th>Название</th><th>Места</th><th>Открыть</th><th>Действия</th></tr></thead>
         <tbody>{duplicateGroups.map((group) => {
+          const places = Array.isArray(group.places) ? group.places : []
           const actionKey = (actionType: string) => `${actionType}:${group.group_key}`
           return <tr key={group.group_key}>
             <td>{group.city_name ?? group.city_slug ?? '—'}</td>
             <td>{duplicateTitle(group)}<br /><span className="admin-muted">issues: {group.issues_count}</span></td>
-            <td>{group.places.map((place) => place.title).join(' · ')}</td>
-            <td>{group.places.map((place) => <Link key={place.id} className="admin-btn admin-btn-sm" to={`/admin/places/${place.id}`}>#{place.id}</Link>)}</td>
+            <td>{places.map((place) => place.title).join(' · ')}</td>
+            <td>{places.map((place) => <Link key={place.id} className="admin-btn admin-btn-sm" to={`/admin/places/${place.id}`}>#{place.id}</Link>)}</td>
             <td>
               <button type="button" className="admin-btn admin-btn-sm" disabled={actionLoading !== null} onClick={() => void applyDuplicateAction(group, 'propose_duplicate_review')}>
                 {actionLoading === actionKey('propose_duplicate_review') ? 'Ставлю...' : 'В проверку'}
