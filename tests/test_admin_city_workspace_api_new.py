@@ -62,7 +62,8 @@ def test_admin_city_workspace_returns_city_import_readiness_and_coverage(
     payload = response.json()
     assert payload["city"]["slug"] == "workspace-city"
     assert payload["city"]["can_publish"] is True
-    assert payload["readiness"]["readiness_score"] == 72
+    assert payload["readiness"]["readiness_score"] == 40
+    assert payload["readiness"]["stored_readiness_score"] == 72
     assert payload["readiness"]["status"] == "needs_review"
     assert payload["import_job"]["status"] == "success_with_warnings"
     assert payload["import_job"]["places_found"] == 9
