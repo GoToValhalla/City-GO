@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet } from './adminApi'
-import type { QualityCity } from './adminPlatformTypes'
+import type { DuplicateGroup, DuplicateGroupsResponse, QualityCity } from './adminPlatformTypes'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 
 const BLOCKER_LABELS: Record<string, string> = {
@@ -30,16 +30,36 @@ const blockerLine = (item: QualityCity) => [
   .map(([key, value]) => `${BLOCKER_LABELS[String(key)] ?? key}: ${value}`)
   .join(' · ')
 
+const duplicateTitle = (group: DuplicateGroup) => group.title || group.normalized_title || 'Без названия'
+
+const duplicateQuery = (params: URLSearchParams) => {
+  const next = new URLSearchParams()
+  const citySlug = params.get('city_slug')
+  if (citySlug) next.set('city_slug', citySlug)
+  next.set('limit', '5')
+  return next.toString()
+}
+
 export const AdminQualityPage = () => {
   const [params, setParams] = useSearchParams()
   const [items, setItems] = useState<QualityCity[]>([])
   const [todo, setTodo] = useState<string[]>([])
+  const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([])
+  const [duplicateTotal, setDuplicateTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const load = useCallback(() => {
     setLoading(true); setError(null)
-    adminGet<{ items: QualityCity[]; todo: string[] }>(`/admin/quality?${params}`)
-      .then((row) => { setItems(row.items); setTodo(row.todo) })
+    Promise.all([
+      adminGet<{ items: QualityCity[]; todo: string[] }>(`/admin/quality?${params}`),
+      adminGet<DuplicateGroupsResponse>(`/admin/data-quality/duplicates?${duplicateQuery(params)}`),
+    ])
+      .then(([row, duplicates]) => {
+        setItems(row.items)
+        setTodo(row.todo)
+        setDuplicateGroups(duplicates.items)
+        setDuplicateTotal(duplicates.total)
+      })
       .catch((e: Error) => setError(e.message)).finally(() => setLoading(false))
   }, [params])
   useEffect(() => { void Promise.resolve().then(load) }, [load])
@@ -68,6 +88,22 @@ export const AdminQualityPage = () => {
         {details && <span className="admin-muted">{details}</span>}
       </Link>
     })}</div>}
+    {!loading && !error && <section className="admin-card">
+      <strong>Возможные дубли</strong>
+      <p className="admin-muted">Группы с одинаковым названием рядом. Система только показывает кандидатов, merge/delete выполняется вручную после проверки.</p>
+      {duplicateTotal === 0 ? <p className="admin-muted">Активных дублей по выбранному городу нет.</p> : <table className="admin-table">
+        <thead><tr><th>Город</th><th>Название</th><th>Места</th><th>Открыть</th></tr></thead>
+        <tbody>{duplicateGroups.map((group) => (
+          <tr key={group.group_key}>
+            <td>{group.city_name ?? group.city_slug ?? '—'}</td>
+            <td>{duplicateTitle(group)}</td>
+            <td>{group.places.map((place) => place.title).join(' · ')}</td>
+            <td>{group.places.map((place) => <Link key={place.id} className="admin-btn admin-btn-sm" to={`/admin/places/${place.id}`}>#{place.id}</Link>)}</td>
+          </tr>
+        ))}</tbody>
+      </table>}
+      {duplicateTotal > duplicateGroups.length && <p className="admin-muted">Показаны первые {duplicateGroups.length} из {duplicateTotal}. Уточните город, чтобы разобрать очередь.</p>}
+    </section>}
     <section className="admin-help-panel"><strong>Следующий этап</strong><ul>{todo.map((text) => <li key={text}>{text}</li>)}</ul></section>
   </div>
 }
