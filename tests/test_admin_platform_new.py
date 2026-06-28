@@ -68,6 +68,31 @@ def test_quality_score_ignores_stoplist_places_in_manual_review_universe_new(cli
     assert row["primary_blocker"] is None
 
 
+def test_quality_manual_review_total_counts_distinct_places_new(client, db_session, city_factory, place_factory):
+    city = city_factory(slug="manual-distinct-quality-city", name="Manual Distinct")
+    place_factory(
+        city_id=city.id,
+        category="museum",
+        image_url=None,
+        address=None,
+    )
+    place_factory(
+        city_id=city.id,
+        category="museum",
+        image_url="https://example.com/ready.jpg",
+        address="Ready street 1",
+    )
+    db_session.commit()
+
+    row = client.get(f"/admin/quality?city_slug={city.slug}").json()["items"][0]
+
+    assert row["review_universe_total"] == 2
+    assert row["manual_review_total"] == 1
+    assert row["manual_review_total"] <= row["review_universe_total"]
+    assert row["blockers"]["no_photo"] == 1
+    assert row["blockers"]["no_address"] == 1
+
+
 def test_alert_lifecycle_is_idempotent_new(client, db_session):
     log = SystemLog(level="error", module="import", message="boom", request_id="req-1")
     db_session.add(log)
