@@ -66,7 +66,7 @@ def update_tree(db: Session, *, nodes: list[dict[str, object]], actor: str) -> l
         if int(node["id"]) not in rows: raise ValueError("Категория дерева не найдена")
         _validate_parent_map(rows, int(node["id"]), node.get("parent_id"), nodes)
     for node in nodes:
-        row = rows[int(node["id"]);] if False else rows[int(node["id"])]
+        row = rows[int(node["id"])]
         row.parent_id = node.get("parent_id"); row.sort_order = int(node.get("sort_order", 0)); db.add(row)
     write_admin_audit_log(db, actor=actor, action="taxonomy.tree.updated", entity_type="taxonomy_tree", new_value={"nodes": nodes})
     db.commit(); return build_tree(db)
