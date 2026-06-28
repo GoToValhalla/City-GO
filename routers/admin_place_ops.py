@@ -35,9 +35,9 @@ from services.system_log_service import list_system_logs
 
 router = APIRouter(prefix="/admin", tags=["admin-place-ops"])
 
-GITHUB_REPO = os.getenv("GITHUB_DEPLOY_REPO", "GoToValhalla/app")
-GITHUB_WORKFLOW = os.getenv("GITHUB_DEPLOY_WORKFLOW", "ci.yml")
-GITHUB_BRANCH = os.getenv("GITHUB_DEPLOY_BRANCH", "master")
+GITHUB_REPO = os.getenv("GITHUB_DEPLOY_REPO", "GoToValhalla/City-GO")
+GITHUB_WORKFLOW = os.getenv("GITHUB_DEPLOY_WORKFLOW", "deploy.yml")
+GITHUB_BRANCH = os.getenv("GITHUB_DEPLOY_BRANCH", "main")
 GITHUB_TOKEN_ENV_KEYS = ("GITHUB_DEPLOY_TOKEN", "GITHUB_WORKFLOW_TOKEN", "GITHUB_TOKEN")
 
 
@@ -148,8 +148,8 @@ def deployment_status(auth: AdminContext = Depends(admin_required)):
         "branch": GITHUB_BRANCH,
         "token_configured": token_key is not None,
         "token_env_key": token_key,
-        "action": "run_ci_workflow",
-        "deploy_note": "Сейчас кнопка запускает GitHub Actions CI. Для реального деплоя нужен отдельный deploy workflow.",
+        "action": "run_deploy_workflow",
+        "deploy_note": "Кнопка запускает Production Deploy workflow для City-GO/main.",
     }
 
 
@@ -162,7 +162,7 @@ def run_ci_workflow(body: dict[str, object], auth: AdminContext = Depends(admin_
     if not token:
         raise HTTPException(503, "Не настроен GITHUB_DEPLOY_TOKEN или GITHUB_WORKFLOW_TOKEN")
 
-    payload = json.dumps({"ref": GITHUB_BRANCH}).encode("utf-8")
+    payload = _workflow_dispatch_payload()
     url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{GITHUB_WORKFLOW}/dispatches"
     request = Request(
         url,
@@ -193,6 +193,13 @@ def run_ci_workflow(body: dict[str, object], auth: AdminContext = Depends(admin_
         "workflow": GITHUB_WORKFLOW,
         "branch": GITHUB_BRANCH,
     }
+
+
+def _workflow_dispatch_payload() -> bytes:
+    payload: dict[str, object] = {"ref": GITHUB_BRANCH}
+    if GITHUB_WORKFLOW == "deploy.yml":
+        payload["inputs"] = {"deploy_ref": GITHUB_BRANCH}
+    return json.dumps(payload).encode("utf-8")
 
 
 def _github_token() -> str | None:
