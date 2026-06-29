@@ -14,7 +14,6 @@ def test_admin_quality_degrades_when_critical_coverage_fails(client, place_facto
     place_factory(
         title="Broken Coverage Museum",
         category="museum",
-        canonical_category="museum",
         is_route_eligible=True,
         image_url=None,
         address=None,
