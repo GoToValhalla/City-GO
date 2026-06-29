@@ -1,4 +1,4 @@
-name: City OSM Import
+name: Import Astrakhan OSM
 
 on:
   workflow_dispatch:
@@ -7,16 +7,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: city-import-kutaisi-status
+  group: city-import-astrakhan
   cancel-in-progress: false
 
 jobs:
   import:
-    name: Check Kutaisi import status
+    name: Queue Astrakhan import
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      CITY_SLUG: kutaisi
+      CITY_SLUG: astrakhan
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,164 +29,87 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
           set -euo pipefail
-          mkdir -p ~/.ssh /tmp/city-go-import
+          mkdir -p ~/.ssh
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 2)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 2)
           echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/tmp/city-go-import/ssh-keyscan.log || true
+          ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Check import status through admin API
+      - name: Queue import and build compact report
         shell: bash
         env:
-          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
-          DEPLOY_USER: ${{ secrets.SSH_USER }}
-          DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
           ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
         run: |
           set -euo pipefail
-          {
-            echo "city_slug=$CITY_SLUG"
-            echo "mode=check_import_status"
-            echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          } > /tmp/city-go-import/import.log
-          set +e
-          ssh \
-            -o ConnectTimeout=20 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=4 \
-            -o StrictHostKeyChecking=accept-new \
-            -i ~/.ssh/deploy_key \
-            -p "$DEPLOY_PORT" \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
-            "CITY_SLUG='$CITY_SLUG' ADMIN_API_TOKEN='$ADMIN_API_TOKEN' bash -s" <<'REMOTE' 2>&1 | tee -a /tmp/city-go-import/import.log
-          set -euo pipefail
-          BASE_URL="http://localhost:8000"
-          echo "remote_host=$(hostname)"
-          echo "remote_started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          echo "backend_ready_start"
-          curl -fsS "$BASE_URL/ready"
-          echo
-          echo "backend_ready_end"
-          cd /srv/app
-          echo "find_city_start"
-          workspace_json="$(curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/cities/by-slug/$CITY_SLUG/workspace")"
-          city_id="$(printf '%s' "$workspace_json" | sed -n 's/.*"city"[[:space:]]*:[[:space:]]*{[^}]*"id"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
-          if [ -z "$city_id" ]; then
-            echo "City id not found in workspace payload for: $CITY_SLUG" >&2
-            printf '%s\n' "$workspace_json" | head -c 500 >&2 || true
-            echo >&2
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 2)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 2)
+          test -n "$ADMIN_API_TOKEN" || (echo "ADMIN_API_TOKEN secret is missing" >&2; exit 2)
+
+          ssh_base=(ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST")
+          remote_token=$(printf '%q' "$ADMIN_API_TOKEN")
+          remote_city_slug=$(printf '%q' "$CITY_SLUG")
+
+          echo "Checking backend readiness"
+          "${ssh_base[@]}" "curl -fsS --max-time 15 http://localhost:8000/ready >/dev/null"
+
+          echo "Resolving city_id for ${CITY_SLUG}"
+          "${ssh_base[@]}" "ADMIN_API_TOKEN=$remote_token CITY_SLUG=$remote_city_slug bash -seu -o pipefail" <<'REMOTE' > workspace.json
+          curl -fsS --max-time 20 -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+            "http://localhost:8000/admin/cities/by-slug/${CITY_SLUG}/workspace"
+          REMOTE
+          CITY_ID="$(jq -r '.city.id // .city_id // empty' workspace.json)"
+          if [ -z "$CITY_ID" ] || [ "$CITY_ID" = "null" ]; then
+            echo "City not found or city_id missing for ${CITY_SLUG}" >&2
             exit 2
           fi
-          echo "city_id=$city_id"
-          echo "find_city_end"
-          echo "import_job_status_start"
-          job_json="$(curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/$city_id")"
-          printf '%s' "$job_json" | docker compose exec -T backend python -c '
-          import json
-          import sys
+          remote_city_id=$(printf '%q' "$CITY_ID")
+          echo "City resolved"
 
-          payload = json.load(sys.stdin)
-          details = payload.get("step_details") or {}
-          diff = details.get("import_diff") or details.get("import_summary") or {}
-          warnings = details.get("warnings") or []
-          changed_ids = details.get("changed_place_ids") or []
+          echo "Queueing import job"
+          run_status="$("${ssh_base[@]}" "ADMIN_API_TOKEN=$remote_token CITY_ID=$remote_city_id bash -seu -o pipefail" <<'REMOTE'
+          curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST \
+            -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+            "http://localhost:8000/admin/import-jobs/${CITY_ID}/run" || true
+          REMOTE
+          )"
+          echo "Run request status=${run_status}"
+          case "$run_status" in
+            2??) echo "Import job queued" ;;
+            409) echo "Import job is already active or reviewable; reading current status" ;;
+            *) echo "Import job request failed with status=${run_status}" >&2; exit 1 ;;
+          esac
 
-          fields = {
-              "job_status": payload.get("status"),
-              "current_step": payload.get("current_step"),
-              "launch_status": payload.get("launch_status"),
-              "city_active": payload.get("is_city_active"),
-              "places_total": payload.get("places_total"),
-              "places_published": payload.get("places_published"),
-              "places_unpublished": payload.get("places_unpublished"),
-              "readiness_score": details.get("readiness_score"),
-              "created": diff.get("created"),
-              "updated": diff.get("updated"),
-              "unchanged": diff.get("unchanged"),
-              "rejected": diff.get("rejected"),
-              "hidden": diff.get("hidden"),
-              "needs_review": diff.get("needs_review"),
-              "places_found": diff.get("places_found"),
-              "places_saved": diff.get("places_saved"),
-              "scopes_total": diff.get("scopes_total") or payload.get("scopes_total"),
-              "scopes_succeeded": diff.get("scopes_succeeded") or payload.get("scopes_succeeded"),
-              "meaningful_changes": diff.get("meaningful_changes"),
-              "missing_from_source": diff.get("missing_from_source"),
-              "changed_place_ids_count": len(changed_ids),
-              "failed_items": payload.get("failed_items"),
-              "last_error": payload.get("last_error") or diff.get("last_error"),
-          }
-          for key, value in fields.items():
-              print(f"{key}={value if value is not None else ''}")
-          print(f"warnings_count={len(warnings)}")
-          for index, warning in enumerate(warnings, 1):
-              step = warning.get("step") if isinstance(warning, dict) else "warning"
-              error = warning.get("error") if isinstance(warning, dict) else str(warning)
-              print(f"warning_{index}_step={step}")
-              print(f"warning_{index}_error={error}")
-          ' | tee /tmp/city-go-import-summary.txt
-          cat /tmp/city-go-import-summary.txt
-          echo "import_job_status_end"
-          job_status="$(sed -n 's/^job_status=//p' /tmp/city-go-import-summary.txt | head -n 1)"
-          current_step="$(sed -n 's/^current_step=//p' /tmp/city-go-import-summary.txt | head -n 1)"
-          launch_status="$(sed -n 's/^launch_status=//p' /tmp/city-go-import-summary.txt | head -n 1)"
+          "${ssh_base[@]}" "ADMIN_API_TOKEN=$remote_token CITY_ID=$remote_city_id bash -seu -o pipefail" <<'REMOTE' > import-status.json
+          curl -fsS --max-time 20 -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+            "http://localhost:8000/admin/import-jobs/${CITY_ID}"
+          REMOTE
+          python3 scripts/build_import_status_summary.py < import-status.json | tee import-status-summary.env
+
+          job_status="$(sed -n 's/^job_status=//p' import-status-summary.env | head -n 1)"
+          current_step="$(sed -n 's/^current_step=//p' import-status-summary.env | head -n 1)"
+          launch_status="$(sed -n 's/^launch_status=//p' import-status-summary.env | head -n 1)"
           case "$job_status:$current_step:$launch_status" in
-            queued:*:*|running:*:*|*:ready_for_review:*|partial_success:*:*|success:*:*|success_with_warnings:*:*|*:*:published|*:*:review_required)
-              echo "import_status_ok"
+            queued:*:*|running:*:*|success:*:*|success_with_warnings:*:*|partial_success:*:*|*:ready_for_review:*|*:review_required:*|*:*:published|*:*:review_required)
+              echo "Import status accepted"
               ;;
             *)
-              echo "Import status is not actionable: status=$job_status current_step=$current_step launch_status=$launch_status" >&2
+              echo "Invalid import status: job_status=$job_status current_step=$current_step launch_status=$launch_status" >&2
               exit 1
               ;;
           esac
-          echo "queue_summary_start"
-          curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/queue"
-          echo
-          echo "queue_summary_end"
-          REMOTE
-          status=${PIPESTATUS[0]}
-          set -e
-          echo "exit_code=$status" | tee -a /tmp/city-go-import/import.log
-          echo "finished_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" | tee -a /tmp/city-go-import/import.log
-          if ! grep -q "import_status_ok" /tmp/city-go-import/import.log; then
-            echo "Import status check failed; see artifact log" >&2
-            exit 1
-          fi
-          if [ "$status" -ne 0 ]; then
-            echo "Import status check failed with exit code $status" >&2
-            exit "$status"
-          fi
 
-      - name: Build import notification
-        if: always()
-        shell: bash
-        env:
-          JOB_STATUS: ${{ job.status }}
-          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          ICON="✅"
-          STATUS_TEXT="статус импорта прочитан"
-          if [ "$JOB_STATUS" != "success" ]; then ICON="❌"; STATUS_TEXT="статус импорта требует проверки"; fi
-          {
-            echo "$ICON CITY GO · IMPORT STATUS"
-            echo "Статус: $STATUS_TEXT"
-            echo "Город: kutaisi"
-            echo "Проверить лог: $RUN_URL"
-          } > /tmp/city-go-import/import-notification.txt
-
-      - name: Send Telegram notification
-        if: always()
-        shell: bash
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scripts/send_telegram_notification.py --text-file /tmp/city-go-import/import-notification.txt
-
-      - name: Upload import log
+      - name: Upload import artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: city-import-status-log
-          path: /tmp/city-go-import
+          name: astrakhan-import-status
+          path: |
+            import-status.json
+            import-status-summary.env
           if-no-files-found: ignore
           retention-days: 14

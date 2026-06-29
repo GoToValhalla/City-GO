@@ -27,6 +27,31 @@ Seed-пакеты по умолчанию:
 .venv/bin/python scripts/check_place_coverage_gate.py zelenogradsk
 ```
 
+## One-click OSM Import
+
+Ручной OSM-импорт Астрахани запускается через GitHub Actions workflow
+`Import Astrakhan OSM`.
+
+Workflow не запускает importer напрямую в backend container. Он через production
+host проверяет `/ready`, находит город через
+`/admin/cities/by-slug/astrakhan/workspace`, ставит существующую
+`/admin/import-jobs/{city_id}/run` в очередь и читает
+`/admin/import-jobs/{city_id}`.
+
+Компактный отчёт строится на GitHub runner командой:
+
+```bash
+python3 scripts/build_import_status_summary.py < import-status.json
+```
+
+В логах нужно смотреть:
+
+- `Run request status`: `2xx` означает, что задача поставлена в очередь; `409`
+  означает, что задача уже активна, готова к проверке или завершена.
+- `job_status`, `current_step`, `launch_status`.
+- `created`, `updated`, `rejected`, `hidden`, `needs_review`,
+  `changed_place_ids_count`, `warnings_count`.
+
 ## Image Refresh
 
 Локальный refresh без live network:
