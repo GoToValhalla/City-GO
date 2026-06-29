@@ -4,6 +4,7 @@ import { haversineMeters } from '../../features/route-navigation/model/geo'
 import { evaluateRouteQuality } from '../../features/route-navigation/model/qualityGate'
 import { routeNavigationReducer } from '../../features/route-navigation/model/state'
 import type { RouteNavigationEvent } from '../../features/route-navigation/model/types'
+import type { ExternalNavigationBlock } from '../../features/route-navigation/model/externalNavigation'
 import { useRouteGeolocation } from '../../features/route-navigation/model/useRouteGeolocation'
 import { clearNavigationState, restoreNavigationState, saveNavigationState } from '../../features/route-navigation/model/storage'
 import { RouteExternalNavigationCard } from './RouteExternalNavigationCard'
@@ -16,12 +17,16 @@ type Props = {
   route: RouteDetail
 }
 
+type RouteWithNavigation = RouteDetail & {
+  navigation?: ExternalNavigationBlock | null
+}
+
 export const RouteNavigationView = ({ route }: Props) => {
   const quality = useMemo(() => evaluateRouteQuality(route.points), [route.points])
   const [state, setState] = useState(() => restoreNavigationState(route.id, quality.validPoints))
   const geolocation = useRouteGeolocation()
   const stopGeolocation = geolocation.stop
-  const navigation = (route as any).navigation ?? null
+  const navigation = (route as RouteWithNavigation).navigation ?? null
 
   useEffect(() => {
     if (state.status === 'not_started' && state.visitedPointIds.length === 0 && state.currentPointIndex === 0) return
