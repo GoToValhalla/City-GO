@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from schemas.external_navigation import ExternalNavigationBlock, ExternalNavigationEventRequest
+
 RouteSessionStatus = Literal["active", "paused", "completed", "abandoned"]
 RouteSessionPointAction = Literal["visit", "skip"]
 
@@ -47,6 +49,7 @@ class RouteSessionRead(BaseModel):
     paused_at: datetime | None = None
     completed_at: datetime | None = None
     points: list[RouteSessionPointRead] = []
+    navigation: ExternalNavigationBlock | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -59,3 +62,11 @@ class RouteSessionCompleteResponse(BaseModel):
     skipped_points: int
     total_points: int
     completed_at: datetime
+
+
+class RouteSessionNavigationEventRequest(ExternalNavigationEventRequest):
+    pass
+
+
+class RouteSessionNavigationEventResponse(BaseModel):
+    recorded: bool = True
