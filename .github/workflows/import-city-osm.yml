@@ -109,16 +109,20 @@ jobs:
           docker compose ps backend || true
           echo "backend_status_end"
           echo "script_probe_start"
-          docker compose exec -T backend sh -lc 'pwd; python --version; test -f data/scripts/import_city_osm_v2.py && echo import_script_ok || echo import_script_missing'
+          docker compose exec -T backend sh -lc 'pwd; python --version; test -f data/scripts/import_city_osm_v2.py && echo import_script_ok || echo import_script_missing' </dev/null
           echo "script_probe_end"
           echo "import_command_start"
-          docker compose exec -T backend python data/scripts/import_city_osm_v2.py --city "$CITY" --scope "$SCOPE" --profile "$PROFILE" $FLAG
+          docker compose exec -T backend python data/scripts/import_city_osm_v2.py --city "$CITY" --scope "$SCOPE" --profile "$PROFILE" $FLAG </dev/null
           echo "import_command_end"
           REMOTE
           status=${PIPESTATUS[0]}
           set -e
           echo "exit_code=$status" | tee -a /tmp/city-go-import/import.log
           echo "finished_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" | tee -a /tmp/city-go-import/import.log
+          if ! grep -q "import_command_end" /tmp/city-go-import/import.log; then
+            echo "Import command did not complete; see artifact log" >&2
+            exit 1
+          fi
           if [ "$status" -ne 0 ]; then
             echo "Import failed with exit code $status" >&2
             exit "$status"
