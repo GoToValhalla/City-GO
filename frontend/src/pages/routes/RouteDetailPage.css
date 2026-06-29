@@ -228,14 +228,27 @@
   background: var(--cg-bg-muted);
 }
 
-.route-nav-actions {
+.route-nav-actions,
+.route-nav-provider-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
+.route-nav-provider-grid + .route-nav-provider-grid {
+  margin-top: -4px;
+}
+
 .route-nav-actions .muted:last-child {
   grid-column: 1 / -1;
+}
+
+.route-nav-external {
+  border-color: rgba(124, 77, 255, 0.36);
+}
+
+.route-nav-external h2 {
+  font-size: 18px;
 }
 
 .route-nav-gps {
@@ -350,8 +363,13 @@
     justify-content: stretch;
   }
 
-  .route-nav-map-controls button {
+  .route-nav-map-controls button,
+  .route-nav-provider-grid button {
     flex: 1 1 auto;
+  }
+
+  .route-nav-provider-grid {
+    grid-template-columns: 1fr;
   }
 
   .route-nav-map svg {
