@@ -386,21 +386,24 @@ def _enqueue_if_stale(db: Session, state: tuple[int, int], place: Place) -> tupl
 
 
 def _has_pending_task(db: Session, place_id: int) -> bool:
-    return db.query(PlaceVerificationTask).filter(PlaceVerificationTask.place_id == place_id, PlaceVerificationTask.status == "pending").first() is not None
+    return (
+        db.query(PlaceVerificationTask)
+        .filter(PlaceVerificationTask.place_id == place_id, PlaceVerificationTask.status == "pending")
+        .first()
+        is not None
+    )
 
 
 def _priority(place: Place) -> int:
-    score = int(place.existence_confidence_score or 0)
-    return max(1, 100 - score)
+    category = str(getattr(place, "category", "") or "")
+    return 10 if category in {"restaurant", "cafe", "coffee", "bar", "food"} else 5
 
 
-def _distance_meters(lat1: float | None, lng1: float | None, lat2: float | None, lng2: float | None) -> int | None:
-    if None in (lat1, lng1, lat2, lng2):
-        return None
+def _distance_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     radius = 6371000
-    phi1 = math.radians(float(lat1))
-    phi2 = math.radians(float(lat2))
-    dphi = math.radians(float(lat2) - float(lat1))
-    dlambda = math.radians(float(lng2) - float(lng1))
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-    return int(radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lam = math.radians(lng2 - lng1)
+    value = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lam / 2) ** 2
+    return round(radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value)), 2)
