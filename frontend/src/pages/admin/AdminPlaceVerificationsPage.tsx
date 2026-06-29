@@ -136,7 +136,7 @@ export const AdminPlaceVerificationsPage = () => {
     <section className="admin-section">
       {summaryLoading && !stats && !summaryError && <AdminLoading message="Загрузка сводки проверки…" />}
       {summaryError && <AdminSectionError title="Не удалось загрузить сводку проверки мест" message={summaryError} onRetry={() => void loadSummary(++requestSequence.current)} />}
-      {stats && <div className="admin-metrics-grid admin-metrics-small">{metric(stats.needs_recheck, 'Ручная очередь', { status: 'needs_recheck' })}{metric(stats.verified_today, 'Проверено сегодня', { status: 'verified' })}{metric(stats.unverified, 'Не проверено авто', { status: 'unverified' }, 'Автоматизировать →')}{metric(stats.low_confidence, 'Низкая уверенность', { status: 'unverified' }, 'Не разбирать руками')}</div>}
+      {stats && <div className="admin-metrics-grid admin-metrics-small">{metric(stats.needs_recheck, 'В очереди', { status: 'needs_recheck' })}{metric(stats.verified_today, 'Проверено сегодня', { status: 'verified' })}{metric(stats.unverified, 'Не проверено авто', { status: 'unverified' }, 'Автоматизировать →')}{metric(stats.low_confidence, 'Низкая уверенность', { status: 'unverified' }, 'Не разбирать руками')}</div>}
     </section>
     <section className="admin-filter-card">
       <div className="admin-help-title">Фильтры проверки</div>
