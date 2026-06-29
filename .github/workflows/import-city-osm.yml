@@ -12,9 +12,9 @@ on:
         required: true
         default: tourist_core
       profile:
-        description: Import profile, for example tourist_core
+        description: Import profile, for example tourist_core_strict
         required: true
-        default: tourist_core
+        default: tourist_core_strict
       mode:
         description: dry-run or apply
         required: true
