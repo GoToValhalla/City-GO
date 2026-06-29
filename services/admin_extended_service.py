@@ -33,14 +33,6 @@ PUBLISHABLE_CITY_STATUSES = {
     "unpublished",
 }
 
-IMPORT_JOB_LIST_CITY_STATUSES = (
-    "importing",
-    "imported",
-    "review_required",
-    "import_failed",
-    "published",
-)
-
 CityCounters = dict[str, int]
 
 
@@ -94,14 +86,20 @@ def _city_payload(
 
 def get_admin_import_jobs(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, object]], int]:
     _mark_stalled_imports_before_read(db)
-    query = db.query(City).filter(City.launch_status.in_(IMPORT_JOB_LIST_CITY_STATUSES)).order_by(City.updated_at.desc())
+    query = db.query(City).filter(
+        City.launch_status.in_(("importing", "imported", "review_required", "import_failed", "published"))
+    ).order_by(City.updated_at.desc())
     total = query.count()
     cities = query.offset(offset).limit(limit).all()
     return [_import_job_payload(db, city) for city in cities], total
 
 
 def list_admin_import_jobs(db: Session, *, limit: int = 50, offset: int = 0) -> dict[str, object]:
-    """Compatibility wrapper for routers/admin_import_jobs.py."""
+    """Compatibility wrapper for routers/admin_import_jobs.py.
+
+    Старый сервис возвращает tuple(items, total), а роутер enrich-all ожидает dict с ключами
+    items/total. Отсутствие этой функции ломало импорт backend на старте uvicorn.
+    """
     items, total = get_admin_import_jobs(db, limit=limit, offset=offset)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
@@ -220,76 +218,121 @@ def _latest_import_jobs(db: Session, city_ids: list[int]) -> dict[int, CityAdmin
     )
     jobs: dict[int, CityAdminImportJob] = {}
     for job in rows:
-        jobs[job.city_id] = job
+        jobs.setdefault(int(job.city_id), job)
     return jobs
 
 
 def _can_publish_city(city: City, places_total: int) -> bool:
-    return places_total > 0 and city.launch_status in PUBLISHABLE_CITY_STATUSES
+    return places_total > 0 and city.launch_status in PUBLISHABLE_CITY_STATUSES and not city.is_active
 
 
 def _can_unpublish_city(city: City) -> bool:
-    return city.launch_status == "published" and city.is_active
+    return city.launch_status == "published" and bool(city.is_active)
 
 
-def create_route_from_places(
-    db: Session,
-    city_id: int,
-    title: str,
-    place_ids: list[int],
-    actor: str = "admin",
-) -> Route:
-    if len(place_ids) < 2:
-        raise ValueError("Для маршрута нужно минимум две точки")
-    places = db.query(Place).filter(Place.city_id == city_id, Place.id.in_(place_ids)).all()
-    if len(places) != len(set(place_ids)):
-        raise ValueError("Не все места найдены в выбранном городе")
-    route = Route(city_id=city_id, title=title, status="draft")
+def create_admin_route(db: Session, payload: AdminRouteCreateRequest, *, actor: str = "admin") -> Route:
+    route = Route(
+        city_id=payload.city_id,
+        slug=payload.slug,
+        title=payload.title,
+        short_description=payload.short_description,
+        duration_minutes=payload.duration_minutes,
+        distance_km=payload.distance_km,
+        route_mode=payload.route_mode,
+        is_active=payload.is_active,
+    )
     db.add(route)
     db.flush()
-    by_id = {place.id: place for place in places}
-    for idx, place_id in enumerate(place_ids):
-        db.add(RoutePlace(route_id=route.id, place_id=place_id, order_index=idx, visit_duration_min=by_id[place_id].visit_duration_min or 20))
-    write_admin_audit_log(db, actor=actor, action="route_created_from_places", entity_type="route", entity_id=str(route.id), new_value={"place_ids": place_ids})
+    # payload.actor игнорируется — используем actor из auth context (P0-3)
+    write_admin_audit_log(
+        db,
+        actor=actor,
+        action="create_route",
+        entity_type="route",
+        entity_id=route.id,
+        new_value={"title": route.title, "is_active": route.is_active},
+    )
     db.commit()
     db.refresh(route)
     return route
 
 
-def update_route(
-    db: Session,
-    route_id: int,
-    payload: AdminRouteUpdateRequest,
-    actor: str = "admin",
-) -> Route | None:
+def update_admin_route(db: Session, route_id: int, payload: AdminRouteUpdateRequest, *, actor: str = "admin") -> Route | None:
     route = get_route_by_id(db, route_id)
     if route is None:
         return None
-    old_value = {"title": route.title, "status": route.status, "duration_min": route.duration_min}
-    for field, value in payload.model_dump(exclude_unset=True).items():
-        setattr(route, field, value)
-    write_admin_audit_log(db, actor=actor, action="route_updated", entity_type="route", entity_id=str(route.id), old_value=old_value, new_value=payload.model_dump(exclude_unset=True))
+    old_value = {"title": route.title, "is_active": route.is_active, "route_mode": route.route_mode}
+    for field in ("slug", "title", "short_description", "duration_minutes", "distance_km", "route_mode", "is_active"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(route, field, value)
+    # payload.actor игнорируется — используем actor из auth context (P0-3)
+    write_admin_audit_log(
+        db,
+        actor=actor,
+        action="update_route",
+        entity_type="route",
+        entity_id=route.id,
+        old_value=old_value,
+        new_value={"title": route.title, "is_active": route.is_active, "route_mode": route.route_mode},
+    )
     db.commit()
     db.refresh(route)
     return route
 
 
-def replace_route_points(
-    db: Session,
-    route_id: int,
-    payload: AdminRoutePointsUpdateRequest,
-    actor: str = "admin",
-) -> Route | None:
+def replace_admin_route_points(db: Session, route_id: int, payload: AdminRoutePointsUpdateRequest, *, actor: str = "admin") -> Route | None:
     route = get_route_by_id(db, route_id)
     if route is None:
         return None
-    db.query(RoutePlace).filter(RoutePlace.route_id == route_id).delete()
-    for idx, item in enumerate(payload.places):
-        place = get_place_by_id(db, item.place_id)
-        if place is None:
-            raise ValueError(f"Место {item.place_id} не найдено")
-        db.add(RoutePlace(route_id=route_id, place_id=item.place_id, order_index=idx, visit_duration_min=item.visit_duration_min))
-    write_admin_audit_log(db, actor=actor, action="route_points_replaced", entity_type="route", entity_id=str(route_id), new_value=payload.model_dump())
+    old_value = {"points": [{"place_id": item.place_id, "position": item.position} for item in route.route_places]}
+    for current_point in list(route.route_places):
+        db.delete(current_point)
+    for point in sorted(payload.points, key=lambda item: item.position):
+        db.add(RoutePlace(route_id=route_id, place_id=point.place_id, position=point.position))
+    # payload.actor игнорируется — используем actor из auth context (P0-3)
+    write_admin_audit_log(
+        db,
+        actor=actor,
+        action="replace_route_points",
+        entity_type="route",
+        entity_id=route_id,
+        old_value=old_value,
+        new_value={"points": [item.model_dump() for item in payload.points]},
+        reason=payload.reason,
+    )
     db.commit()
-    db.refresh(route)
-    return route
+    return get_route_by_id(db, route_id)
+
+
+def create_admin_place_image(db: Session, payload: AdminPlaceImageCreateRequest, *, actor: str = "admin") -> PlaceImage | None:
+    place = get_place_by_id(db, payload.place_id)
+    if place is None:
+        return None
+    image = PlaceImage(
+        place_id=payload.place_id,
+        image_url=payload.image_url,
+        thumbnail_url=payload.thumbnail_url,
+        source_type=payload.source_type,
+        source_url=payload.source_url,
+        attribution=payload.attribution,
+        license=payload.license,
+        confidence=payload.confidence,
+        status=PLACE_IMAGE_STATUS_NEEDS_REVIEW,
+        review_comment=payload.comment,
+    )
+    db.add(image)
+    db.flush()
+    # payload.actor игнорируется — используем actor из auth context (P0-3)
+    write_admin_audit_log(
+        db,
+        actor=actor,
+        action="create_place_image",
+        entity_type="place_image",
+        entity_id=image.id,
+        new_value={"place_id": image.place_id, "image_url": image.image_url, "status": image.status},
+        reason=payload.comment,
+    )
+    db.commit()
+    db.refresh(image)
+    return image
