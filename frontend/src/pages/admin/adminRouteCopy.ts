@@ -10,6 +10,8 @@ const REASON_LABELS: Record<string, string> = {
   unpublished_place: 'Место не опубликовано.',
   place_not_visible_in_catalog: 'Место скрыто в каталоге.',
   hidden_place: 'Место скрыто в каталоге.',
+  hidden_category: 'Категория скрыта для маршрутов.',
+  draft_or_unpublished: 'Место в черновике или не опубликовано.',
   route_eligible_false: 'Место не подтверждено для маршрутов.',
   not_selected_lower_score: 'Не выбрано: ниже приоритет или не влезло в лимит маршрута.',
   not_selected_route_limit: 'Не выбрано: маршрут уже набран из более подходящих точек.',
@@ -17,6 +19,7 @@ const REASON_LABELS: Record<string, string> = {
   placeholder_title: 'Название создано автоматически. Нужно проверить реальное место.',
   place_inactive: 'Место выключено.',
   inactive_place: 'Место выключено.',
+  inactive: 'Место выключено.',
   place_status_not_active: 'Статус места не активен.',
   lifecycle_not_active: 'Место не в активном жизненном цикле.',
   missing_coordinates: 'Нет координат.',
@@ -46,6 +49,7 @@ const REASON_LABELS: Record<string, string> = {
   route_has_long_walk_segments: 'Есть длинные пешие переходы.',
   category_diversity_limited: 'Ограничено разнообразие категорий.',
   interest_removed_due_to_avoidance: 'Часть интересов убрана, потому что она попала в исключения.',
+  row_error: 'Ошибка данных в строке. Место нужно открыть и проверить вручную.',
 }
 
 const CATEGORY_LABELS: Record<string, string> = {

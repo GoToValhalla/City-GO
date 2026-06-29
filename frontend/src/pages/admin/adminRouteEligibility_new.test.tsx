@@ -61,6 +61,7 @@ const diagnostics = {
 
 const jsonResponse = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
 let failBulkApply = false
+let failEligibilityList = false
 
 const renderPage = () => render(
   <MemoryRouter initialEntries={['/admin/routes/eligibility?city_slug=kemerovo']}>
@@ -73,13 +74,16 @@ const renderPage = () => render(
 describe('AdminRouteEligibilityPage quality gates', () => {
   beforeEach(() => {
     failBulkApply = false
+    failEligibilityList = false
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
     vi.stubGlobal('confirm', vi.fn(() => true))
     vi.spyOn(globalThis, 'fetch').mockImplementation((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/admin/cities')) return jsonResponse(cities)
       if (url.includes('/admin/routes/eligibility/kemerovo')) return jsonResponse(diagnostics)
-      if (url.includes('/admin/routes/eligibility?')) return jsonResponse(eligibility)
+      if (url.includes('/admin/routes/eligibility?')) return failEligibilityList
+        ? Promise.resolve(new Response(JSON.stringify({ detail: 'gateway failed' }), { status: 502, headers: { 'x-request-id': 'elig-502' } }))
+        : jsonResponse(eligibility)
       if (url.includes('/admin/places/bulk/apply')) {
         return failBulkApply ? jsonResponse({ detail: 'bulk failed' }, 500) : jsonResponse({ affected_count: 1, warnings: [] })
       }
@@ -144,5 +148,15 @@ describe('AdminRouteEligibilityPage quality gates', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Подтвердить для маршрутов' }))
 
     await waitFor(() => expect(screen.getByText(/bulk failed .*POST \/admin\/places\/bulk\/apply .*HTTP 500/)).toBeTruthy())
+  })
+
+  it('shows retryable section error when eligibility list returns 502', async () => {
+    failEligibilityList = true
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Готовность мест для маршрутов · Кемерово')).toBeTruthy())
+    expect(screen.getByText(/gateway failed .*GET \/admin\/routes\/eligibility\?limit=50&offset=0&city_slug=kemerovo.*HTTP 502.*elig-502/)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Повторить' })).toBeTruthy()
+    expect(screen.queryByText(/^Загрузка…$/)).toBeNull()
   })
 })

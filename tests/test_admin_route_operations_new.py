@@ -15,6 +15,42 @@ def test_eligibility_list_excludes_pharmacy_new(client, city_factory, place_fact
     assert all(not row["eligible"] for row in body["items"])
 
 
+def test_eligibility_list_empty_database_contract_new(client) -> None:
+    response = client.get("/admin/routes/eligibility?limit=50&offset=0")
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "total": 0, "limit": 50, "offset": 0}
+
+
+def test_eligibility_list_unknown_city_does_not_scan_all_places_new(client, city_factory, place_factory) -> None:
+    city = city_factory(slug="known-elig-city")
+    place_factory(city_id=city.id, category="museum", address="ул. Музейная, 1")
+
+    response = client.get("/admin/routes/eligibility?city_slug=missing-city&limit=50&offset=0")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert response.json()["total"] == 0
+
+
+def test_eligibility_list_bad_place_row_does_not_500_new(client, city_factory, place_factory, monkeypatch) -> None:
+    from services.route_eligibility_dashboard import list_service
+
+    city = city_factory(slug="bad-row-city")
+    place = place_factory(city_id=city.id, category="museum", address="ул. Музейная, 2")
+
+    def broken_score(_place):
+        raise RuntimeError("broken quality")
+
+    monkeypatch.setattr(list_service, "compute_place_quality_score", broken_score)
+    response = client.get(f"/admin/routes/eligibility?city_slug={city.slug}&limit=50&offset=0")
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["items"][0]["place_id"] == place.id
+    assert payload["items"][0]["primary_reason"] == "row_error"
+
+
 def test_data_quality_report_new(client, city_factory, place_factory) -> None:
     city = city_factory(slug="ops-dq-city")
     place_factory(slug="dq-cafe", category="cafe", city_id=city.id)

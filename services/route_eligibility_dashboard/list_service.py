@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import or_
 from sqlalchemy.orm import Query, Session
 
@@ -22,6 +24,7 @@ READINESS_FILTERS = frozenset({
     "low_quality",
     "placeholder",
 })
+logger = logging.getLogger(__name__)
 
 
 def list_eligibility_places(
@@ -44,6 +47,8 @@ def list_eligibility_places(
     offset: int = 0,
 ) -> tuple[list[dict[str, object]], int]:
     city = _resolve_city(db, city_slug)
+    if city_slug and city is None:
+        return [], 0
     query = db.query(Place)
     if city is not None:
         query = query.filter(Place.city_id == city.id)
@@ -63,10 +68,10 @@ def list_eligibility_places(
     ):
         total = query.count()
         rows = query.offset(offset).limit(min(limit, 200)).all()
-        return [_row(place, city) for place in rows], total
+        return [_safe_row(place, city) for place in rows], total
 
     rows = query.all()
-    items = [_row(place, city) for place in rows]
+    items = [_safe_row(place, city) for place in rows]
     items = _apply_computed_filters(
         items,
         eligible=eligible,
@@ -78,6 +83,28 @@ def list_eligibility_places(
     )
     total = len(items)
     return items[offset : offset + min(limit, 200)], total
+
+
+def _safe_row(place: Place, city: City | None) -> dict[str, object]:
+    try:
+        return _row(place, city)
+    except Exception as exc:
+        logger.exception("route eligibility row failed", extra={"place_id": getattr(place, "id", None)})
+        return {
+            "place_id": place.id,
+            "title": place.title or f"Place #{place.id}",
+            "slug": place.slug or str(place.id),
+            "category": place.category,
+            "eligible": False,
+            "quality_score": 0,
+            "quality_bucket": "low",
+            "reasons": ["row_error"],
+            "primary_reason": "row_error",
+            "city_slug": city.slug if city else None,
+            "placeholder_name": False,
+            "high_quality_route_candidate": False,
+            "error": exc.__class__.__name__,
+        }
 
 
 def _row(place: Place, city: City | None) -> dict[str, object]:

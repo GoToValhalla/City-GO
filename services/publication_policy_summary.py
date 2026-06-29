@@ -115,6 +115,7 @@ def get_publication_policy_summary(
         "top_failed_gates": failed_gate_counts,
         "top_review_reasons": review_reason_counts,
         "recent_rejected": recent_rejected,
+        "recent_blocked": recent_rejected,
         "cities": sorted(by_city.values(), key=lambda item: (-int(item["total"]), str(item["slug"]))),
         "open_publication_review_items": open_review_query.count(),
         "pending_change_reviews": pending_change_query.count(),

@@ -39,3 +39,9 @@ def test_admin_deployment_dispatch_keeps_legacy_ci_payload_without_inputs(monkey
     payload = json.loads(module._workflow_dispatch_payload().decode("utf-8"))
 
     assert payload == {"ref": "main"}
+
+
+def test_admin_api_watchdog_checks_route_eligibility():
+    from scripts.check_production_admin_api import CHECKS
+
+    assert "/api/admin/routes/eligibility?limit=50&offset=0" in {check.path for check in CHECKS}

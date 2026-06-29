@@ -77,5 +77,6 @@ jobs:
           check_status 'backend health via proxy' '/api/health' '200' 'public'
           check_status 'backend readiness via proxy' '/api/ready' '200' 'public'
           check_status 'admin cities authenticated' '/api/admin/cities?limit=1' '200' 'admin'
+          check_status 'admin route eligibility authenticated' '/api/admin/routes/eligibility?limit=50&offset=0' '200' 'admin'
           check_status 'admin verification summary authenticated' '/api/admin/place-verifications/summary' '200' 'admin'
           check_status 'admin data quality summary authenticated' '/api/admin/data-quality/summary' '200' 'admin'

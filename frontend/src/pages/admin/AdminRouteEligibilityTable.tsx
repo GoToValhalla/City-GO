@@ -27,18 +27,18 @@ export const AdminRouteEligibilityTable = ({ items, selected, onToggle, onToggle
       </thead>
       <tbody>
         {items.map((row) => <tr key={row.place_id}>
-          <td><input aria-label={`Выбрать ${row.title}`} type="checkbox" checked={selected.has(row.place_id)} onChange={() => onToggle(row.place_id)} /></td>
-          <td>
+          <td data-label="Выбор"><input aria-label={`Выбрать ${row.title}`} type="checkbox" checked={selected.has(row.place_id)} onChange={() => onToggle(row.place_id)} /></td>
+          <td data-label="Место">
             <Link to={`/admin/places/${row.place_id}`}>{row.title}</Link>
             {row.placeholder_name ? <div className="admin-muted">автоназвание, нужна проверка</div> : null}
           </td>
-          <td>{categoryText(row.category)}</td>
-          <td>{row.eligible ? 'готово' : 'нужно исправить'}</td>
-          <td>
+          <td data-label="Категория">{categoryText(row.category)}</td>
+          <td data-label="Готово">{row.eligible ? 'готово' : 'нужно исправить'}</td>
+          <td data-label="Качество">
             {row.quality_score} · {qualityText(row.quality_bucket)}
             {row.high_quality_route_candidate ? <div className="admin-muted">можно массово подтвердить</div> : null}
           </td>
-          <td>{routeReasonText(row.primary_reason)}</td>
+          <td data-label="Что мешает">{routeReasonText(row.primary_reason)}</td>
         </tr>)}
       </tbody>
     </table>
