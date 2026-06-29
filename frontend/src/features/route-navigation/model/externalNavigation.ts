@@ -73,6 +73,7 @@ export const recordExternalNavigationEvent = async (
 export const providerLabel = (provider: string): string => {
   if (provider === 'yandex_maps') return 'Яндекс'
   if (provider === '2gis') return '2ГИС'
+  if (provider === 'google_maps') return 'Google Maps'
   return provider
 }
 
