@@ -20,26 +20,27 @@ def ensure_review_item(
     severity: str = "medium",
     payload: dict[str, object] | None = None,
 ) -> ReviewQueueItem:
-    """Create or update the single active issue for a place field.
+    """Create or update one active review issue without violating the open-item key.
 
-    Pipeline stages may discover several symptoms for the same field during one
-    run. Operators should see one actionable queue item, not duplicates created
-    by description generation, confidence calculation and quality validation.
+    The database allows one open row per ``place_id + field_name + reason``.
+    Import/enrichment stages may call this function repeatedly for the same
+    issue, or may first create a generic field issue and later normalize it to a
+    concrete reason. Always prefer the exact open item before mutating any other
+    row; otherwise changing ``reason`` can collide with an already existing row.
     """
-    item = _pending_item(db, place_id=place_id, field_name=field_name)
-    item = item or (
-        db.query(ReviewQueueItem)
-        .filter_by(place_id=place_id, field_name=field_name, status="open")
-        .order_by(ReviewQueueItem.id.asc())
-        .first()
-    )
+    item = _pending_item(db, place_id=place_id, field_name=field_name, reason=reason)
+    item = item or _open_item(db, place_id=place_id, field_name=field_name, reason=reason)
+    item = item or _pending_item(db, place_id=place_id, field_name=field_name, reason=None)
+    item = item or _open_item(db, place_id=place_id, field_name=field_name, reason=None)
     if item is None:
         item = ReviewQueueItem(
             city_id=city_id,
             place_id=place_id,
             field_name=field_name,
+            reason=reason,
             status="open",
         )
+    item.city_id = city_id
     item.reason = reason
     item.job_id = job_id
     item.severity = severity
@@ -69,11 +70,25 @@ def resolve_review_item(db: Session, item_id: int, *, actor: str, resolution: st
     return item
 
 
+def _open_item(
+    db: Session,
+    *,
+    place_id: int,
+    field_name: str,
+    reason: str | None,
+) -> ReviewQueueItem | None:
+    query = db.query(ReviewQueueItem).filter_by(place_id=place_id, field_name=field_name, status="open")
+    if reason is not None:
+        query = query.filter(ReviewQueueItem.reason == reason)
+    return query.order_by(ReviewQueueItem.id.asc()).first()
+
+
 def _pending_item(
     db: Session,
     *,
     place_id: int,
     field_name: str,
+    reason: str | None,
 ) -> ReviewQueueItem | None:
     for pending in db.new:
         if (
@@ -81,6 +96,7 @@ def _pending_item(
             and pending.place_id == place_id
             and pending.field_name == field_name
             and pending.status in {None, "open"}
+            and (reason is None or pending.reason == reason)
         ):
             return pending
     return None
