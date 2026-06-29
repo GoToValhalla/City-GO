@@ -55,9 +55,9 @@ CATEGORY_MAP = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Discover missing OSM POI candidates and save them as draft places.")
-    parser.add_argument("--city", dest="city_slug", default=None)
-    parser.add_argument("--limit", type=int, default=50)
-    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--city", dest="city_slug", default=None, help="Optional city slug. Empty value means all cities.")
+    parser.add_argument("--limit", type=int, default=50, help="Max OSM candidates per city.")
+    parser.add_argument("--apply", action="store_true", help="Persist discovered candidates as draft places.")
     return parser.parse_args()
 
 
@@ -70,7 +70,7 @@ def main() -> None:
             db.commit()
         else:
             db.rollback()
-        output = {"apply": bool(args.apply), "cities": results, "total_created": sum(int(row["created"]) for row in results)}
+        output = {"apply": bool(args.apply), "city_slug": args.city_slug, "cities": results, "total_created": sum(int(row["created"]) for row in results)}
         print(json.dumps(output, ensure_ascii=False, sort_keys=True), flush=True)
         print("POI_DISCOVERY_SUMMARY_JSON=" + json.dumps(output, ensure_ascii=False, sort_keys=True), flush=True)
     finally:
@@ -78,7 +78,7 @@ def main() -> None:
 
 
 def run_discovery(db, *, city_slug: str | None, limit: int, apply: bool) -> list[dict[str, object]]:
-    query = db.query(City).filter(City.is_active.is_(True), City.launch_status == "published")
+    query = db.query(City)
     if city_slug:
         query = query.filter(City.slug == city_slug)
     cities = query.order_by(City.slug.asc()).all()
