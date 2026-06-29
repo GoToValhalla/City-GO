@@ -9,6 +9,7 @@ from models.city import City
 from models.city_import_scope import CityImportScope
 from models.place import Place
 from models.source_observation import SourceObservation
+from services.coverage_scope_policy import resolve_scope_policy
 from services.osm_import_taxonomy import classify_osm_place
 
 
@@ -28,24 +29,22 @@ def apply_place_layers(db: Session, *, city_slug: str | None = None, scope_id: i
     counters: Counter[str] = Counter()
     updated = 0
     for observation, place, scope in query.order_by(SourceObservation.id.asc()).all():
-        targets = (scope.coverage_targets or {}) if scope is not None else {}
-        scope_type = str(targets.get("scope_type") or targets.get("type") or (scope.code if scope else ""))
-        transport_required = bool(targets.get("transport_required") or targets.get("requires_transport"))
-        profile = str((scope.import_profile if scope else None) or targets.get("profile") or "")
+        policy = resolve_scope_policy(scope) if scope is not None else None
+        profile = str((scope.import_profile if scope else None) or "")
         classification = classify_osm_place(
             _tags(observation.raw_payload),
             profile=profile,
-            scope_type=scope_type,
-            transport_required=transport_required,
+            scope_type=policy.scope_type if policy else None,
+            transport_required=policy.transport_required if policy else False,
         )
         before = (place.place_layer, place.route_policy, place.tourist_eligible, place.transport_required, place.is_route_eligible)
         place.place_layer = classification.layer
         place.route_policy = classification.route_policy
         place.tourist_eligible = classification.tourist_eligible
-        place.transport_required = transport_required
+        place.transport_required = bool(policy.transport_required) if policy else False
         if classification.route_exclusion_reason:
             place.route_exclusion_reason = classification.route_exclusion_reason
-        place.is_route_eligible = bool(place.is_route_eligible and classification.is_route_eligible and not transport_required)
+        place.is_route_eligible = bool(place.is_route_eligible and classification.is_route_eligible and not place.transport_required)
         after = (place.place_layer, place.route_policy, place.tourist_eligible, place.transport_required, place.is_route_eligible)
         counters[classification.layer] += 1
         if before != after:
