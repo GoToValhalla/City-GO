@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session, joinedload
 from models.route import Route
 from models.route_place import RoutePlace
 from models.route_session import RouteSession, RouteSessionPoint
+from schemas.external_navigation import ExternalNavigationEventRequest
+from services.external_navigation_service import build_external_navigation, record_external_navigation_event
 
 _ALLOWED_PUBLICATION_STATUSES = {"published", "auto_published", "limited_published"}
 _BLOCKED_ROUTE_CATEGORIES = {
@@ -87,6 +89,7 @@ def get_route_session(db: Session, session_id: int) -> RouteSession:
     if session is None:
         raise RouteSessionNotFound("route_session_not_found")
     session.points = sorted(session.points, key=lambda item: item.ordering_index)
+    session.navigation = build_external_navigation(session.points)
     return session
 
 
@@ -172,6 +175,15 @@ def complete_route_session(db: Session, session_id: int) -> RouteSession:
     session.updated_at = now
     db.commit()
     return get_route_session(db, session_id)
+
+
+def record_route_session_navigation_event(
+    db: Session,
+    session_id: int,
+    payload: ExternalNavigationEventRequest,
+) -> bool:
+    session = get_route_session(db, session_id)
+    return record_external_navigation_event(db, route_id=session.route_id, session_id=session.id, payload=payload)
 
 
 def _get_route_with_points(db: Session, route_id: int) -> Route | None:
