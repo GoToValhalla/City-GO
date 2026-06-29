@@ -1,0 +1,140 @@
+name: City OSM Import
+
+on:
+  workflow_dispatch:
+    inputs:
+      city:
+        description: City slug, for example kutaisi
+        required: true
+        default: kutaisi
+      scope:
+        description: Import scope code, for example tourist_core
+        required: true
+        default: tourist_core
+      profile:
+        description: Import profile, for example tourist_core
+        required: true
+        default: tourist_core
+      mode:
+        description: dry-run or apply
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+
+permissions:
+  contents: read
+
+concurrency:
+  group: city-osm-import-${{ inputs.city }}-${{ inputs.scope }}
+  cancel-in-progress: false
+
+jobs:
+  import:
+    name: Run city OSM import
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ inputs.mode }}" in
+            dry-run|apply) ;;
+            *) echo "mode must be dry-run or apply" >&2; exit 2 ;;
+          esac
+          test -n "${{ inputs.city }}"
+          test -n "${{ inputs.scope }}"
+          test -n "${{ inputs.profile }}"
+
+      - name: Setup SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh /tmp/city-go-import
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/tmp/city-go-import/ssh-keyscan.log || true
+
+      - name: Run import on production host
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
+          CITY: ${{ inputs.city }}
+          SCOPE: ${{ inputs.scope }}
+          PROFILE: ${{ inputs.profile }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          FLAG="--dry-run"
+          if [ "$MODE" = "apply" ]; then FLAG="--apply"; fi
+          set +e
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new \
+            -i ~/.ssh/deploy_key \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd /srv/app && docker compose exec -T backend python data/scripts/import_city_osm_v2.py --city '$CITY' --scope '$SCOPE' --profile '$PROFILE' $FLAG" \
+            2>&1 | tee /tmp/city-go-import/import.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "Import failed with exit code $status" >&2
+            exit "$status"
+          fi
+
+      - name: Build import notification
+        if: always()
+        shell: bash
+        env:
+          CITY: ${{ inputs.city }}
+          SCOPE: ${{ inputs.scope }}
+          PROFILE: ${{ inputs.profile }}
+          MODE: ${{ inputs.mode }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          ICON="✅"
+          STATUS_TEXT="завершён"
+          if [ "$JOB_STATUS" != "success" ]; then ICON="❌"; STATUS_TEXT="не прошёл"; fi
+          {
+            echo "$ICON CITY GO · OSM IMPORT"
+            echo "Статус: $STATUS_TEXT"
+            echo "Город: $CITY"
+            echo "Scope: $SCOPE"
+            echo "Profile: $PROFILE"
+            echo "Mode: $MODE"
+            echo "Проверить лог: $RUN_URL"
+          } > /tmp/city-go-import/import-notification.txt
+
+      - name: Send Telegram notification
+        if: always()
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/send_telegram_notification.py --text-file /tmp/city-go-import/import-notification.txt
+
+      - name: Upload import log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: city-osm-import-log
+          path: /tmp/city-go-import
+          if-no-files-found: ignore
+          retention-days: 14
