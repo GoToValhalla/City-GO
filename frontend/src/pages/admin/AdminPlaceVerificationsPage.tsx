@@ -114,7 +114,7 @@ export const AdminPlaceVerificationsPage = () => {
       setTotal((current) => Math.max(0, current - 1))
       const requestId = ++requestSequence.current
       void loadQueue(requestId)
-      void loadSummary(requestId)
+      void loadSummary(requestSequence.current)
     } catch (error) {
       setActionError(errorText(error, 'Не удалось сохранить результат проверки'))
     } finally {
