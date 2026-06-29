@@ -13,6 +13,7 @@ from models.place import Place
 from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_log import log_import_event
 from services.admin_city_import_runner import run_osm_import_only,summarize_import_results
+from services.admin_import_job_change_service import record_place_changes
 from services.category_normalize_service import normalize_city_categories,normalize_places_categories
 from services.city_readiness.score import compute_city_readiness
 from services.import_pipeline.progress import append_step_warning,set_step
@@ -35,7 +36,7 @@ def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_
   db.expire_all();places=_changed(db,city_id,started)
   for place in places:mark_place_for_review(place,reason="import_or_enrichment_changed")
   db.commit();set_step(job,STEP_PREPARING_DESCRIPTIONS,detail={"mode":"manual_required"});cats=normalize_places_categories(db,places=places,apply=True);results["categories"]=cats;set_step(job,STEP_CATEGORIES_TAGS,processed=int(cats.get("scanned") or 0),successful=int(cats.get("updated") or 0));db.commit()
-  ids=sorted({int(p.id) for p in places});results.update(changed_place_ids=ids,has_changes=bool(ids),quality={"mode":"foundation","changed_places":len(ids)});set_step(job,STEP_COMPUTING_QUALITY,processed=len(ids),detail=results["quality"]);set_step(job,STEP_COMPUTING_READINESS)
+  ids=sorted({int(p.id) for p in places});record_place_changes(db,job=job,places=places,since=started);results.update(changed_place_ids=ids,has_changes=bool(ids),quality={"mode":"foundation","changed_places":len(ids)});set_step(job,STEP_COMPUTING_QUALITY,processed=len(ids),detail=results["quality"]);set_step(job,STEP_COMPUTING_READINESS)
   readiness=compute_city_readiness(db,city_slug=city.slug) or {};results["readiness"]=readiness;set_step(job,STEP_COMPUTING_READINESS,detail={"readiness_score":readiness.get("readiness_score")})
   if total<=0:raise RuntimeError("OSM import finished without places")
   set_step(job,STEP_READY_FOR_REVIEW,successful=len(ids),processed=len(ids));job.status="success_with_warnings" if warnings else "success";job.finished_at=datetime.utcnow();job.step_details={**dict(job.step_details or {}),"warnings":warnings,"changed_place_ids":ids,"has_changes":bool(ids),"import_summary":summary}
@@ -45,7 +46,7 @@ def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_
   if notify_completion:_notify(city,job,total,len(ids),readiness,warnings)
   return results
  except Exception as exc:
-  places=_changed(db,city_id,started);ids=sorted({int(p.id) for p in places})
+  places=_changed(db,city_id,started);ids=sorted({int(p.id) for p in places});record_place_changes(db,job=job,places=places,since=started)
   for place in places:mark_place_for_review(place,reason="partial_import_changed")
   total=db.query(Place).filter(Place.city_id==city_id).count();detail={"step":job.current_step or "unknown","error":str(exc)[:1000],"places_total":total};results["partial_success_after_error"]=detail;job.last_error=str(exc)[:2000];job.finished_at=datetime.utcnow();job.step_details={**dict(job.step_details or {}),"changed_place_ids":ids,"has_changes":bool(ids),"partial_success_after_error":detail}
   if total>0:

@@ -14,6 +14,7 @@ from services.import_pipeline.enrichment_only import run_enrichment_only_pipelin
 from services.import_pipeline.runner import run_enrichment_pipeline
 from services.import_pipeline.steps import STEP_CANCELLED,STEP_QUEUED
 from services.import_pipeline_foundation import run_foundation_pipeline
+from services.admin_import_job_change_service import record_place_changes
 SOURCE_FULL_IMPORT="admin_city_import"
 SOURCE_ENRICHMENT_ONLY="admin_city_enrichment"
 
@@ -47,7 +48,7 @@ def run_city_import_job(db:Session,*,city_id:int,actor_id:str)->CityAdminImportJ
   legacy=run_enrichment_pipeline(db,job=job,city=city,actor_id=actor_id,force=True,notify_completion=False);db.refresh(job);db.refresh(city)
   ids=[int(v) for v in legacy.get("changed_place_ids",[])];warnings=list((job.step_details or {}).get("warnings") or []);saved=(job.places_found,job.places_saved,job.scopes_succeeded)
   job.status="running";job.finished_at=None;db.commit();source=_foundation(db,city,job,actor_id,ids);source_status=job.status;job.places_found,job.places_saved,job.scopes_succeeded=saved
-  readiness=compute_city_readiness(db,city_slug=city.slug) or {}
+  readiness=compute_city_readiness(db,city_slug=city.slug) or {};places=db.query(Place).filter(Place.id.in_(ids)).order_by(Place.id).all() if ids else [];record_place_changes(db,job=job,places=places,since=job.started_at or datetime.utcnow())
   if source_status in {"partial_success","success_with_warnings","failed"} or int(source.get("failed") or 0)>0:warnings.append({"step":"source_enrichment","error":f"Ошибок этапов обогащения: {int(source.get('failed') or 0)}"})
   job.step_details={**dict(job.step_details or {}),"warnings":warnings,"changed_place_ids":ids,"has_changes":bool(ids),"unified_pipeline":{"collection_and_legacy_enrichment":legacy,"source_enrichment":source,"readiness_score":readiness.get("readiness_score"),"completed":True}}
   job.status="success_with_warnings" if warnings else "success";job.finished_at=datetime.utcnow()

@@ -11,6 +11,7 @@ import models.city  # noqa: F401
 import models.city_start_point  # noqa: F401
 import models.city_candidate  # noqa: F401
 import models.city_admin_import_job  # noqa: F401
+import models.city_admin_import_job_change  # noqa: F401
 import models.city_import_job  # noqa: F401
 import models.city_import_scope  # noqa: F401
 import models.city_scope_import_state  # noqa: F401

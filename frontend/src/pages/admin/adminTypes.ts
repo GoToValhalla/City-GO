@@ -191,6 +191,39 @@ export type AdminImportJobsResponse = {
   offset: number
 }
 
+export type AdminImportJobChange = {
+  id: number
+  job_id: number
+  city_id: number
+  place_id: number | null
+  external_source_id: string | null
+  change_type: string
+  place_title: string | null
+  category: string | null
+  source: string | null
+  reason: string | null
+  created_at: string
+}
+
+export type AdminImportJobChangesResponse = {
+  items: AdminImportJobChange[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export type AdminImportJobChangesSummary = {
+  job_id: number
+  city_id: number
+  city_slug: string
+  created: number
+  updated: number
+  unchanged: number
+  rejected: number
+  hidden: number
+  needs_review: number
+}
+
 export type AdminAuditLogEntry = {
   id: string
   created_at: string

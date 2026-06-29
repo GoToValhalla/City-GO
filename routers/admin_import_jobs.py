@@ -1,12 +1,18 @@
 """Admin: запуск, повтор и публикация единых import jobs."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
 from models.city import City
-from schemas.admin import AdminActionRequest, AdminImportJobActionResponse
+from schemas.admin import (
+    AdminActionRequest,
+    AdminImportJobActionResponse,
+    AdminImportJobChangeListResponse,
+    AdminImportJobChangeRead,
+    AdminImportJobChangeSummaryResponse,
+)
 from services.admin_city_import_job_service import (
     cancel_import_job,
     queue_city_enrichment_job,
@@ -16,6 +22,12 @@ from services.admin_city_import_job_service import (
 from services.admin_city_import_tasks import import_queue_summary
 from services.admin_city_publication_service import publish_city
 from services.admin_extended_service import get_admin_import_job
+from services.admin_import_job_change_service import (
+    CHANGE_TYPES,
+    import_job_changes_summary,
+    list_import_job_changes,
+    serialize_change,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin-import-jobs"])
 
@@ -26,6 +38,40 @@ def read_import_job_queue(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     return import_queue_summary(db)
+
+
+@router.get("/import-jobs/{city_id}/changes", response_model=AdminImportJobChangeListResponse)
+def read_import_job_changes(
+    city_id: int,
+    change_type: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> AdminImportJobChangeListResponse:
+    if change_type is not None and change_type not in CHANGE_TYPES:
+        raise HTTPException(400, "Неверный тип изменения")
+    if get_admin_import_job(db, city_id) is None:
+        raise HTTPException(404, "Задача импорта не найдена")
+    rows, total = list_import_job_changes(db, city_id=city_id, change_type=change_type, limit=limit, offset=offset)
+    return AdminImportJobChangeListResponse(
+        items=[AdminImportJobChangeRead.model_validate(serialize_change(row)) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/import-jobs/{city_id}/changes/summary", response_model=AdminImportJobChangeSummaryResponse)
+def read_import_job_changes_summary(
+    city_id: int,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> AdminImportJobChangeSummaryResponse:
+    payload = import_job_changes_summary(db, city_id=city_id)
+    if payload is None:
+        raise HTTPException(404, "Задача импорта не найдена")
+    return AdminImportJobChangeSummaryResponse.model_validate(payload)
 
 
 @router.post("/import-jobs/{city_id}/run", response_model=AdminImportJobActionResponse)

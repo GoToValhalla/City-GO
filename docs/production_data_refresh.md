@@ -52,6 +52,31 @@ python3 scripts/build_import_status_summary.py < import-status.json
 - `created`, `updated`, `rejected`, `hidden`, `needs_review`,
   `changed_place_ids_count`, `warnings_count`.
 
+## Import Run Report
+
+Import Run Report показывает, какие места относятся к конкретному запуску
+admin import job. Он нужен, чтобы новые и изменённые места не терялись в общей
+очереди проверки, где могут быть сотни старых `needs_review` записей.
+
+Смотреть отчёт можно через admin API:
+
+- `/admin/import-jobs/{city_id}/changes/summary` — счётчики конкретного job.
+- `/admin/import-jobs/{city_id}/changes?change_type=created` — список мест или
+  кандидатов с фильтром по типу изменения.
+
+Счётчики:
+
+- `created` — новые места, созданные этим прогоном.
+- `updated` — существующие места, обновлённые этим прогоном.
+- `unchanged` — найденные, но не изменённые места.
+- `needs_review` — места, которые нужно проверить вручную.
+- `hidden` — места, скрытые lifecycle-правилами.
+- `rejected` — кандидаты, которые не стали `Place`.
+
+Это не то же самое, что общая очередь проверки: очередь показывает все места,
+ожидающие ручного решения, а Import Run Report привязан к одному import job и
+помогает понять результат именно этого запуска.
+
 ## Image Refresh
 
 Локальный refresh без live network:

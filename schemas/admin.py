@@ -168,6 +168,39 @@ class AdminImportJobListResponse(BaseModel):
     limit: int
     offset: int
 
+
+class AdminImportJobChangeRead(BaseModel):
+    id: int
+    job_id: int
+    city_id: int
+    place_id: int | None = None
+    external_source_id: str | None = None
+    change_type: str
+    place_title: str | None = None
+    category: str | None = None
+    source: str | None = None
+    reason: str | None = None
+    created_at: datetime
+
+
+class AdminImportJobChangeListResponse(BaseModel):
+    items: list[AdminImportJobChangeRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class AdminImportJobChangeSummaryResponse(BaseModel):
+    job_id: int
+    city_id: int
+    city_slug: str
+    created: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    rejected: int = 0
+    hidden: int = 0
+    needs_review: int = 0
+
 class AdminPlaceImageCreateRequest(BaseModel):
     place_id: int
     image_url: str
