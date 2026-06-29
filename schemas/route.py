@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
+from schemas.external_navigation import ExternalNavigationBlock
+
 
 # Короткая схема точки внутри маршрута.
 # Используется в detail-ответе маршрута.
@@ -75,7 +77,10 @@ class RouteRead(RouteBase):
 
 
 # Расширенная схема detail-ответа маршрута.
-# Содержит сам маршрут и список его точек.
 class RouteDetailRead(RouteRead):
     # Упорядоченный список точек маршрута.
     points: list[RoutePointRead] = []
+
+    # Внешняя навигация — отдельный слой поверх маршрута.
+    # Его можно заменить встроенной картой без изменения route engine.
+    navigation: ExternalNavigationBlock | None = None
