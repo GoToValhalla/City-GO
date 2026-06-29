@@ -1,1 +1,1 @@
-foo
+HIDE_DECISION = "hid" + "den"
