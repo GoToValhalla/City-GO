@@ -30,6 +30,7 @@ CHECKS = (
     Check("backend health through frontend proxy", "/api/health"),
     Check("backend readiness through frontend proxy", "/api/ready"),
     Check("admin cities", "/api/admin/cities?limit=1", requires_admin=True),
+    Check("admin quality", "/api/admin/quality?", requires_admin=True),
     Check("admin route eligibility", "/api/admin/routes/eligibility?limit=50&offset=0", requires_admin=True),
     Check("admin verification summary", "/api/admin/place-verifications/summary", requires_admin=True),
     Check("admin data quality summary", "/api/admin/data-quality/summary", requires_admin=True),
