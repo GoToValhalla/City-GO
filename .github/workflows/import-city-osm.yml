@@ -7,19 +7,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: city-osm-import-kutaisi-heritage
+  group: city-import-kutaisi-queue
   cancel-in-progress: false
 
 jobs:
   import:
-    name: Kutaisi heritage dry-run
+    name: Queue Kutaisi import
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
-      CITY: kutaisi
-      SCOPE: heritage_ne_ring
-      PROFILE: heritage_religious
-      MODE: dry-run
+      CITY_SLUG: kutaisi
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,21 +34,18 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/tmp/city-go-import/ssh-keyscan.log || true
 
-      - name: Run hardcoded import on production host
+      - name: Queue import through admin API
         shell: bash
         env:
           DEPLOY_HOST: ${{ secrets.SSH_HOST }}
           DEPLOY_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
         run: |
           set -euo pipefail
-          FLAG="--dry-run"
           {
-            echo "city=$CITY"
-            echo "scope=$SCOPE"
-            echo "profile=$PROFILE"
-            echo "mode=$MODE"
-            echo "flag=$FLAG"
+            echo "city_slug=$CITY_SLUG"
+            echo "mode=queue_import_worker"
             echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           } > /tmp/city-go-import/import.log
           set +e
@@ -63,32 +57,53 @@ jobs:
             -i ~/.ssh/deploy_key \
             -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "CITY='$CITY' SCOPE='$SCOPE' PROFILE='$PROFILE' FLAG='$FLAG' bash -s" <<'REMOTE' 2>&1 | tee -a /tmp/city-go-import/import.log
+            "CITY_SLUG='$CITY_SLUG' ADMIN_API_TOKEN='$ADMIN_API_TOKEN' bash -s" <<'REMOTE' 2>&1 | tee -a /tmp/city-go-import/import.log
           set -euo pipefail
+          BASE_URL="http://localhost:8000"
           echo "remote_host=$(hostname)"
           echo "remote_started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          cd /srv/app
-          echo "remote_pwd=$(pwd)"
-          echo "backend_status_start"
-          docker compose ps backend || true
-          echo "backend_status_end"
-          echo "script_probe_start"
-          docker compose exec -T backend sh -lc 'pwd; python --version; test -f data/scripts/import_city_osm_v2.py && echo import_script_ok || echo import_script_missing' </dev/null
-          echo "script_probe_end"
-          echo "import_command_start"
-          docker compose exec -T backend python data/scripts/import_city_osm_v2.py --city "$CITY" --scope "$SCOPE" --profile "$PROFILE" $FLAG </dev/null
-          echo "import_command_end"
+          echo "backend_ready_start"
+          curl -fsS "$BASE_URL/ready"
+          echo
+          echo "backend_ready_end"
+          echo "find_city_start"
+          cities_json="$(curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/cities?limit=200")"
+          city_id="$(CITIES_JSON="$cities_json" python - <<'PY'
+          import json
+          import os
+          slug = os.environ["CITY_SLUG"]
+          payload = json.loads(os.environ["CITIES_JSON"])
+          for item in payload.get("items", []):
+              if item.get("slug") == slug:
+                  print(item.get("id"))
+                  break
+          PY
+          )"
+          if [ -z "$city_id" ] || [ "$city_id" = "None" ]; then
+            echo "City not found: $CITY_SLUG" >&2
+            exit 2
+          fi
+          echo "city_id=$city_id"
+          echo "find_city_end"
+          echo "queue_import_start"
+          curl -fsS -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/$city_id/run"
+          echo
+          echo "queue_import_end"
+          echo "queue_summary_start"
+          curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/queue"
+          echo
+          echo "queue_summary_end"
           REMOTE
           status=${PIPESTATUS[0]}
           set -e
           echo "exit_code=$status" | tee -a /tmp/city-go-import/import.log
           echo "finished_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" | tee -a /tmp/city-go-import/import.log
-          if ! grep -q "import_command_end" /tmp/city-go-import/import.log; then
-            echo "Import command did not complete; see artifact log" >&2
+          if ! grep -q "queue_import_end" /tmp/city-go-import/import.log; then
+            echo "Import was not queued; see artifact log" >&2
             exit 1
           fi
           if [ "$status" -ne 0 ]; then
-            echo "Import failed with exit code $status" >&2
+            echo "Queue import failed with exit code $status" >&2
             exit "$status"
           fi
 
@@ -101,15 +116,13 @@ jobs:
         run: |
           set -euo pipefail
           ICON="✅"
-          STATUS_TEXT="завершён"
-          if [ "$JOB_STATUS" != "success" ]; then ICON="❌"; STATUS_TEXT="не прошёл"; fi
+          STATUS_TEXT="поставлен в очередь"
+          if [ "$JOB_STATUS" != "success" ]; then ICON="❌"; STATUS_TEXT="не поставлен в очередь"; fi
           {
-            echo "$ICON CITY GO · OSM IMPORT"
+            echo "$ICON CITY GO · IMPORT QUEUE"
             echo "Статус: $STATUS_TEXT"
             echo "Город: kutaisi"
-            echo "Scope: heritage_ne_ring"
-            echo "Profile: heritage_religious"
-            echo "Mode: dry-run"
+            echo "Исполнитель: import-worker"
             echo "Проверить лог: $RUN_URL"
           } > /tmp/city-go-import/import-notification.txt
 
@@ -125,7 +138,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: city-osm-import-log
+          name: city-import-queue-log
           path: /tmp/city-go-import
           if-no-files-found: ignore
           retention-days: 14
