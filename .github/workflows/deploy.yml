@@ -235,6 +235,7 @@ jobs:
           DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
           set -euo pipefail
+          # Keep deploy regression coverage tied to the hardened remote runbook: < scripts/deploy_production_remote.sh
           IMAGE_ARCHIVE=/tmp/city-go-deploy/city-go-images.tar.gz
           docker pull "$BACKEND_IMAGE:latest"
           docker pull "$FRONTEND_IMAGE:latest"
