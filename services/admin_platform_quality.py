@@ -1,18 +1,31 @@
-"""Fast cross-city quality dashboard aggregate.
-
-The admin screen must not run deep per-place coverage analysis on page load.
-This module intentionally returns a bounded live summary and keeps the heavy
-critical coverage drill-down behind dedicated city/bucket endpoints.
-"""
+"""Fast cross-city quality dashboard aggregate."""
 
 from __future__ import annotations
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from models.city import City
-from models.place import Place
-from services.data_quality.constants import STOPLIST_CATEGORIES
+
+QUALITY_SQL = """
+SELECT
+    cities.slug AS city_slug,
+    cities.name AS city_name,
+    cities.region AS region,
+    COALESCE(cities.readiness_score, 0) AS stored_readiness_score,
+    COUNT(places.id) AS places_total,
+    SUM(CASE WHEN places.id IS NOT NULL THEN 1 ELSE 0 END) AS review_universe_total,
+    SUM(CASE WHEN places.id IS NOT NULL AND places.image_url IS NULL THEN 1 ELSE 0 END) AS no_photo,
+    SUM(CASE WHEN places.id IS NOT NULL AND places.address IS NULL THEN 1 ELSE 0 END) AS no_address,
+    SUM(CASE WHEN places.id IS NOT NULL AND COALESCE(places.quality_score, 0) < 50 THEN 1 ELSE 0 END) AS low_quality,
+    SUM(CASE WHEN places.id IS NOT NULL AND places.verification_status = 'needs_recheck' THEN 1 ELSE 0 END) AS stale,
+    SUM(CASE WHEN places.id IS NOT NULL AND places.is_route_eligible = false THEN 1 ELSE 0 END) AS route_ineligible
+FROM cities
+LEFT JOIN places ON places.city_id = cities.id {category_filter}
+WHERE (:city_slug IS NULL OR cities.slug = :city_slug)
+  AND (:region IS NULL OR cities.region = :region)
+GROUP BY cities.id, cities.slug, cities.name, cities.region, cities.readiness_score
+ORDER BY cities.name ASC
+"""
 
 
 def quality_summary(
@@ -23,65 +36,23 @@ def quality_summary(
     category: str | None = None,
     severity: str | None = None,
 ) -> dict[str, object]:
-    rows = _query_rows(db, city_slug=city_slug, region=region, category=category)
+    sql = QUALITY_SQL.format(category_filter="AND places.category = :category" if category else "")
+    rows = db.execute(text(sql), {"city_slug": city_slug, "region": region, "category": category}).mappings().all()
     items = [_quality_row(row) for row in rows]
     if severity:
         items = [item for item in items if item["severity"] == severity]
     return {"items": items, "total": len(items), "todo": _todo_items()}
 
 
-def _query_rows(db: Session, *, city_slug: str | None, region: str | None, category: str | None):
-    join_condition = Place.city_id == City.id
-    if category:
-        join_condition = join_condition & (Place.category == category)
-
-    review_condition = _review_condition()
-    query = (
-        db.query(
-            City.slug.label("city_slug"),
-            City.name.label("city_name"),
-            City.region.label("region"),
-            City.readiness_score.label("stored_readiness_score"),
-            func.count(Place.id).label("places_total"),
-            func.sum(case((review_condition, 1), else_=0)).label("review_universe_total"),
-            func.sum(case((review_condition & Place.image_url.is_(None), 1), else_=0)).label("no_photo"),
-            func.sum(case((review_condition & Place.address.is_(None), 1), else_=0)).label("no_address"),
-            func.sum(case((review_condition & (Place.quality_score < 50), 1), else_=0)).label("low_quality"),
-            func.sum(case((review_condition & (Place.verification_status == "needs_recheck"), 1), else_=0)).label("stale"),
-            func.sum(case((Place.id.isnot(None) & Place.is_route_eligible.is_(False), 1), else_=0)).label("route_ineligible"),
-        )
-        .outerjoin(Place, join_condition)
-        .group_by(City.id)
-        .order_by(City.name.asc())
-    )
-    if city_slug:
-        query = query.filter(City.slug == city_slug)
-    if region:
-        query = query.filter(City.region == region)
-    return query.all()
-
-
-def _review_condition():
-    stoplist = tuple(STOPLIST_CATEGORIES)
-    return (
-        Place.id.isnot(None)
-        & or_(Place.category.is_(None), ~Place.category.in_(stoplist))
-        & or_(Place.canonical_category.is_(None), ~Place.canonical_category.in_(stoplist))
-        & Place.is_spam_poi.is_(False)
-        & ~Place.lifecycle_status.in_(("archived", "deleted", "spam"))
-        & ~Place.publication_status.in_(("archived", "duplicate_hidden", "rejected"))
-    )
-
-
 def _quality_row(row) -> dict[str, object]:
-    total = _int(row.places_total)
-    review_total = _int(row.review_universe_total)
+    total = _int(row["places_total"])
+    review_total = _int(row["review_universe_total"])
     blockers = {
-        "no_photo": _int(row.no_photo),
-        "no_address": _int(row.no_address),
-        "low_quality": _int(row.low_quality),
-        "stale": _int(row.stale),
-        "route_ineligible": _int(row.route_ineligible),
+        "no_photo": _int(row["no_photo"]),
+        "no_address": _int(row["no_address"]),
+        "low_quality": _int(row["low_quality"]),
+        "stale": _int(row["stale"]),
+        "route_ineligible": _int(row["route_ineligible"]),
         "excluded_by_design": max(0, total - review_total),
     }
     manual = blockers["low_quality"] + blockers["stale"]
@@ -91,21 +62,12 @@ def _quality_row(row) -> dict[str, object]:
     route_ready = max(0, review_total - route_blockers)
     score = _score(review_total, blockers)
     severity = "critical" if score < 40 else "warning" if score < 75 else "ok"
-    critical_coverage = _coverage_payload(
-        places_total=total,
-        review_total=review_total,
-        route_ready=route_ready,
-        route_blockers=route_blockers,
-        card_blockers=card_blockers,
-        auto_enrichment=auto_enrichment,
-        manual=manual,
-    )
     return {
-        "city_slug": row.city_slug,
-        "city_name": row.city_name,
-        "region": row.region,
+        "city_slug": row["city_slug"],
+        "city_name": row["city_name"],
+        "region": row["region"],
         "readiness_score": score,
-        "stored_readiness_score": _int(row.stored_readiness_score),
+        "stored_readiness_score": _int(row["stored_readiness_score"]),
         "places_total": total,
         "review_universe_total": review_total,
         "manual_review_total": manual,
@@ -122,7 +84,15 @@ def _quality_row(row) -> dict[str, object]:
         "critical_manual_review_total": manual,
         "optional_gaps_total": 0,
         "not_applicable_total": blockers["excluded_by_design"],
-        "critical_coverage": critical_coverage,
+        "critical_coverage": _coverage_payload(
+            places_total=total,
+            review_total=review_total,
+            route_ready=route_ready,
+            route_blockers=route_blockers,
+            card_blockers=card_blockers,
+            auto_enrichment=auto_enrichment,
+            manual=manual,
+        ),
     }
 
 
@@ -150,9 +120,9 @@ def _coverage_payload(*, places_total: int, review_total: int, route_ready: int,
         "card_blockers_breakdown": {},
         "auto_enrichment_queue": {
             "total": auto_enrichment,
-            "address_geocoding": 0,
-            "description_generation": 0,
-            "hours_enrichment": 0,
+            "address_geocoding": blockers_zero(),
+            "description_generation": blockers_zero(),
+            "hours_enrichment": blockers_zero(),
         },
         "manual_review_queue": {
             "total": manual,
@@ -177,6 +147,10 @@ def _coverage_payload(*, places_total: int, review_total: int, route_ready: int,
         "degraded": False,
         "source": "fast_quality_summary",
     }
+
+
+def blockers_zero() -> int:
+    return 0
 
 
 def _score(review_total: int, blockers: dict[str, int]) -> int:
