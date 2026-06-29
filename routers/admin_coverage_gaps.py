@@ -35,13 +35,17 @@ def list_coverage_gaps(
     expected_category: str | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=300),
-    refresh: bool = True,
+    refresh: bool = False,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    if refresh:
-        run_data_coverage_assurance(db, city_slug=city_slug)
-        db.commit()
+    """Read the latest coverage snapshot without doing heavy recomputation.
+
+    This endpoint is used by the admin UI on page load. It must stay fast and
+    side-effect free. Full assurance recalculation is intentionally handled by
+    POST /admin/coverage-gaps/refresh, otherwise large cities can block the
+    browser request and hit frontend timeouts.
+    """
     virtual_status = status if status in VIRTUAL_STATUS_FILTERS else None
     payload = build_coverage_summary(
         db,
@@ -53,6 +57,8 @@ def list_coverage_gaps(
         limit=300 if virtual_status else limit,
         refresh=False,
     )
+    if refresh:
+        payload = {**payload, "refresh_ignored": True, "refresh_endpoint": "/admin/coverage-gaps/refresh"}
     if virtual_status:
         payload = _apply_virtual_status_filter(payload, virtual_status, offset=offset, limit=limit)
     return payload
@@ -63,14 +69,14 @@ def get_city_coverage_gaps(
     city_slug: str,
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=300),
-    refresh: bool = True,
+    refresh: bool = False,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
+    payload = build_coverage_summary(db, city_slug=city_slug, offset=offset, limit=limit, refresh=False)
     if refresh:
-        run_data_coverage_assurance(db, city_slug=city_slug)
-        db.commit()
-    return build_coverage_summary(db, city_slug=city_slug, offset=offset, limit=limit, refresh=False)
+        payload = {**payload, "refresh_ignored": True, "refresh_endpoint": "/admin/coverage-gaps/refresh"}
+    return payload
 
 
 @router.post("/sync")
