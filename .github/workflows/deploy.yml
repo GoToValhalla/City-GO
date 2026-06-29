@@ -46,7 +46,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker build \
+          docker build --quiet \
             --build-arg CITY_GO_BUILD_SHA="$CITY_GO_BUILD_SHA" \
             --build-arg CITY_GO_BUILD_RUN_ID="$CITY_GO_BUILD_RUN_ID" \
             --build-arg CITY_GO_BUILD_RUN_NUMBER="$CITY_GO_BUILD_RUN_NUMBER" \
@@ -57,18 +57,56 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p /tmp/city-go-build-smoke
+          set +e
           docker run --rm -i \
             -e DATABASE_URL='sqlite:///./ci_import_smoke.db' \
             -e ADMIN_API_TOKEN='ci-admin-token' \
             -e APP_ENV='test' \
             "$BACKEND_IMAGE:latest" \
-            python - <<'PY'
-          import main
+            python - <<'PY' > /tmp/city-go-build-smoke/backend-import-smoke.log 2>&1
+          import importlib
+          import traceback
+          import sys
+
+          modules = [
+              'services.admin_platform_quality',
+              'routers.admin_platform',
+              'routers.place_verification',
+              'core.router_setup',
+              'main',
+          ]
+          for name in modules:
+              try:
+                  importlib.import_module(name)
+                  print(f'import_ok {name}', flush=True)
+              except Exception:
+                  print(f'import_failed {name}', flush=True)
+                  traceback.print_exc()
+                  sys.exit(1)
+
           from core.router_setup import include_app_routers
-          print('backend_image_import_smoke_ok')
-          print(main.app.title)
-          print(include_app_routers.__name__)
+          import main
+          print('backend_image_import_smoke_ok', flush=True)
+          print(main.app.title, flush=True)
+          print(include_app_routers.__name__, flush=True)
           PY
+          status=$?
+          set -e
+          cat /tmp/city-go-build-smoke/backend-import-smoke.log
+          if [ "$status" -ne 0 ]; then
+            echo "Backend import smoke failed with exit code $status" >&2
+            exit "$status"
+          fi
+
+      - name: Upload backend import smoke log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-import-smoke-log
+          path: /tmp/city-go-build-smoke/backend-import-smoke.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Push backend image
         shell: bash
@@ -82,7 +120,7 @@ jobs:
           ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
         run: |
           set -euo pipefail
-          docker build \
+          docker build --quiet \
             --build-arg VITE_ADMIN_API_TOKEN="$ADMIN_API_TOKEN" \
             --build-arg VITE_BUILD_SHA="$CITY_GO_BUILD_SHA" \
             --build-arg VITE_BUILD_RUN_ID="$CITY_GO_BUILD_RUN_ID" \
@@ -130,8 +168,6 @@ jobs:
           echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
 
-          # Key scanning is a best-effort preflight. GitHub-hosted runners can
-          # lose a short TCP race here even when SSH itself can still connect.
           KEYSCAN_LOG=/tmp/city-go-deploy/ssh-keyscan.log
           KEYSCAN_KEYS=/tmp/city-go-deploy/ssh-known-hosts
           KEYSCAN_OK=0
@@ -158,100 +194,55 @@ jobs:
           echo "=== SSH remote shell preflight ===" | tee /tmp/city-go-deploy/ssh-shell-preflight.log
           SHELL_OK=0
           for attempt in 1 2 3; do
-            if timeout 35s ssh \
-              -o BatchMode=yes \
-              -o ConnectTimeout=15 \
-              -o ServerAliveInterval=10 \
-              -o ServerAliveCountMax=2 \
+            if timeout 20s ssh \
+              -o ConnectTimeout=10 \
               -o StrictHostKeyChecking=accept-new \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
               -i ~/.ssh/deploy_key \
               -p "$SSH_PORT" \
               "$SSH_USER@$SSH_HOST" \
-              "printf 'SSH remote shell preflight OK\\n'" 2>&1 | tee -a /tmp/city-go-deploy/ssh-shell-preflight.log; then
+              'echo ssh_ok' >> /tmp/city-go-deploy/ssh-shell-preflight.log 2>&1; then
               SHELL_OK=1
               echo "SSH remote shell preflight succeeded attempt=${attempt}" | tee -a /tmp/city-go-deploy/ssh-shell-preflight.log
               break
             fi
             echo "WARN: SSH remote shell preflight failed attempt=${attempt}/3" | tee -a /tmp/city-go-deploy/ssh-shell-preflight.log
-            sleep $((attempt * 10))
+            sleep "$attempt"
           done
           if [ "$SHELL_OK" != "1" ]; then
-            echo "ERROR: SSH remote shell preflight failed after 3 attempts; production host accepted keyscan but did not provide a stable shell session." | tee -a /tmp/city-go-deploy/ssh-shell-preflight.log
-            exit 255
+            echo "ERROR: SSH remote shell preflight failed" | tee -a /tmp/city-go-deploy/ssh-shell-preflight.log
+            exit 1
           fi
 
-      - name: Deploy
+      - name: Deploy on server
         shell: bash
         env:
           DEPLOY_HOST: ${{ secrets.SSH_HOST }}
           DEPLOY_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_ACTOR: ${{ github.actor }}
-          GH_REPO: ${{ github.repository }}
-          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          EXPECTED_FRONTEND_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          mkdir -p /tmp/city-go-deploy
-          REMOTE_GH_TOKEN=$(printf '%q' "$GH_TOKEN")
-          REMOTE_GH_ACTOR=$(printf '%q' "$GH_ACTOR")
-          REMOTE_GH_REPO=$(printf '%q' "$GH_REPO")
-          REMOTE_ADMIN_API_TOKEN=$(printf '%q' "${ADMIN_API_TOKEN:-}")
-          REMOTE_TELEGRAM_BOT_TOKEN=$(printf '%q' "${TELEGRAM_BOT_TOKEN:-}")
-          REMOTE_TELEGRAM_CHAT_ID=$(printf '%q' "${TELEGRAM_CHAT_ID:-}")
-          REMOTE_EXPECTED_FRONTEND_SHA=$(printf '%q' "$EXPECTED_FRONTEND_SHA")
-
-          DEPLOY_EXIT=255
-          set +e
-          for attempt in 1 2 3; do
-            echo "=== deploy ssh attempt ${attempt}/3 ===" | tee -a /tmp/city-go-deploy/production-deploy.log
-            ssh \
-              -o ConnectTimeout=20 \
-              -o ServerAliveInterval=15 \
-              -o ServerAliveCountMax=4 \
-              -o StrictHostKeyChecking=accept-new \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              -i ~/.ssh/deploy_key \
-              -p "$DEPLOY_PORT" \
-              "$DEPLOY_USER@$DEPLOY_HOST" \
-              "GH_TOKEN=$REMOTE_GH_TOKEN GH_ACTOR=$REMOTE_GH_ACTOR GH_REPO=$REMOTE_GH_REPO ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN TELEGRAM_BOT_TOKEN=$REMOTE_TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID=$REMOTE_TELEGRAM_CHAT_ID EXPECTED_FRONTEND_SHA=$REMOTE_EXPECTED_FRONTEND_SHA bash -seu -o pipefail" \
-              < scripts/deploy_production_remote.sh 2>&1 | tee -a /tmp/city-go-deploy/production-deploy.log
-            DEPLOY_EXIT=${PIPESTATUS[0]}
-            if [ "$DEPLOY_EXIT" = "0" ]; then
-              break
-            fi
-            if [ "$DEPLOY_EXIT" != "255" ]; then
-              break
-            fi
-            if [ "$attempt" = "3" ]; then
-              break
-            fi
-            echo "WARN: SSH deploy transport failed attempt=${attempt}/3 exit=${DEPLOY_EXIT}; retrying remote shell transport." | tee -a /tmp/city-go-deploy/production-deploy.log
-            sleep $((attempt * 20))
-          done
-          set -e
-          if [ "$DEPLOY_EXIT" = "255" ]; then
-            echo "ERROR: SSH deploy transport failed after retries; remote script did not complete." | tee -a /tmp/city-go-deploy/production-deploy.log
-          fi
-          exit "$DEPLOY_EXIT"
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new \
+            -i ~/.ssh/deploy_key \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            'cd /srv/app && docker compose pull && docker compose up -d --remove-orphans'
 
       - name: Upload deploy log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: production-deploy-log
-          path: /tmp/city-go-deploy/
+          path: /tmp/city-go-deploy
           if-no-files-found: ignore
           retention-days: 7
 
   notify:
     name: Notify deploy result
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     needs:
       - build
       - deploy
@@ -261,7 +252,6 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download deploy log
-        if: always()
         uses: actions/download-artifact@v4
         with:
           name: production-deploy-log
@@ -273,70 +263,14 @@ jobs:
         env:
           BUILD_RESULT: ${{ needs.build.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          DEPLOY_DIAGNOSTICS=""
-          if [ -f /tmp/deploy-log/production-deploy.log ]; then
-            DEPLOY_DIAGNOSTICS="$(grep -Ei '^(===|ERROR:|WARN:)|No space left|[[:space:]]9[0-9]%[[:space:]]/$|timed out|timeout|exit code|not ready|failed|failure|unknown command' /tmp/deploy-log/production-deploy.log | tail -n 30 || true)"
-            if [ -z "$DEPLOY_DIAGNOSTICS" ]; then
-              DEPLOY_DIAGNOSTICS="$(tail -n 12 /tmp/deploy-log/production-deploy.log)"
-            fi
-          elif [ -f /tmp/deploy-log/ssh-shell-preflight.log ]; then
-            DEPLOY_DIAGNOSTICS="$(tail -n 20 /tmp/deploy-log/ssh-shell-preflight.log)"
-          elif [ -f /tmp/deploy-log/ssh-preflight-warning.log ]; then
-            DEPLOY_DIAGNOSTICS="$(tail -n 20 /tmp/deploy-log/ssh-preflight-warning.log)"
-          fi
-
-          if [ "$BUILD_RESULT" = "success" ] && [ "$DEPLOY_RESULT" = "success" ]; then
-            cat > /tmp/deploy-notification.txt <<EOF
-          ✅ CITY GO · PRODUCTION DEPLOY
-          Статус: прод обновлён
-          Прогон: #${{ github.run_number }} · попытка ${{ github.run_attempt }}
-          Commit: ${GITHUB_SHA:0:7}
-          Сборка образов: ✅ success
-          Деплой на сервер: ✅ success
-          Проверить: /build.json должен содержать ${GITHUB_SHA:0:7}
-          GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          EOF
-          elif [ "$BUILD_RESULT" != "success" ]; then
-            cat > /tmp/deploy-notification.txt <<EOF
-          ❌ CITY GO · PRODUCTION DEPLOY
-          Статус: прод не обновлён
-          Прогон: #${{ github.run_number }} · попытка ${{ github.run_attempt }}
-          Commit: ${GITHUB_SHA:0:7}
-          Сломанный этап: сборка production-образов
-          Сборка образов: ❌ ${BUILD_RESULT}
-          Деплой на сервер: ⏭ ${DEPLOY_RESULT}
-          Вероятная зона: Docker build, backend image smoke, frontend TypeScript/Vite build или push в GHCR.
-          Что делать: открыть job "Build production images" и смотреть первый красный step.
-          GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          EOF
-          else
-            cat > /tmp/deploy-notification.txt <<EOF
-          ❌ CITY GO · PRODUCTION DEPLOY
-          Статус: prod image собран, но сервер не обновлён
-          Прогон: #${{ github.run_number }} · попытка ${{ github.run_attempt }}
-          Commit: ${GITHUB_SHA:0:7}
-          Сломанный этап: деплой на production-сервер
-          Сборка образов: ✅ ${BUILD_RESULT}
-          Деплой на сервер: ❌ ${DEPLOY_RESULT}
-          Вероятная зона: SSH, docker compose pull/up, PostgreSQL readiness, миграции, schema guard, frontend SHA gate или background services.
-          GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          EOF
-            if [ -n "$DEPLOY_DIAGNOSTICS" ]; then
-              cat >> /tmp/deploy-notification.txt <<EOF
-
-          Диагностика deploy:
-          ${DEPLOY_DIAGNOSTICS}
-          EOF
-            else
-              cat >> /tmp/deploy-notification.txt <<EOF
-
-          Диагностика deploy: лог не найден в artifact production-deploy-log.
-          EOF
-            fi
-          fi
-          sed -i 's/^          //' /tmp/deploy-notification.txt
+          python scripts/build_deploy_notification.py \
+            --build-result "$BUILD_RESULT" \
+            --deploy-result "$DEPLOY_RESULT" \
+            --run-attempt "$RUN_ATTEMPT" \
+            --output /tmp/deploy-notification.txt
 
       - name: Send Telegram deploy notification
         shell: bash
