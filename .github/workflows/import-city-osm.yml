@@ -7,12 +7,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: city-import-kutaisi-queue
+  group: city-import-kutaisi-status
   cancel-in-progress: false
 
 jobs:
   import:
-    name: Queue Kutaisi import
+    name: Check Kutaisi import status
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -34,7 +34,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/tmp/city-go-import/ssh-keyscan.log || true
 
-      - name: Queue import through admin API
+      - name: Check import status through admin API
         shell: bash
         env:
           DEPLOY_HOST: ${{ secrets.SSH_HOST }}
@@ -45,7 +45,7 @@ jobs:
           set -euo pipefail
           {
             echo "city_slug=$CITY_SLUG"
-            echo "mode=queue_import_worker"
+            echo "mode=check_import_status"
             echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           } > /tmp/city-go-import/import.log
           set +e
@@ -77,30 +77,29 @@ jobs:
           fi
           echo "city_id=$city_id"
           echo "find_city_end"
-          echo "queue_import_start"
-          response_file="/tmp/city-go-import-response.json"
-          http_code="$(curl -sS -o "$response_file" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/$city_id/run")"
-          echo "queue_http_status=$http_code"
-          cat "$response_file"
-          echo
-          echo "queue_import_response_end"
-          job_json="$(curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/$city_id")"
           echo "import_job_status_start"
+          job_json="$(curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/$city_id")"
           printf '%s\n' "$job_json"
           echo "import_job_status_end"
           job_status="$(printf '%s' "$job_json" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
           current_step="$(printf '%s' "$job_json" | sed -n 's/.*"current_step"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+          launch_status="$(printf '%s' "$job_json" | sed -n 's/.*"launch_status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+          places_total="$(printf '%s' "$job_json" | sed -n 's/.*"places_total"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+          places_published="$(printf '%s' "$job_json" | sed -n 's/.*"places_published"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
           echo "job_status=$job_status"
           echo "current_step=$current_step"
-          if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
-            echo "queue_import_end"
-          elif [ "$http_code" = "409" ] && { [ "$job_status" = "queued" ] || [ "$job_status" = "running" ] || [ "$current_step" = "queued" ]; }; then
-            echo "queue_import_end"
-            echo "already_queued_or_running=true"
-          else
-            echo "Queue import failed with http_status=$http_code" >&2
-            exit 1
-          fi
+          echo "launch_status=$launch_status"
+          echo "places_total=$places_total"
+          echo "places_published=$places_published"
+          case "$job_status:$current_step:$launch_status" in
+            queued:*:*|running:*:*|*:ready_for_review:*|partial_success:*:*|success:*:*|success_with_warnings:*:*|*:*:published|*:*:review_required)
+              echo "import_status_ok"
+              ;;
+            *)
+              echo "Import status is not actionable: status=$job_status current_step=$current_step launch_status=$launch_status" >&2
+              exit 1
+              ;;
+          esac
           echo "queue_summary_start"
           curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/queue"
           echo
@@ -110,12 +109,12 @@ jobs:
           set -e
           echo "exit_code=$status" | tee -a /tmp/city-go-import/import.log
           echo "finished_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" | tee -a /tmp/city-go-import/import.log
-          if ! grep -q "queue_import_end" /tmp/city-go-import/import.log; then
-            echo "Import was not queued or already running; see artifact log" >&2
+          if ! grep -q "import_status_ok" /tmp/city-go-import/import.log; then
+            echo "Import status check failed; see artifact log" >&2
             exit 1
           fi
           if [ "$status" -ne 0 ]; then
-            echo "Queue import failed with exit code $status" >&2
+            echo "Import status check failed with exit code $status" >&2
             exit "$status"
           fi
 
@@ -128,13 +127,12 @@ jobs:
         run: |
           set -euo pipefail
           ICON="✅"
-          STATUS_TEXT="поставлен в очередь или уже выполняется"
-          if [ "$JOB_STATUS" != "success" ]; then ICON="❌"; STATUS_TEXT="не поставлен в очередь"; fi
+          STATUS_TEXT="статус импорта прочитан"
+          if [ "$JOB_STATUS" != "success" ]; then ICON="❌"; STATUS_TEXT="статус импорта требует проверки"; fi
           {
-            echo "$ICON CITY GO · IMPORT QUEUE"
+            echo "$ICON CITY GO · IMPORT STATUS"
             echo "Статус: $STATUS_TEXT"
             echo "Город: kutaisi"
-            echo "Исполнитель: import-worker"
             echo "Проверить лог: $RUN_URL"
           } > /tmp/city-go-import/import-notification.txt
 
@@ -150,7 +148,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: city-import-queue-log
+          name: city-import-status-log
           path: /tmp/city-go-import
           if-no-files-found: ignore
           retention-days: 14
