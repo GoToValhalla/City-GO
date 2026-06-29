@@ -53,11 +53,16 @@ export const AdminPlaceVerificationsPage = () => {
     if (status) query.set('status', status)
     if (category) query.set('category', category)
     try {
-      const queue = await adminGet<AdminVerificationQueue>(`/admin/place-verifications/queue?${query}`)
+      const queue = await adminGet<AdminVerificationQueue>(`/admin/place-verifications/queue?${query}`, { cache: false, timeoutMs: 8_000 })
       if (requestId !== requestSequence.current) return
-      setTasks(queue.items); setTotal(queue.total)
+      setTasks(Array.isArray(queue.items) ? queue.items : [])
+      setTotal(typeof queue.total === 'number' ? queue.total : 0)
     } catch (error) {
-      if (requestId === requestSequence.current) setQueueError(errorText(error, 'Не удалось загрузить очередь проверки мест'))
+      if (requestId === requestSequence.current) {
+        setTasks([])
+        setTotal(0)
+        setQueueError(errorText(error, 'Не удалось загрузить очередь проверки мест'))
+      }
     } finally {
       if (requestId === requestSequence.current) setQueueLoading(false)
     }
@@ -66,10 +71,13 @@ export const AdminPlaceVerificationsPage = () => {
   const loadSummary = useCallback(async (requestId: number) => {
     setSummaryLoading(true); setSummaryError(null)
     try {
-      const summary = await adminGet<AdminVerificationSummary>('/admin/place-verifications/summary')
+      const summary = await adminGet<AdminVerificationSummary>('/admin/place-verifications/summary', { cache: false, timeoutMs: 8_000 })
       if (requestId === requestSequence.current) setStats(summary)
     } catch (error) {
-      if (requestId === requestSequence.current) setSummaryError(errorText(error, 'Не удалось загрузить сводку проверки мест'))
+      if (requestId === requestSequence.current) {
+        setStats(null)
+        setSummaryError(errorText(error, 'Не удалось загрузить сводку проверки мест'))
+      }
     } finally {
       if (requestId === requestSequence.current) setSummaryLoading(false)
     }
@@ -78,8 +86,8 @@ export const AdminPlaceVerificationsPage = () => {
   const loadCities = useCallback(async (requestId: number) => {
     setCitiesLoading(true); setFiltersError(null)
     try {
-      const response = await adminGet<AdminCitiesResponse>('/admin/cities?limit=100')
-      if (requestId === requestSequence.current) setCities(response.items)
+      const response = await adminGet<AdminCitiesResponse>('/admin/cities?limit=100', { cache: false, timeoutMs: 8_000 })
+      if (requestId === requestSequence.current) setCities(Array.isArray(response.items) ? response.items : [])
     } catch (error) {
       if (requestId === requestSequence.current) setFiltersError(errorText(error, 'Не удалось загрузить список городов'))
     } finally {
@@ -104,8 +112,9 @@ export const AdminPlaceVerificationsPage = () => {
       await adminPost(`/admin/place-verifications/places/${placeId}/verify`, { action })
       setTasks((current) => current.filter((task) => task.place_id !== placeId))
       setTotal((current) => Math.max(0, current - 1))
-      void loadQueue(++requestSequence.current)
-      void loadSummary(requestSequence.current)
+      const requestId = ++requestSequence.current
+      void loadQueue(requestId)
+      void loadSummary(requestId)
     } catch (error) {
       setActionError(errorText(error, 'Не удалось сохранить результат проверки'))
     } finally {
@@ -125,7 +134,7 @@ export const AdminPlaceVerificationsPage = () => {
     <h2 className="admin-page-title">Проверка мест ({total})</h2>
     <p className="admin-page-subtitle">Сводные показатели открывают соответствующие очереди. Название места ведёт в его карточку.</p>
     <section className="admin-section">
-      {summaryLoading && !stats && <AdminLoading message="Загрузка сводки проверки…" />}
+      {summaryLoading && !stats && !summaryError && <AdminLoading message="Загрузка сводки проверки…" />}
       {summaryError && <AdminSectionError title="Не удалось загрузить сводку проверки мест" message={summaryError} onRetry={() => void loadSummary(++requestSequence.current)} />}
       {stats && <div className="admin-metrics-grid admin-metrics-small">{metric(stats.queue_total, 'В очереди', { status: '' })}{metric(stats.verified_today, 'Проверено сегодня', { status: 'verified_today' })}{metric(stats.needs_recheck, 'Нужна перепроверка', { status: 'needs_recheck' })}{metric(stats.low_confidence, 'Низкая уверенность', { status: 'low_confidence' })}</div>}
     </section>
@@ -137,7 +146,9 @@ export const AdminPlaceVerificationsPage = () => {
     {actionError && <AdminSectionError title="Не удалось сохранить результат проверки" message={actionError} />}
     <section className="admin-section">
       {queueError && <AdminSectionError title="Не удалось загрузить очередь проверки мест" message={queueError} onRetry={() => void loadQueue(++requestSequence.current)} />}
-      {queueLoading && tasks.length === 0 ? <AdminLoading message="Загрузка очереди проверки…" /> : tasks.length === 0 && !queueError ? <AdminEmpty message="Очередь пуста по выбранным фильтрам" /> : <><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Город</th><th>Категория</th><th>Адрес</th><th>Статус</th><th>Уверенность</th><th>Действия</th></tr></thead><tbody>{tasks.map((task) => <tr key={task.place_id}><td><Link to={`/admin/places/${task.place_id}`}>{task.title}</Link></td><td>{task.city_slug ? <Link to={`/admin/cities/${task.city_slug}?tab=verification`}>{task.city_slug}</Link> : '—'}</td><td>{categoryText(task.category)}</td><td>{task.address ?? '—'}</td><td>{verificationStatusText(task.verification_status)}</td><td>{confidenceText(task.existence_confidence_score)}</td><td><button type="button" disabled={busy === task.place_id} onClick={() => void verify(task.place_id, 'exists')} className="admin-btn admin-btn-ok admin-btn-sm">Подтвердить место</button><button type="button" disabled={busy === task.place_id} onClick={() => void verify(task.place_id, 'not_found')} className="admin-btn admin-btn-danger admin-btn-sm">Исключить</button></td></tr>)}</tbody></table></div><div className="admin-actions-cell"><button type="button" className="admin-btn admin-btn-sm" disabled={offset === 0} onClick={() => updateFilters({ offset: Math.max(0, offset - limit) })}>Назад</button><span className="admin-muted">Стр. {page} / {pages} · всего {total}</span><button type="button" className="admin-btn admin-btn-sm" disabled={offset + limit >= total} onClick={() => updateFilters({ offset: offset + limit })}>Вперёд</button></div></>}
+      {queueLoading && tasks.length === 0 && !queueError ? <AdminLoading message="Загрузка очереди проверки…" /> : null}
+      {!queueLoading && tasks.length === 0 && !queueError ? <AdminEmpty message="Очередь пуста по выбранным фильтрам" /> : null}
+      {tasks.length > 0 && <><div className="admin-table-wrap"><table className="admin-table"><thead><tr><th>Место</th><th>Город</th><th>Категория</th><th>Адрес</th><th>Статус</th><th>Уверенность</th><th>Действия</th></tr></thead><tbody>{tasks.map((task) => <tr key={task.place_id}><td data-label="Место"><Link to={`/admin/places/${task.place_id}`}>{task.title}</Link></td><td data-label="Город">{task.city_slug ? <Link to={`/admin/cities/${task.city_slug}?tab=verification`}>{task.city_slug}</Link> : '—'}</td><td data-label="Категория">{categoryText(task.category)}</td><td data-label="Адрес">{task.address ?? '—'}</td><td data-label="Статус">{verificationStatusText(task.verification_status)}</td><td data-label="Уверенность">{confidenceText(task.existence_confidence_score)}</td><td data-label="Действия"><button type="button" disabled={busy === task.place_id} onClick={() => void verify(task.place_id, 'exists')} className="admin-btn admin-btn-ok admin-btn-sm">Подтвердить место</button><button type="button" disabled={busy === task.place_id} onClick={() => void verify(task.place_id, 'not_found')} className="admin-btn admin-btn-danger admin-btn-sm">Исключить</button></td></tr>)}</tbody></table></div><div className="admin-actions-cell"><button type="button" className="admin-btn admin-btn-sm" disabled={offset === 0} onClick={() => updateFilters({ offset: Math.max(0, offset - limit) })}>Назад</button><span className="admin-muted">Стр. {page} / {pages} · всего {total}</span><button type="button" className="admin-btn admin-btn-sm" disabled={offset + limit >= total} onClick={() => updateFilters({ offset: offset + limit })}>Вперёд</button></div></>}
     </section>
   </div>
 }
