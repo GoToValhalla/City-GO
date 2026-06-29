@@ -79,6 +79,14 @@ jobs:
           set -euo pipefail
           FLAG="--dry-run"
           if [ "$MODE" = "apply" ]; then FLAG="--apply"; fi
+          {
+            echo "city=$CITY"
+            echo "scope=$SCOPE"
+            echo "profile=$PROFILE"
+            echo "mode=$MODE"
+            echo "flag=$FLAG"
+            echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          } > /tmp/city-go-import/import.log
           set +e
           ssh \
             -o ConnectTimeout=20 \
@@ -88,10 +96,29 @@ jobs:
             -i ~/.ssh/deploy_key \
             -p "$DEPLOY_PORT" \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd /srv/app && docker compose exec -T backend python data/scripts/import_city_osm_v2.py --city '$CITY' --scope '$SCOPE' --profile '$PROFILE' $FLAG" \
-            2>&1 | tee /tmp/city-go-import/import.log
+            "CITY='$CITY' SCOPE='$SCOPE' PROFILE='$PROFILE' FLAG='$FLAG' bash -s" <<'REMOTE' 2>&1 | tee -a /tmp/city-go-import/import.log
+          set -euo pipefail
+          echo "remote_host=$(hostname)"
+          echo "remote_started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          cd /srv/app
+          echo "remote_pwd=$(pwd)"
+          echo "compose_services_start"
+          docker compose ps --services || true
+          echo "compose_services_end"
+          echo "backend_status_start"
+          docker compose ps backend || true
+          echo "backend_status_end"
+          echo "script_probe_start"
+          docker compose exec -T backend sh -lc 'pwd; python --version; test -f data/scripts/import_city_osm_v2.py && echo import_script_ok || echo import_script_missing'
+          echo "script_probe_end"
+          echo "import_command_start"
+          docker compose exec -T backend python data/scripts/import_city_osm_v2.py --city "$CITY" --scope "$SCOPE" --profile "$PROFILE" $FLAG
+          echo "import_command_end"
+          REMOTE
           status=${PIPESTATUS[0]}
           set -e
+          echo "exit_code=$status" | tee -a /tmp/city-go-import/import.log
+          echo "finished_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" | tee -a /tmp/city-go-import/import.log
           if [ "$status" -ne 0 ]; then
             echo "Import failed with exit code $status" >&2
             exit "$status"
