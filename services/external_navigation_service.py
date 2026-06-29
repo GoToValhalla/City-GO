@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Protocol
+from urllib.parse import urlencode
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -20,6 +21,8 @@ from services.route_geometry import distance_meters, walk_minutes_between
 _MAX_FULL_ROUTE_POINTS = 8
 _MAX_FULL_ROUTE_URL_LENGTH = 1900
 _MIN_SEGMENT_DISTANCE_M = 50
+_GOOGLE_FULL_ROUTE_URL_LIMIT = 1900
+_GOOGLE_MAX_MIDDLE_WAYPOINTS = 3
 
 
 class NavigationWaypoint(Protocol):
@@ -73,6 +76,12 @@ class ExternalNavigationService:
                     label="Открыть точку в 2ГИС",
                     web_url=_two_gis_destination_web_url(lat, lng),
                 ),
+                ExternalNavigationLink(
+                    provider="google_maps",
+                    mode="destination",
+                    label="Открыть точку в Google Maps",
+                    web_url=_google_destination_url(lat, lng),
+                ),
             ],
         )
 
@@ -104,6 +113,12 @@ class ExternalNavigationService:
                         label="Пешком в 2ГИС",
                         web_url=_two_gis_segment_web_url(from_lat, from_lng, to_lat, to_lng),
                     ),
+                    ExternalNavigationLink(
+                        provider="google_maps",
+                        mode="segment",
+                        label="Пешком в Google Maps",
+                        web_url=_google_segment_url(from_lat, from_lng, to_lat, to_lng),
+                    ),
                 ]
             segments.append(
                 ExternalNavigationSegment(
@@ -126,22 +141,33 @@ class ExternalNavigationService:
             return ExternalNavigationFullRoute(available=False, reason="not_enough_points")
         if len(points) > _MAX_FULL_ROUTE_POINTS:
             return ExternalNavigationFullRoute(available=False, reason="too_many_points_for_stable_full_route")
-        url = _yandex_full_route_url(points)
-        if len(url) > _MAX_FULL_ROUTE_URL_LENGTH:
+        yandex_url = _yandex_full_route_url(points)
+        if len(yandex_url) > _MAX_FULL_ROUTE_URL_LENGTH:
             return ExternalNavigationFullRoute(available=False, reason="url_too_long")
+        links = [
+            ExternalNavigationLink(
+                provider="yandex_maps",
+                mode="full_route",
+                label="Посмотреть весь маршрут в Яндекс Картах",
+                web_url=yandex_url,
+                is_primary=True,
+            )
+        ]
+        google_url = _google_full_route_url(points)
+        if google_url:
+            links.append(
+                ExternalNavigationLink(
+                    provider="google_maps",
+                    mode="full_route",
+                    label="Посмотреть весь маршрут в Google Maps",
+                    web_url=google_url,
+                )
+            )
         return ExternalNavigationFullRoute(
             available=True,
             recommended=False,
             reason="preview_only_segment_navigation_is_primary",
-            links=[
-                ExternalNavigationLink(
-                    provider="yandex_maps",
-                    mode="full_route",
-                    label="Посмотреть весь маршрут в Яндекс Картах",
-                    web_url=url,
-                    is_primary=True,
-                )
-            ],
+            links=links,
         )
 
 
@@ -236,6 +262,10 @@ def _pct(value: int, total: int) -> float:
     return round(value / total * 100.0, 1)
 
 
+def _coord(lat: float, lng: float) -> str:
+    return f"{lat:.6f},{lng:.6f}"
+
+
 def _yandex_destination_url(lat: float, lng: float) -> str:
     return f"https://yandex.ru/maps/?pt={lng:.6f},{lat:.6f}&z=17&l=map"
 
@@ -245,7 +275,7 @@ def _yandex_segment_url(from_lat: float, from_lng: float, to_lat: float, to_lng:
 
 
 def _yandex_full_route_url(points: list[dict[str, object]]) -> str:
-    rtext = "~".join(f"{float(point['lat']):.6f},{float(point['lng']):.6f}" for point in points)
+    rtext = "~".join(_coord(float(point["lat"]), float(point["lng"])) for point in points)
     return f"https://yandex.ru/maps/?rtext={rtext}&rtt=pd"
 
 
@@ -255,3 +285,38 @@ def _two_gis_destination_web_url(lat: float, lng: float) -> str:
 
 def _two_gis_segment_web_url(from_lat: float, from_lng: float, to_lat: float, to_lng: float) -> str:
     return f"https://2gis.ru/routeSearch/rsType/pedestrian/from/{from_lng:.6f},{from_lat:.6f}/to/{to_lng:.6f},{to_lat:.6f}"
+
+
+def _google_destination_url(lat: float, lng: float) -> str:
+    return "https://www.google.com/maps/search/?" + urlencode({"api": "1", "query": _coord(lat, lng)})
+
+
+def _google_segment_url(from_lat: float, from_lng: float, to_lat: float, to_lng: float) -> str:
+    return "https://www.google.com/maps/dir/?" + urlencode(
+        {
+            "api": "1",
+            "origin": _coord(from_lat, from_lng),
+            "destination": _coord(to_lat, to_lng),
+            "travelmode": "walking",
+        }
+    )
+
+
+def _google_full_route_url(points: list[dict[str, object]]) -> str | None:
+    if len(points) < 2:
+        return None
+    middle = points[1:-1]
+    if len(middle) > _GOOGLE_MAX_MIDDLE_WAYPOINTS:
+        return None
+    origin = points[0]
+    destination = points[-1]
+    params = {
+        "api": "1",
+        "origin": _coord(float(origin["lat"]), float(origin["lng"])),
+        "destination": _coord(float(destination["lat"]), float(destination["lng"])),
+        "travelmode": "walking",
+    }
+    if middle:
+        params["waypoints"] = "|".join(_coord(float(point["lat"]), float(point["lng"])) for point in middle)
+    url = "https://www.google.com/maps/dir/?" + urlencode(params)
+    return url if len(url) <= _GOOGLE_FULL_ROUTE_URL_LIMIT else None
