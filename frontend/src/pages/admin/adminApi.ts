@@ -3,14 +3,14 @@ import { requireAdminApiToken } from './adminToken'
 import { toAdminEndpointErrorMessage } from './shared/adminErrorMessage'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000'
-const ADMIN_REQUEST_TIMEOUT_MS = 15_000
+const ADMIN_REQUEST_TIMEOUT_MS = 8_000
 const ADMIN_LONG_REQUEST_TIMEOUT_MS = 600_000
-const ADMIN_GET_CACHE_TTL_MS = 20_000
-const ADMIN_GET_CACHE_MAX_ENTRIES = 80
-const ADMIN_GET_CACHE_ENABLED = import.meta.env.MODE !== 'test'
+const ADMIN_GET_CACHE_TTL_MS = 0
+const ADMIN_GET_CACHE_MAX_ENTRIES = 0
+const ADMIN_GET_CACHE_ENABLED = false
 
 type AdminRequestOptions = RequestInit & { timeoutMs?: number }
-type AdminGetOptions = { cache?: boolean }
+type AdminGetOptions = { cache?: boolean; timeoutMs?: number }
 type AdminWriteOptions = { invalidateCache?: boolean }
 type AdminGetCacheEntry = {
   expiresAt: number
@@ -97,7 +97,7 @@ const handleUnauthorized = (): never => {
   throw new Error('Сессия администратора завершена')
 }
 
-const timeoutMessage = (timeoutMs: number) => `Сервер не ответил за ${Math.round(timeoutMs / 1000)} секунд. Проверьте состояние базы данных и повторите запрос.`
+const timeoutMessage = (timeoutMs: number) => `Backend не ответил за ${Math.round(timeoutMs / 1000)} секунд. Экран остановлен вместо вечной загрузки. Проверьте API/БД и повторите запрос.`
 
 /**
  * Единый HTTP-клиент для admin API.
@@ -167,14 +167,15 @@ export const adminRequest = async <T>(
 }
 
 export const adminGet = <T>(path: string, options: AdminGetOptions = {}) => {
-  if (!ADMIN_GET_CACHE_ENABLED || options.cache === false) return adminRequest<T>(path)
+  const request = adminRequest<T>(path, { timeoutMs: options.timeoutMs })
+  if (!ADMIN_GET_CACHE_ENABLED || options.cache === false) return request
   clearExpiredAdminGetCache()
   const cached = adminGetCache.get(path)
   if (cached && cached.expiresAt > Date.now()) {
     if (cached.hasData) return Promise.resolve(cached.data as T)
     if (cached.promise) return cached.promise as Promise<T>
   }
-  return rememberAdminGet(path, adminRequest<T>(path))
+  return rememberAdminGet(path, request)
 }
 
 export const adminPost = <T>(path: string, body?: unknown, options?: AdminWriteOptions) => {
