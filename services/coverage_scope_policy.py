@@ -12,6 +12,11 @@ DEFAULT_SCOPE_TYPE_BY_CODE = {
     "food_area": "food_area",
     "food_wider_center": "food_area",
     "useful_services": "service_infra",
+    "heritage_ring": "heritage_day_trip",
+    "heritage_ne_ring": "heritage_day_trip",
+    "sataplia_tourist": "nature_area",
+    "sataplia_nature": "nature_area",
+    "nature_daytrip": "nature_area",
 }
 
 
