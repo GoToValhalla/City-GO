@@ -17,7 +17,7 @@ from schemas.admin_route_operations import (
 )
 from services.admin_audit_service import write_admin_audit_log
 from services.city_readiness import (
-    compute_city_readiness,
+    city_readiness_snapshot,
     list_cities_readiness,
     recalculate_city_readiness_snapshot,
 )
@@ -181,7 +181,7 @@ def get_city_readiness(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> CityReadinessResponse:
-    payload = compute_city_readiness(db, city_slug=city_slug)
+    payload = city_readiness_snapshot(db, city_slug=city_slug)
     if payload is None:
         raise HTTPException(404, "Город не найден")
     return CityReadinessResponse.model_validate(payload)
