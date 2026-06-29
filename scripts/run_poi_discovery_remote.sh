@@ -37,6 +37,26 @@ print("POI_DISCOVERY_SUMMARY_JSON=" + json.dumps(payload, ensure_ascii=False, so
 PY
 }
 
+heartbeat_pid=""
+stop_heartbeat() {
+  if [ -n "${heartbeat_pid:-}" ]; then
+    kill "$heartbeat_pid" >/dev/null 2>&1 || true
+    wait "$heartbeat_pid" >/dev/null 2>&1 || true
+    heartbeat_pid=""
+  fi
+}
+trap stop_heartbeat EXIT
+
+start_heartbeat() {
+  (
+    while true; do
+      sleep 25
+      echo "poi_discovery_heartbeat $(date -u +'%Y-%m-%dT%H:%M:%SZ') city=${CITY_SLUG:-all} limit=${LIMIT}"
+    done
+  ) &
+  heartbeat_pid="$!"
+}
+
 backend_container_id="$("${COMPOSE[@]}" ps -q backend | head -n 1 || true)"
 if [ -z "$backend_container_id" ]; then
   echo "ERROR: backend container is not running; refusing to start/recreate backend from POI discovery." >&2
@@ -51,7 +71,7 @@ if [ "$backend_state" != "running" ]; then
   exit 1
 fi
 
-CMD=(python scripts/discover_new_pois.py --limit "$LIMIT")
+CMD=(python -u scripts/discover_new_pois.py --limit "$LIMIT")
 if [ -n "$CITY_SLUG" ]; then
   CMD+=(--city "$CITY_SLUG")
 fi
@@ -63,8 +83,9 @@ echo "=== poi discovery ==="
 echo "city=${CITY_SLUG:-all} limit=${LIMIT} apply=${APPLY_DISCOVERED}"
 echo "backend_container=$backend_container_id state=$backend_state"
 
+start_heartbeat
 set +e
-timeout --signal=TERM 10m "${COMPOSE[@]}" exec -T \
+timeout --signal=TERM 12m "${COMPOSE[@]}" exec -T \
   -e DB_POOL_SIZE=1 \
   -e DB_MAX_OVERFLOW=0 \
   -e DB_POOL_TIMEOUT_SECONDS=10 \
@@ -72,6 +93,7 @@ timeout --signal=TERM 10m "${COMPOSE[@]}" exec -T \
   backend "${CMD[@]}"
 status=$?
 set -e
+stop_heartbeat
 
 if [ "$status" -ne 0 ]; then
   echo "ERROR: POI discovery command failed with exit code $status" >&2
