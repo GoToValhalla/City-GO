@@ -26,6 +26,7 @@ from routers.collections import router as collections_router
 from routers.geo import router as geo_router
 from routers.itinerary import router as itinerary_router
 from routers.nearby import router as nearby_router
+from routers.navigation_events import router as nav_events_router
 from routers.open_now import router as open_now_router
 from routers.place_coverage import router as place_coverage_router
 from routers.place_enrichment import router as place_enrichment_router
@@ -91,6 +92,7 @@ _ROOT_ROUTERS = (
     geo_router,
     collection_places_router,
     itinerary_router,
+    nav_events_router,
     nearby_router,
     open_now_router,
     place_coverage_router,
