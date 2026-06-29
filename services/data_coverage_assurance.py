@@ -13,6 +13,7 @@ from models.city import City
 from models.known_missing_poi import KnownMissingPoi
 from models.source_observation import SourceObservation
 from services.coverage_gap_service import CRITICAL_POLICIES, MATCHED_STATUSES, refresh_coverage_statuses
+from services.coverage_scope_suggestion_service import suggest_scopes_for_gaps
 from services.data_coverage_contract import (
     BLOCKING_GAP_REASONS,
     MIN_MUST_HAVE_COVERAGE_RATIO,
@@ -29,23 +30,18 @@ EXPLANATION_ACTIONS = {
     "outside_bbox": "Расширить bbox или добавить scope для туристического кластера.",
     "not_imported_scope": "Добавить import scope нужного типа или связать expected_scope с legacy scope.",
     "unsupported_tag": "Расширить OSM taxonomy/profile и повторить dry-run import.",
-    "source_absent": "Подтвердить отсутствие в источниках или добавить место вручную.",
+    "source_absent": "Подтвердить отсутствие в источниках или добавить curated POI.",
     "hidden_by_policy": "Проверить статус источника и policy скрытия.",
     "missing_name": "Исправить нормализацию имени или добавить ручной alias.",
     "missing_coordinates": "Исправить координаты source observation.",
     "duplicate_candidate": "Смержить дубли и закрепить canonical place.",
     "not_visible_in_catalog": "Проверить publication/visibility policy найденного места.",
-    "not_route_eligible": "Проверить route eligibility для must-have места.",
+    "not_route_eligible": "Проверить route eligibility, place layer и route policy для must-have места.",
 }
 
 
 def run_data_coverage_assurance(db: Session, *, city_slug: str | None = None) -> dict[str, Any]:
-    """Runs full Data Coverage Assurance pass and mutates known_missing_poi statuses.
-
-    Базовый coverage_gap_service уже делает первичную сверку с местами и source observations.
-    Этот слой добавляет системные проверки, которых не хватало для готовности города:
-    scope-type awareness, must-have acceptance verdict, blocking reasons and weekly report buckets.
-    """
+    """Runs full Data Coverage Assurance pass and mutates known_missing_poi statuses."""
 
     base_result = refresh_coverage_statuses(db, city_slug=city_slug)
     rows = _query_rows(db, city_slug=city_slug)
@@ -61,6 +57,7 @@ def run_data_coverage_assurance(db: Session, *, city_slug: str | None = None) ->
 
     db.flush()
     rows = _query_rows(db, city_slug=city_slug)
+    suggestions = suggest_scopes_for_gaps(rows)
 
     return {
         **base_result,
@@ -69,12 +66,11 @@ def run_data_coverage_assurance(db: Session, *, city_slug: str | None = None) ->
         "acceptance": build_acceptance(rows),
         "weekly_check": build_weekly_report(rows),
         "recommended_actions": build_recommended_actions(rows),
+        "scope_suggestions": [suggestion.__dict__ for suggestion in suggestions],
     }
 
 
 def build_summary(rows: Iterable[KnownMissingPoi]) -> dict[str, Any]:
-    """Builds post-assurance summary, not the stale pre-assurance refresh summary."""
-
     row_list = list(rows)
     by_status = Counter(row.status for row in row_list)
     by_gap_reason = Counter(row.gap_reason or "none" for row in row_list)
@@ -99,18 +95,13 @@ def build_summary(rows: Iterable[KnownMissingPoi]) -> dict[str, Any]:
 
 
 def build_acceptance(rows: Iterable[KnownMissingPoi]) -> dict[str, dict[str, object]]:
-    """Builds city readiness verdict from must-have POI coverage."""
-
     grouped: dict[str, list[KnownMissingPoi]] = defaultdict(list)
     for row in rows:
         grouped[row.city.slug if row.city else "unknown"].append(row)
-
     return {city_slug: _city_acceptance(city_slug, city_rows) for city_slug, city_rows in grouped.items()}
 
 
 def build_weekly_report(rows: Iterable[KnownMissingPoi]) -> dict[str, object]:
-    """Returns weekly-check buckets for admin dashboard and future scheduler."""
-
     row_list = list(rows)
     return {
         "checked_at": datetime.utcnow().isoformat(),
@@ -127,8 +118,6 @@ def build_weekly_report(rows: Iterable[KnownMissingPoi]) -> dict[str, object]:
 
 
 def build_recommended_actions(rows: Iterable[KnownMissingPoi]) -> list[dict[str, object]]:
-    """Aggregates next admin actions by gap reason."""
-
     counters = Counter(row.gap_reason for row in rows if row.gap_reason)
     return [
         {
@@ -168,11 +157,9 @@ def _apply_scope_assurance(row: KnownMissingPoi) -> None:
 def _apply_source_observation_assurance(db: Session, row: KnownMissingPoi) -> None:
     if row.status in MATCHED_STATUSES or row.gap_reason in {"outside_bbox", "not_imported_scope"}:
         return
-
     observation = _nearest_observation(db, row)
     if observation is None:
         return
-
     tags = _observation_tags(observation)
     taxonomy_reason = unsupported_tag_reason(tags)
     if taxonomy_reason == "unsupported_tag":
@@ -180,7 +167,6 @@ def _apply_source_observation_assurance(db: Session, row: KnownMissingPoi) -> No
         row.gap_reason = "unsupported_tag"
         row.review_notes = f"Coverage assurance: source observation #{observation.id} has meaningful unsupported tags."
         return
-
     if category_from_osm_tags(tags) and observation.canonical_place_id is None:
         row.status = "needs_review"
         row.gap_reason = "not_imported_scope"
@@ -196,7 +182,6 @@ def _city_acceptance(city_slug: str, rows: list[KnownMissingPoi]) -> dict[str, o
     explained = [row for row in critical if row.status in MATCHED_STATUSES or gap_reason_is_explained(row.gap_reason)]
     blocking = [row for row in critical if row.gap_reason in BLOCKING_GAP_REASONS]
     coverage_ratio = round(len(matched) / len(critical), 4) if critical else 1.0
-
     reasons: list[str] = []
     if coverage_ratio < MIN_MUST_HAVE_COVERAGE_RATIO:
         reasons.append("must_have_coverage_below_threshold")
@@ -204,7 +189,6 @@ def _city_acceptance(city_slug: str, rows: list[KnownMissingPoi]) -> dict[str, o
         reasons.append("must_have_without_explanation")
     if blocking:
         reasons.append("blocking_gap_reasons_present")
-
     return {
         "city_slug": city_slug,
         "accepted": not reasons,
@@ -231,7 +215,6 @@ def _scope_status_for_row(row: KnownMissingPoi) -> str:
     ]
     if not city_scopes:
         return "outside_bbox"
-
     inside_any = False
     inside_expected = False
     expected_aliases = scope_aliases(row.expected_scope)
@@ -242,7 +225,6 @@ def _scope_status_for_row(row: KnownMissingPoi) -> str:
         scope_keys = {str(scope.get("code") or ""), str(scope.get("profile") or ""), str(scope.get("scope_type") or "")}
         if expected_aliases & scope_keys:
             inside_expected = True
-
     if inside_expected:
         return "inside_expected_scope"
     if inside_any:
