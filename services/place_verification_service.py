@@ -5,7 +5,7 @@ from datetime import datetime
 from functools import reduce
 from typing import Any
 
-from sqlalchemy import and_, case, func, or_
+from sqlalchemy import and_, case, func, or_, text
 from sqlalchemy.orm import Session, joinedload
 
 from models.city import City
@@ -290,38 +290,45 @@ def place_verification_stats(db: Session, city_slug: str) -> dict[str, Any]:
 
 
 def place_verification_summary(db: Session, city_slug: str | None = None) -> dict[str, int]:
-    query = db.query(Place)
-    if city_slug:
-        query = query.join(City, City.id == Place.city_id).filter(City.slug == city_slug)
-
-    queue_filter = or_(
-        Place.verification_status.in_(("needs_recheck", "unverified")),
-        Place.verification_status.is_(None),
-    )
-    unverified_filter = or_(
-        Place.verification_status == "unverified",
-        Place.verification_status.is_(None),
-    )
-    low_confidence_filter = or_(
-        Place.existence_confidence_level.in_(("low", "unknown")),
-        Place.existence_confidence_level.is_(None),
-    )
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    params: dict[str, object] = {"today_start": today_start}
+    join_city = ""
+    city_filter = ""
+    if city_slug:
+        join_city = "JOIN cities ON cities.id = places.city_id"
+        city_filter = "WHERE cities.slug = :city_slug"
+        params["city_slug"] = city_slug
 
-    row = query.with_entities(
-        func.sum(case((queue_filter, 1), else_=0)).label("queue_total"),
-        func.sum(case((Place.verification_status == "needs_recheck", 1), else_=0)).label("needs_recheck"),
-        func.sum(case((unverified_filter, 1), else_=0)).label("unverified"),
-        func.sum(case((low_confidence_filter, 1), else_=0)).label("low_confidence"),
-        func.sum(case((and_(Place.verification_status == "verified", Place.verified_at >= today_start), 1), else_=0)).label("verified_today"),
-    ).one()
+    row = db.execute(
+        text(
+            f"""
+            WITH filtered_places AS (
+                SELECT
+                    places.verification_status AS verification_status,
+                    places.existence_confidence_level AS existence_confidence_level,
+                    places.verified_at AS verified_at
+                FROM places
+                {join_city}
+                {city_filter}
+            )
+            SELECT
+                SUM(CASE WHEN verification_status IN ('needs_recheck', 'unverified') OR verification_status IS NULL THEN 1 ELSE 0 END) AS queue_total,
+                SUM(CASE WHEN verification_status = 'needs_recheck' THEN 1 ELSE 0 END) AS needs_recheck,
+                SUM(CASE WHEN verification_status = 'unverified' OR verification_status IS NULL THEN 1 ELSE 0 END) AS unverified,
+                SUM(CASE WHEN existence_confidence_level IN ('low', 'unknown') OR existence_confidence_level IS NULL THEN 1 ELSE 0 END) AS low_confidence,
+                SUM(CASE WHEN verification_status = 'verified' AND verified_at >= :today_start THEN 1 ELSE 0 END) AS verified_today
+            FROM filtered_places
+            """
+        ),
+        params,
+    ).mappings().one()
 
     return {
-        "queue_total": int(row.queue_total or 0),
-        "needs_recheck": int(row.needs_recheck or 0),
-        "unverified": int(row.unverified or 0),
-        "low_confidence": int(row.low_confidence or 0),
-        "verified_today": int(row.verified_today or 0),
+        "queue_total": int(row["queue_total"] or 0),
+        "needs_recheck": int(row["needs_recheck"] or 0),
+        "unverified": int(row["unverified"] or 0),
+        "low_confidence": int(row["low_confidence"] or 0),
+        "verified_today": int(row["verified_today"] or 0),
     }
 
 
@@ -379,24 +386,21 @@ def _enqueue_if_stale(db: Session, state: tuple[int, int], place: Place) -> tupl
 
 
 def _has_pending_task(db: Session, place_id: int) -> bool:
-    return (
-        db.query(PlaceVerificationTask)
-        .filter(PlaceVerificationTask.place_id == place_id, PlaceVerificationTask.status == "pending")
-        .first()
-        is not None
-    )
+    return db.query(PlaceVerificationTask).filter(PlaceVerificationTask.place_id == place_id, PlaceVerificationTask.status == "pending").first() is not None
 
 
 def _priority(place: Place) -> int:
-    category = str(getattr(place, "category", "") or "")
-    return 10 if category in {"restaurant", "cafe", "coffee", "bar", "food"} else 5
+    score = int(place.existence_confidence_score or 0)
+    return max(1, 100 - score)
 
 
-def _distance_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+def _distance_meters(lat1: float | None, lng1: float | None, lat2: float | None, lng2: float | None) -> int | None:
+    if None in (lat1, lng1, lat2, lng2):
+        return None
     radius = 6371000
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    d_phi = math.radians(lat2 - lat1)
-    d_lam = math.radians(lng2 - lng1)
-    value = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lam / 2) ** 2
-    return round(radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value)), 2)
+    phi1 = math.radians(float(lat1))
+    phi2 = math.radians(float(lat2))
+    dphi = math.radians(float(lat2) - float(lat1))
+    dlambda = math.radians(float(lng2) - float(lng1))
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return int(radius * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
