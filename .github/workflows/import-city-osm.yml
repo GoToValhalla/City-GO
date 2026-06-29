@@ -7,18 +7,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: city-osm-import-kutaisi-tourist-core
+  group: city-osm-import-kutaisi-heritage
   cancel-in-progress: false
 
 jobs:
   import:
-    name: Kutaisi tourist core dry-run
+    name: Kutaisi heritage dry-run
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       CITY: kutaisi
-      SCOPE: tourist_core
-      PROFILE: tourist_core_strict
+      SCOPE: heritage_ne_ring
+      PROFILE: heritage_religious
       MODE: dry-run
     steps:
       - name: Checkout
@@ -107,8 +107,8 @@ jobs:
             echo "$ICON CITY GO · OSM IMPORT"
             echo "Статус: $STATUS_TEXT"
             echo "Город: kutaisi"
-            echo "Scope: tourist_core"
-            echo "Profile: tourist_core_strict"
+            echo "Scope: heritage_ne_ring"
+            echo "Profile: heritage_religious"
             echo "Mode: dry-run"
             echo "Проверить лог: $RUN_URL"
           } > /tmp/city-go-import/import-notification.txt
