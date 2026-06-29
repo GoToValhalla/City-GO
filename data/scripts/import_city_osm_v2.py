@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from data.scripts import import_city_osm as legacy_import
 from db.session import SessionLocal
+from services.coverage_profile_filters import COVERAGE_PROFILE_FILTERS
 from services.data_coverage_assurance import run_data_coverage_assurance
 from services.osm_import_taxonomy import category_from_osm_tags
 from services.place_layer_service import apply_place_layers
@@ -64,6 +65,7 @@ COVERAGE_AWARE_PROFILE_FILTERS: dict[str, list[tuple[str, str | None]]] = {
         ("amenity", "toilets|pharmacy|atm|parking|shelter|bank|clinic|hospital|police"),
     ],
 }
+COVERAGE_AWARE_PROFILE_FILTERS.update(COVERAGE_PROFILE_FILTERS)
 
 
 def _install_coverage_taxonomy() -> None:
@@ -91,6 +93,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
                 "summary": coverage["summary"],
                 "acceptance": coverage["acceptance"],
                 "recommended_actions": coverage["recommended_actions"],
+                "scope_suggestions": coverage.get("scope_suggestions", []),
             },
         }
 
