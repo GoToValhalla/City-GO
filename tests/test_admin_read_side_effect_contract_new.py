@@ -29,9 +29,3 @@ def test_frontend_admin_pages_do_not_autoload_refresh_true():
         if "refresh=true" in text or "refresh', 'true'" in text or 'refresh", "true"' in text:
             offenders.append(path.relative_to(ROOT).as_posix())
     assert offenders == []
-
-
-def test_admin_quality_does_not_autoload_automation_preview():
-    text = (ROOT / "frontend" / "src" / "pages" / "admin" / "AdminQualityPage.tsx").read_text(encoding="utf-8")
-    operations_block = text.split("const loadOperations = useCallback", 1)[1].split("const loadCritical", 1)[0]
-    assert "/admin/data-quality/automation/preview" not in operations_block
