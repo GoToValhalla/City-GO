@@ -5,7 +5,7 @@
       "scopes": [
         {
           "code": "tourist_core",
-          "profile": "tourist_core",
+          "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 54.92, "west": 20.44, "north": 54.98, "east": 20.53}
@@ -31,21 +31,21 @@
       "scopes": [
         {
           "code": "tourist_core",
-          "profile": "tourist_core",
+          "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 42.2300, "west": 42.6400, "north": 42.3000, "east": 42.7600}
         },
         {
           "code": "heritage_ne_ring",
-          "profile": "tourist_core",
+          "profile": "heritage_religious",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 42.2500, "west": 42.6800, "north": 42.3150, "east": 42.8000}
         },
         {
           "code": "sataplia_tourist",
-          "profile": "tourist_core",
+          "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 42.3000, "west": 42.6500, "north": 42.3800, "east": 42.7600}
@@ -85,7 +85,7 @@
       "scopes": [
         {
           "code": "tourist_core",
-          "profile": "tourist_core",
+          "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 40.1650, "west": 44.4850, "north": 40.2000, "east": 44.5450}
@@ -111,7 +111,7 @@
       "scopes": [
         {
           "code": "tourist_core",
-          "profile": "tourist_core",
+          "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 60.9600, "west": 68.9300, "north": 61.0500, "east": 69.0800}
@@ -137,7 +137,7 @@
       "scopes": [
         {
           "code": "tourist_core",
-          "profile": "tourist_core",
+          "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 54.6383, "west": 20.3274, "north": 54.7825, "east": 20.5770}
@@ -163,7 +163,7 @@
       "scopes": [
         {
           "code": "tourist_core",
-          "profile": "tourist_core",
+          "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 43.0758, "west": 76.7232, "north": 43.4002, "east": 77.1684}
@@ -189,7 +189,7 @@
       "scopes": [
         {
           "code": "tourist_core",
-          "profile": "tourist_core",
+          "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 47.2050, "west": 39.6500, "north": 47.2700, "east": 39.7700}
@@ -215,7 +215,7 @@
       "scopes": [
         {
           "code": "tourist_core",
-          "profile": "tourist_core",
+          "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 46.2500, "west": 47.8800, "north": 46.4300, "east": 48.1800}
@@ -241,7 +241,7 @@
       "scopes": [
         {
           "code": "tourist_core",
-          "profile": "tourist_core",
+          "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
           "bbox": {"south": 64.4700, "west": 40.3900, "north": 64.6200, "east": 40.7200}
