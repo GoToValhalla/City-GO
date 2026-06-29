@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
@@ -13,6 +13,7 @@ from models.taxonomy import QualityRule, TaxonomyBulkBatch, TaxonomyConflict, Ta
 from schemas.admin_taxonomy import (BulkApply, BulkRequest, CategoryPatch, CategoryWrite, ClassifyApply,
     ClassifyPreview, ConflictResolve, MappingPatch, MappingWrite, QualityRulePatch, TreeWrite, WorkflowRun)
 from services.admin_audit_service import write_admin_audit_log
+from services.admin_taxonomy_service import admin_category_taxonomy
 from services.taxonomy_admin_service import (apply_bulk, build_tree, category_dict, create_category, list_categories,
     mapping_hash, preview_bulk, rollback_bulk, update_category, update_tree)
 from services.taxonomy_rule_engine import classify_place, persist_decision
@@ -20,11 +21,16 @@ from services.taxonomy_workflow_service import retry_workflow, run_workflow
 
 router = APIRouter(prefix="/admin", tags=["admin-taxonomy"])
 
+_CATEGORY_CONTROL_QUERY_PARAMS = {"city_slug"}
+
 
 @router.get("/taxonomy/categories")
-def categories(search: str | None = None, active: bool | None = None, parent_id: int | None = None,
-    route_policy: str | None = None, offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200),
+def categories(request: Request, search: str | None = None, active: bool | None = None, parent_id: int | None = None,
+    route_policy: str | None = None, city_slug: str | None = None,
+    offset: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=200),
     auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    if set(request.query_params.keys()).issubset(_CATEGORY_CONTROL_QUERY_PARAMS):
+        return {"categories": admin_category_taxonomy(db, city_slug=city_slug)}
     return list_categories(db, search=search, active=active, parent_id=parent_id, route_policy=route_policy, offset=offset, limit=limit)
 
 
