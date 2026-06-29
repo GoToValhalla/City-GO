@@ -11,6 +11,7 @@ from data.scripts import import_city_osm as legacy_import
 from db.session import SessionLocal
 from services.data_coverage_assurance import run_data_coverage_assurance
 from services.osm_import_taxonomy import category_from_osm_tags
+from services.place_layer_service import apply_place_layers
 
 # These filters are the production Overpass contract for Data Coverage Assurance.
 # The legacy importer still owns persistence/lifecycle logic; this wrapper installs
@@ -77,10 +78,12 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
 
     if args.apply:
         with SessionLocal() as db:
+            layer_result = apply_place_layers(db, city_slug=args.city)
             coverage = run_data_coverage_assurance(db, city_slug=args.city)
             db.commit()
         result = {
             **result,
+            "coverage_bridge": {"place_layers": layer_result},
             "data_coverage_assurance": {
                 "evaluated": coverage["evaluated"],
                 "changed": coverage["changed"],
