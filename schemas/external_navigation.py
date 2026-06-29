@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-ExternalNavigationProvider = Literal["yandex_maps", "2gis"]
+ExternalNavigationProvider = str
 ExternalNavigationMode = Literal["destination", "segment", "full_route"]
 ExternalNavigationTransport = Literal["pedestrian"]
 ExternalNavigationPlatform = Literal["web", "ios", "android", "telegram_mini_app"]
@@ -53,7 +53,7 @@ class ExternalNavigationFullRoute(BaseModel):
 
 class ExternalNavigationBlock(BaseModel):
     mode: Literal["segment_first"] = "segment_first"
-    providers: list[ExternalNavigationProvider] = Field(default_factory=lambda: ["yandex_maps", "2gis"])
+    providers: list[ExternalNavigationProvider] = Field(default_factory=lambda: ["yandex_maps", "2gis", "google_maps"])
     navigation_ready_pct: float = Field(default=0.0, ge=0.0, le=100.0)
     destination_links: list[ExternalNavigationPointLinks] = Field(default_factory=list)
     segments: list[ExternalNavigationSegment] = Field(default_factory=list)
