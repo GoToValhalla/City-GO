@@ -67,20 +67,12 @@ jobs:
           echo
           echo "backend_ready_end"
           echo "find_city_start"
-          cities_json="$(curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/cities?limit=200")"
-          city_id="$(CITIES_JSON="$cities_json" python - <<'PY'
-          import json
-          import os
-          slug = os.environ["CITY_SLUG"]
-          payload = json.loads(os.environ["CITIES_JSON"])
-          for item in payload.get("items", []):
-              if item.get("slug") == slug:
-                  print(item.get("id"))
-                  break
-          PY
-          )"
-          if [ -z "$city_id" ] || [ "$city_id" = "None" ]; then
-            echo "City not found: $CITY_SLUG" >&2
+          workspace_json="$(curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/cities/by-slug/$CITY_SLUG/workspace")"
+          city_id="$(printf '%s' "$workspace_json" | sed -n 's/.*"city"[[:space:]]*:[[:space:]]*{[^}]*"id"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
+          if [ -z "$city_id" ]; then
+            echo "City id not found in workspace payload for: $CITY_SLUG" >&2
+            printf '%s\n' "$workspace_json" | head -c 500 >&2 || true
+            echo >&2
             exit 2
           fi
           echo "city_id=$city_id"
