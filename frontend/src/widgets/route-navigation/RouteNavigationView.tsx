@@ -6,6 +6,7 @@ import { routeNavigationReducer } from '../../features/route-navigation/model/st
 import type { RouteNavigationEvent } from '../../features/route-navigation/model/types'
 import { useRouteGeolocation } from '../../features/route-navigation/model/useRouteGeolocation'
 import { clearNavigationState, restoreNavigationState, saveNavigationState } from '../../features/route-navigation/model/storage'
+import { RouteExternalNavigationCard } from './RouteExternalNavigationCard'
 import { RouteMapPreview } from './RouteMapPreview'
 import { RouteNavigationPanel } from './RouteNavigationPanel'
 import { RoutePointCard } from './RoutePointCard'
@@ -20,6 +21,7 @@ export const RouteNavigationView = ({ route }: Props) => {
   const [state, setState] = useState(() => restoreNavigationState(route.id, quality.validPoints))
   const geolocation = useRouteGeolocation()
   const stopGeolocation = geolocation.stop
+  const navigation = (route as any).navigation ?? null
 
   useEffect(() => {
     if (state.status === 'not_started' && state.visitedPointIds.length === 0 && state.currentPointIndex === 0) return
@@ -79,6 +81,7 @@ export const RouteNavigationView = ({ route }: Props) => {
           onReset={() => dispatch({ type: 'RESET_ROUTE' })}
           onRequestLocation={() => void geolocation.requestLocation()}
         />
+        {state.status !== 'completed' ? <RouteExternalNavigationCard routeId={route.id} currentPointIndex={state.currentPointIndex} totalPoints={quality.validPoints.length} navigation={navigation} /> : null}
         <div className="route-nav-point-list" data-testid="route-point-list">
           {quality.validPoints.map((point) => (
             <RoutePointCard
