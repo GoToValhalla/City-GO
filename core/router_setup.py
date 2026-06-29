@@ -66,6 +66,7 @@ def include_app_routers(app: FastAPI) -> None:
 
 
 _ROOT_ROUTERS = (
+    admin_taxonomy_router,
     admin_router,
     admin_ai_router,
     admin_bot_analytics_router,
@@ -82,7 +83,6 @@ _ROOT_ROUTERS = (
     admin_publication_policy_router,
     admin_publication_reconciliation_router,
     admin_platform_router,
-    admin_taxonomy_router,
     ai_router,
     categories_router,
     city_expansion_router,
