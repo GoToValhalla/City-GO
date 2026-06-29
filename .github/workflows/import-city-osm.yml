@@ -78,9 +78,29 @@ jobs:
           echo "city_id=$city_id"
           echo "find_city_end"
           echo "queue_import_start"
-          curl -fsS -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/$city_id/run"
+          response_file="/tmp/city-go-import-response.json"
+          http_code="$(curl -sS -o "$response_file" -w '%{http_code}' -X POST -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/$city_id/run")"
+          echo "queue_http_status=$http_code"
+          cat "$response_file"
           echo
-          echo "queue_import_end"
+          echo "queue_import_response_end"
+          job_json="$(curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/$city_id")"
+          echo "import_job_status_start"
+          printf '%s\n' "$job_json"
+          echo "import_job_status_end"
+          job_status="$(printf '%s' "$job_json" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+          current_step="$(printf '%s' "$job_json" | sed -n 's/.*"current_step"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+          echo "job_status=$job_status"
+          echo "current_step=$current_step"
+          if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+            echo "queue_import_end"
+          elif [ "$http_code" = "409" ] && { [ "$job_status" = "queued" ] || [ "$job_status" = "running" ] || [ "$current_step" = "queued" ]; }; then
+            echo "queue_import_end"
+            echo "already_queued_or_running=true"
+          else
+            echo "Queue import failed with http_status=$http_code" >&2
+            exit 1
+          fi
           echo "queue_summary_start"
           curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/queue"
           echo
@@ -91,7 +111,7 @@ jobs:
           echo "exit_code=$status" | tee -a /tmp/city-go-import/import.log
           echo "finished_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" | tee -a /tmp/city-go-import/import.log
           if ! grep -q "queue_import_end" /tmp/city-go-import/import.log; then
-            echo "Import was not queued; see artifact log" >&2
+            echo "Import was not queued or already running; see artifact log" >&2
             exit 1
           fi
           if [ "$status" -ne 0 ]; then
@@ -108,7 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           ICON="✅"
-          STATUS_TEXT="поставлен в очередь"
+          STATUS_TEXT="поставлен в очередь или уже выполняется"
           if [ "$JOB_STATUS" != "success" ]; then ICON="❌"; STATUS_TEXT="не поставлен в очередь"; fi
           {
             echo "$ICON CITY GO · IMPORT QUEUE"
