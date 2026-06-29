@@ -70,6 +70,8 @@ def build_summary(payload: Mapping[str, Any]) -> dict[str, Any]:
         "readiness_score": _readiness(payload),
         "changed_place_ids_count": _changed_count(payload, diff),
         "warnings_count": len(_warnings(payload)),
+        "warning_1_step": "",
+        "warning_1_error": "",
     }
     summary.update({key: payload.get(key, "") for key in TOP_KEYS})
     summary.update({key: diff.get(key, 0) for key in DIFF_KEYS})

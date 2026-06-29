@@ -56,6 +56,8 @@ def test_import_status_summary_handles_missing_step_details_new() -> None:
     assert summary["places_total"] == "0"
     assert summary["created"] == "0"
     assert summary["warnings_count"] == "0"
+    assert summary["warning_1_step"] == ""
+    assert summary["warning_1_error"] == ""
 
 
 def test_import_status_summary_counts_changed_ids_without_printing_them_new() -> None:
