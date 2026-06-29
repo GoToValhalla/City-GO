@@ -13,6 +13,7 @@ if str(ROOT_DIR) not in sys.path:
 from db.session import SessionLocal
 from models.city import City
 from models.place import Place
+from models.review_queue_item import ReviewQueueItem
 from services.publication_policy import (
     MODE_APPLY,
     MODE_SHADOW,
@@ -82,9 +83,16 @@ def main() -> None:
 
 
 def _load_place_ids(db, *, city_slug: str | None, limit: int) -> list[int]:
+    open_publication_review_exists = db.query(ReviewQueueItem.id).filter(
+        ReviewQueueItem.place_id == Place.id,
+        ReviewQueueItem.field_name == "publication",
+        ReviewQueueItem.status == "open",
+    ).exists()
+
     query = db.query(Place.id).filter(
         Place.is_published.is_(False),
         Place.is_active.is_(True),
+        ~open_publication_review_exists,
     )
     if city_slug:
         query = query.join(City, City.id == Place.city_id).filter(City.slug == city_slug)
