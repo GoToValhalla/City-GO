@@ -137,8 +137,11 @@ def category_from_osm_tags(tags: dict[str, Any]) -> str | None:
     if tourism == "viewpoint" or man_made in {"tower", "lighthouse"}:
         return "viewpoint"
 
+    if tourism == "theme_park" or leisure in PARK_LEISURE or attraction == "amusement_ride":
+        return "park"
+
     if (
-        tourism in {"attraction", "gallery", "artwork", "zoo", "aquarium", "theme_park"}
+        tourism in {"attraction", "gallery", "artwork", "zoo", "aquarium"}
         or amenity in HERITAGE_AMENITIES
         or building in HERITAGE_BUILDINGS
         or historic in HERITAGE_HISTORIC
@@ -147,9 +150,6 @@ def category_from_osm_tags(tags: dict[str, Any]) -> str | None:
         or tags.get("wikipedia")
     ):
         return "culture"
-
-    if leisure in PARK_LEISURE or attraction == "amusement_ride":
-        return "park"
 
     if natural == "beach" or leisure == "beach_resort":
         return "beach"
