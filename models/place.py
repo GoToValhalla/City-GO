@@ -75,6 +75,13 @@ class Place(Base):
     needs_recheck_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     verification_comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
+    # Coverage / Enrichment Bridge v2. These fields split storage from consumption:
+    # service/transport/evidence places may stay in the DB, but cannot pollute tourist routes.
+    place_layer: Mapped[str] = mapped_column(String(64), default="tourist_catalog", nullable=False, index=True)
+    route_policy: Mapped[str] = mapped_column(String(64), default="city_walking", nullable=False, index=True)
+    tourist_eligible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    transport_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+
     # Новые импортированные и вручную созданные места безопасно остаются draft.
     # Публикация выполняется отдельным admin-действием после quality gate города.
     # TODO(Data Foundation V2): публикация должна стать context-aware: Place может быть опубликован
