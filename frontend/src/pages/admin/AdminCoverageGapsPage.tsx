@@ -170,11 +170,11 @@ export const AdminCoverageGapsPage = () => {
       const value = params.get(key)
       if (value) api.set(key, value)
     }
-    api.set('limit', '300')
+    api.set('limit', '100')
     return api.toString()
   }, [params])
 
-  const load = useCallback((refresh = true) => {
+  const load = useCallback((refresh = false) => {
     const api = new URLSearchParams(query)
     api.set('refresh', refresh ? 'true' : 'false')
     setLoading(true)
@@ -185,7 +185,7 @@ export const AdminCoverageGapsPage = () => {
       .finally(() => setLoading(false))
   }, [query])
 
-  useEffect(() => { load(true) }, [load])
+  useEffect(() => { load(false) }, [load])
 
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params)
@@ -258,73 +258,49 @@ export const AdminCoverageGapsPage = () => {
       <div className="admin-help-title">Как читать экран</div>
       <ul className="admin-help-list">
         <li><strong>Найдено</strong> — место сопоставлено с каталогом и не требует объяснения.</li>
-        <li><strong>Не закрыто</strong> — must-have POI ещё требует решения или объяснения.</li>
-        <li><strong>Критично</strong> — влияет на readiness города и качество маршрутов.</li>
+        <li><strong>Не закрыто</strong> — всё, что требует решения: импорт, ручная проверка или исключение.</li>
+        <li><strong>Критично</strong> — must-have/day-trip точки, влияющие на готовность города.</li>
       </ul>
     </div>
 
-    <div className="admin-metrics-grid admin-metrics-small">
-      {metricLink('Всего', data.summary.total, params, { status: '', gap_reason: '', expected_category: '' }, 'Все must-have записи')}
+    <div className="admin-metrics-grid">
+      {metricLink('Всего ожидается', data.summary.total, params, {}, 'Размер эталонного списка must-have мест')}
       {metricLink('Найдено', data.summary.matched, params, { status: 'matched' }, 'Сопоставлено с каталогом')}
-      {metricLink('Не закрыто', data.summary.unresolved, params, { status: 'unresolved', gap_reason: '' }, 'Требует решения или объяснения')}
-      {metricLink('Критично', data.summary.critical_unresolved, params, { status: 'critical', gap_reason: '' }, 'Блокирует уверенность в готовности города')}
+      {metricLink('Не закрыто', data.summary.unresolved, params, { status: 'unresolved' }, 'Нужны действия редактора или импорт')}
+      {metricLink('Критично', data.summary.critical_unresolved, params, { status: 'critical' }, 'Блокирует готовность города')}
     </div>
 
-    <div className="admin-filter-card">
-      <div className="admin-filter-header">
-        <div>
-          <div className="admin-help-title">Фильтры</div>
-          <p className="admin-bulk-hint">Выбранные фильтры сохраняются в URL. Активно: {activeFilters || 0}</p>
+    <div className="admin-toolbar admin-gap-filters">
+      <input placeholder="city_slug" value={citySlug} onChange={(e) => setFilter('city_slug', e.target.value)} />
+      <select value={valueOrEmpty(params, 'status')} onChange={(e) => setFilter('status', e.target.value)}>{statusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+      <select value={valueOrEmpty(params, 'gap_reason')} onChange={(e) => setFilter('gap_reason', e.target.value)}>{reasonOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+      <select value={valueOrEmpty(params, 'expected_category')} onChange={(e) => setFilter('expected_category', e.target.value)}>{categoryOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+    </div>
+
+    {data.items.length === 0 ? <AdminEmpty message="По текущим фильтрам пропусков нет" /> : <div className="admin-gap-list">
+      {data.items.map((row) => <article className="admin-gap-card" key={row.id}>
+        <div className="admin-gap-card-head">
+          <div>
+            <h3>{row.name}</h3>
+            <p>{row.city_slug ?? 'город не указан'} · {labelFor(categoryLabels, row.expected_category)} · {labelFor(scopeLabels, row.expected_scope)}</p>
+          </div>
+          <span className={`admin-badge ${statusClass(row.status)}`}>{labelFor(statusLabels, row.status)}</span>
         </div>
-        {citySlug ? <Link className="admin-btn admin-btn-sm" to={`/admin/coverage?tab=gaps&city_slug=${encodeURIComponent(citySlug)}`}>Только {citySlug}</Link> : null}
-      </div>
-      <div className="admin-filter-grid">
-        <label className="admin-field">Город
-          <input value={citySlug} onChange={(e) => setFilter('city_slug', e.target.value.trim())} placeholder="Например: kutaisi" />
-        </label>
-        <label className="admin-field">Статус
-          <select value={valueOrEmpty(params, 'status')} onChange={(e) => setFilter('status', e.target.value)}>{statusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
-        </label>
-        <label className="admin-field">Причина
-          <select value={valueOrEmpty(params, 'gap_reason')} onChange={(e) => setFilter('gap_reason', e.target.value)}>{reasonOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
-        </label>
-        <label className="admin-field">Категория
-          <select value={valueOrEmpty(params, 'expected_category')} onChange={(e) => setFilter('expected_category', e.target.value)}>{categoryOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
-        </label>
-      </div>
-    </div>
-
-    {!data.items.length ? <AdminEmpty message="Список пуст" /> : <div className="admin-table-wrap"><table className="admin-table admin-table-compact admin-gap-table">
-      <thead><tr><th>Место</th><th>Ожидание</th><th>Состояние</th><th>Что делать</th><th>Кандидат</th><th>Действия</th></tr></thead>
-      <tbody>{data.items.map((row) => {
-        const statusLabel = labelFor(statusLabels, row.status)
-        const reasonLabel = labelFor(reasonLabels, row.gap_reason)
-        const actionText = row.gap_reason ? reasonAction[row.gap_reason] : statusHint[row.status]
-        return <tr key={row.id} className={row.expected_route_policy === 'must_have' ? 'admin-row-warning' : ''}>
-          <td>
-            <strong>{row.name}</strong>
-            <div className="admin-muted">{row.city_slug ?? 'город не задан'} · #{row.id}</div>
-            {row.review_notes ? <div className="admin-gap-note">{formatRawNote(row.review_notes)}</div> : null}
-          </td>
-          <td>
-            <span className="admin-badge">{labelFor(categoryLabels, row.expected_category)}</span>
-            <span className="admin-badge">{labelFor(scopeLabels, row.expected_scope)}</span>
-            <span className="admin-badge">{labelFor(routePolicyLabels, row.expected_route_policy)}</span>
-          </td>
-          <td>
-            <Link to={`/admin/coverage?tab=gaps&status=${row.status}`} className={`admin-badge ${statusClass(row.status)}`} title={statusHint[row.status] ?? row.status}>{statusLabel}</Link>
-            {row.gap_reason ? <Link className="admin-gap-reason" to={`/admin/coverage?tab=gaps&gap_reason=${row.gap_reason}`}>{reasonLabel}</Link> : null}
-          </td>
-          <td><div className="admin-gap-action-text">{actionText ?? 'Проверить вручную и зафиксировать решение.'}</div></td>
-          <td>{row.matched_place_id ? <Link to={`/admin/places/${row.matched_place_id}`}><strong>{row.matched_place_title ?? `#${row.matched_place_id}`}</strong></Link> : <span className="admin-muted">Нет кандидата</span>}</td>
-          <td className="admin-actions-cell">
-            {row.city_slug ? <Link className="admin-btn admin-btn-sm" to={`/admin/places?city=${row.city_slug}&q=${encodeURIComponent(row.name)}`}>Найти в каталоге</Link> : null}
-            <button className="admin-btn admin-btn-sm" disabled={updatingId === row.id} type="button" onClick={() => void mark(row, 'needs_review', row.gap_reason ?? 'not_visible_in_catalog')}>На проверку</button>
-            <button className="admin-btn admin-btn-sm" disabled={updatingId === row.id} type="button" onClick={() => void mark(row, 'source_absent', 'source_absent')}>Нет в источнике</button>
-            <button className="admin-btn admin-btn-sm" disabled={updatingId === row.id} type="button" onClick={() => void mark(row, 'duplicate', 'duplicate_candidate')}>Дубль</button>
-          </td>
-        </tr>
-      })}</tbody>
-    </table></div>}
+        <div className="admin-gap-details">
+          <p><strong>Политика:</strong> {labelFor(routePolicyLabels, row.expected_route_policy)}</p>
+          <p><strong>Причина:</strong> {labelFor(reasonLabels, row.gap_reason)}</p>
+          {row.review_notes ? <p><strong>Заметка:</strong> {formatRawNote(row.review_notes)}</p> : null}
+          {row.matched_place_id ? <p><strong>Связано с:</strong> <Link to={`/admin/places/${row.matched_place_id}`}>{row.matched_place_title ?? `место #${row.matched_place_id}`}</Link></p> : null}
+          {row.status in statusHint ? <p className="admin-muted">{statusHint[row.status]}</p> : null}
+          {row.gap_reason && reasonAction[row.gap_reason] ? <p className="admin-muted">Действие: {reasonAction[row.gap_reason]}</p> : null}
+        </div>
+        <div className="admin-actions-cell">
+          <button className="admin-btn admin-btn-sm" disabled={updatingId === row.id} onClick={() => void mark(row, 'needs_review', row.gap_reason ?? 'manual_review')}>На проверку</button>
+          <button className="admin-btn admin-btn-sm" disabled={updatingId === row.id} onClick={() => void mark(row, 'out_of_scope', 'outside_bbox')}>Вне области</button>
+          <button className="admin-btn admin-btn-sm" disabled={updatingId === row.id} onClick={() => void mark(row, 'source_absent', 'source_absent')}>Нет в источнике</button>
+          <button className="admin-btn admin-btn-sm" disabled={updatingId === row.id} onClick={() => void mark(row, 'matched', null)}>Закрыть</button>
+        </div>
+      </article>)}
+    </div>}
   </div>
 }
