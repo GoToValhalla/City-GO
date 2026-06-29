@@ -66,6 +66,7 @@ jobs:
           curl -fsS "$BASE_URL/ready"
           echo
           echo "backend_ready_end"
+          cd /srv/app
           echo "find_city_start"
           workspace_json="$(curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/cities/by-slug/$CITY_SLUG/workspace")"
           city_id="$(printf '%s' "$workspace_json" | sed -n 's/.*"city"[[:space:]]*:[[:space:]]*{[^}]*"id"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
@@ -79,18 +80,55 @@ jobs:
           echo "find_city_end"
           echo "import_job_status_start"
           job_json="$(curl -fsS -H "Authorization: Bearer $ADMIN_API_TOKEN" "$BASE_URL/admin/import-jobs/$city_id")"
-          printf '%s\n' "$job_json"
+          printf '%s' "$job_json" | docker compose exec -T backend python -c '
+          import json
+          import sys
+
+          payload = json.load(sys.stdin)
+          details = payload.get("step_details") or {}
+          diff = details.get("import_diff") or details.get("import_summary") or {}
+          warnings = details.get("warnings") or []
+          changed_ids = details.get("changed_place_ids") or []
+
+          fields = {
+              "job_status": payload.get("status"),
+              "current_step": payload.get("current_step"),
+              "launch_status": payload.get("launch_status"),
+              "city_active": payload.get("is_city_active"),
+              "places_total": payload.get("places_total"),
+              "places_published": payload.get("places_published"),
+              "places_unpublished": payload.get("places_unpublished"),
+              "readiness_score": details.get("readiness_score"),
+              "created": diff.get("created"),
+              "updated": diff.get("updated"),
+              "unchanged": diff.get("unchanged"),
+              "rejected": diff.get("rejected"),
+              "hidden": diff.get("hidden"),
+              "needs_review": diff.get("needs_review"),
+              "places_found": diff.get("places_found"),
+              "places_saved": diff.get("places_saved"),
+              "scopes_total": diff.get("scopes_total") or payload.get("scopes_total"),
+              "scopes_succeeded": diff.get("scopes_succeeded") or payload.get("scopes_succeeded"),
+              "meaningful_changes": diff.get("meaningful_changes"),
+              "missing_from_source": diff.get("missing_from_source"),
+              "changed_place_ids_count": len(changed_ids),
+              "failed_items": payload.get("failed_items"),
+              "last_error": payload.get("last_error") or diff.get("last_error"),
+          }
+          for key, value in fields.items():
+              print(f"{key}={value if value is not None else ''}")
+          print(f"warnings_count={len(warnings)}")
+          for index, warning in enumerate(warnings, 1):
+              step = warning.get("step") if isinstance(warning, dict) else "warning"
+              error = warning.get("error") if isinstance(warning, dict) else str(warning)
+              print(f"warning_{index}_step={step}")
+              print(f"warning_{index}_error={error}")
+          ' | tee /tmp/city-go-import-summary.txt
+          cat /tmp/city-go-import-summary.txt
           echo "import_job_status_end"
-          job_status="$(printf '%s' "$job_json" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-          current_step="$(printf '%s' "$job_json" | sed -n 's/.*"current_step"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-          launch_status="$(printf '%s' "$job_json" | sed -n 's/.*"launch_status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-          places_total="$(printf '%s' "$job_json" | sed -n 's/.*"places_total"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
-          places_published="$(printf '%s' "$job_json" | sed -n 's/.*"places_published"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' | head -n 1)"
-          echo "job_status=$job_status"
-          echo "current_step=$current_step"
-          echo "launch_status=$launch_status"
-          echo "places_total=$places_total"
-          echo "places_published=$places_published"
+          job_status="$(sed -n 's/^job_status=//p' /tmp/city-go-import-summary.txt | head -n 1)"
+          current_step="$(sed -n 's/^current_step=//p' /tmp/city-go-import-summary.txt | head -n 1)"
+          launch_status="$(sed -n 's/^launch_status=//p' /tmp/city-go-import-summary.txt | head -n 1)"
           case "$job_status:$current_step:$launch_status" in
             queued:*:*|running:*:*|*:ready_for_review:*|partial_success:*:*|success:*:*|success_with_warnings:*:*|*:*:published|*:*:review_required)
               echo "import_status_ok"
