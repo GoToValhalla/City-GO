@@ -2,12 +2,12 @@ name: POI Discovery
 
 on:
   schedule:
-    # Before publication policy: add draft candidates first, then let policy evaluate later.
+    # Automatic run: every scheduled launch scans all cities. Publication Policy runs later.
     - cron: "30 0 * * *"
   workflow_dispatch:
     inputs:
       city_slug:
-        description: "Optional city slug"
+        description: "City slug. Leave empty to run all cities. Example: kutaisi"
         required: false
         default: ""
       limit:
@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      # Empty CITY_SLUG is the explicit default and means: scan every city in the database.
       CITY_SLUG: ${{ github.event_name == 'workflow_dispatch' && inputs.city_slug || '' }}
       LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '50' }}
       APPLY_DISCOVERED: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_discovered || true }}
