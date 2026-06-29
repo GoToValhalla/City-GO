@@ -1,0 +1,152 @@
+name: POI Discovery
+
+on:
+  schedule:
+    # Before publication policy: add draft candidates first, then let policy evaluate later.
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+    inputs:
+      city_slug:
+        description: "Optional city slug"
+        required: false
+        default: ""
+      limit:
+        description: "Max OSM candidates per city"
+        required: true
+        default: "50"
+      apply_discovered:
+        description: "Save discovered candidates as draft places"
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: poi-discovery
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: Discover POI candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CITY_SLUG: ${{ github.event_name == 'workflow_dispatch' && inputs.city_slug || '' }}
+      LIMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.limit || '50' }}
+      APPLY_DISCOVERED: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_discovered || true }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh /tmp/city-go-poi-discovery
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run POI discovery on production backend
+        shell: bash
+        env:
+          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
+          DEPLOY_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          REMOTE_CITY_SLUG=$(printf '%q' "$CITY_SLUG")
+          REMOTE_LIMIT=$(printf '%q' "$LIMIT")
+          REMOTE_APPLY_DISCOVERED=$(printf '%q' "$APPLY_DISCOVERED")
+
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
+            -i ~/.ssh/deploy_key \
+            -p "$DEPLOY_PORT" \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "CITY_SLUG=$REMOTE_CITY_SLUG LIMIT=$REMOTE_LIMIT APPLY_DISCOVERED=$REMOTE_APPLY_DISCOVERED bash -seu -o pipefail" \
+            < scripts/run_poi_discovery_remote.sh 2>&1 | tee /tmp/city-go-poi-discovery/run.log
+
+      - name: Upload POI discovery log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poi-discovery-log
+          path: /tmp/city-go-poi-discovery/run.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Build POI discovery notification
+        if: always()
+        shell: bash
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          SUMMARY_JSON=""
+          if [ -f /tmp/city-go-poi-discovery/run.log ]; then
+            SUMMARY_JSON=$(grep '^POI_DISCOVERY_SUMMARY_JSON=' /tmp/city-go-poi-discovery/run.log | tail -n 1 | sed 's/^POI_DISCOVERY_SUMMARY_JSON=//' || true)
+          fi
+          python - "$SUMMARY_JSON" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          summary_json = sys.argv[1]
+          status = os.environ.get("JOB_STATUS", "failure")
+          run_url = f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          city = os.environ.get("CITY_SLUG") or "все города"
+          limit = os.environ.get("LIMIT", "50")
+          apply_value = os.environ.get("APPLY_DISCOVERED", "true")
+
+          if summary_json:
+              payload = json.loads(summary_json)
+              lines = [
+                  "CITY GO · POI DISCOVERY",
+                  f"Статус: {'✅ пройден' if status == 'success' else '❌ не пройден'}",
+                  f"Запуск: city={city} · limit={limit} · apply={apply_value}",
+                  "",
+                  f"Добавлено draft: {payload.get('total_created', 0)}",
+              ]
+              for row in (payload.get("cities") or [])[:8]:
+                  errors = ", ".join(row.get("errors") or []) or "нет"
+                  lines.append(
+                      f"{row.get('city_name') or row.get('city_slug')}: "
+                      f"fetched {row.get('fetched', 0)} · created {row.get('created', 0)} · "
+                      f"duplicates {row.get('duplicates', 0)} · skipped {row.get('skipped', 0)} · errors {errors}"
+                  )
+              lines.extend(["", f"GitHub Actions: {run_url}"])
+          else:
+              tail = ""
+              log_path = Path("/tmp/city-go-poi-discovery/run.log")
+              if log_path.exists():
+                  tail = "\n".join(log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-20:])
+              lines = [
+                  "CITY GO · POI DISCOVERY",
+                  "Статус: ❌ не пройден",
+                  f"Запуск: city={city} · limit={limit} · apply={apply_value}",
+                  "Причина: summary JSON не найден в логе.",
+                  "",
+                  tail,
+                  "",
+                  f"GitHub Actions: {run_url}",
+              ]
+          Path("/tmp/city-go-poi-discovery/notification.txt").write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+          PY
+
+      - name: Send POI discovery Telegram notification
+        if: always()
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/send_telegram_notification.py --text-file /tmp/city-go-poi-discovery/notification.txt
