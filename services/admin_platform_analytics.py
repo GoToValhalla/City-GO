@@ -9,6 +9,16 @@ from models.place import Place
 from models.product_event import ProductEvent
 from models.route_build_event import RouteBuildEvent
 
+_NAVIGATION_EVENTS = {
+    "external_navigation_opened",
+    "external_navigation_fallback_used",
+    "external_navigation_returned",
+    "waypoint_confirmed",
+    "waypoint_skipped",
+    "route_completed",
+    "route_abandoned",
+}
+
 
 def analytics_summary(
     db: Session,
@@ -47,6 +57,7 @@ def analytics_summary(
         place_ids = {row.id for row in db.query(Place.id).filter(Place.category == category).all()}
         rows = [row for row in rows if row.place_id in place_ids]
     counts = _counts(rows)
+    provider_counts = _provider_counts(rows)
     users = {row.user_id for row in rows if row.user_id}
     routes = db.query(RouteBuildEvent).filter(RouteBuildEvent.created_at >= since).all()
     if city_ids is not None:
@@ -59,6 +70,9 @@ def analytics_summary(
     if category:
         places = places.filter(Place.category == category)
     published = places.filter(Place.is_published.is_(True)).count()
+    places_total = places.count()
+    navigation_opened = counts.get("external_navigation_opened", 0)
+    navigation_returned = counts.get("external_navigation_returned", 0)
     return {
         "period_days": days, "city_slug": city_slug, "channel": channel,
         "region": region, "category": category, "environment": environment,
@@ -69,13 +83,24 @@ def analytics_summary(
             "route_builds": len(routes),
             "route_success_rate": round(success / len(routes) * 100, 1) if routes else None,
             "average_route_points": _average(routes, "total_places"),
-            "places_total": places.count(), "places_published": published,
-            "published_share": round(published / places.count() * 100, 1) if places.count() else 0,
+            "places_total": places_total, "places_published": published,
+            "published_share": round(published / places_total * 100, 1) if places_total else 0,
+            "external_navigation_opens": navigation_opened,
+            "external_navigation_returns": navigation_returned,
+            "external_navigation_return_rate": round(navigation_returned / navigation_opened * 100, 1) if navigation_opened else None,
+            "external_navigation_fallbacks": counts.get("external_navigation_fallback_used", 0),
+            "waypoint_confirmations": counts.get("waypoint_confirmed", 0),
         },
         "event_breakdown": [{"event": key, "count": value} for key, value in sorted(counts.items())],
+        "navigation": {
+            "events": {key: counts.get(key, 0) for key in sorted(_NAVIGATION_EVENTS)},
+            "providers": provider_counts,
+            "primary_mode": "segment_first",
+        },
         "availability": {
             "dau_wau_mau": bool(users),
             "funnels": bool(counts.get("place_viewed") and counts.get("route_generation_success")),
+            "external_navigation": bool(navigation_opened),
             "comparison": False,
         },
     }
@@ -86,6 +111,16 @@ def _counts(rows: list[ProductEvent]) -> dict[str, int]:
     for row in rows:
         result[row.event_type] = result.get(row.event_type, 0) + 1
     return result
+
+
+def _provider_counts(rows: list[ProductEvent]) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for row in rows:
+        if row.event_type not in _NAVIGATION_EVENTS:
+            continue
+        provider = str((row.payload or {}).get("provider") or "unknown")
+        result[provider] = result.get(provider, 0) + 1
+    return dict(sorted(result.items()))
 
 
 def _average(rows: list[RouteBuildEvent], field: str) -> float | None:
