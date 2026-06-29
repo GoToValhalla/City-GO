@@ -2,55 +2,27 @@ name: City OSM Import
 
 on:
   workflow_dispatch:
-    inputs:
-      city:
-        description: City slug, for example kutaisi
-        required: true
-        default: kutaisi
-      scope:
-        description: Import scope code, for example tourist_core
-        required: true
-        default: tourist_core
-      profile:
-        description: Import profile, for example tourist_core_strict
-        required: true
-        default: tourist_core_strict
-      mode:
-        description: dry-run or apply
-        required: true
-        default: dry-run
-        type: choice
-        options:
-          - dry-run
-          - apply
 
 permissions:
   contents: read
 
 concurrency:
-  group: city-osm-import-${{ inputs.city }}-${{ inputs.scope }}
+  group: city-osm-import-kutaisi-tourist-core
   cancel-in-progress: false
 
 jobs:
   import:
-    name: Run city OSM import
+    name: Kutaisi tourist core dry-run
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      CITY: kutaisi
+      SCOPE: tourist_core
+      PROFILE: tourist_core_strict
+      MODE: dry-run
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Validate inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "${{ inputs.mode }}" in
-            dry-run|apply) ;;
-            *) echo "mode must be dry-run or apply" >&2; exit 2 ;;
-          esac
-          test -n "${{ inputs.city }}"
-          test -n "${{ inputs.scope }}"
-          test -n "${{ inputs.profile }}"
 
       - name: Setup SSH key
         shell: bash
@@ -65,20 +37,15 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/tmp/city-go-import/ssh-keyscan.log || true
 
-      - name: Run import on production host
+      - name: Run hardcoded import on production host
         shell: bash
         env:
           DEPLOY_HOST: ${{ secrets.SSH_HOST }}
           DEPLOY_USER: ${{ secrets.SSH_USER }}
           DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
-          CITY: ${{ inputs.city }}
-          SCOPE: ${{ inputs.scope }}
-          PROFILE: ${{ inputs.profile }}
-          MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
           FLAG="--dry-run"
-          if [ "$MODE" = "apply" ]; then FLAG="--apply"; fi
           {
             echo "city=$CITY"
             echo "scope=$SCOPE"
@@ -102,9 +69,6 @@ jobs:
           echo "remote_started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           cd /srv/app
           echo "remote_pwd=$(pwd)"
-          echo "compose_services_start"
-          docker compose ps --services || true
-          echo "compose_services_end"
           echo "backend_status_start"
           docker compose ps backend || true
           echo "backend_status_end"
@@ -132,10 +96,6 @@ jobs:
         if: always()
         shell: bash
         env:
-          CITY: ${{ inputs.city }}
-          SCOPE: ${{ inputs.scope }}
-          PROFILE: ${{ inputs.profile }}
-          MODE: ${{ inputs.mode }}
           JOB_STATUS: ${{ job.status }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -146,10 +106,10 @@ jobs:
           {
             echo "$ICON CITY GO · OSM IMPORT"
             echo "Статус: $STATUS_TEXT"
-            echo "Город: $CITY"
-            echo "Scope: $SCOPE"
-            echo "Profile: $PROFILE"
-            echo "Mode: $MODE"
+            echo "Город: kutaisi"
+            echo "Scope: tourist_core"
+            echo "Profile: tourist_core_strict"
+            echo "Mode: dry-run"
             echo "Проверить лог: $RUN_URL"
           } > /tmp/city-go-import/import-notification.txt
 
