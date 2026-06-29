@@ -16,6 +16,9 @@ from services.place_quality_signals import PLACEHOLDER_SQL_PATTERNS
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 from services.route_policy_service import evaluate_category_policy
 
+ROUTE_ALLOWED_PLACE_LAYERS = ("tourist_catalog", "food_layer")
+NON_WALKING_POLICIES = ("day_trip", "region_scope", "infra_only", "transfer_only", "not_for_routes")
+
 
 def route_eligible_sql_conditions() -> tuple[Any, ...]:
     """Eligibility conditions for user-facing routes."""
@@ -30,14 +33,18 @@ def admin_preview_route_eligible_sql_conditions() -> tuple[Any, ...]:
 
 
 def _route_eligible_conditions(place_conditions: tuple[Any, ...]) -> tuple[Any, ...]:
-    blocked = tuple(ROUTE_FORBIDDEN_CATEGORIES)
+    hidden_categories = tuple(ROUTE_FORBIDDEN_CATEGORIES)
     return (
         *place_conditions,
         Place.lat.is_not(None),
         Place.lng.is_not(None),
         *placeholder_title_sql_conditions(),
-        or_(Place.canonical_category.is_(None), Place.canonical_category.notin_(blocked)),
-        or_(Place.category.is_(None), Place.category.notin_(blocked)),
+        or_(Place.canonical_category.is_(None), Place.canonical_category.notin_(hidden_categories)),
+        or_(Place.category.is_(None), Place.category.notin_(hidden_categories)),
+        Place.place_layer.in_(ROUTE_ALLOWED_PLACE_LAYERS),
+        Place.tourist_eligible.is_(True),
+        Place.transport_required.is_(False),
+        or_(Place.route_policy.is_(None), Place.route_policy.notin_(NON_WALKING_POLICIES)),
     )
 
 
