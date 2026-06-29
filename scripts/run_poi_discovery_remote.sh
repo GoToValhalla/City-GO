@@ -18,6 +18,7 @@ CITY_SLUG="${CITY_SLUG:-}"
 LIMIT="${LIMIT:-50}"
 APPLY_DISCOVERED="${APPLY_DISCOVERED:-true}"
 PER_CITY_TIMEOUT_SECONDS="${PER_CITY_TIMEOUT_SECONDS:-90}"
+QUEUE_TIMEOUT_SECONDS="${QUEUE_TIMEOUT_SECONDS:-20}"
 RESULTS_JSONL="/tmp/city-go-poi-discovery-results-${RANDOM}.jsonl"
 : > "$RESULTS_JSONL"
 
@@ -106,14 +107,28 @@ if [ "$backend_state" != "running" ]; then
 fi
 
 echo "=== poi discovery ==="
-echo "city=${CITY_SLUG:-all} limit=${LIMIT} apply=${APPLY_DISCOVERED} per_city_timeout=${PER_CITY_TIMEOUT_SECONDS}s"
+echo "city=${CITY_SLUG:-all} limit=${LIMIT} apply=${APPLY_DISCOVERED} per_city_timeout=${PER_CITY_TIMEOUT_SECONDS}s queue_timeout=${QUEUE_TIMEOUT_SECONDS}s"
 echo "backend_container=$backend_container_id state=$backend_state"
 
 if [ -n "$CITY_SLUG" ]; then
   city_slugs=("$CITY_SLUG")
 else
   echo "=== load city queue ==="
-  mapfile -t city_slugs < <(${COMPOSE[@]} exec -T backend python -c 'from db.session import SessionLocal; from models.city import City; db=SessionLocal(); [print(slug, flush=True) for slug, in db.query(City.slug).order_by(City.slug.asc()).all() if slug]; db.close()')
+  queue_file="/tmp/city-go-poi-city-queue-${RANDOM}.txt"
+  queue_error="/tmp/city-go-poi-city-queue-${RANDOM}.err"
+  set +e
+  timeout --signal=TERM "${QUEUE_TIMEOUT_SECONDS}s" ${COMPOSE[@]} exec -T db \
+    psql -U postgres -d city_guide -Atc "SELECT slug FROM cities WHERE slug IS NOT NULL AND slug <> '' ORDER BY slug;" \
+    > "$queue_file" 2> "$queue_error"
+  queue_status=$?
+  set -e
+  if [ "$queue_status" -ne 0 ]; then
+    echo "ERROR: failed to load city queue with exit code ${queue_status}" >&2
+    cat "$queue_error" >&2 || true
+    emit_empty_summary "error" "city_queue_load_failed:${queue_status}"
+    exit 1
+  fi
+  mapfile -t city_slugs < "$queue_file"
 fi
 
 if [ "${#city_slugs[@]}" -eq 0 ]; then
