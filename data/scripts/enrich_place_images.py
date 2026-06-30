@@ -1,9 +1,10 @@
-"""Наполнение place_images кандидатами из trusted source evidence.
+"""Наполнение place_images кандидатами из проверяемых источников.
 
 Скрипт не использует случайный web image search. Фото берутся только из:
 - Place.image_url, если ссылка уже есть, но нет PlaceImage;
 - Place.website / Place.source_url -> OpenGraph image;
-- OSM image / wikimedia_commons / wikidata P18 / wikipedia / website tags.
+- OSM image / wikimedia_commons / wikidata P18 / wikipedia / website tags;
+- Wikimedia Commons search по названию места и городу как fallback для мест без source evidence.
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ SOURCE_EVIDENCE_PROVIDERS = (
     "source_observation.wikidata_p18",
     "source_observation.wikipedia_page_image",
     "source_observation.website_open_graph",
+    "wikimedia_commons_search",
 )
 
 
@@ -88,7 +90,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             "skipped_no_source": 0,
             "errors": [],
             "warnings": [],
-            "provider_mode": "trusted_source_evidence_only",
+            "provider_mode": "trusted_source_evidence_plus_commons_search",
             "source_evidence_providers": list(SOURCE_EVIDENCE_PROVIDERS),
             "dry_run": args.dry_run,
             "preview": [],
@@ -104,7 +106,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
                 summary["skipped_has_approved"] += 1
                 continue
             try:
-                candidates = _collect_candidates_for_place(db, place)
+                candidates = _collect_candidates_for_place(db, place, city)
             except Exception as exc:  # noqa: BLE001
                 summary["errors"].append({"place_id": place.id, "place_title": place.title, "error": str(exc)[:500]})
                 continue
@@ -141,7 +143,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
                         is_primary=True,
                         reviewed_by=None,
                         reviewed_at=None,
-                        review_comment="Auto-approved from source evidence; still requires manual confirmation.",
+                        review_comment="Auto-approved from source evidence/search; still requires manual confirmation.",
                     )
                 )
                 place.image_url = best_candidate["image_url"]
@@ -150,7 +152,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
                 summary["place_image_url_synced"] += 1
 
         if int(summary["created"] or 0) == 0 and int(summary["candidates_found"] or 0) == 0:
-            summary["warnings"].append("No image candidates found from trusted source evidence. External/random image search provider is not configured.")
+            summary["warnings"].append("No image candidates found from trusted sources or Wikimedia Commons search.")
             summary["provider_status"] = "source_evidence_exhausted"
         else:
             summary["provider_status"] = "candidates_found"
@@ -181,7 +183,7 @@ def _is_eligible_place(place: Place) -> bool:
     return True
 
 
-def _collect_candidates_for_place(db: Session, place: Place) -> list[dict[str, Any]]:
+def _collect_candidates_for_place(db: Session, place: Place, city: City) -> list[dict[str, Any]]:
     candidates = _candidates_from_place_fields(place)
     for observation in _latest_observations_for_place(db, place.id):
         payload = observation.raw_payload or {}
@@ -189,6 +191,10 @@ def _collect_candidates_for_place(db: Session, place: Place) -> list[dict[str, A
         if not tags and isinstance(payload, dict):
             tags = {key: value for key, value in payload.items() if isinstance(key, str)}
         candidates.extend(_candidates_from_tags(tags, observation.source_url))
+    if not candidates:
+        commons_candidate = _candidate_from_wikimedia_search(place, city)
+        if commons_candidate:
+            candidates.append(commons_candidate)
     return _deduplicate_candidates(candidates)
 
 
@@ -309,6 +315,53 @@ def _candidate_from_wikimedia_category(category_title: str) -> dict[str, Any] | 
     if not isinstance(image_url, str):
         return None
     return _candidate(image_url=image_url, source_type="wikimedia_commons_category", source_url=_wikimedia_page_url(category_title), attribution="Wikimedia Commons contributors", confidence=0.82)
+
+
+def _candidate_from_wikimedia_search(place: Place, city: City) -> dict[str, Any] | None:
+    title = (place.title or "").strip()
+    city_name = (city.name or city.slug or "").strip()
+    if not title or len(title) < 3 or BAD_TITLE_PATTERN.match(title):
+        return None
+    search_query = f"{title} {city_name}".strip()
+    params = {
+        "action": "query",
+        "generator": "search",
+        "gsrsearch": search_query,
+        "gsrnamespace": "6",
+        "gsrlimit": "3",
+        "prop": "imageinfo",
+        "iiprop": "url|mime",
+        "format": "json",
+        "formatversion": "2",
+    }
+    data = _fetch_json("https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode(params))
+    pages = ((data or {}).get("query") or {}).get("pages") if isinstance((data or {}).get("query"), dict) else None
+    if not isinstance(pages, list):
+        return None
+    for page in pages:
+        if not isinstance(page, dict):
+            continue
+        page_title = str(page.get("title") or "")
+        imageinfo = page.get("imageinfo")
+        if not isinstance(imageinfo, list) or not imageinfo:
+            continue
+        info = imageinfo[0]
+        if not isinstance(info, dict):
+            continue
+        image_url = info.get("url")
+        mime = str(info.get("mime") or "")
+        if not isinstance(image_url, str) or not _is_reviewable_image_url(image_url):
+            continue
+        if mime and not mime.startswith("image/"):
+            continue
+        return _candidate(
+            image_url=image_url,
+            source_type="wikimedia_commons_search",
+            source_url=_wikimedia_page_url(page_title),
+            attribution="Wikimedia Commons contributors",
+            confidence=0.68,
+        )
+    return None
 
 
 def _candidate_from_website_og_image(website_url: str) -> dict[str, Any] | None:
