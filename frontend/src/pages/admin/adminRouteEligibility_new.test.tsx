@@ -55,8 +55,10 @@ describe('AdminRouteEligibilityPage quality gates', () => {
 
   it('next page requests the next offset', async () => {
     renderPage()
-    await waitFor(() => expect(screen.getByText('Вперёд')).toBeTruthy())
-    fireEvent.click(screen.getByText('Вперёд'))
+    await waitFor(() => expect(screen.getByText('Страница 1 из 3')).toBeTruthy())
+    const nextButton = screen.getByRole('button', { name: 'Вперёд' }) as HTMLButtonElement
+    await waitFor(() => expect(nextButton.disabled).toBe(false))
+    fireEvent.click(nextButton)
     await waitFor(() => expect(fetchUrls().some((url) => url.includes('/admin/routes/eligibility?') && url.includes('offset=50'))).toBe(true))
   })
 
