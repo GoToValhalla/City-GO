@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.data_foundation import CityQualitySnapshot
 from models.place import Place
+from models.route import Route
 from services.city_readiness.score import latest_city_readiness_snapshot
 
 
@@ -51,6 +52,7 @@ def _city_fallback_payload(db: Session, city: City) -> dict[str, object]:
     places_active = int(db.query(func.count(Place.id)).filter(Place.city_id == city.id, Place.is_active.is_(True)).scalar() or 0)
     eligible_places = int(db.query(func.count(Place.id)).filter(Place.city_id == city.id, Place.is_route_eligible.is_(True)).scalar() or 0)
     published_places = int(db.query(func.count(Place.id)).filter(Place.city_id == city.id, Place.is_published.is_(True)).scalar() or 0)
+    published_routes = int(db.query(func.count(Route.id)).filter(Route.city_id == city.id, Route.is_active.is_(True)).scalar() or 0)
     return {
         "city_slug": city.slug,
         "city_name": city.name,
@@ -61,6 +63,7 @@ def _city_fallback_payload(db: Session, city: City) -> dict[str, object]:
             "places_active": places_active,
             "eligible_places": eligible_places,
             "published_places": published_places,
+            "published_routes": published_routes,
         },
     }
 
