@@ -7,9 +7,9 @@ import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 const STATUS_LABELS: Record<string, string> = { success: 'Завершён', success_with_warnings: 'Завершён с предупреждениями', partial_success: 'Частично завершён', imported: 'Завершён', queued: 'В очереди', importing: 'В очереди', failed: 'Ошибка', import_failed: 'Ошибка', running: 'Выполняется', review_required: 'На проверке', cancelled: 'Отменён', published: 'Опубликован' }
 type AdminActionResponse = { message?: string }
 const detailLine = (label: string, value: unknown) => value === null || value === undefined || value === '' ? null : <p>{label}: <strong>{String(value)}</strong></p>
-const isBlockingImportError = (job: AdminImportJob) => Boolean(job.last_error && ((job.failed_items ?? 0) > 0 || job.is_stalled || job.status.includes('fail') || ['failed', 'import_failed', 'stalled'].includes(job.current_step)))
+const isBlockingImportError = (job: AdminImportJob) => { const currentStep = job.current_step ?? ''; return Boolean(job.last_error && ((job.failed_items ?? 0) > 0 || job.is_stalled || job.status.includes('fail') || ['failed', 'import_failed', 'stalled'].includes(currentStep))) }
 const changesUrl = (job: AdminImportJob) => `/admin/imports/${job.city_slug}/jobs/${job.job_id ?? 'current'}/changes?city_id=${job.city_id}`
-const logsUrl = (job: AdminImportJob) => job.logs_url || `/admin/system-logs?city_slug=${job.city_slug}&request_id=${job.job_id ?? ''}`
+const logsUrl = (job: AdminImportJob) => job.logs_url ?? `/admin/system-logs?city_slug=${job.city_slug}&request_id=${job.job_id ?? ''}`
 
 export const AdminImportJobsPage = () => {
   const [params, setParams] = useSearchParams(); const cityFilter = params.get('city') ?? ''; const jobFilter = params.get('job') ?? ''
