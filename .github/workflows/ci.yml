@@ -172,22 +172,30 @@ jobs:
           import os
           from pathlib import Path
 
+          lint = os.environ['LINT_RESULT']
+          tests = os.environ['TEST_RESULT']
+          build = os.environ['BUILD_RESULT']
           Path('../artifacts/messages/frontend-stages.json').write_text(
-              json.dumps({
-                  'lint': os.environ['LINT_RESULT'],
-                  'tests': os.environ['TEST_RESULT'],
-                  'build': os.environ['BUILD_RESULT'],
-              }),
+              json.dumps({'lint': lint, 'tests': tests, 'build': build}),
               encoding='utf-8',
           )
+          failed = [name for name, value in {'lint': lint, 'tests': tests, 'build': build}.items() if value != 'success']
+          if failed:
+              Path('../artifacts/messages/frontend.txt').write_text(
+                  '❌ City Go Frontend lint/tests/build FAILED\n'
+                  f'Провалены этапы: {", ".join(failed)}\n'
+                  f'Lint: {lint}\nTests: {tests}\nBuild: {build}\n'
+                  'Действие: открыть лог job и смотреть первый failed frontend stage.\n',
+                  encoding='utf-8',
+              )
           PY
-          if [ -f ../artifacts/junit/frontend.xml ]; then
+          if [ -f ../artifacts/junit/frontend.xml ] && [ "${LINT_RESULT}" = "success" ] && [ "${BUILD_RESULT}" = "success" ]; then
             TEST_EXIT=0
             [ "${TEST_RESULT}" = "success" ] || TEST_EXIT=1
             python ../scripts/ci_test_summary.py --junit ../artifacts/junit/frontend.xml \
               --output ../artifacts/messages/frontend.txt --job-name "Frontend lint/tests/build" \
               --run-type "Full Autotests" --artifact-hint "frontend-test-artifacts/frontend.xml" --exit-code "${TEST_EXIT}" || true
-          else
+          elif [ ! -f ../artifacts/messages/frontend.txt ]; then
             {
               echo "❌ Frontend lint/tests/build: JUnit report was not created"
               echo "Причина: Vitest завершился до формирования структурированного отчёта."
@@ -224,62 +232,27 @@ jobs:
 
       - name: Download test artifacts
         uses: actions/download-artifact@v4
-        continue-on-error: true
         with:
-          path: downloaded-artifacts
+          path: artifacts/downloaded
+        continue-on-error: true
 
       - name: Build total autotest report
-        id: build-summary
         shell: bash
-        env:
-          BACKEND_RESULT: ${{ needs.backend-tests.result }}
-          FRONTEND_RESULT: ${{ needs.frontend-tests.result }}
         run: |
           set -euo pipefail
-          mkdir -p artifacts/messages
-          if [ "${BACKEND_RESULT}" = "cancelled" ] && [ "${FRONTEND_RESULT}" = "cancelled" ]; then
-            printf 'City GO · полный прогон отменён\nПричина: запущен более свежий прогон.\nПодробнее: %s/%s/actions/runs/%s\n' \
-              "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" > artifacts/messages/telegram-ci.txt
-            echo "skip_telegram=true" >> "$GITHUB_OUTPUT"
-            cat artifacts/messages/telegram-ci.txt >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          BACKEND_JUNIT=$(find downloaded-artifacts -name backend.xml -print -quit 2>/dev/null || true)
-          FRONTEND_JUNIT=$(find downloaded-artifacts -name frontend.xml -print -quit 2>/dev/null || true)
-          BACKEND_ALLURE=$(find downloaded-artifacts -type d -path '*/allure-results/backend' -print -quit 2>/dev/null || true)
-          FRONTEND_STAGES=$(find downloaded-artifacts -name frontend-stages.json -print -quit 2>/dev/null || true)
-
-          ARGS=(
-            --backend-status "${BACKEND_RESULT}"
-            --frontend-status "${FRONTEND_RESULT}"
-            --output artifacts/messages/telegram-ci.txt
-          )
-          [ -z "${BACKEND_JUNIT}" ] || ARGS+=(--backend-junit "${BACKEND_JUNIT}")
-          [ -z "${FRONTEND_JUNIT}" ] || ARGS+=(--frontend-junit "${FRONTEND_JUNIT}")
-          [ -z "${BACKEND_ALLURE}" ] || ARGS+=(--backend-allure-dir "${BACKEND_ALLURE}")
-          [ -z "${FRONTEND_STAGES}" ] || ARGS+=(--frontend-stages "${FRONTEND_STAGES}")
-
-          python scripts/ci_total_summary.py "${ARGS[@]}"
-          {
-            echo '```text'
-            cat artifacts/messages/telegram-ci.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          python scripts/build_total_autotest_report.py \
+            --messages-dir artifacts/downloaded \
+            --output artifacts/total-autotest-report.txt
 
       - name: Upload total report
-        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: total-autotest-report
-          path: artifacts/messages/telegram-ci.txt
-          if-no-files-found: warn
+          path: artifacts/total-autotest-report.txt
+          if-no-files-found: error
 
       - name: Telegram full autotests notification
-        if: steps.build-summary.outputs.skip_telegram != 'true'
-        continue-on-error: true
-        shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scripts/send_telegram_notification.py --text-file artifacts/messages/telegram-ci.txt --allow-missing
+        run: python scripts/send_telegram_notification.py --text-file artifacts/total-autotest-report.txt
