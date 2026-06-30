@@ -1,23 +1,20 @@
-from typing import Any
-
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
-from services.coverage_gap_admin_actions import coverage_gap_row_payload, update_coverage_gap_status
-from services.coverage_gap_service import (
-    CRITICAL_POLICIES,
-    UNRESOLVED_STATUSES,
-    build_coverage_summary,
-    sync_known_missing_poi_seed,
+from services.admin_background_operation_service import (
+    OP_COVERAGE_GAPS_REFRESH,
+    create_background_operation,
+    operation_payload,
+    run_background_operation,
 )
+from services.coverage_gap_admin_actions import coverage_gap_row_payload, update_coverage_gap_status
+from services.coverage_gap_service import build_coverage_summary
 from services.coverage_readiness_gate import apply_coverage_readiness_gate
-from services.data_coverage_assurance import run_data_coverage_assurance
 
 router = APIRouter(prefix="/admin/coverage-gaps", tags=["admin-coverage-gaps"])
-VIRTUAL_STATUS_FILTERS = {"unresolved", "critical"}
 
 
 class CoverageGapUpdateRequest(BaseModel):
@@ -39,28 +36,18 @@ def list_coverage_gaps(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    """Read the latest coverage snapshot without doing heavy recomputation.
-
-    This endpoint is used by the admin UI on page load. It must stay fast and
-    side-effect free. Full assurance recalculation is intentionally handled by
-    POST /admin/coverage-gaps/refresh, otherwise large cities can block the
-    browser request and hit frontend timeouts.
-    """
-    virtual_status = status if status in VIRTUAL_STATUS_FILTERS else None
     payload = build_coverage_summary(
         db,
         city_slug=city_slug,
-        status=None if virtual_status else status,
+        status=status,
         gap_reason=gap_reason,
         expected_category=expected_category,
-        offset=0 if virtual_status else offset,
-        limit=300 if virtual_status else limit,
+        offset=offset,
+        limit=limit,
         refresh=False,
     )
     if refresh:
-        payload = {**payload, "refresh_ignored": True, "refresh_endpoint": "/admin/coverage-gaps/refresh"}
-    if virtual_status:
-        payload = _apply_virtual_status_filter(payload, virtual_status, offset=offset, limit=limit)
+        payload = {**payload, "refresh_ignored": True, "refresh_endpoint": "/admin/background-operations/coverage-gaps/refresh"}
     return payload
 
 
@@ -75,33 +62,28 @@ def get_city_coverage_gaps(
 ) -> dict[str, object]:
     payload = build_coverage_summary(db, city_slug=city_slug, offset=offset, limit=limit, refresh=False)
     if refresh:
-        payload = {**payload, "refresh_ignored": True, "refresh_endpoint": "/admin/coverage-gaps/refresh"}
+        payload = {**payload, "refresh_ignored": True, "refresh_endpoint": "/admin/background-operations/coverage-gaps/refresh"}
     return payload
 
 
 @router.post("/sync")
 def sync_coverage_gaps(
+    background_tasks: BackgroundTasks,
     city_slug: str | None = None,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    result = sync_known_missing_poi_seed(db, city_slug=city_slug)
-    assurance = run_data_coverage_assurance(db, city_slug=city_slug)
-    gate = apply_coverage_readiness_gate(db, city_slug=city_slug)
-    db.commit()
-    return {"status": "success", "synced": result, "assurance": assurance, "readiness_gate": gate}
+    return _queue_refresh(db, background_tasks, actor=auth.actor_id, city_slug=city_slug)
 
 
 @router.post("/refresh")
 def refresh_coverage_gaps(
+    background_tasks: BackgroundTasks,
     city_slug: str | None = None,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    result = run_data_coverage_assurance(db, city_slug=city_slug)
-    gate = apply_coverage_readiness_gate(db, city_slug=city_slug)
-    db.commit()
-    return {"status": "success", **result, "readiness_gate": gate}
+    return _queue_refresh(db, background_tasks, actor=auth.actor_id, city_slug=city_slug)
 
 
 @router.patch("/{gap_id}")
@@ -112,15 +94,7 @@ def patch_coverage_gap(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     try:
-        row = update_coverage_gap_status(
-            db,
-            gap_id=gap_id,
-            status=body.status,
-            gap_reason=body.gap_reason,
-            matched_place_id=body.matched_place_id,
-            review_notes=body.review_notes,
-            actor_id=auth.actor_id,
-        )
+        row = update_coverage_gap_status(db, gap_id=gap_id, status=body.status, gap_reason=body.gap_reason, matched_place_id=body.matched_place_id, review_notes=body.review_notes, actor_id=auth.actor_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if row is None:
@@ -131,27 +105,8 @@ def patch_coverage_gap(
     return {"status": "success", "item": coverage_gap_row_payload(row), "readiness_gate": gate}
 
 
-def _apply_virtual_status_filter(payload: dict[str, Any], status: str, *, offset: int, limit: int) -> dict[str, Any]:
-    """Applies UI helper filters that are not persisted as real row statuses."""
-
-    rows = [item for item in payload.get("items", []) if isinstance(item, dict)]
-    if status == "unresolved":
-        rows = [item for item in rows if item.get("status") in UNRESOLVED_STATUSES]
-    elif status == "critical":
-        rows = [
-            item for item in rows
-            if item.get("expected_route_policy") in CRITICAL_POLICIES
-            and item.get("status") in UNRESOLVED_STATUSES
-        ]
-    else:
-        return payload
-
-    paged = rows[offset: offset + limit]
-    return {
-        **payload,
-        "items": paged,
-        "total": len(rows),
-        "offset": offset,
-        "limit": limit,
-        "filters": {**dict(payload.get("filters") or {}), "status": status},
-    }
+def _queue_refresh(db: Session, background_tasks: BackgroundTasks, *, actor: str, city_slug: str | None) -> dict[str, object]:
+    op = create_background_operation(db, operation_type=OP_COVERAGE_GAPS_REFRESH, actor=actor, city_slug=city_slug, params={"city_slug": city_slug} if city_slug else {})
+    if op.status == "queued":
+        background_tasks.add_task(run_background_operation, op.id)
+    return operation_payload(op) or {}
