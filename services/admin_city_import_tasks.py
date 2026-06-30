@@ -11,9 +11,15 @@ from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_job_service import (
+    SOURCE_ADDRESS_ENRICHMENT,
     SOURCE_ENRICHMENT_ONLY,
+    SOURCE_PHOTO_ENRICHMENT,
+    SOURCE_SNAPSHOT_REFRESH,
+    run_address_enrichment_job,
     run_city_import_job,
     run_enrichment_only_job,
+    run_photo_enrichment_job,
+    run_snapshot_refresh_job,
 )
 from services.import_pipeline.progress import is_stalled, set_step
 from services.import_pipeline.steps import STEP_ERROR
@@ -64,6 +70,12 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
             with SessionLocal() as db:
                 if source == SOURCE_ENRICHMENT_ONLY:
                     run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id)
+                elif source == SOURCE_SNAPSHOT_REFRESH:
+                    run_snapshot_refresh_job(db, city_id=city_id, actor_id=actor_id)
+                elif source == SOURCE_ADDRESS_ENRICHMENT:
+                    run_address_enrichment_job(db, city_id=city_id, actor_id=actor_id)
+                elif source == SOURCE_PHOTO_ENRICHMENT:
+                    run_photo_enrichment_job(db, city_id=city_id, actor_id=actor_id)
                 else:
                     run_city_import_job(db, city_id=city_id, actor_id=actor_id)
             processed += 1
