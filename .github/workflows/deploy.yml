@@ -120,7 +120,7 @@ jobs:
           ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
         run: |
           set -euo pipefail
-          docker build --quiet \
+          docker build --progress=plain \
             --build-arg VITE_ADMIN_API_TOKEN="$ADMIN_API_TOKEN" \
             --build-arg VITE_BUILD_SHA="$CITY_GO_BUILD_SHA" \
             --build-arg VITE_BUILD_RUN_ID="$CITY_GO_BUILD_RUN_ID" \
@@ -220,96 +220,63 @@ jobs:
           echo "BACKEND_IMAGE=ghcr.io/${OWNER}/city-go-backend" >> "$GITHUB_ENV"
           echo "FRONTEND_IMAGE=ghcr.io/${OWNER}/city-go-frontend" >> "$GITHUB_ENV"
 
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Transfer images and deploy on server
+      - name: Download images from GHCR on runner
         shell: bash
-        env:
-          DEPLOY_HOST: ${{ secrets.SSH_HOST }}
-          DEPLOY_USER: ${{ secrets.SSH_USER }}
-          DEPLOY_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
           set -euo pipefail
-          # Keep deploy regression coverage tied to the hardened remote runbook: < scripts/deploy_production_remote.sh
-          IMAGE_ARCHIVE=/tmp/city-go-deploy/city-go-images.tar.gz
           docker pull "$BACKEND_IMAGE:latest"
           docker pull "$FRONTEND_IMAGE:latest"
-          docker save "$BACKEND_IMAGE:latest" "$FRONTEND_IMAGE:latest" | gzip > "$IMAGE_ARCHIVE"
-          scp \
-            -o ConnectTimeout=20 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=4 \
-            -o StrictHostKeyChecking=accept-new \
-            -i ~/.ssh/deploy_key \
-            -P "$DEPLOY_PORT" \
-            "$IMAGE_ARCHIVE" \
-            "$DEPLOY_USER@$DEPLOY_HOST:/tmp/city-go-images.tar.gz" 2>&1 | tee /tmp/city-go-deploy/scp-images.log
-          set +e
-          ssh \
-            -o ConnectTimeout=20 \
-            -o ServerAliveInterval=15 \
-            -o ServerAliveCountMax=4 \
-            -o StrictHostKeyChecking=accept-new \
-            -i ~/.ssh/deploy_key \
-            -p "$DEPLOY_PORT" \
-            "$DEPLOY_USER@$DEPLOY_HOST" \
-            'docker load -i /tmp/city-go-images.tar.gz && rm -f /tmp/city-go-images.tar.gz && cd /srv/app && docker compose up -d --remove-orphans' 2>&1 | tee /tmp/city-go-deploy/deploy.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            echo "Deploy on server failed with exit code $status" >&2
-            exit "$status"
-          fi
+          docker save "$BACKEND_IMAGE:latest" "$FRONTEND_IMAGE:latest" | gzip -1 > /tmp/city-go-images.tar.gz
 
-      - name: Upload deploy log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: production-deploy-log
-          path: /tmp/city-go-deploy
-          if-no-files-found: ignore
-          retention-days: 7
-
-  notify:
-    name: Notify deploy result
-    runs-on: ubuntu-latest
-    needs:
-      - build
-      - deploy
-    if: always()
-    steps:
-      - name: Checkout notification helper
-        uses: actions/checkout@v4
-
-      - name: Download deploy log
-        uses: actions/download-artifact@v4
-        with:
-          name: production-deploy-log
-          path: /tmp/deploy-log
-        continue-on-error: true
-
-      - name: Build deploy notification
+      - name: Copy images archive to server
         shell: bash
         env:
-          BUILD_RESULT: ${{ needs.build.result }}
-          DEPLOY_RESULT: ${{ needs.deploy.result }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
           set -euo pipefail
-          python scripts/build_deploy_notification.py \
-            --build-result "$BUILD_RESULT" \
-            --deploy-result "$DEPLOY_RESULT" \
-            --run-attempt "$RUN_ATTEMPT" \
-            --output /tmp/deploy-notification.txt
+          scp -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -P "$SSH_PORT" \
+            /tmp/city-go-images.tar.gz "$SSH_USER@$SSH_HOST:/tmp/city-go-images.tar.gz"
 
-      - name: Send Telegram deploy notification
+      - name: Deploy on server
         shell: bash
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scripts/send_telegram_notification.py --text-file /tmp/deploy-notification.txt
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'REMOTE'
+          set -euo pipefail
+          cd /srv/app
+          docker load -i /tmp/city-go-images.tar.gz
+          docker compose up -d --remove-orphans
+          REMOTE
+
+      - name: Verify build.json
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+          CITY_GO_BUILD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          expected="${CITY_GO_BUILD_SHA:0:7}"
+          actual="$(ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "curl -fsS --max-time 10 http://localhost/build.json | python3 -c 'import json,sys; print(json.load(sys.stdin).get(\"sha\", \"\")[:7])'")"
+          test "$actual" = "$expected"
+
+      - name: Verify backend ready
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            'curl -fsS --max-time 10 http://localhost:8000/ready'
