@@ -34,7 +34,7 @@ def _is_published(city: City) -> bool:
 def _is_active_job(job: CityAdminImportJob | None) -> bool:
     if job is None:
         return False
-    return job.status in {"queued", "running"} or job.current_step in {STEP_QUEUED, "queued", "running", "snapshot_refresh"}
+    return job.status in {"queued", "running"}
 
 
 def recover_failed_import_with_places(db: Session, city: City, *, places_total: int | None = None, job: CityAdminImportJob | None = None, actor_id: str = "admin-panel-read") -> bool:
