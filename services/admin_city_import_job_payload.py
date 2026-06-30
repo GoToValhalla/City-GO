@@ -119,7 +119,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "updated_at": job.updated_at if job is not None else None,
         "last_error": None if display_as_published else (job.last_error if job is not None else None),
         "can_run": False if city_published else _can_run(job, city),
-        "can_retry": False if active_job or display_as_published else _can_retry(job, raw_status),
+        "can_retry": False if active_job else _can_retry(job, raw_status),
         "can_cancel": active_job and _can_cancel(job, raw_status),
         "can_publish": False if active_job or display_as_published else _can_publish(city, places_total),
         "can_unpublish": _can_unpublish(city),
