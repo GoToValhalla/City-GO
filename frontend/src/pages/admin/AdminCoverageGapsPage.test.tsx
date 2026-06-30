@@ -13,9 +13,9 @@ const mockedAdminPost = vi.mocked(adminPost)
 
 describe('AdminCoverageGapsPage', () => {
   beforeEach(() => {
-    mockedAdminGet.mockResolvedValue(payload)
+    mockedAdminGet.mockImplementation((url: string) => Promise.resolve(url.includes('/status') ? statusPayload : payload))
     mockedAdminPatch.mockResolvedValue({ status: 'success' })
-    mockedAdminPost.mockResolvedValue({ status: 'success' })
+    mockedAdminPost.mockResolvedValue({ operation_id: 1, status: 'queued' })
   })
 
   afterEach(() => {
@@ -27,16 +27,25 @@ describe('AdminCoverageGapsPage', () => {
     render(<MemoryRouter initialEntries={['/admin/coverage?tab=gaps&city_slug=kutaisi']}><AdminCoverageGapsPage /></MemoryRouter>)
 
     await waitFor(() => expect(screen.getByText('Храм Баграта')).toBeTruthy())
-    fireEvent.click(screen.getByRole('button', { name: 'Дубль' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Нет в источнике' }))
 
     await waitFor(() => expect(mockedAdminPatch).toHaveBeenCalledWith('/admin/coverage-gaps/1', {
-      status: 'duplicate',
-      gap_reason: 'duplicate_candidate',
-      review_notes: 'Admin action from Coverage Gaps UI: duplicate / duplicate_candidate',
+      status: 'source_absent',
+      gap_reason: 'source_absent',
+      review_notes: 'Admin action from Coverage Gaps UI: source_absent / source_absent',
     }))
-    await waitFor(() => expect(mockedAdminGet).toHaveBeenLastCalledWith('/admin/coverage-gaps?city_slug=kutaisi&limit=300&refresh=false'))
+    expect(mockedAdminPost).not.toHaveBeenCalledWith('/admin/coverage-gaps/refresh')
+    expect(mockedAdminGet).toHaveBeenCalledWith('/admin/coverage-gaps?city_slug=kutaisi&limit=100&refresh=false')
+    expect(mockedAdminGet).toHaveBeenCalledWith('/admin/background-operations/coverage-gaps/status?city_slug=kutaisi')
   })
 })
+
+const statusPayload = {
+  freshness: 'stale',
+  is_stale: true,
+  last_snapshot_at: null,
+  latest_operation: null,
+}
 
 const payload = {
   items: [{
