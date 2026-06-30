@@ -118,7 +118,7 @@ def test_admin_city_read_does_not_mark_stalled_imports_new(db_session, monkeypat
     assert alerts == []
 
 
-def test_failed_import_with_saved_places_moves_to_manual_review_new(db_session) -> None:
+def test_failed_import_with_saved_places_detail_is_read_only_new(db_session) -> None:
     from models.place import Place
     city = City(name="Saved Failed City", slug="saved-failed-city", country="Россия", launch_status="import_failed", is_active=False)
     db_session.add(city)
@@ -130,11 +130,10 @@ def test_failed_import_with_saved_places_moves_to_manual_review_new(db_session) 
     payload = build_import_job_payload(db_session, city)
     db_session.refresh(job)
     db_session.refresh(city)
-    assert city.launch_status == "review_required"
-    assert job.status == "partial_success"
-    assert job.current_step == "ready_for_review"
+    assert city.launch_status == "import_failed"
+    assert job.status == "failed"
+    assert job.current_step == "error"
     assert job.last_error == "photo provider timeout"
-    assert job.step_details["failed_import_recovery"]["places_total"] == 1
     assert payload["can_publish"] is True
     assert payload["can_retry"] is True
 
