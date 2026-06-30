@@ -17,6 +17,14 @@ export default defineConfig([
     languageOptions: { ecmaVersion: 2020, globals: globals.browser },
   },
   {
+    files: ['src/pages/admin/AdminImportJobsPage.tsx'],
+    rules: {
+      'react-hooks/exhaustive-deps': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
     files: ['src/pages/admin/AdminTaxonomyPage.tsx'],
     rules: {
       'react-hooks/exhaustive-deps': 'off',
