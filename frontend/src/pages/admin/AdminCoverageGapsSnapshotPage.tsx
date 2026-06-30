@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPatch, adminPost } from './adminApi'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
@@ -20,15 +20,25 @@ type CoverageGapRow = {
 
 type CoverageGapPayload = {
   items: CoverageGapRow[]
-  total: number
-  summary: { total: number; matched: number; unresolved: number; critical_unresolved: number }
+  summary: {
+    total: number
+    matched: number
+    unresolved: number
+    critical_unresolved: number
+  }
+}
+
+type BackgroundOperation = {
+  operation_id: number
+  status: string
+  error?: string | null
+  updated_at?: string | null
 }
 
 type OperationStatus = {
-  freshness: 'fresh' | 'stale' | 'running' | 'failed_stale' | string
-  is_stale: boolean
+  freshness: string
   last_snapshot_at?: string | null
-  latest_operation?: { operation_id: number; status: string; error?: string | null; updated_at?: string | null } | null
+  latest_operation?: BackgroundOperation | null
 }
 
 const freshnessLabel: Record<string, string> = {
@@ -62,6 +72,8 @@ const reasonLabel: Record<string, string> = {
   not_route_eligible: 'Не подходит для маршрутов',
 }
 
+const valueOrEmpty = (params: URLSearchParams, key: string) => params.get(key) ?? ''
+
 const badgeClass = (freshness?: string) => {
   if (freshness === 'fresh') return 'admin-badge pub-published'
   if (freshness === 'running') return 'admin-badge pub-needs_review'
@@ -69,19 +81,17 @@ const badgeClass = (freshness?: string) => {
   return 'admin-badge pub-draft'
 }
 
-const valueOrEmpty = (params: URLSearchParams, key: string) => params.get(key) ?? ''
-
 export const AdminCoverageGapsSnapshotPage = () => {
   const [params, setParams] = useSearchParams()
   const [data, setData] = useState<CoverageGapPayload | null>(null)
-  const [status, setStatus] = useState<OperationStatus | null>(null)
+  const [operationStatus, setOperationStatus] = useState<OperationStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [updatingId, setUpdatingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const citySlug = valueOrEmpty(params, 'city_slug')
 
-  const query = useMemo(() => {
+  const buildQuery = () => {
     const api = new URLSearchParams()
     for (const key of ['city_slug', 'status', 'gap_reason', 'expected_category']) {
       const value = params.get(key)
@@ -90,36 +100,30 @@ export const AdminCoverageGapsSnapshotPage = () => {
     api.set('limit', '100')
     api.set('refresh', 'false')
     return api.toString()
-  }, [params])
+  }
 
-  const loadStatus = useCallback(async () => {
+  const loadOperationStatus = async () => {
     const api = new URLSearchParams()
     if (citySlug) api.set('city_slug', citySlug)
-    setStatus(await adminGet<OperationStatus>(`/admin/background-operations/coverage-gaps/status?${api.toString()}`))
-  }, [citySlug])
+    const payload = await adminGet<OperationStatus>(`/admin/background-operations/coverage-gaps/status?${api.toString()}`)
+    setOperationStatus(payload)
+  }
 
-  const load = useCallback(async () => {
+  const load = async () => {
     setLoading(true)
     setError(null)
     try {
-      const [payload] = await Promise.all([
-        adminGet<CoverageGapPayload>(`/admin/coverage-gaps?${query}`),
-        loadStatus(),
-      ])
+      const payload = await adminGet<CoverageGapPayload>(`/admin/coverage-gaps?${buildQuery()}`)
       setData(payload)
+      await loadOperationStatus()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить coverage snapshot')
     } finally {
       setLoading(false)
     }
-  }, [query, loadStatus])
+  }
 
-  useEffect(() => { void load() }, [load])
-  useEffect(() => {
-    if (status?.freshness !== 'running') return
-    const timer = window.setInterval(() => { void loadStatus() }, 3000)
-    return () => window.clearInterval(timer)
-  }, [status?.freshness, loadStatus])
+  useEffect(() => { void load() }, [params])
 
   const setFilter = (key: string, value: string) => {
     const next = new URLSearchParams(params)
@@ -135,9 +139,8 @@ export const AdminCoverageGapsSnapshotPage = () => {
     try {
       const api = new URLSearchParams()
       if (citySlug) api.set('city_slug', citySlug)
-      const operation = await adminPost<{ operation_id: number; status: string }>(`/admin/background-operations/coverage-gaps/refresh?${api.toString()}`, citySlug ? { city_slug: citySlug } : {})
-      setStatus({ freshness: operation.status === 'completed' ? 'fresh' : 'running', is_stale: true, latest_operation: { operation_id: operation.operation_id, status: operation.status } })
-      await loadStatus()
+      const operation = await adminPost<BackgroundOperation>(`/admin/background-operations/coverage-gaps/refresh?${api.toString()}`, citySlug ? { city_slug: citySlug } : {})
+      setOperationStatus({ freshness: operation.status === 'completed' ? 'fresh' : 'running', latest_operation: operation })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось поставить refresh в очередь')
     } finally {
@@ -149,7 +152,11 @@ export const AdminCoverageGapsSnapshotPage = () => {
     setUpdatingId(row.id)
     setError(null)
     try {
-      await adminPatch(`/admin/coverage-gaps/${row.id}`, { status: nextStatus, gap_reason: gapReason ?? null, review_notes: `Admin coverage action: ${nextStatus}` })
+      await adminPatch(`/admin/coverage-gaps/${row.id}`, {
+        status: nextStatus,
+        gap_reason: gapReason ?? null,
+        review_notes: `Admin coverage action: ${nextStatus}`,
+      })
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось обновить строку')
@@ -162,23 +169,26 @@ export const AdminCoverageGapsSnapshotPage = () => {
   if (error) return <AdminError message={error} />
   if (!data) return <AdminEmpty message="Нет данных" />
 
+  const freshness = operationStatus?.freshness ?? 'stale'
+  const latestOperation = operationStatus?.latest_operation
+
   return <div>
     <div className="admin-page-header admin-gap-header">
       <div>
         <div className="admin-kicker">Data Coverage Assurance</div>
         <h2 className="admin-page-title">Пропущенные must-have места</h2>
-        <p className="admin-page-subtitle">Экран читает сохранённый snapshot. Кнопка обновления ставит тяжёлую сверку в background job.</p>
+        <p className="admin-page-subtitle">Экран читает сохранённый snapshot. Обновление ставится в background job.</p>
       </div>
       <div className="admin-action-toolbar admin-gap-header-actions">
-        <span className={badgeClass(status?.freshness)}>{freshnessLabel[status?.freshness ?? ''] ?? status?.freshness ?? 'Нет snapshot'}</span>
-        <button className="admin-btn admin-btn-primary" type="button" disabled={refreshing || status?.freshness === 'running'} onClick={() => void refresh()}>{status?.freshness === 'running' ? 'Обновляется...' : 'Обновить snapshot'}</button>
+        <span className={badgeClass(freshness)}>{freshnessLabel[freshness] ?? freshness}</span>
+        <button className="admin-btn admin-btn-primary" type="button" disabled={refreshing || freshness === 'running'} onClick={() => void refresh()}>{freshness === 'running' ? 'Обновляется...' : 'Обновить snapshot'}</button>
       </div>
     </div>
 
     <section className="admin-help-panel admin-gap-help">
       <div className="admin-help-title">Snapshot</div>
-      <p>Последний snapshot: <strong>{status?.last_snapshot_at ? new Date(status.last_snapshot_at).toLocaleString('ru-RU') : 'ещё не создан'}</strong></p>
-      {status?.latest_operation ? <p>Операция #{status.latest_operation.operation_id}: <strong>{status.latest_operation.status}</strong>{status.latest_operation.error ? ` · ${status.latest_operation.error}` : ''}</p> : <p className="admin-muted">Операций обновления ещё не было.</p>}
+      <p>Последний snapshot: <strong>{operationStatus?.last_snapshot_at ? new Date(operationStatus.last_snapshot_at).toLocaleString('ru-RU') : 'ещё не создан'}</strong></p>
+      {latestOperation ? <p>Операция #{latestOperation.operation_id}: <strong>{latestOperation.status}</strong>{latestOperation.error ? ` · ${latestOperation.error}` : ''}</p> : <p className="admin-muted">Операций обновления ещё не было.</p>}
     </section>
 
     <div className="admin-metrics-grid">
