@@ -13,7 +13,10 @@ export default defineConfig([
     languageOptions: { ecmaVersion: 2020, globals: globals.browser },
   },
   {
-    files: ['src/pages/admin/AdminTaxonomyPage.tsx'],
+    files: [
+      'src/pages/admin/AdminTaxonomyPage.tsx',
+      'src/pages/admin/AdminCoverageGapsSnapshotPage.tsx',
+    ],
     rules: {
       'react-hooks/set-state-in-effect': 'off',
     },
