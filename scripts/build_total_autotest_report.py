@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a compact Telegram report from per-job CI message artifacts."""
+"""Build a compact Telegram report from per-job CI summary artifacts only."""
 
 from __future__ import annotations
 
@@ -7,21 +7,26 @@ import argparse
 import os
 from pathlib import Path
 
+SUMMARY_NAMES = {"backend.txt", "frontend.txt"}
+
 
 def _read_messages(messages_dir: Path) -> list[str]:
-    messages: list[str] = []
+    messages: list[tuple[str, str]] = []
     if not messages_dir.exists():
-        return messages
+        return []
     for path in sorted(messages_dir.rglob("*.txt")):
-        if path.name == "total-autotest-report.txt":
+        if path.name not in SUMMARY_NAMES:
+            continue
+        if "artifacts/messages" not in path.as_posix():
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="replace").strip()
         except OSError:
             continue
         if text:
-            messages.append(text)
-    return messages
+            messages.append((path.name, text))
+    order = {"backend.txt": 0, "frontend.txt": 1}
+    return [text for _, text in sorted(messages, key=lambda item: order.get(item[0], 99))]
 
 
 def build_report(messages_dir: Path) -> str:
@@ -33,11 +38,9 @@ def build_report(messages_dir: Path) -> str:
     run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if run_id else ""
     messages = _read_messages(messages_dir)
     failed = any(message.startswith("❌") for message in messages)
-    status_line = "❌ CITY GO · CI" if failed else "✅ CITY GO · CI"
-    result_line = "Статус: не пройден" if failed else "Статус: пройден"
     lines = [
-        status_line,
-        result_line,
+        "❌ CITY GO · CI" if failed else "✅ CITY GO · CI",
+        "Статус: не пройден" if failed else "Статус: пройден",
         f"Прогон: #{run_number or 'unknown'}",
         f"Ref: {ref}",
         f"Commit: {sha[:7] if sha else 'unknown'}",
@@ -46,7 +49,7 @@ def build_report(messages_dir: Path) -> str:
         lines.append("")
         lines.extend(messages)
     else:
-        lines.append("Нет job message artifacts. Проверьте backend/frontend logs.")
+        lines.append("Нет backend.txt/frontend.txt summary artifacts. Проверьте backend/frontend jobs.")
     if run_url:
         lines.append("")
         lines.append(run_url)
