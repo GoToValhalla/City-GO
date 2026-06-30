@@ -36,14 +36,8 @@ def run_enrichment_job_background(city_id: int, *, actor_id: str) -> None:
 
 
 def run_all_cities_enrichment_background(*, actor_id: str) -> None:
-    """Sequentially run enrichment-only pipeline for every city in production DB.
-
-    Kept for compatibility with older callers. New admin HTTP actions enqueue DB jobs and let the
-    import-worker process them outside the FastAPI request lifecycle.
-    """
     with SessionLocal() as db:
         city_ids = [city.id for city in db.query(City).order_by(City.slug.asc()).all()]
-
     for city_id in city_ids:
         with SessionLocal() as db:
             run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id)
@@ -53,13 +47,7 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
     limit = max(1, int(limit or 1))
     with SessionLocal() as db:
         stalled = mark_stalled_import_jobs(db, actor_id=actor_id)
-        jobs = (
-            db.query(CityAdminImportJob)
-            .filter(CityAdminImportJob.status == "queued")
-            .order_by(CityAdminImportJob.created_at.asc(), CityAdminImportJob.id.asc())
-            .limit(limit)
-            .all()
-        )
+        jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "queued").order_by(CityAdminImportJob.created_at.asc(), CityAdminImportJob.id.asc()).limit(limit).all()
         work = [(int(job.id), int(job.city_id), str(job.source or "")) for job in jobs]
 
     processed = 0
@@ -83,16 +71,28 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
             failed += 1
             error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
             errors.append(error)
-            send_admin_alert(
-                title="Import worker job failed",
-                message=str(exc)[:1000],
-                level="error",
-                job_id=job_id,
-                details=error,
-            )
+            _mark_worker_exception(job_id=job_id, error=str(exc))
+            send_admin_alert(title="Import worker job failed", message=str(exc)[:1000], level="error", job_id=job_id, details=error)
     with SessionLocal() as db:
         queue = import_queue_summary(db)
     return {"processed": processed, "failed": failed, "stalled_marked": stalled, "errors": errors, "queue": queue}
+
+
+def _mark_worker_exception(*, job_id: int, error: str) -> None:
+    with SessionLocal() as db:
+        job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
+        if job is None:
+            return
+        job.status = "failed"
+        job.current_step = STEP_ERROR
+        job.last_error = error[:2000]
+        job.failed_items = max(int(job.failed_items or 0), 1)
+        job.finished_at = datetime.utcnow()
+        job.updated_at = job.finished_at
+        details = dict(job.step_details or {})
+        details["worker_exception"] = {"error": error[:1000], "failed_at": job.finished_at.isoformat()}
+        job.step_details = details
+        db.commit()
 
 
 def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: datetime | None = None) -> int:
@@ -115,14 +115,7 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
     if stalled:
         db.commit()
         for alert in alerts:
-            send_admin_alert(
-                title="Import job stalled",
-                message="Import job stopped sending heartbeat and was marked as stalled.",
-                level="error",
-                city_slug=str(alert.get("city_slug") or "") or None,
-                job_id=int(alert["job_id"]),
-                details=alert,
-            )
+            send_admin_alert(title="Import job stalled", message="Import job stopped sending heartbeat and was marked as stalled.", level="error", city_slug=str(alert.get("city_slug") or "") or None, job_id=int(alert["job_id"]), details=alert)
     return len(stalled)
 
 
@@ -139,13 +132,4 @@ def import_queue_summary(db) -> dict[str, Any]:
         if oldest is not None:
             oldest_queued_seconds = int((now - oldest).total_seconds())
     next_jobs = sorted(queued_jobs, key=lambda item: (item.created_at or datetime.min, item.id))[:10]
-    return {
-        "total": len(jobs),
-        "by_status": dict(by_status),
-        "by_source": dict(by_source),
-        "queued": len(queued_jobs),
-        "running": len(running_jobs),
-        "stalled_running": sum(1 for job in running_jobs if is_stalled(job, now=now)),
-        "oldest_queued_seconds": oldest_queued_seconds,
-        "next_job_ids": [job.id for job in next_jobs],
-    }
+    return {"total": len(jobs), "by_status": dict(by_status), "by_source": dict(by_source), "queued": len(queued_jobs), "running": len(running_jobs), "stalled_running": sum(1 for job in running_jobs if is_stalled(job, now=now)), "oldest_queued_seconds": oldest_queued_seconds, "next_job_ids": [job.id for job in next_jobs]}
