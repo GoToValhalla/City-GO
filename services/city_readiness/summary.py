@@ -64,6 +64,7 @@ def _city_fallback_payload(db: Session, city: City) -> dict[str, object]:
             "eligible_places": eligible_places,
             "published_places": published_places,
             "published_routes": published_routes,
+            "has_published_routes": 1 if published_routes > 0 else 0,
         },
     }
 
