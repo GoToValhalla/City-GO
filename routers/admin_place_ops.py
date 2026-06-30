@@ -7,7 +7,7 @@ import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
@@ -23,7 +23,7 @@ from schemas.admin_place_ops import (
     AdminPlaceUpdateRequest,
 )
 from schemas.admin_system_log import SystemLogListResponse, SystemLogRead
-from services.admin_address_job_service import queue_address_refresh
+from services.admin_address_job_service import queue_address_refresh, run_address_refresh_operation
 from services.admin_city_settings_service import city_settings_payload, update_city_toggle
 from services.admin_place_bulk_service import apply_bulk, preview_bulk
 from services.admin_place_create_service import create_draft_place
@@ -98,8 +98,15 @@ def bulk_apply(body: AdminBulkApplyRequest, auth: AdminContext = Depends(admin_r
 
 
 @router.post("/places/address-refresh")
-def refresh_addresses(body: AdminAddressRefreshRequest, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)):
+def refresh_addresses(
+    body: AdminAddressRefreshRequest,
+    background_tasks: BackgroundTasks,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
     op = queue_address_refresh(db, actor=auth.actor_id, city_slug=body.city_slug, place_ids=body.place_ids or None)
+    if op.status == "queued":
+        background_tasks.add_task(run_address_refresh_operation, op.id)
     return {"operation_id": op.id, "status": op.status, "result": op.result, "error": op.error_message}
 
 
