@@ -1,0 +1,104 @@
+# Admin import jobs flow
+
+## Current production contract
+
+Admin import pages use CQRS-lite:
+
+- `GET /admin/import-jobs` is read-only and lightweight.
+- `GET /admin/import-jobs/{city_id}` is read-only and reads cached snapshot data when available.
+- Heavy recalculation is triggered by explicit `POST` commands and processed by import-worker.
+- GET endpoints must not mark jobs as stalled, recover failed jobs, or change city launch status.
+
+## List endpoint
+
+`GET /admin/import-jobs` returns only lightweight fields:
+
+- city and latest job identity;
+- status/current step;
+- progress counters already stored on the job;
+- coverage/change counters only if a cached snapshot exists;
+- available UI actions.
+
+The list endpoint must not calculate address/photo/description coverage by scanning all places for every city.
+
+## Detail endpoint
+
+`GET /admin/import-jobs/{city_id}` returns detail for one city. It reads `admin_import_snapshot` from `CityAdminImportJob.step_details`.
+
+When snapshot is missing, the UI shows `snapshot не создан` and offers `Обновить snapshot`.
+
+## Snapshot transition layer
+
+Until dedicated snapshot tables are added, snapshot data is stored in:
+
+```text
+CityAdminImportJob.step_details.admin_import_snapshot
+```
+
+The snapshot contains:
+
+- `data_coverage`: address/photo/description coverage;
+- `change_summary`: created/updated/rejected/hidden/needs_review/unchanged;
+- `taken_at`, `source`, `version`.
+
+This is a transition layer. Target tables:
+
+- `city_coverage_counters` for list counters;
+- `city_import_snapshots` for full import detail snapshots;
+- `import_job_steps` for per-step status and result.
+
+## Commands
+
+Current POST commands:
+
+- `POST /admin/import-jobs/{city_id}/run`
+- `POST /admin/import-jobs/{city_id}/retry`
+- `POST /admin/import-jobs/{city_id}/cancel`
+- `POST /admin/import-jobs/{city_id}/publish`
+- `POST /admin/import-jobs/{city_id}/snapshot/refresh`
+- `POST /admin/import-jobs/{city_id}/snapshot/refresh-now`
+- `POST /admin/import-jobs/{city_id}/enrich-addresses`
+- `POST /admin/import-jobs/{city_id}/enrich-photos`
+
+`refresh-now` is a temporary admin operation for one city. For batch operations prefer queued `snapshot/refresh`.
+
+## Worker source routing
+
+Import-worker must route queued jobs by `CityAdminImportJob.source`:
+
+- `admin_city_import` -> full import pipeline;
+- `admin_city_enrichment` -> enrichment-only pipeline;
+- `admin_snapshot_refresh` -> refresh cached snapshot;
+- `admin_address_enrichment` -> address enrichment then snapshot refresh;
+- `admin_photo_enrichment` -> photo enrichment then snapshot refresh.
+
+## Admin UI
+
+Desktop may render a table. Mobile must render cards:
+
+- city name/status;
+- places/published/progress;
+- address/photo/description coverage from snapshot;
+- actions: details, changes, logs, refresh snapshot, enrich addresses, enrich photos.
+
+Polling is enabled only for queued/running jobs.
+
+## Known remaining work
+
+`services/import_pipeline_foundation_steps.py` still needs a narrow safe patch:
+
+- replace `backfill_addresses = lambda: None` with actual address backfill;
+- make `fetch_photo_candidates` search/fill missing photos, not only convert existing `image_url` into candidates.
+
+A previous full-file replacement was blocked by the connector safety filter, so this must be applied as a small isolated patch.
+
+## Next target architecture
+
+After stabilizing this transition layer, add real tables and migration:
+
+- `city_coverage_counters`;
+- `city_import_snapshots`;
+- `import_job_steps`;
+- state transition log.
+
+Then move all snapshot writes from JSON field to dedicated tables.
