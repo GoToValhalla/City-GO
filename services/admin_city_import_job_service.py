@@ -65,7 +65,8 @@ def ensure_import_job(db: Session, *, city_id: int) -> CityAdminImportJob:
 def _queue_job(db: Session, *, city: City, source: str, actor_id: str | None) -> CityAdminImportJob:
     from services.admin_city_import_job_payload import _latest_job
     job = _latest_job(db, city.id)
-    if job is not None and job.status == "running": raise ValueError("Pipeline уже выполняется")
+    if job is not None and job.status == "running" and not (source == SOURCE_SNAPSHOT_REFRESH and job.source == SOURCE_SNAPSHOT_REFRESH):
+        raise ValueError("Pipeline уже выполняется")
     scopes = db.query(CityImportScope).filter_by(city_id=city.id, enabled=True).count()
     if job is None:
         job = CityAdminImportJob(city_id=city.id); db.add(job); db.flush()
