@@ -1,6 +1,6 @@
 """Admin: eligibility list, data quality, city readiness."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
@@ -16,11 +16,13 @@ from schemas.admin_route_operations import (
     RouteReadinessDiagnosticsResponse,
 )
 from services.admin_audit_service import write_admin_audit_log
-from services.city_readiness import (
-    city_readiness_snapshot,
-    list_cities_readiness,
-    recalculate_city_readiness_snapshot,
+from services.admin_background_operation_service import (
+    OP_CITY_READINESS_RECALCULATE,
+    create_background_operation,
+    operation_payload,
+    run_background_operation,
 )
+from services.city_readiness import city_readiness_snapshot, list_cities_readiness
 from services.route_data_quality import build_route_data_quality_report
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 from services.route_eligibility_dashboard import build_route_readiness_diagnostics, list_eligibility_places
@@ -144,35 +146,26 @@ def list_city_readiness(
 @router.post("/readiness/{city_slug}/recalculate")
 def recalculate_city_readiness(
     city_slug: str,
+    background_tasks: BackgroundTasks,
     body: dict[str, object] | None = None,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     body = body or {}
-    payload = recalculate_city_readiness_snapshot(
+    op = create_background_operation(
         db,
-        city_slug=city_slug,
-        reason=str(body.get("reason") or "admin_city_readiness_recalculation"),
-        recalculate_place_scores=body.get("recalculate_place_scores") is not False,
-    )
-    if payload is None:
-        raise HTTPException(404, "Город не найден")
-    write_admin_audit_log(
-        db,
+        operation_type=OP_CITY_READINESS_RECALCULATE,
         actor=auth.actor_id,
-        action="recalculate_city_readiness",
-        entity_type="city",
-        entity_id=city_slug,
-        old_value=None,
-        new_value={
-            "readiness_score": payload["readiness_score"],
-            "status": payload["status"],
-            "snapshot_id": payload.get("snapshot_id"),
+        city_slug=city_slug,
+        params={
+            "city_slug": city_slug,
+            "reason": str(body.get("reason") or "admin_city_readiness_recalculation"),
+            "recalculate_place_scores": body.get("recalculate_place_scores") is not False,
         },
-        reason="data_foundation_action",
     )
-    db.commit()
-    return payload
+    if op.status == "queued":
+        background_tasks.add_task(run_background_operation, op.id)
+    return operation_payload(op) or {}
 
 
 @router.get("/readiness/{city_slug}", response_model=CityReadinessResponse)
