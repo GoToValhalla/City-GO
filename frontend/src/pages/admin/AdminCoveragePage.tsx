@@ -27,8 +27,11 @@ export const AdminCoveragePage = () => {
 
   useEffect(() => {
     if (params.get('tab') === 'gaps') return
-    setLoading(true)
-    adminGet<CoverageResponse>('/admin/coverage/summary?limit=100')
+    Promise.resolve()
+      .then(() => {
+        setLoading(true)
+        return adminGet<CoverageResponse>('/admin/coverage/summary?limit=100')
+      })
       .then((response) => setItems(response.items))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))

@@ -15,7 +15,7 @@ from services.admin_city_import_log import log_import_event
 from services.city_readiness.score import compute_city_readiness
 from services.import_pipeline.enrichment_only import run_enrichment_only_pipeline
 from services.import_pipeline.runner import run_enrichment_pipeline
-from services.import_pipeline.steps import STEP_CANCELLED, STEP_QUEUED
+from services.import_pipeline.steps import STEP_CANCELLED, STEP_ERROR, STEP_QUEUED
 from services.import_pipeline_foundation import run_foundation_pipeline
 from services.admin_import_job_change_service import CHANGE_TYPES, record_place_changes
 from services.admin_city_import_job_payload import SNAPSHOT_KEY
@@ -65,7 +65,7 @@ def ensure_import_job(db: Session, *, city_id: int) -> CityAdminImportJob:
 def _queue_job(db: Session, *, city: City, source: str, actor_id: str | None) -> CityAdminImportJob:
     from services.admin_city_import_job_payload import _latest_job
     job = _latest_job(db, city.id)
-    if job is not None and job.status == "running" and not (source == SOURCE_SNAPSHOT_REFRESH and job.source == SOURCE_SNAPSHOT_REFRESH):
+    if job is not None and job.status in {"queued", "running"}:
         raise ValueError("Pipeline уже выполняется")
     scopes = db.query(CityImportScope).filter_by(city_id=city.id, enabled=True).count()
     if job is None:
@@ -169,7 +169,9 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str) -> City
     if job.status == "running": raise ValueError("Pipeline уже выполняется")
     job.status = "running"; job.source = SOURCE_ENRICHMENT_ONLY; job.started_at = datetime.utcnow(); job.finished_at = None; job.last_error = None; db.commit()
     try: run_enrichment_only_pipeline(db, job=job, city=city, actor_id=actor_id); db.refresh(job); _foundation(db, city, job, actor_id, [int(v) for v in ((job.step_details or {}).get("changed_place_ids") or [])]); _refresh_snapshot_light(db, city=city, job=job, source="enrichment_only_finished")
-    except Exception: db.commit(); db.refresh(job)
+    except Exception as exc:
+        job.status = "failed"; job.current_step = STEP_ERROR; job.last_error = str(exc)[:2000]; job.failed_items = max(int(job.failed_items or 0), 1); job.finished_at = datetime.utcnow(); job.updated_at = job.finished_at
+        details = dict(job.step_details or {}); details["worker_exception"] = {"error": str(exc)[:1000], "failed_at": job.finished_at.isoformat()}; job.step_details = details; db.commit(); raise
     db.refresh(job); return job
 
 

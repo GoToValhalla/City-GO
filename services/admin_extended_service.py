@@ -94,33 +94,35 @@ def _import_job_list_payload(city: City, *, counters: CityCounters | None, job: 
     coverage = _snapshot_coverage(snapshot)
     changes = _snapshot_changes(snapshot)
     city_published = city.launch_status == "published" and bool(city.is_active)
+    active_job = job is not None and job.status in {"queued", "running"}
+    display_as_published = city_published and not active_job
     raw_status = str(job.status if job is not None else city.launch_status)
     raw_step = str(job.current_step if job is not None else STEP_QUEUED)
-    status = "published" if city_published else raw_status
-    current_step = "published" if city_published else raw_step
+    status = "published" if display_as_published else raw_status
+    current_step = "published" if display_as_published else raw_step
     places_total = int(coverage.get("places_total") or counters["places_total"])
     places_published = int(coverage.get("places_published") or counters["places_published"])
-    is_running = status in {"queued", "running"} or current_step in {"queued", "running", STEP_QUEUED}
+    is_running = active_job
     step_details = {"admin_pipeline_contract": {"label": PIPELINE_MODE_LABEL}, "data_coverage": coverage, "change_summary": changes, "snapshot_at": snapshot.get("taken_at") if snapshot else None, "snapshot_stale": not bool(snapshot)}
     return {
         "id": f"city-import-{city.id}", "city_id": city.id, "city_slug": city.slug, "city_name": city.name,
         "status": status, "launch_status": city.launch_status, "is_city_active": bool(city.is_active),
-        "current_step": current_step, "current_step_label": "Опубликован" if city_published else step_label(current_step),
+        "current_step": current_step, "current_step_label": "Опубликован" if display_as_published else step_label(current_step),
         "source": job.source if job is not None else "admin_city_import", "pipeline_mode": "legacy_osm_plus_foundation", "pipeline_mode_label": PIPELINE_MODE_LABEL,
-        "status_group": "published" if city_published else ("running" if is_running else "idle"),
-        "action_hint": "Город опубликован" if city_published else "Открыть детали", "auto_refresh_seconds": 7 if is_running and not city_published else None,
+        "status_group": "published" if display_as_published else ("running" if is_running else "idle"),
+        "action_hint": "Город опубликован" if display_as_published else ("Дождаться завершения import-worker" if is_running else "Открыть детали"), "auto_refresh_seconds": 7 if is_running else None,
         "data_coverage": coverage, "change_summary": changes,
         "places_total": places_total, "places_published": places_published, "places_unpublished": max(places_total - places_published, 0), "pending_photos": int(coverage.get("pending_photos") or counters["pending_photos"]),
         "next_step": "Город опубликован и доступен на сайте." if city_published else ("Snapshot готов. Откройте детали для полного отчёта." if snapshot else "Snapshot ещё не создан. Откройте детали и нажмите «Обновить snapshot»."),
         "job_id": job.id if job is not None else None, "scopes_total": job.scopes_total if job is not None else 0, "scopes_succeeded": job.scopes_succeeded if job is not None else 0,
         "places_found": job.places_found if job is not None else 0, "places_saved": job.places_saved if job is not None else 0,
         "total_items": job.total_items if job is not None else 0, "processed_items": job.processed_items if job is not None else 0, "successful_items": job.successful_items if job is not None else 0, "failed_items": job.failed_items if job is not None else 0, "retry_count": job.retry_count if job is not None else 0,
-        "step_details": step_details, "is_stalled": False if city_published else (is_stalled(job) if job is not None else False),
+        "step_details": step_details, "is_stalled": False if display_as_published else (is_stalled(job) if job is not None else False),
         "started_at": job.started_at if job is not None else None, "finished_at": job.finished_at if job is not None else None, "created_at": job.created_at if job is not None else None, "updated_at": job.updated_at if job is not None else None,
-        "last_error": None if city_published else (job.last_error if job is not None and job.status in {"failed", "stalled", "import_failed"} else None),
-        "can_run": False, "can_retry": False if city_published else bool(job is not None and job.status in {"failed", "stalled", "import_failed", "success", "success_with_warnings", "partial_success", "cancelled"}),
-        "can_cancel": bool(job is not None and not city_published and (job.status in {"running", "queued"} or current_step in {"queued", "running"})),
-        "can_publish": False if city_published else _can_publish_city(city, places_total), "can_unpublish": _can_unpublish_city(city),
+        "last_error": None if display_as_published else (job.last_error if job is not None and job.status in {"failed", "stalled", "import_failed"} else None),
+        "can_run": False, "can_retry": False if active_job else bool(job is not None and job.status in {"failed", "stalled", "import_failed", "success", "success_with_warnings", "partial_success", "cancelled"}),
+        "can_cancel": bool(active_job),
+        "can_publish": False if active_job or display_as_published else _can_publish_city(city, places_total), "can_unpublish": _can_unpublish_city(city),
         "report_url": f"/admin/routes/data-quality/{city.slug}", "logs_url": f"/admin/system-logs?city_slug={city.slug}&module=import",
     }
 

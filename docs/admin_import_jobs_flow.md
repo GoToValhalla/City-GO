@@ -5,6 +5,7 @@
 Admin import pages use CQRS-lite:
 
 - `GET /admin/import-jobs` is read-only and lightweight.
+- `GET /admin/import-queue` is read-only and returns only active queued/running jobs.
 - `GET /admin/import-jobs/{city_id}` is read-only and reads cached snapshot data when available.
 - Heavy recalculation is triggered by explicit `POST` commands and processed by import-worker.
 - GET endpoints must not mark jobs as stalled, recover failed jobs, or change city launch status.
@@ -41,6 +42,11 @@ The snapshot contains:
 - `change_summary`: created/updated/rejected/hidden/needs_review/unchanged;
 - `taken_at`, `source`, `version`.
 
+Snapshot refresh may update coverage counters, but change counters are copied only
+from cached `CityAdminImportJob.step_details.change_summary`. If that cache is
+missing, all change counters are returned as zero. Refreshing a snapshot must not
+scan `city_admin_import_job_changes`.
+
 This is a transition layer. Target tables:
 
 - `city_coverage_counters` for list counters;
@@ -72,6 +78,10 @@ Import-worker must route queued jobs by `CityAdminImportJob.source`:
 - `admin_address_enrichment` -> address enrichment then snapshot refresh;
 - `admin_photo_enrichment` -> photo enrichment then snapshot refresh.
 
+If a worker task raises an exception, the active job is marked `failed`, moves to
+`error`, stores `last_error` and `step_details.worker_exception`, and gets
+`finished_at`. The job must not stay indefinitely in `running`.
+
 ## Admin UI
 
 Desktop may render a table. Mobile must render cards:
@@ -81,7 +91,10 @@ Desktop may render a table. Mobile must render cards:
 - address/photo/description coverage from snapshot;
 - actions: details, changes, logs, refresh snapshot, enrich addresses, enrich photos.
 
-Polling is enabled only for queued/running jobs.
+The list page does not full-page poll or reload. It fetches queue state from
+`GET /admin/import-queue`; actions refresh the affected data silently after the
+POST completes. While a city has an active queued/running job, mutating actions
+for that city are disabled except supported cancellation.
 
 ## Known remaining work
 

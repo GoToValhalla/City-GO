@@ -10,7 +10,7 @@ from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.place import Place
 from models.place_image import PLACE_IMAGE_STATUS_NEEDS_REVIEW, PlaceImage
-from services.admin_import_job_change_service import CHANGE_TYPES, import_job_changes_summary
+from services.admin_import_job_change_service import CHANGE_TYPES
 from services.import_pipeline.progress import is_stalled, step_label
 from services.import_pipeline.steps import STEP_QUEUED, STEP_READY_FOR_REVIEW, TERMINAL_STEPS
 
@@ -141,7 +141,7 @@ def refresh_import_job_snapshot(db: Session, *, city_id: int, source: str = "exp
     published = db.query(Place).filter(Place.city_id == city.id, Place.is_published.is_(True)).count()
     pending_photos = db.query(PlaceImage).join(Place, Place.id == PlaceImage.place_id).filter(Place.city_id == city.id, PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW).count()
     coverage = _data_coverage(db, city_id=int(city.id), total=int(total), published=int(published), pending_photos=int(pending_photos))
-    changes = import_job_changes_summary(db, city_id=int(city.id)) or {"job_id": job.id, "city_id": city.id, "city_slug": city.slug, **{key: 0 for key in CHANGE_TYPES}}
+    changes = _cached_change_summary(job, city)
     changes = {**changes, "total_changes": sum(int(changes.get(key) or 0) for key in CHANGE_TYPES)}
     snapshot = {
         "version": 1,
@@ -199,6 +199,13 @@ def _snapshot_changes(snapshot: dict[str, object] | None) -> dict[str, object]:
     return value if isinstance(value, dict) else {}
 
 
+def _cached_change_summary(job: CityAdminImportJob, city: City) -> dict[str, object]:
+    value = dict(job.step_details or {}).get("change_summary")
+    if isinstance(value, dict):
+        return dict(value)
+    return {"job_id": job.id, "city_id": city.id, "city_slug": city.slug, **{key: 0 for key in CHANGE_TYPES}}
+
+
 def _data_coverage(db: Session, *, city_id: int, total: int, published: int, pending_photos: int) -> dict[str, int | float]:
     without_address = db.query(Place).filter(Place.city_id == city_id, Place.address.is_(None)).count()
     without_photo = db.query(Place).filter(Place.city_id == city_id, Place.image_url.is_(None)).count()
@@ -209,9 +216,9 @@ def _data_coverage(db: Session, *, city_id: int, total: int, published: int, pen
 
 
 def _status_group(status: str, current_step: str, launch_status: str, is_active: bool = False) -> str:
-    if status in {"queued"} or current_step in {STEP_QUEUED, "queued"}:
+    if status == "queued":
         return "queued"
-    if status == "running" or current_step == "snapshot_refresh":
+    if status == "running":
         return "running"
     if launch_status == "published" and is_active:
         return "published"
@@ -244,7 +251,7 @@ def _can_run(job: CityAdminImportJob | None, city: City) -> bool:
         return False
     if job is None:
         return city.launch_status == "importing"
-    return job.status in {"queued"} or job.current_step == STEP_QUEUED
+    return False
 
 
 def _can_retry(job: CityAdminImportJob | None, status: str) -> bool:
@@ -256,9 +263,7 @@ def _can_retry(job: CityAdminImportJob | None, status: str) -> bool:
 def _can_cancel(job: CityAdminImportJob | None, status: str) -> bool:
     if job is None:
         return False
-    if job.current_step in TERMINAL_STEPS:
-        return False
-    return status in {"running", "queued"} or job.current_step not in TERMINAL_STEPS
+    return status in {"running", "queued"} and job.current_step not in TERMINAL_STEPS
 
 
 def _can_publish(city: City, places_total: int) -> bool:

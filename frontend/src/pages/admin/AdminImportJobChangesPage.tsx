@@ -33,14 +33,18 @@ export const AdminImportJobChangesPage = () => {
   }, [cityId, citySlug, jobId])
   useEffect(() => {
     let alive = true
-    setLoading(true); setError(null)
-    resolveCity().then(async (id) => {
+    void (async () => {
+      await Promise.resolve()
+      if (!alive) return
+      setLoading(true); setError(null)
+      const id = await resolveCity()
+      if (!alive) return
       const [nextSummary, nextRows] = await Promise.all([
         adminGet<AdminImportJobChangesSummary>(`/admin/import-jobs/${id}/changes/summary`),
         adminGet<AdminImportJobChangesResponse>(`/admin/import-jobs/${id}/changes?change_type=${active}&limit=50`),
       ])
       if (alive) { setSummary(nextSummary); setRows(nextRows) }
-    }).catch((e: Error) => alive && setError(e.message)).finally(() => alive && setLoading(false))
+    })().catch((e: Error) => alive && setError(e.message)).finally(() => alive && setLoading(false))
     return () => { alive = false }
   }, [active, resolveCity])
   const counts = useMemo(() => tabs.map(([key, label]) => [key, label, summary?.[key] ?? 0] as const), [summary])

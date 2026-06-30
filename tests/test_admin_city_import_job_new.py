@@ -7,8 +7,19 @@ from models.city_import_scope import CityImportScope
 from services.admin_city_import_job_payload import build_import_job_payload
 from services.admin_city_import_job_service import queue_city_import_job, run_city_import_job
 from services.admin_city_import_runner import summarize_import_results
-from services.admin_city_import_tasks import mark_stalled_import_jobs
+from services.admin_city_import_tasks import import_queue_summary, mark_stalled_import_jobs, run_queued_import_jobs
 from services.admin_extended_service import get_admin_cities
+
+
+class _SessionContext:
+    def __init__(self, session):
+        self.session = session
+
+    def __enter__(self):
+        return self.session
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_summarize_import_results_new() -> None:
@@ -96,6 +107,56 @@ def test_stalled_running_job_is_marked_failed_and_retryable_new(db_session) -> N
     assert city.launch_status == "import_failed"
     assert payload["can_retry"] is True
     assert payload["last_error"]
+
+
+def test_import_queue_summary_counts_active_jobs_only_new(db_session) -> None:
+    city = City(name="Queue City", slug="queue-city", country="Россия", launch_status="review_required", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    db_session.add_all([
+        CityAdminImportJob(city_id=city.id, status="queued", source="source_a"),
+        CityAdminImportJob(city_id=city.id, status="running", source="source_b"),
+        CityAdminImportJob(city_id=city.id, status="success", source="source_c"),
+        CityAdminImportJob(city_id=city.id, status="failed", source="source_d"),
+    ])
+    db_session.commit()
+
+    payload = import_queue_summary(db_session)
+
+    assert payload["queued"] == 1
+    assert payload["running"] == 1
+    assert payload["active_total"] == 2
+    assert payload["by_source"] == {"source_a": 1, "source_b": 1}
+    assert "source_c" not in payload["by_source"]
+
+
+def test_import_queue_route_does_not_conflict_new(client) -> None:
+    response = client.get("/admin/import-queue")
+
+    assert response.status_code == 200
+    assert "queued" in response.json()
+
+
+def test_worker_exception_marks_queued_job_failed_new(db_session, monkeypatch) -> None:
+    city = City(name="Worker Failure City", slug="worker-failure-city", country="Россия", launch_status="review_required", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(city_id=city.id, status="queued", source="admin_city_enrichment", current_step="queued")
+    db_session.add(job)
+    db_session.commit()
+    monkeypatch.setattr("services.admin_city_import_tasks.SessionLocal", lambda: _SessionContext(db_session))
+    monkeypatch.setattr("services.admin_city_import_tasks.send_admin_alert", lambda **_kwargs: {"sent": True})
+    monkeypatch.setattr("services.admin_city_import_tasks.run_enrichment_only_job", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("worker boom")))
+
+    result = run_queued_import_jobs(limit=1)
+    db_session.refresh(job)
+
+    assert result["failed"] == 1
+    assert job.status == "failed"
+    assert job.current_step == "error"
+    assert job.last_error == "worker boom"
+    assert job.finished_at is not None
+    assert job.step_details["worker_exception"]["error"] == "worker boom"
 
 
 def test_admin_city_read_does_not_mark_stalled_imports_new(db_session, monkeypatch) -> None:

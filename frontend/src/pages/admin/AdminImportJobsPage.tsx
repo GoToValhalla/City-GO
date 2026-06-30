@@ -20,7 +20,7 @@ const changesOf = (job: AdminImportJob): AdminImportChangeSummary => job.change_
 const text = (value: unknown, fallback = '—') => value === null || value === undefined || value === '' ? fallback : String(value)
 const num = (value: unknown) => typeof value === 'number' ? value : Number(value ?? 0) || 0
 const detailLine = (label: string, value: unknown) => value === null || value === undefined || value === '' ? null : <p>{label}: <strong>{String(value)}</strong></p>
-const isRunningLike = (job: AdminImportJob) => ['queued', 'running'].includes(job.status) || ['queued', 'running', 'snapshot_refresh'].includes(job.current_step ?? '')
+const isRunningLike = (job: AdminImportJob) => ['queued', 'running'].includes(job.status)
 const isBlockingImportError = (job: AdminImportJob) => {
   const currentStep = job.current_step ?? ''
   return Boolean(job.last_error && ((job.failed_items ?? 0) > 0 || job.is_stalled || job.status.includes('fail') || ['failed', 'import_failed', 'stalled'].includes(currentStep)))
