@@ -121,10 +121,9 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
 
 def import_queue_summary(db) -> dict[str, Any]:
     jobs = db.query(CityAdminImportJob).all()
-    by_status = Counter(str(job.status or "unknown") for job in jobs)
-    by_source = Counter(str(job.source or "unknown") for job in jobs)
     queued_jobs = [job for job in jobs if job.status == "queued"]
     running_jobs = [job for job in jobs if job.status == "running"]
+    active_jobs = queued_jobs + running_jobs
     now = datetime.utcnow()
     oldest_queued_seconds = None
     if queued_jobs:
@@ -132,4 +131,14 @@ def import_queue_summary(db) -> dict[str, Any]:
         if oldest is not None:
             oldest_queued_seconds = int((now - oldest).total_seconds())
     next_jobs = sorted(queued_jobs, key=lambda item: (item.created_at or datetime.min, item.id))[:10]
-    return {"total": len(jobs), "by_status": dict(by_status), "by_source": dict(by_source), "queued": len(queued_jobs), "running": len(running_jobs), "stalled_running": sum(1 for job in running_jobs if is_stalled(job, now=now)), "oldest_queued_seconds": oldest_queued_seconds, "next_job_ids": [job.id for job in next_jobs]}
+    return {
+        "total": len(jobs),
+        "active_total": len(active_jobs),
+        "by_status": dict(Counter(str(job.status or "unknown") for job in active_jobs)),
+        "by_source": dict(Counter(str(job.source or "unknown") for job in active_jobs)),
+        "queued": len(queued_jobs),
+        "running": len(running_jobs),
+        "stalled_running": sum(1 for job in running_jobs if is_stalled(job, now=now)),
+        "oldest_queued_seconds": oldest_queued_seconds,
+        "next_job_ids": [job.id for job in next_jobs],
+    }
