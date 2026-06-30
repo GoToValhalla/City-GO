@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from routers.admin import router as admin_router
 from routers.admin_ai import router as admin_ai_router
+from routers.admin_background_operations import router as admin_background_operations_router
 from routers.admin_bot_analytics import router as admin_bot_analytics_router
 from routers.admin_coverage_gaps import router as admin_coverage_gaps_router
 from routers.admin_data_quality import router as admin_data_quality_router
@@ -70,6 +71,7 @@ _ROOT_ROUTERS = (
     admin_taxonomy_router,
     admin_router,
     admin_ai_router,
+    admin_background_operations_router,
     admin_bot_analytics_router,
     admin_coverage_gaps_router,
     admin_data_quality_router,
