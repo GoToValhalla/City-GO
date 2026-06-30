@@ -2,27 +2,29 @@
 
 from __future__ import annotations
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from models.city import City
 from models.data_foundation import CityQualitySnapshot
+from models.place import Place
 from services.city_readiness.score import latest_city_readiness_snapshot
 
 
 def city_readiness_snapshot(db: Session, *, city_slug: str) -> dict[str, object] | None:
-    """Return the last persisted readiness snapshot without live recomputation."""
+    """Return the last persisted readiness snapshot without full recalculation."""
     city = db.query(City).filter(City.slug == city_slug).first()
     if city is None:
         return None
     snapshot = latest_city_readiness_snapshot(db, city_slug=city_slug)
     if snapshot is not None:
         return _snapshot_payload(city, snapshot)
-    return _city_fallback_payload(city)
+    return _city_fallback_payload(db, city)
 
 
 def list_cities_readiness(db: Session, *, limit: int = 100) -> list[dict[str, object]]:
     cities = db.query(City).order_by(City.name.asc()).limit(limit).all()
-    return [city_readiness_snapshot(db, city_slug=city.slug) or _city_fallback_payload(city) for city in cities]
+    return [city_readiness_snapshot(db, city_slug=city.slug) or _city_fallback_payload(db, city) for city in cities]
 
 
 def _snapshot_payload(city: City, snapshot: CityQualitySnapshot) -> dict[str, object]:
@@ -44,16 +46,21 @@ def _snapshot_payload(city: City, snapshot: CityQualitySnapshot) -> dict[str, ob
     }
 
 
-def _city_fallback_payload(city: City) -> dict[str, object]:
+def _city_fallback_payload(db: Session, city: City) -> dict[str, object]:
+    places_total = int(db.query(func.count(Place.id)).filter(Place.city_id == city.id).scalar() or 0)
+    places_active = int(db.query(func.count(Place.id)).filter(Place.city_id == city.id, Place.is_active.is_(True)).scalar() or 0)
+    eligible_places = int(db.query(func.count(Place.id)).filter(Place.city_id == city.id, Place.is_route_eligible.is_(True)).scalar() or 0)
+    published_places = int(db.query(func.count(Place.id)).filter(Place.city_id == city.id, Place.is_published.is_(True)).scalar() or 0)
     return {
         "city_slug": city.slug,
         "city_name": city.name,
         "readiness_score": int(city.readiness_score or 0),
-        "status": city.quality_status or city.launch_status or "unknown",
+        "status": city.quality_status or ("not_ready" if places_total == 0 else city.launch_status or "needs_review"),
         "components": {
-            "places_total": 0,
-            "places_active": 0,
-            "eligible_places": 0,
+            "places_total": places_total,
+            "places_active": places_active,
+            "eligible_places": eligible_places,
+            "published_places": published_places,
         },
     }
 
