@@ -1,13 +1,15 @@
 """
-Наполнение place_images кандидатами из OSM/source_observations.
+Наполнение place_images кандидатами из OSM/source_observations и сохранённых source URL.
 
 Скрипт не использует случайный web image search.
 Фото берутся только из source evidence:
-- OSM image
-- OSM wikimedia_commons
-- OSM wikidata -> Wikidata P18 image
-- OSM wikipedia -> Wikipedia lead image
-- OSM website/contact:website -> OpenGraph image
+- Place.image_url, если ссылка уже есть, но нет PlaceImage;
+- Place.website / Place.source_url -> OpenGraph image;
+- OSM image;
+- OSM wikimedia_commons;
+- OSM wikidata -> Wikidata P18 image;
+- OSM wikipedia -> Wikipedia lead image;
+- OSM website/contact:website -> OpenGraph image.
 
 Новые записи сразу публикуются как approved, чтобы фото появлялись в каталоге.
 При этом reviewed_at остаётся пустым: такие фото остаются в очереди ручного подтверждения.
@@ -48,6 +50,16 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 REQUEST_TIMEOUT_SECONDS = 12
 USER_AGENT = "CityGoImageEnricher/1.0"
 HTTP_TEXT_CACHE_NAMESPACE = "image_enrichment_http_text_v1"
+SOURCE_EVIDENCE_PROVIDERS = (
+    "place.image_url",
+    "place.website/open_graph",
+    "place.source_url/open_graph",
+    "source_observation.osm_image",
+    "source_observation.wikimedia_commons",
+    "source_observation.wikidata_p18",
+    "source_observation.wikipedia_page_image",
+    "source_observation.website_open_graph",
+)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -70,16 +82,15 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
         if city is None:
             raise SystemExit(f"City not found: {args.city}")
 
-        places = (
-            _candidate_places_query(db, city, start_after_id=int(args.start_after_id or 0))
-            .limit(args.limit)
-            .all()
-        )
+        query = _candidate_places_query(db, city, start_after_id=int(args.start_after_id or 0))
+        total_without_public_image = query.count()
+        places = query.limit(args.limit).all()
 
         summary: dict[str, Any] = {
             "city_slug": args.city,
             "start_after_id": int(args.start_after_id or 0),
             "last_scanned_place_id": int(args.start_after_id or 0),
+            "places_without_public_image_total": int(total_without_public_image),
             "scanned_places": 0,
             "candidates_found": 0,
             "created": 0,
@@ -90,6 +101,9 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             "skipped_ineligible": 0,
             "skipped_no_source": 0,
             "errors": [],
+            "warnings": [],
+            "provider_mode": "trusted_source_evidence_only",
+            "source_evidence_providers": list(SOURCE_EVIDENCE_PROVIDERS),
             "dry_run": args.dry_run,
             "preview": [],
         }
@@ -157,6 +171,14 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
                 summary["auto_approved"] += 1
                 summary["place_image_url_synced"] += 1
 
+        if int(summary["created"] or 0) == 0 and int(summary["candidates_found"] or 0) == 0:
+            summary["warnings"].append(
+                "No image candidates found from trusted source evidence. External/random image search provider is not configured."
+            )
+            summary["provider_status"] = "source_evidence_exhausted"
+        else:
+            summary["provider_status"] = "candidates_found"
+
         if args.apply:
             db.commit()
 
@@ -177,11 +199,10 @@ def _candidate_places_query(db: Session, city: City, *, start_after_id: int = 0)
         .filter(
             Place.city_id == city.id,
             Place.id > int(start_after_id or 0),
-            Place.is_active.is_(True),
             Place.status == "active",
             ~public_image_exists,
         )
-        .order_by(Place.id.asc())
+        .order_by(Place.is_published.desc(), Place.is_visible_in_catalog.desc(), Place.tourist_eligible.desc(), Place.id.asc())
     )
 
 
@@ -191,7 +212,9 @@ def _is_eligible_place(place: Place) -> bool:
         return False
     if is_public_hidden_category(place.category):
         return False
-    if place.status != "active" or not place.is_active:
+    if place.status != "active":
+        return False
+    if getattr(place, "is_spam_poi", False):
         return False
     return True
 
@@ -199,6 +222,7 @@ def _is_eligible_place(place: Place) -> bool:
 def _collect_candidates_for_place(db: Session, place: Place) -> list[dict[str, Any]]:
     observations = _latest_observations_for_place(db, place.id)
     candidates: list[dict[str, Any]] = []
+    candidates.extend(_candidates_from_place_fields(place))
 
     for observation in observations:
         payload = observation.raw_payload or {}
@@ -209,6 +233,28 @@ def _collect_candidates_for_place(db: Session, place: Place) -> list[dict[str, A
         candidates.extend(_candidates_from_tags(tags, observation.source_url))
 
     return _deduplicate_candidates(candidates)
+
+
+def _candidates_from_place_fields(place: Place) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    image_url = _clean_tag(place.image_url)
+    if image_url and _is_reviewable_image_url(image_url):
+        candidates.append(_candidate(image_url=image_url, source_type="existing_place_image_url", source_url=place.source_url or place.website, confidence=0.88))
+
+    source_url = _clean_tag(place.source_url)
+    if source_url and _is_reviewable_image_url(source_url) and _looks_like_file_name(urllib.parse.urlparse(source_url).path):
+        candidates.append(_candidate(image_url=source_url, source_type="place_source_image_url", source_url=source_url, confidence=0.82))
+
+    website_urls: list[str] = []
+    for value in (_clean_tag(place.website), source_url):
+        if value and _looks_like_url(value) and value not in website_urls:
+            website_urls.append(value)
+    for website_url in website_urls:
+        website_candidate = _candidate_from_website_og_image(website_url)
+        if website_candidate:
+            candidates.append(website_candidate)
+
+    return candidates
 
 
 def _latest_observations_for_place(db: Session, place_id: int) -> list[SourceObservation]:
@@ -518,25 +564,12 @@ def _wikimedia_page_url(value: str) -> str:
 def _is_reviewable_image_url(value: Any) -> bool:
     if not isinstance(value, str) or not _looks_like_url(value):
         return False
-
-    lower = value.lower()
-    if "wikipedia.org/wiki/" in lower:
-        return False
-    if "wikidata.org/wiki/" in lower:
-        return False
-    if lower.endswith(".svg"):
-        return False
-
-    return True
+    parsed = urllib.parse.urlparse(value)
+    return bool(parsed.netloc)
 
 
-def _wikipedia_article_url(value: str) -> str:
-    if value.startswith("http://") or value.startswith("https://"):
-        return value
-    if ":" in value:
-        lang, title = value.split(":", 1)
-        return f"https://{lang}.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}"
-    return f"https://en.wikipedia.org/wiki/{urllib.parse.quote(value.replace(' ', '_'))}"
+def _image_exists(db: Session, place_id: int, image_url: str) -> bool:
+    return db.query(PlaceImage.id).filter(PlaceImage.place_id == place_id, PlaceImage.image_url == image_url).first() is not None
 
 
 def _fetch_json(url: str) -> dict[str, Any] | None:
@@ -551,46 +584,34 @@ def _fetch_json(url: str) -> dict[str, Any] | None:
 
 
 def _fetch_text(url: str) -> str | None:
-    cache_key = stable_cache_key(HTTP_TEXT_CACHE_NAMESPACE, {"url": url})
-    found, cached = get_cached_text(cache_key)
-    if found:
+    cache_key = stable_cache_key(url)
+    cached = get_cached_text(HTTP_TEXT_CACHE_NAMESPACE, cache_key)
+    if cached is not None:
         return cached
-
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": USER_AGENT,
-            "Accept": "application/json,text/html,*/*",
-        },
-    )
-
     try:
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             content_type = response.headers.get("Content-Type", "")
-            charset = "utf-8"
-            if "charset=" in content_type:
-                charset = content_type.split("charset=", 1)[1].split(";", 1)[0].strip()
-            text = response.read().decode(charset or "utf-8", errors="replace")
-            if text:
-                host = urllib.parse.urlparse(url).netloc or "unknown"
-                set_cached_text(cache_key, text, tag=f"provider:{host}")
-            return text
+            if "text" not in content_type and "json" not in content_type and "html" not in content_type:
+                return None
+            raw = response.read(500_000)
     except Exception:
         return None
+    text = raw.decode("utf-8", errors="ignore")
+    set_cached_text(HTTP_TEXT_CACHE_NAMESPACE, cache_key, text, ttl_seconds=7 * 24 * 60 * 60)
+    return text
 
 
-def _image_exists(db: Session, place_id: int, image_url: str) -> bool:
-    return (
-        db.query(PlaceImage.id)
-        .filter(PlaceImage.place_id == place_id, PlaceImage.image_url == image_url)
-        .first()
-        is not None
-    )
-
-
-def main() -> None:
-    print(json.dumps(run(), ensure_ascii=False, indent=2))
+def _wikipedia_article_url(value: str) -> str:
+    value = value.strip()
+    if value.startswith("http://") or value.startswith("https://"):
+        return value
+    if ":" in value:
+        lang, title = value.split(":", 1)
+        lang = lang.strip() or "ru"
+        return f"https://{lang}.wikipedia.org/wiki/{urllib.parse.quote(title.strip().replace(' ', '_'))}"
+    return f"https://ru.wikipedia.org/wiki/{urllib.parse.quote(value.replace(' ', '_'))}"
 
 
 if __name__ == "__main__":
-    main()
+    print(json.dumps(run(), ensure_ascii=False, indent=2))
