@@ -24,68 +24,42 @@ from services.admin_city_import_job_service import (
 from services.admin_city_import_tasks import import_queue_summary
 from services.admin_city_publication_service import publish_city
 from services.admin_extended_service import get_admin_import_job, list_admin_import_jobs
-from services.admin_import_job_change_service import (
-    CHANGE_TYPES,
-    import_job_changes_summary,
-    list_import_job_changes,
-    serialize_change,
-)
+from services.admin_import_job_change_service import CHANGE_TYPES, import_job_changes_summary, list_import_job_changes, serialize_change
 
 router = APIRouter(prefix="/admin", tags=["admin-import-jobs"])
 
 
 @router.get("/import-jobs", response_model=AdminImportJobListResponse)
-def read_import_jobs(
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobListResponse:
+def read_import_jobs(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0), auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobListResponse:
     payload = list_admin_import_jobs(db, limit=limit, offset=offset)
-    return AdminImportJobListResponse(
-        items=[AdminImportJobRead.model_validate(item) for item in payload["items"]],
-        total=int(payload["total"]),
-        limit=int(payload["limit"]),
-        offset=int(payload["offset"]),
-    )
+    return AdminImportJobListResponse(items=[AdminImportJobRead.model_validate(item) for item in payload["items"]], total=int(payload["total"]), limit=int(payload["limit"]), offset=int(payload["offset"]))
 
 
 @router.get("/import-jobs/queue")
-def read_import_job_queue(
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> dict[str, object]:
+def read_import_job_queue(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
     return import_queue_summary(db)
 
 
+@router.get("/import-jobs/{city_id}", response_model=AdminImportJobRead)
+def read_import_job(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobRead:
+    payload = get_admin_import_job(db, city_id)
+    if payload is None:
+        raise HTTPException(404, "Задача импорта не найдена")
+    return AdminImportJobRead.model_validate(payload)
+
+
 @router.get("/import-jobs/{city_id}/changes", response_model=AdminImportJobChangeListResponse)
-def read_import_job_changes(
-    city_id: int,
-    change_type: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobChangeListResponse:
+def read_import_job_changes(city_id: int, change_type: str | None = Query(default=None), limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0), auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobChangeListResponse:
     if change_type is not None and change_type not in CHANGE_TYPES:
         raise HTTPException(400, "Неверный тип изменения")
     if get_admin_import_job(db, city_id) is None:
         raise HTTPException(404, "Задача импорта не найдена")
     rows, total = list_import_job_changes(db, city_id=city_id, change_type=change_type, limit=limit, offset=offset)
-    return AdminImportJobChangeListResponse(
-        items=[AdminImportJobChangeRead.model_validate(serialize_change(row)) for row in rows],
-        total=total,
-        limit=limit,
-        offset=offset,
-    )
+    return AdminImportJobChangeListResponse(items=[AdminImportJobChangeRead.model_validate(serialize_change(row)) for row in rows], total=total, limit=limit, offset=offset)
 
 
 @router.get("/import-jobs/{city_id}/changes/summary", response_model=AdminImportJobChangeSummaryResponse)
-def read_import_job_changes_summary(
-    city_id: int,
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobChangeSummaryResponse:
+def read_import_job_changes_summary(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobChangeSummaryResponse:
     payload = import_job_changes_summary(db, city_id=city_id)
     if payload is None:
         raise HTTPException(404, "Задача импорта не найдена")
@@ -93,11 +67,7 @@ def read_import_job_changes_summary(
 
 
 @router.post("/import-jobs/{city_id}/run", response_model=AdminImportJobActionResponse)
-def start_import_job(
-    city_id: int,
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobActionResponse:
+def start_import_job(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     item = get_admin_import_job(db, city_id)
     if item is None:
         raise HTTPException(404, "Задача импорта не найдена")
@@ -108,19 +78,11 @@ def start_import_job(
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     db.commit()
-    return AdminImportJobActionResponse(
-        city_id=city_id,
-        status="queued",
-        message="Полный сбор и обогащение поставлены в очередь. Задачу выполнит import-worker.",
-    )
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Полный сбор и обогащение поставлены в очередь. Задачу выполнит import-worker.")
 
 
 @router.post("/import-jobs/{city_id}/retry", response_model=AdminImportJobActionResponse)
-def retry_import_job(
-    city_id: int,
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobActionResponse:
+def retry_import_job(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     item = get_admin_import_job(db, city_id)
     if item is None:
         raise HTTPException(404, "Задача импорта не найдена")
@@ -130,19 +92,11 @@ def retry_import_job(
         reset_import_job_to_queued(db, city_id=city_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return AdminImportJobActionResponse(
-        city_id=city_id,
-        status="queued",
-        message="Повтор полного сбора и обогащения поставлен в очередь.",
-    )
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Повтор полного сбора и обогащения поставлен в очередь.")
 
 
 @router.post("/import-jobs/{city_id}/cancel", response_model=AdminImportJobActionResponse)
-def cancel_import_job_endpoint(
-    city_id: int,
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobActionResponse:
+def cancel_import_job_endpoint(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     item = get_admin_import_job(db, city_id)
     if item is None:
         raise HTTPException(404, "Задача импорта не найдена")
@@ -152,20 +106,11 @@ def cancel_import_job_endpoint(
         cancel_import_job(db, city_id=city_id, actor_id=auth.actor_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    return AdminImportJobActionResponse(
-        city_id=city_id,
-        status="cancelled",
-        message="Сбор и обогащение отменены.",
-    )
+    return AdminImportJobActionResponse(city_id=city_id, status="cancelled", message="Сбор и обогащение отменены.")
 
 
 @router.post("/import-jobs/{city_id}/publish", response_model=AdminImportJobActionResponse)
-def publish_imported_city(
-    city_id: int,
-    payload: AdminActionRequest | None = None,
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobActionResponse:
+def publish_imported_city(city_id: int, payload: AdminActionRequest | None = None, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     body = payload or AdminActionRequest()
     try:
         result = publish_city(db, city_id, actor=auth.actor_id, reason=body.reason)
@@ -173,20 +118,11 @@ def publish_imported_city(
         raise HTTPException(409, str(exc)) from exc
     if result is None:
         raise HTTPException(404, "Город не найден")
-    return AdminImportJobActionResponse(
-        city_id=city_id,
-        status="published",
-        message=f"Город опубликован. На сайт вышло мест: {result.places_published}. Скрыто: {result.places_hidden}.",
-    )
+    return AdminImportJobActionResponse(city_id=city_id, status="published", message=f"Город опубликован. На сайт вышло мест: {result.places_published}. Скрыто: {result.places_hidden}.")
 
 
 @router.post("/import-jobs/{city_id}/enrich", response_model=AdminImportJobActionResponse)
-def enrich_city_job(
-    city_id: int,
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobActionResponse:
-    """Compatibility endpoint: now queues the same complete pipeline as /run."""
+def enrich_city_job(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     item = get_admin_import_job(db, city_id)
     if item is None:
         raise HTTPException(404, "Город не найден")
@@ -195,18 +131,11 @@ def enrich_city_job(
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     db.commit()
-    return AdminImportJobActionResponse(
-        city_id=city_id,
-        status="queued",
-        message="Полный сбор и обогащение поставлены в очередь.",
-    )
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Полный сбор и обогащение поставлены в очередь.")
 
 
 @router.post("/import-jobs/enrich-all", response_model=AdminImportJobActionResponse)
-def enrich_all_cities_job(
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobActionResponse:
+def enrich_all_cities_job(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     city_ids = [row.id for row in db.query(City.id).order_by(City.slug.asc()).all()]
     if not city_ids:
         raise HTTPException(404, "Города для запуска не найдены")
@@ -219,8 +148,4 @@ def enrich_all_cities_job(
         except ValueError:
             skipped_running += 1
     db.commit()
-    return AdminImportJobActionResponse(
-        city_id=0,
-        status="queued",
-        message=f"Полный сбор и обогащение поставлен в очередь для городов: {queued}. Уже выполняются: {skipped_running}.",
-    )
+    return AdminImportJobActionResponse(city_id=0, status="queued", message=f"Полный сбор и обогащение поставлен в очередь для городов: {queued}. Уже выполняются: {skipped_running}.")
