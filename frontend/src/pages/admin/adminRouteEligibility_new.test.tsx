@@ -59,7 +59,8 @@ describe('AdminRouteEligibilityPage quality gates', () => {
     const nextButton = screen.getByRole('button', { name: 'Вперёд' }) as HTMLButtonElement
     await waitFor(() => expect(nextButton.disabled).toBe(false))
     fireEvent.click(nextButton)
-    await waitFor(() => expect(fetchUrls().some((url) => url.includes('/admin/routes/eligibility?') && url.includes('offset=50'))).toBe(true))
+    await waitFor(() => expect(screen.getByText('Страница 2 из 3')).toBeTruthy())
+    expect(fetchUrls().some((url) => url.includes('offset=50'))).toBe(true)
   })
 
   it('shows a visible error when bulk action fails', async () => {
