@@ -77,6 +77,44 @@ admin import job. Он нужен, чтобы новые и изменённые
 ожидающие ручного решения, а Import Run Report привязан к одному import job и
 помогает понять результат именно этого запуска.
 
+## Admin Background Refresh Contract
+
+Для тяжёлых admin-процессов действует правило:
+
+```text
+GET = только чтение сохранённого snapshot/list.
+POST = постановка тяжёлой операции в background job.
+UI = показывает last_snapshot_at, freshness, running/failed и кнопку обновления.
+```
+
+Запрещённый паттерн:
+
+```text
+GET /admin/...?...refresh=true -> live refresh/rebuild/recalculate
+```
+
+Текущие background endpoints:
+
+```text
+POST /admin/background-operations/coverage-gaps/refresh
+GET  /admin/background-operations/coverage-gaps/status?city_slug=<slug>
+POST /admin/background-operations/city-readiness/recalculate
+GET  /admin/background-operations/city-readiness/status?city_slug=<slug>
+GET  /admin/background-operations/{operation_id}
+GET  /admin/background-operations/latest/status?operation_type=<type>&city_slug=<slug>
+```
+
+Compatibility endpoints, которые теперь должны возвращать быстро и не держать
+браузерный запрос:
+
+```text
+POST /admin/routes/readiness/{city_slug}/recalculate
+POST /admin/places/address-refresh
+```
+
+Оба endpoint только создают `admin_operations` и возвращают `operation_id`.
+Фактическая работа выполняется через background task.
+
 ## Image Refresh
 
 Локальный refresh без live network:
