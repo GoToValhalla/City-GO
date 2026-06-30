@@ -9,9 +9,9 @@ from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
 from models.admin_operation import AdminOperation
-from services.coverage_gap_service import refresh_coverage_statuses
 from services.coverage_readiness_gate import apply_coverage_readiness_gate
 from services.city_readiness import recalculate_city_readiness_snapshot
+from services.data_coverage_assurance import run_data_coverage_assurance
 from services.system_log_service import write_system_log
 
 OperationRunner = Callable[[Session, AdminOperation], dict[str, object]]
@@ -156,7 +156,7 @@ def _runner_for(operation_type: str) -> OperationRunner | None:
 
 
 def _run_coverage_gaps_refresh(db: Session, op: AdminOperation) -> dict[str, object]:
-    result = refresh_coverage_statuses(db, city_slug=op.city_slug)
+    result = run_data_coverage_assurance(db, city_slug=op.city_slug)
     gate = apply_coverage_readiness_gate(db, city_slug=op.city_slug)
     db.commit()
     return {"status": "success", **result, "readiness_gate": gate}
