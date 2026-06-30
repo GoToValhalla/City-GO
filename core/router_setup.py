@@ -8,6 +8,7 @@ from routers.admin_coverage_gaps import router as admin_coverage_gaps_router
 from routers.admin_data_quality import router as admin_data_quality_router
 from routers.admin_import_jobs import router as admin_import_jobs_router
 from routers.admin_import_pipeline import router as admin_import_pipeline_router
+from routers.admin_import_queue import router as admin_import_queue_router
 from routers.admin_ops import router as admin_ops_router
 from routers.admin_route_ops import router as admin_route_ops_router
 from routers.admin_route_eligibility import router as admin_route_eligibility_router
@@ -75,6 +76,7 @@ _ROOT_ROUTERS = (
     admin_bot_analytics_router,
     admin_coverage_gaps_router,
     admin_data_quality_router,
+    admin_import_queue_router,
     admin_import_jobs_router,
     admin_import_pipeline_router,
     admin_ops_router,
