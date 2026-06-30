@@ -432,7 +432,7 @@ def _fetch_text(url: str) -> str | None:
             content_type = response.headers.get("Content-Type", "")
             if "text" not in content_type and "json" not in content_type and "html" not in content_type:
                 return None
-            raw = response.read(500_000)
+            raw = response.read()
     except Exception:
         return None
     text = raw.decode("utf-8", errors="ignore")
