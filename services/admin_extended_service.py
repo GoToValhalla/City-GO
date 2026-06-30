@@ -49,7 +49,8 @@ def get_admin_import_jobs(db: Session, *, limit: int = 50, offset: int = 0) -> t
     city_ids = [city.id for city in cities]
     counters = _city_counters(db, city_ids)
     latest_jobs = _latest_import_jobs(db, city_ids)
-    return [_import_job_list_payload(city, counters=counters.get(city.id), job=latest_jobs.get(city.id)) for city in cities], total
+    latest_snapshots = _latest_import_snapshots(db, city_ids)
+    return [_import_job_list_payload(city, counters=counters.get(city.id), job=latest_jobs.get(city.id), snapshot=latest_snapshots.get(city.id)) for city in cities], total
 
 
 def list_admin_import_jobs(db: Session, *, limit: int = 50, offset: int = 0) -> dict[str, object]:
@@ -85,12 +86,14 @@ def _workspace_coverage(db: Session, city_id: int) -> dict[str, object] | None:
 
 def _import_job_payload(db: Session, city: City) -> dict[str, object]:
     from services.admin_city_import_job_payload import build_import_job_payload
-    return build_import_job_payload(db, city)
+    payload = build_import_job_payload(db, city)
+    snapshot = _latest_import_snapshots(db, [city.id]).get(city.id)
+    return _apply_snapshot(payload, snapshot)
 
 
-def _import_job_list_payload(city: City, *, counters: CityCounters | None, job: CityAdminImportJob | None) -> dict[str, object]:
+def _import_job_list_payload(city: City, *, counters: CityCounters | None, job: CityAdminImportJob | None, snapshot: dict[str, object] | None = None) -> dict[str, object]:
     counters = counters or _empty_city_counters()
-    snapshot = _snapshot(job)
+    snapshot = _snapshot(job) or snapshot
     coverage = _snapshot_coverage(snapshot)
     changes = _snapshot_changes(snapshot)
     city_published = city.launch_status == "published" and bool(city.is_active)
@@ -125,6 +128,44 @@ def _import_job_list_payload(city: City, *, counters: CityCounters | None, job: 
         "can_publish": False if active_job or display_as_published else _can_publish_city(city, places_total), "can_unpublish": _can_unpublish_city(city),
         "report_url": f"/admin/routes/data-quality/{city.slug}", "logs_url": f"/admin/system-logs?city_slug={city.slug}&module=import",
     }
+
+
+def _apply_snapshot(payload: dict[str, object], snapshot: dict[str, object] | None) -> dict[str, object]:
+    if not snapshot:
+        return payload
+    coverage = _snapshot_coverage(snapshot)
+    changes = _snapshot_changes(snapshot)
+    if not coverage:
+        return payload
+    details = dict(payload.get("step_details") or {})
+    details.update({"data_coverage": coverage, "change_summary": changes, "snapshot_at": snapshot.get("taken_at"), "snapshot_source": snapshot.get("source"), "snapshot_stale": False})
+    places_total = int(coverage.get("places_total") or payload.get("places_total") or 0)
+    places_published = int(coverage.get("places_published") or payload.get("places_published") or 0)
+    payload.update({
+        "data_coverage": coverage,
+        "change_summary": changes,
+        "places_total": places_total,
+        "places_published": places_published,
+        "places_unpublished": max(places_total - places_published, 0),
+        "pending_photos": int(coverage.get("pending_photos") or payload.get("pending_photos") or 0),
+        "step_details": details,
+    })
+    return payload
+
+
+def _latest_import_snapshots(db: Session, city_ids: list[int]) -> dict[int, dict[str, object]]:
+    snapshots: dict[int, dict[str, object]] = {}
+    if not city_ids:
+        return snapshots
+    rows = db.query(CityAdminImportJob).filter(CityAdminImportJob.city_id.in_(city_ids)).order_by(CityAdminImportJob.city_id.asc(), CityAdminImportJob.created_at.desc(), CityAdminImportJob.id.desc()).all()
+    for job in rows:
+        city_id = int(job.city_id)
+        if city_id in snapshots:
+            continue
+        snapshot = _snapshot(job)
+        if snapshot:
+            snapshots[city_id] = snapshot
+    return snapshots
 
 
 def _mark_stalled_imports_before_read(db: Session) -> None:
