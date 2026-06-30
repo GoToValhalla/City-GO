@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from db.session import SessionLocal
 from models.admin_operation import AdminOperation
 from models.city import City
 from models.place import Place
@@ -15,32 +16,77 @@ from services.place_address_recovery_assess import assess_proposed_address
 from services.product_event_service import record_event
 from services.system_log_service import write_system_log
 
+OP_ADDRESS_REFRESH = "address_refresh"
+
 
 def queue_address_refresh(
     db: Session, *, actor: str, city_slug: str | None = None, place_ids: list[int] | None = None,
 ) -> AdminOperation:
+    running = (
+        db.query(AdminOperation)
+        .filter(
+            AdminOperation.operation_type == OP_ADDRESS_REFRESH,
+            AdminOperation.city_slug == city_slug,
+            AdminOperation.status.in_(("queued", "running")),
+        )
+        .order_by(AdminOperation.created_at.desc(), AdminOperation.id.desc())
+        .first()
+    )
+    if running is not None:
+        return running
     op = AdminOperation(
-        operation_type="address_refresh", status="running", actor=actor,
-        city_slug=city_slug, place_ids=place_ids or [],
+        operation_type=OP_ADDRESS_REFRESH,
+        status="queued",
+        actor=actor,
+        city_slug=city_slug,
+        place_ids=place_ids or [],
+        result={"city_slug": city_slug, "place_ids_count": len(place_ids or [])},
     )
     db.add(op)
-    db.flush()
-    try:
-        result = _run_refresh(db, city_slug=city_slug, place_ids=place_ids or [])
-        op.status = "completed"
-        op.result = result
-        record_event(db, event_type="address_updated", payload=result, city_slug=city_slug, commit=False)
-    except Exception as exc:  # noqa: BLE001
-        op.status = "failed"
-        op.error_message = str(exc)
-        write_system_log(db, level="error", module="address_refresh", message=str(exc),
-                         city_slug=city_slug, commit=False)
-    op.updated_at = datetime.utcnow()
-    write_admin_audit_log(db, actor=actor, action="address_refresh", entity_type="admin_operation",
-                          entity_id=op.id, new_value={"status": op.status, "city_slug": city_slug})
     db.commit()
     db.refresh(op)
     return op
+
+
+def run_address_refresh_operation(operation_id: int) -> None:
+    db = SessionLocal()
+    try:
+        op = db.query(AdminOperation).filter(AdminOperation.id == operation_id).first()
+        if op is None:
+            return
+        op.status = "running"
+        op.updated_at = datetime.utcnow()
+        db.commit()
+        try:
+            result = _run_refresh(db, city_slug=op.city_slug, place_ids=op.place_ids or [])
+            op.status = "completed"
+            op.result = result
+            op.error_message = None
+            record_event(db, event_type="address_updated", payload=result, city_slug=op.city_slug, commit=False)
+        except Exception as exc:  # noqa: BLE001
+            op.status = "failed"
+            op.error_message = str(exc)
+            write_system_log(
+                db,
+                level="error",
+                module="address_refresh",
+                message=str(exc),
+                city_slug=op.city_slug,
+                request_id=str(op.id),
+                commit=False,
+            )
+        op.updated_at = datetime.utcnow()
+        write_admin_audit_log(
+            db,
+            actor=op.actor,
+            action="address_refresh",
+            entity_type="admin_operation",
+            entity_id=op.id,
+            new_value={"status": op.status, "city_slug": op.city_slug},
+        )
+        db.commit()
+    finally:
+        db.close()
 
 
 def _run_refresh(db: Session, *, city_slug: str | None, place_ids: list[int]) -> dict[str, object]:
