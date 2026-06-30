@@ -65,7 +65,7 @@ def test_reviewable_import_without_places_returns_to_failed_new(db_session) -> N
     assert job.step_details["empty_review_recovery"]["reason"] == "reviewable_import_without_saved_places"
 
 
-def test_admin_city_list_normalizes_empty_review_import_new(db_session) -> None:
+def test_admin_city_list_does_not_normalize_empty_review_import_new(db_session) -> None:
     city = City(name="Empty City List", slug="empty-city-list", country="Россия", launch_status="review_required", is_active=False)
     db_session.add(city)
     db_session.flush()
@@ -82,7 +82,7 @@ def test_admin_city_list_normalizes_empty_review_import_new(db_session) -> None:
     db_session.refresh(city)
     db_session.refresh(job)
 
-    assert payload["launch_status"] == "import_failed"
+    assert payload["launch_status"] == "review_required"
     assert payload["can_publish"] is False
-    assert city.launch_status == "import_failed"
-    assert job.status == "failed"
+    assert city.launch_status == "review_required"
+    assert job.status == "partial_success"
