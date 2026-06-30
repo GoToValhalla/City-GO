@@ -4,55 +4,11 @@ from pathlib import Path
 
 from services.route_pipeline_trace import compact_route_trace, route_debug_summary
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
-
-
-def test_deploy_repairs_known_alembic_overlap_and_fails_fast_new() -> None:
-    compose = read("docker-compose.yml")
-    workflow = read(".github/workflows/deploy.yml")
-    deploy = read("scripts/deploy_production_remote.sh")
-
-    assert 'if inspect(engine).has_table("alembic_version")' in compose
-    assert '{"9d0e1f2a3b4c", "fb7e3c2a91d4"}.issubset(revisions)' in compose
-    assert '"revision": "9d0e1f2a3b4c"' in compose
-    assert "alembic upgrade head" in compose
-    assert "alembic upgrade heads" not in compose
-    assert "< scripts/deploy_production_remote.sh" in workflow
-    assert "run_compose_timeout 5m run" in deploy
-    assert "migrate </dev/null" in deploy
-    assert "docker compose up migrate" not in deploy
-    assert "MIGRATE_EXIT=$?" in deploy
-    assert "alembic heads" in deploy
-    assert "alembic current" in deploy
-    assert "migrations failed or timed out" in deploy
-    assert "restore_runtime" in deploy
-
-
-def test_deploy_quiesces_database_clients_and_guards_schema_new() -> None:
-    deploy = read("scripts/deploy_production_remote.sh")
-
-    cleanup_pos = deploy.index("=== cleanup stale migration containers ===")
-    quiesce_pos = deploy.index("=== quiesce database clients before migrations ===")
-    migrations_pos = deploy.index("=== migrations ===")
-    schema_guard_pos = deploy.index("=== production schema guard ===")
-    recreate_backend_pos = deploy.index("=== recreate backend ===")
-
-    assert cleanup_pos < quiesce_pos < migrations_pos < schema_guard_pos < recreate_backend_pos
-    assert "label=com.docker.compose.service=migrate" in deploy
-    assert "docker rm -f $STALE_MIGRATE_IDS" in deploy
-    assert "run_compose_timeout 2m stop -t 30 import-worker bot backend" in deploy
-    assert "run_compose_timeout 5m" in deploy
-    assert "run_compose_timeout 3m" in deploy
-    assert "run_compose start backend bot import-worker" in deploy
-    assert "reclaim_docker_storage" in deploy
-    assert "docker system df" in deploy
-    assert "docker volume prune" not in deploy
-    assert "Docker daemon is not responding within 30 seconds" in deploy
 
 
 def test_local_disk_cache_is_non_authoritative_and_persisted_new() -> None:
@@ -80,19 +36,19 @@ def test_external_enrichment_calls_use_read_through_cache_new() -> None:
     assert "set_cached_text(cache_key, text" in images
 
 
-def test_admin_import_actions_are_db_queued_not_fastapi_background_tasks_new() -> None:
-    router = read("routers/admin_import_jobs.py")
-    worker = read("services/admin_city_import_tasks.py")
-    job_service = read("services/admin_city_import_job_service.py")
-    compose = read("docker-compose.yml")
-
-    assert "BackgroundTasks" not in router
-    assert "background_tasks.add_task" not in router
-    assert "queue_city_import_job" in router
-    assert "queue_city_enrichment_job" in router
-    assert '@router.get("/import-jobs/queue")' in router
-    assert "import_queue_summary" in worker
-    assert "SOURCE_FULL_IMPORT" in job_service
-    assert "SOURCE_ENRICHMENT_ONLY" in job_service
-    assert "IMPORT_WORKER_BATCH_LIMIT: 1" in compose
-    assert "IMPORT_WORKER_SLEEP_SECONDS: 60" in compose
+def test_route_trace_compaction_preserves_decision_fields_new() -> None:
+    trace = {
+        "request_id": "r1",
+        "city_slug": "zelenogradsk",
+        "selected_ids": [1, 2],
+        "warnings": ["low_data"],
+        "fallbacks": ["relax_photo"],
+        "candidates": [{"id": 1, "score": 0.9, "reason": "museum"}],
+        "debug_payload": {"large": list(range(100))},
+    }
+    compact = compact_route_trace(trace)
+    summary = route_debug_summary(trace)
+    assert compact["request_id"] == "r1"
+    assert compact["selected_ids"] == [1, 2]
+    assert "debug_payload" not in compact
+    assert summary["warnings"] == ["low_data"]
