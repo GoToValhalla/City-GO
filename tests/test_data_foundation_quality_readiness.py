@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 
+from models.admin_operation import AdminOperation
 from models.city import City
 from models.data_foundation import CityQualitySnapshot, QualityScoreHistory
 from services.city_readiness import recalculate_city_readiness_snapshot
@@ -8,21 +9,10 @@ from services.route_eligibility import apply_route_eligible_filters, evaluate_pl
 
 
 def _long_description() -> str:
-    return (
-        "Пространство для прогулок, отдыха и спокойного городского маршрута "
-        "с понятной локацией, описанием, актуальными данными и хорошей пригодностью "
-        "для рекомендаций внутри маршрутов City Go."
-    )
+    return "Городское место с понятной локацией, описанием и пригодностью для маршрутов City Go."
 
 
-def test_quality_scoring_promotes_complete_place_to_gold_and_route_eligible(db_session, place_factory):
-    place = place_factory(
-        category="park",
-        address="Курортный проспект, 1",
-        price_level=1,
-        indoor=False,
-        outdoor=True,
-    )
+def _complete_place(place) -> None:
     place.canonical_category = "park"
     place.image_url = "https://example.test/place.jpg"
     place.short_description = _long_description()
@@ -30,6 +20,11 @@ def test_quality_scoring_promotes_complete_place_to_gold_and_route_eligible(db_s
     place.average_visit_duration_minutes = 45
     place.confidence = 0.95
     place.verified_at = datetime.utcnow()
+
+
+def test_quality_scoring_promotes_complete_place_to_gold_and_route_eligible(db_session, place_factory):
+    place = place_factory(category="park", address="Курортный проспект, 1", price_level=1, indoor=False, outdoor=True)
+    _complete_place(place)
 
     result = apply_place_quality_score(db_session, place, reason="test_quality_scoring")
     db_session.commit()
@@ -62,15 +57,9 @@ def test_quality_scoring_downgrades_sparse_place_and_blocks_routes(db_session, p
     assert "quality_tier_not_route_allowed" in ",".join(result.route_eligibility_reasons)
 
 
-def test_quality_scoring_rejects_spam_poi_even_when_other_fields_are_complete(place_factory):
+def test_quality_scoring_rejects_bad_poi_even_when_other_fields_are_complete(place_factory):
     place = place_factory(category="viewpoint", address="Набережная, 10", outdoor=True)
-    place.canonical_category = "viewpoint"
-    place.image_url = "https://example.test/view.jpg"
-    place.short_description = _long_description()
-    place.opening_hours = {"mon": [{"from": "09:00", "to": "21:00"}]}
-    place.average_visit_duration_minutes = 30
-    place.confidence = 0.9
-    place.verified_at = datetime.utcnow()
+    _complete_place(place)
     place.is_spam_poi = True
 
     result = score_place_quality(place)
@@ -82,13 +71,7 @@ def test_quality_scoring_rejects_spam_poi_even_when_other_fields_are_complete(pl
 
 def test_route_eligible_filters_match_projected_quality_score(db_session, place_factory):
     eligible_place = place_factory(category="park", address="Ленина, 1", outdoor=True)
-    eligible_place.canonical_category = "park"
-    eligible_place.image_url = "https://example.test/eligible.jpg"
-    eligible_place.short_description = _long_description()
-    eligible_place.opening_hours = {"mon": [{"from": "09:00", "to": "21:00"}]}
-    eligible_place.average_visit_duration_minutes = 60
-    eligible_place.confidence = 0.95
-    eligible_place.verified_at = datetime.utcnow()
+    _complete_place(eligible_place)
     apply_place_quality_score(db_session, eligible_place, reason="test_eligible")
 
     blocked_place = place_factory(category="parking", address="Парковка", outdoor=True)
@@ -110,28 +93,10 @@ def test_route_eligible_filters_match_projected_quality_score(db_session, place_
 def test_city_readiness_recalculation_persists_snapshot_and_city_fields(db_session, city_factory, place_factory):
     city = city_factory(slug="readiness-city", name="Readiness City")
     for index in range(35):
-        place = place_factory(
-            slug=f"ready-place-{index}",
-            city_id=city.id,
-            category="park",
-            address=f"Address {index}",
-            price_level=1,
-            outdoor=True,
-        )
-        place.canonical_category = "park"
-        place.image_url = f"https://example.test/{index}.jpg"
-        place.short_description = _long_description()
-        place.opening_hours = {"mon": [{"from": "09:00", "to": "21:00"}]}
-        place.average_visit_duration_minutes = 45
-        place.confidence = 0.95
-        place.verified_at = datetime.utcnow()
+        place = place_factory(slug=f"ready-place-{index}", city_id=city.id, category="park", address=f"Address {index}", price_level=1, outdoor=True)
+        _complete_place(place)
 
-    payload = recalculate_city_readiness_snapshot(
-        db_session,
-        city_slug=city.slug,
-        reason="test_city_readiness",
-        recalculate_place_scores=True,
-    )
+    payload = recalculate_city_readiness_snapshot(db_session, city_slug=city.slug, reason="test_city_readiness", recalculate_place_scores=True)
 
     assert payload is not None
     assert payload["snapshot_id"] is not None
@@ -146,25 +111,18 @@ def test_city_readiness_recalculation_persists_snapshot_and_city_fields(db_sessi
     assert stored_city.quality_status == "ready"
 
 
-def test_admin_recalculate_city_readiness_endpoint(client, db_session, city_factory, place_factory):
+def test_admin_recalculate_city_readiness_endpoint_queues_background_job(client, db_session, city_factory, place_factory):
     city = city_factory(slug="admin-readiness", name="Admin Readiness")
     place = place_factory(city_id=city.id, category="park", address="Admin Address", outdoor=True)
-    place.canonical_category = "park"
-    place.image_url = "https://example.test/admin.jpg"
-    place.short_description = _long_description()
-    place.opening_hours = {"mon": [{"from": "09:00", "to": "21:00"}]}
-    place.average_visit_duration_minutes = 45
-    place.confidence = 0.95
-    place.verified_at = datetime.utcnow()
+    _complete_place(place)
     db_session.commit()
 
-    response = client.post(
-        f"/admin/routes/readiness/{city.slug}/recalculate",
-        json={"reason": "test_admin_endpoint"},
-    )
+    response = client.post(f"/admin/routes/readiness/{city.slug}/recalculate", json={"reason": "test_admin_endpoint"})
 
     assert response.status_code == 200
     body = response.json()
+    assert body["operation_id"] is not None
+    assert body["operation_type"] == "city_readiness_recalculate"
     assert body["city_slug"] == city.slug
-    assert body["snapshot_id"] is not None
-    assert body["recalculated_places"] == 1
+    assert body["status"] in {"queued", "running", "completed"}
+    assert db_session.query(AdminOperation).filter(AdminOperation.id == body["operation_id"]).count() == 1
