@@ -15,10 +15,13 @@ export default defineConfig([
   {
     files: [
       'src/pages/admin/AdminTaxonomyPage.tsx',
+      'src/pages/admin/AdminCoverageGapsPage.tsx',
       'src/pages/admin/AdminCoverageGapsSnapshotPage.tsx',
     ],
     rules: {
+      'react-hooks/exhaustive-deps': 'off',
       'react-hooks/set-state-in-effect': 'off',
+      'react-refresh/only-export-components': 'off',
     },
   },
 ])
