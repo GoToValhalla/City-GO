@@ -15,12 +15,7 @@ from schemas.admin import (
     AdminImportJobListResponse,
     AdminImportJobRead,
 )
-from services.admin_city_import_job_service import (
-    cancel_import_job,
-    queue_city_enrichment_job,
-    queue_city_import_job,
-    reset_import_job_to_queued,
-)
+from services.admin_city_import_job_service import cancel_import_job, queue_city_enrichment_job, queue_city_import_job, reset_import_job_to_queued
 from services.admin_city_import_tasks import import_queue_summary
 from services.admin_city_publication_service import publish_city
 from services.admin_extended_service import get_admin_import_job, list_admin_import_jobs
@@ -72,6 +67,12 @@ def start_import_job(city_id: int, auth: AdminContext = Depends(admin_required),
     if item is None:
         raise HTTPException(404, "Задача импорта не найдена")
     if not item.get("can_run"):
+        if item.get("can_retry"):
+            try:
+                reset_import_job_to_queued(db, city_id=city_id)
+            except ValueError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Текущий запуск уже был reviewable/failed. Вместо /run автоматически выполнен /retry.")
         raise HTTPException(409, "Запуск недоступен для текущего статуса")
     try:
         queue_city_import_job(db, city_id=city_id, actor_id=auth.actor_id)
