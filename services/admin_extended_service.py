@@ -16,10 +16,11 @@ from schemas.admin import (
     AdminRouteUpdateRequest,
 )
 from services.admin_audit_service import write_admin_audit_log
-from services.admin_city_import_job_payload import _latest_job, normalize_reviewable_import_state, recover_failed_import_with_places
-from services.admin_city_import_tasks import mark_stalled_import_jobs
+from services.admin_city_import_job_payload import PIPELINE_MODE_LABEL, _latest_job
 from services.admin_extra_service import admin_coverage
 from services.admin_platform_quality import city_quality_row
+from services.import_pipeline.progress import is_stalled, step_label
+from services.import_pipeline.steps import STEP_QUEUED
 from services.place_service import get_place_by_id
 from services.route_service import get_route_by_id
 
@@ -37,7 +38,6 @@ CityCounters = dict[str, int]
 
 
 def get_admin_cities(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, object]], int]:
-    _mark_stalled_imports_before_read(db)
     query = db.query(City).order_by(City.updated_at.desc(), City.id.desc())
     total = query.count()
     cities = query.offset(offset).limit(limit).all()
@@ -61,9 +61,6 @@ def _city_payload(
         counters = _city_counters(db, [city.id]).get(city.id, _empty_city_counters())
         latest_job = latest_job or _latest_job(db, city.id)
     places_total = counters["places_total"]
-    if latest_job is not None:
-        recover_failed_import_with_places(db, city, places_total=places_total, job=latest_job)
-        normalize_reviewable_import_state(db, city, latest_job, places_total)
     places_published = counters["places_published"]
     return {
         "id": city.id,
@@ -85,27 +82,31 @@ def _city_payload(
 
 
 def get_admin_import_jobs(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, object]], int]:
-    _mark_stalled_imports_before_read(db)
     query = db.query(City).filter(
         City.launch_status.in_(("importing", "imported", "review_required", "import_failed", "published"))
-    ).order_by(City.updated_at.desc())
+    ).order_by(City.updated_at.desc(), City.id.desc())
     total = query.count()
     cities = query.offset(offset).limit(limit).all()
-    return [_import_job_payload(db, city) for city in cities], total
+    city_ids = [city.id for city in cities]
+    counters = _city_counters(db, city_ids)
+    latest_jobs = _latest_import_jobs(db, city_ids)
+    return [
+        _import_job_list_payload(city, counters=counters.get(city.id), job=latest_jobs.get(city.id))
+        for city in cities
+    ], total
 
 
 def list_admin_import_jobs(db: Session, *, limit: int = 50, offset: int = 0) -> dict[str, object]:
-    """Compatibility wrapper for routers/admin_import_jobs.py.
+    """Lightweight, read-only import jobs list.
 
-    Старый сервис возвращает tuple(items, total), а роутер enrich-all ожидает dict с ключами
-    items/total. Отсутствие этой функции ломало импорт backend на старте uvicorn.
+    Список не считает coverage/change summary и не меняет состояние БД. Тяжёлые данные
+    читаются только из detail endpoint `/admin/import-jobs/{city_id}`.
     """
     items, total = get_admin_import_jobs(db, limit=limit, offset=offset)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
 def get_admin_import_job(db: Session, city_id: int) -> dict[str, object] | None:
-    _mark_stalled_imports_before_read(db)
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
         return None
@@ -115,7 +116,6 @@ def get_admin_import_job(db: Session, city_id: int) -> dict[str, object] | None:
 def get_admin_city_workspace(db: Session, city_slug: str) -> dict[str, object] | None:
     from services.admin_platform_workspace import workspace_operations
 
-    _mark_stalled_imports_before_read(db)
     city = db.query(City).filter(City.slug == city_slug).first()
     if city is None:
         return None
@@ -157,8 +157,73 @@ def _import_job_payload(db: Session, city: City) -> dict[str, object]:
     return build_import_job_payload(db, city)
 
 
+def _import_job_list_payload(city: City, *, counters: CityCounters | None, job: CityAdminImportJob | None) -> dict[str, object]:
+    counters = counters or _empty_city_counters()
+    city_published = city.launch_status == "published" and bool(city.is_active)
+    raw_status = str(job.status if job is not None else city.launch_status)
+    raw_step = str(job.current_step if job is not None else STEP_QUEUED)
+    status = "published" if city_published else raw_status
+    current_step = "published" if city_published else raw_step
+    places_total = counters["places_total"]
+    places_published = counters["places_published"]
+    is_running = status in {"queued", "running"} or current_step in {"queued", "running", STEP_QUEUED}
+    return {
+        "id": f"city-import-{city.id}",
+        "city_id": city.id,
+        "city_slug": city.slug,
+        "city_name": city.name,
+        "status": status,
+        "launch_status": city.launch_status,
+        "is_city_active": bool(city.is_active),
+        "current_step": current_step,
+        "current_step_label": "Опубликован" if city_published else step_label(current_step),
+        "source": job.source if job is not None else "admin_city_import",
+        "pipeline_mode": "legacy_osm_plus_foundation",
+        "pipeline_mode_label": PIPELINE_MODE_LABEL,
+        "status_group": "published" if city_published else ("running" if is_running else "idle"),
+        "action_hint": "Город опубликован" if city_published else "Открыть детали",
+        "auto_refresh_seconds": 7 if is_running and not city_published else None,
+        "data_coverage": {},
+        "change_summary": {},
+        "places_total": places_total,
+        "places_published": places_published,
+        "places_unpublished": max(places_total - places_published, 0),
+        "pending_photos": counters["pending_photos"],
+        "next_step": "Город опубликован и доступен на сайте." if city_published else "Откройте детали для полного отчёта по сбору и качеству данных.",
+        "job_id": job.id if job is not None else None,
+        "scopes_total": job.scopes_total if job is not None else 0,
+        "scopes_succeeded": job.scopes_succeeded if job is not None else 0,
+        "places_found": job.places_found if job is not None else 0,
+        "places_saved": job.places_saved if job is not None else 0,
+        "total_items": job.total_items if job is not None else 0,
+        "processed_items": job.processed_items if job is not None else 0,
+        "successful_items": job.successful_items if job is not None else 0,
+        "failed_items": job.failed_items if job is not None else 0,
+        "retry_count": job.retry_count if job is not None else 0,
+        "step_details": {
+            "admin_pipeline_contract": {"label": PIPELINE_MODE_LABEL},
+            "data_coverage": {},
+            "change_summary": {},
+        },
+        "is_stalled": False if city_published else (is_stalled(job) if job is not None else False),
+        "started_at": job.started_at if job is not None else None,
+        "finished_at": job.finished_at if job is not None else None,
+        "created_at": job.created_at if job is not None else None,
+        "updated_at": job.updated_at if job is not None else None,
+        "last_error": None if city_published else (job.last_error if job is not None and job.status in {"failed", "stalled", "import_failed"} else None),
+        "can_run": False,
+        "can_retry": False if city_published else bool(job is not None and job.status in {"failed", "stalled", "import_failed", "success", "success_with_warnings", "partial_success", "cancelled"}),
+        "can_cancel": bool(job is not None and not city_published and (job.status in {"running", "queued"} or current_step in {"queued", "running"})),
+        "can_publish": False if city_published else _can_publish_city(city, places_total),
+        "can_unpublish": _can_unpublish_city(city),
+        "report_url": f"/admin/routes/data-quality/{city.slug}",
+        "logs_url": f"/admin/system-logs?city_slug={city.slug}&module=import",
+    }
+
+
 def _mark_stalled_imports_before_read(db: Session) -> None:
-    mark_stalled_import_jobs(db, actor_id="admin-panel-read")
+    # GET endpoints must be read-only. Stalled detection belongs to import-worker/maintenance jobs.
+    return None
 
 
 def _empty_city_counters() -> CityCounters:
@@ -243,7 +308,6 @@ def create_admin_route(db: Session, payload: AdminRouteCreateRequest, *, actor: 
     )
     db.add(route)
     db.flush()
-    # payload.actor игнорируется — используем actor из auth context (P0-3)
     write_admin_audit_log(
         db,
         actor=actor,
@@ -266,7 +330,6 @@ def update_admin_route(db: Session, route_id: int, payload: AdminRouteUpdateRequ
         value = getattr(payload, field)
         if value is not None:
             setattr(route, field, value)
-    # payload.actor игнорируется — используем actor из auth context (P0-3)
     write_admin_audit_log(
         db,
         actor=actor,
@@ -290,7 +353,6 @@ def replace_admin_route_points(db: Session, route_id: int, payload: AdminRoutePo
         db.delete(current_point)
     for point in sorted(payload.points, key=lambda item: item.position):
         db.add(RoutePlace(route_id=route_id, place_id=point.place_id, position=point.position))
-    # payload.actor игнорируется — используем actor из auth context (P0-3)
     write_admin_audit_log(
         db,
         actor=actor,
@@ -319,18 +381,15 @@ def create_admin_place_image(db: Session, payload: AdminPlaceImageCreateRequest,
         license=payload.license,
         confidence=payload.confidence,
         status=PLACE_IMAGE_STATUS_NEEDS_REVIEW,
-        review_comment=payload.comment,
     )
     db.add(image)
-    db.flush()
-    # payload.actor игнорируется — используем actor из auth context (P0-3)
     write_admin_audit_log(
         db,
         actor=actor,
         action="create_place_image",
         entity_type="place_image",
-        entity_id=image.id,
-        new_value={"place_id": image.place_id, "image_url": image.image_url, "status": image.status},
+        entity_id=None,
+        new_value={"place_id": payload.place_id, "image_url": payload.image_url, "source_type": payload.source_type},
         reason=payload.comment,
     )
     db.commit()
