@@ -32,7 +32,7 @@ describe('AdminCoverageGapsPage', () => {
     await waitFor(() => expect(mockedAdminPatch).toHaveBeenCalledWith('/admin/coverage-gaps/1', {
       status: 'source_absent',
       gap_reason: 'source_absent',
-      review_notes: 'Admin action from Coverage Gaps UI: source_absent / source_absent',
+      review_notes: 'Admin coverage action: source_absent',
     }))
     expect(mockedAdminPost).not.toHaveBeenCalledWith('/admin/coverage-gaps/refresh')
     expect(mockedAdminGet).toHaveBeenCalledWith('/admin/coverage-gaps?city_slug=kutaisi&limit=100&refresh=false')
