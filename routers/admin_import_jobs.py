@@ -15,7 +15,16 @@ from schemas.admin import (
     AdminImportJobListResponse,
     AdminImportJobRead,
 )
-from services.admin_city_import_job_service import cancel_import_job, queue_city_enrichment_job, queue_city_import_job, reset_import_job_to_queued
+from services.admin_city_import_job_payload import refresh_import_job_snapshot
+from services.admin_city_import_job_service import (
+    cancel_import_job,
+    queue_city_address_enrichment_job,
+    queue_city_enrichment_job,
+    queue_city_import_job,
+    queue_city_photo_enrichment_job,
+    queue_city_snapshot_refresh_job,
+    reset_import_job_to_queued,
+)
 from services.admin_city_import_tasks import import_queue_summary
 from services.admin_city_publication_service import publish_city
 from services.admin_extended_service import get_admin_import_job, list_admin_import_jobs
@@ -59,6 +68,45 @@ def read_import_job_changes_summary(city_id: int, auth: AdminContext = Depends(a
     if payload is None:
         raise HTTPException(404, "Задача импорта не найдена")
     return AdminImportJobChangeSummaryResponse.model_validate(payload)
+
+
+@router.post("/import-jobs/{city_id}/snapshot/refresh", response_model=AdminImportJobActionResponse)
+def refresh_import_snapshot_endpoint(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+    try:
+        queue_city_snapshot_refresh_job(db, city_id=city_id, actor_id=auth.actor_id)
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Обновление snapshot поставлено в очередь.")
+
+
+@router.post("/import-jobs/{city_id}/snapshot/refresh-now", response_model=AdminImportJobActionResponse)
+def refresh_import_snapshot_now_endpoint(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+    city = db.query(City).filter(City.id == city_id).first()
+    if city is None:
+        raise HTTPException(404, "Город не найден")
+    refresh_import_job_snapshot(db, city_id=city_id, source="admin_manual_refresh_now")
+    return AdminImportJobActionResponse(city_id=city_id, status="success", message="Snapshot обновлён.")
+
+
+@router.post("/import-jobs/{city_id}/enrich-addresses", response_model=AdminImportJobActionResponse)
+def enrich_addresses(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+    try:
+        queue_city_address_enrichment_job(db, city_id=city_id, actor_id=auth.actor_id)
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Добор адресов поставлен в очередь.")
+
+
+@router.post("/import-jobs/{city_id}/enrich-photos", response_model=AdminImportJobActionResponse)
+def enrich_photos(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+    try:
+        queue_city_photo_enrichment_job(db, city_id=city_id, actor_id=auth.actor_id)
+        db.commit()
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Добор фото поставлен в очередь.")
 
 
 @router.post("/import-jobs/{city_id}/run", response_model=AdminImportJobActionResponse)
@@ -119,6 +167,7 @@ def publish_imported_city(city_id: int, payload: AdminActionRequest | None = Non
         raise HTTPException(409, str(exc)) from exc
     if result is None:
         raise HTTPException(404, "Город не найден")
+    refresh_import_job_snapshot(db, city_id=city_id, source="city_published")
     return AdminImportJobActionResponse(city_id=city_id, status="published", message=f"Город опубликован. На сайт вышло мест: {result.places_published}. Скрыто: {result.places_hidden}.")
 
 
