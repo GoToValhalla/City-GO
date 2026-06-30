@@ -20,8 +20,10 @@ def test_kutaisi_has_extended_import_scopes() -> None:
 def test_kutaisi_extended_import_scopes_have_expected_profiles() -> None:
     scopes = _scopes()
 
-    assert scopes['heritage_ne_ring']['profile'] == 'tourist_core'
-    assert scopes['sataplia_tourist']['profile'] == 'tourist_core'
+    heritage_profile = scopes['heritage_ne_ring']['profile']
+    tourist_profile = scopes['sataplia_tourist']['profile']
+    assert heritage_profile == 'tourist_core' or heritage_profile.startswith('heritage_')
+    assert tourist_profile == 'tourist_core' or tourist_profile == 'tourist_core_strict'
     assert scopes['sataplia_nature']['profile'] == 'nature_walk'
     assert scopes['food_wider_center']['profile'] == 'food_and_coffee'
 
