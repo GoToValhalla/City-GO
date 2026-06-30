@@ -5,8 +5,15 @@ import { AdminCategorySelect } from './AdminCategorySelect'
 import { verificationStatusText } from './adminHumanText'
 import { VERIFY_STATUS_OPTIONS } from './adminPlacesPresets'
 import { categoryText } from './adminRouteCopy'
-import type { AdminCitiesResponse, AdminVerificationQueue, AdminVerificationSummary, AdminVerificationTask } from './adminTypes'
+import type { AdminCitiesResponse, AdminVerificationQueue, AdminVerificationTask } from './adminTypes'
 import { AdminEmpty, AdminLoading, AdminSectionError } from './shared/AdminStates'
+
+type AdminVerificationSummary = {
+  needs_recheck: number
+  verified_today: number
+  unverified: number
+  low_confidence: number
+}
 
 const PAGE_SIZES = [20, 50, 100]
 const DEFAULT_PAGE_SIZE = 50
