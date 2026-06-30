@@ -1,8 +1,22 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
-import type { AdminPlaceChangeReview, AdminPlaceChangeReviewsResponse } from './adminTypes'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
+
+type AdminPlaceChangeReviewValue = { before: unknown; after: unknown }
+type AdminPlaceChangeReview = {
+  id: number
+  place_id: number
+  place_title: string
+  city_slug: string
+  city_name: string
+  changes: Record<string, AdminPlaceChangeReviewValue>
+  source: string | null
+  source_url: string | null
+  reason: string | null
+  review_reasons: string[]
+}
+type AdminPlaceChangeReviewsResponse = { items: AdminPlaceChangeReview[]; total: number }
 
 const valueText = (value: unknown) => value == null ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value)
 
@@ -100,7 +114,7 @@ export const AdminPlaceChangeReviewsPage = () => {
         <td><Link to={`/admin/places/${review.place_id}`}>{review.place_title}</Link></td>
         <td><Link to={`/admin/cities/${review.city_slug}`}>{review.city_name}</Link></td>
         <td>{Object.entries(review.changes).map(([field, change]) => <div key={field}><strong>{field}:</strong> {valueText(change.before)} → {valueText(change.after)}</div>)}</td>
-        <td>{review.source_url ? <a href={review.source_url} target="_blank" rel="noreferrer">{review.source ?? "Источник"}</a> : review.source ?? "Источник"}<br />{review.reason}<br /><span className="admin-muted">{review.review_reasons.join(', ') || "Источник обновил данные"}</span></td>
+        <td>{review.source_url ? <a href={review.source_url} target="_blank" rel="noreferrer">{review.source ?? 'Источник'}</a> : review.source ?? 'Источник'}<br />{review.reason}<br /><span className="admin-muted">{review.review_reasons.join(', ') || 'Источник обновил данные'}</span></td>
         <td><div className="admin-actions-cell"><button type="button" className="admin-btn admin-btn-ok admin-btn-sm" disabled={busy !== null} onClick={() => void resolve(review, 'approve')}>Принять</button><button type="button" className="admin-btn admin-btn-danger admin-btn-sm" disabled={busy !== null} onClick={() => void resolve(review, 'reject')}>Отклонить</button></div></td>
       </tr>)}
     </tbody></table></div>}
