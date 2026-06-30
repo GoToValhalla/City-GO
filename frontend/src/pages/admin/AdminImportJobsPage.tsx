@@ -92,11 +92,14 @@ export const AdminImportJobsPage = () => {
     setQueueError(null)
     adminGet<ImportQueueSummary>('/admin/import-queue', { cache: false, timeoutMs: 8000 }).then(setQueue).catch((e: Error) => setQueueError(e.message)).finally(() => setQueueLoading(false))
   }, [])
-  const reload = useCallback(() => {
-    setLoading(true)
-    adminGet<AdminImportJobsResponse>('/admin/import-jobs?limit=50', { cache: false }).then((r) => { setItems(r.items); setTotal(r.total) }).catch((e: Error) => setError(e.message)).finally(() => setLoading(false))
+  const reload = useCallback((silent = false) => {
+    if (!silent) setLoading(true)
+    adminGet<AdminImportJobsResponse>('/admin/import-jobs?limit=50', { cache: false })
+      .then((r) => { setItems(r.items); setTotal(r.total) })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => { if (!silent) setLoading(false) })
   }, [])
-  const refreshAll = useCallback(() => { reload(); loadQueue() }, [reload, loadQueue])
+  const refreshAll = useCallback((silent = false) => { reload(silent); loadQueue() }, [reload, loadQueue])
   const loadDetail = useCallback((cityId: number) => { adminGet<AdminImportJob>(`/admin/import-jobs/${cityId}`, { cache: false }).then(setSelected).catch((e: Error) => setError(e.message)) }, [])
 
   useEffect(() => { refreshAll() }, [refreshAll])
@@ -105,12 +108,6 @@ export const AdminImportJobsPage = () => {
     const match = jobFilter ? items.find((item) => String(item.job_id ?? '') === jobFilter) : cityFilter ? items.find((item) => item.city_slug === cityFilter) : undefined
     if (match) loadDetail(match.city_id)
   }, [items, jobFilter, cityFilter, loadDetail])
-  useEffect(() => {
-    const shouldPoll = items.some(isRunningLike) || Boolean(selected && isRunningLike(selected)) || Boolean(queue && (queue.queued > 0 || queue.running > 0))
-    if (!shouldPoll) return
-    const timer = window.setInterval(() => { refreshAll(); if (selected && isRunningLike(selected)) loadDetail(selected.city_id) }, 7000)
-    return () => window.clearInterval(timer)
-  }, [items, selected, queue, refreshAll, loadDetail])
 
   const visibleItems = useMemo(() => cityFilter ? items.filter((item) => item.city_slug === cityFilter) : items, [items, cityFilter])
   const selectDetail = (job: AdminImportJob) => {
@@ -128,7 +125,7 @@ export const AdminImportJobsPage = () => {
     try {
       const response = await adminPost<AdminActionResponse>(`/admin/import-jobs/${job.city_id}/${action}`, action === 'publish' ? { reason: 'admin_import_publish' } : {})
       setNotice(response.message ?? 'Действие поставлено в очередь.')
-      refreshAll(); loadDetail(job.city_id)
+      refreshAll(true); loadDetail(job.city_id)
     } catch (e) { setError(e instanceof Error ? e.message : 'Ошибка') } finally { setBusy(null) }
   }
   const runAll = async () => {
@@ -137,7 +134,7 @@ export const AdminImportJobsPage = () => {
     try {
       const response = await adminPost<AdminActionResponse>('/admin/import-jobs/enrich-all', {})
       setNotice(response.message ?? 'Полный pipeline поставлен в очередь.')
-      refreshAll()
+      refreshAll(true)
     } catch (e) { setError(e instanceof Error ? e.message : 'Ошибка') } finally { setAllBusy(false) }
   }
 
@@ -146,7 +143,7 @@ export const AdminImportJobsPage = () => {
     <p className="admin-page-subtitle">Список читает только лёгкие counters/snapshot. Тяжёлые расчёты запускаются POST-действиями и import-worker.</p>
     <section className="admin-help-panel">
       <div className="admin-help-title">Полный запуск для всех городов</div>
-      <p className="admin-muted">HTTP-запуск только ставит задачу в очередь. Выполнение делает import-worker, экран обновляется автоматически только для queued/running jobs.</p>
+      <p className="admin-muted">HTTP-запуск только ставит задачу в очередь. Выполнение делает import-worker, состояние очереди обновляется кнопкой ниже.</p>
       <button type="button" className="admin-btn" disabled={allBusy || items.length === 0} onClick={() => void runAll()}>{allBusy ? 'Ставим задачи…' : 'Собрать и обогатить все города'}</button>
       {cityFilter && <button type="button" className="admin-btn" onClick={clearFilter}>Показать все города</button>}
     </section>
@@ -178,7 +175,7 @@ const ImportJobsTable = ({ items, busy, onAction, onSelect }: { items: AdminImpo
   return <tr key={job.id} className={job.is_stalled ? 'admin-row-warning' : ''}>
     <td><Link to={`/admin/cities/${job.city_slug}?tab=import`}>{job.city_name}</Link><div className="admin-muted">{job.city_slug}</div><div className="admin-muted">{text(contract['label'], job.pipeline_mode_label ?? 'OSM + foundation')}</div></td>
     <td><button className="admin-btn admin-btn-sm" onClick={() => onSelect(job)}>#{job.job_id ?? 'текущий'} →</button><div className="admin-muted">{job.created_at ? new Date(job.created_at).toLocaleString('ru-RU') : ''}</div></td>
-    <td><span className={`admin-badge pub-${badgeTone(job)}`}>{job.current_step_label ?? STATUS_LABELS[job.status] ?? job.status}</span>{isRunningLike(job) && <div className="admin-muted">автообновление 7с</div>}<div className="admin-muted">{snapshotAt(job)}</div></td>
+    <td><span className={`admin-badge pub-${badgeTone(job)}`}>{job.current_step_label ?? STATUS_LABELS[job.status] ?? job.status}</span>{isRunningLike(job) && <div className="admin-muted">pipeline выполняется</div>}<div className="admin-muted">{snapshotAt(job)}</div></td>
     <td>{pct !== null ? `${pct}% (${job.processed_items ?? 0}/${job.total_items ?? 0})` : '—'}<div className="admin-muted">найдено: {job.places_found ?? 0}, сохранено: {job.places_saved ?? 0}</div></td>
     <td><Link to={`/admin/places?city=${job.city_slug}`}>{job.places_total}</Link><CoverageSummary job={job} /></td>
     <td><ImportActionButtons job={job} busy={busy} onAction={onAction} onSelect={onSelect} /></td>
