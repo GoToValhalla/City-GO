@@ -38,6 +38,7 @@ def test_external_enrichment_calls_use_read_through_cache_new() -> None:
 
 def test_route_trace_compaction_preserves_decision_fields_new() -> None:
     entry = {
+        "stage": "final",
         "request_id": "r1",
         "city_slug": "zelenogradsk",
         "selected_ids": [1, 2],
@@ -47,8 +48,8 @@ def test_route_trace_compaction_preserves_decision_fields_new() -> None:
         "debug_payload": {"large": list(range(100))},
     }
     compact = compact_route_trace([entry])[0]
-    summary = route_debug_summary(entry)
+    summary = route_debug_summary("r1", [entry])
     assert compact["request_id"] == "r1"
     assert compact["selected_ids"] == [1, 2]
     assert "debug_payload" not in compact
-    assert summary["warnings"] == ["low_data"]
+    assert summary["important"]["warnings"] == ["low_data"]
