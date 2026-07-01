@@ -22,6 +22,8 @@ jobs:
       CITY_GO_TEST_RUN_TYPE: regression
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -48,6 +50,11 @@ jobs:
         run: |
           set +e
           mkdir -p artifacts/junit artifacts/allure-results/backend artifacts/messages artifacts/coverage
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            git diff --name-only HEAD^ HEAD > artifacts/coverage/changed-files.txt
+          else
+            git ls-files > artifacts/coverage/changed-files.txt
+          fi
           python -m pytest -q \
             --cov=core --cov=routers --cov=services --cov=models --cov=scripts \
             --cov-report=term-missing:skip-covered \
@@ -59,6 +66,7 @@ jobs:
             --suite backend \
             --format cobertura \
             --input artifacts/coverage/backend.xml \
+            --changed-files artifacts/coverage/changed-files.txt \
             --output artifacts/messages/backend-coverage.txt \
             --json-output artifacts/coverage/backend-metrics.json \
             --target backend_platform=90 \
@@ -91,6 +99,7 @@ jobs:
             artifacts/allure-report/backend
             artifacts/coverage/backend.xml
             artifacts/coverage/backend-metrics.json
+            artifacts/coverage/changed-files.txt
             artifacts/messages/backend.txt
             artifacts/messages/backend-coverage.txt
           if-no-files-found: warn
@@ -104,6 +113,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -120,6 +131,11 @@ jobs:
         run: |
           set +e
           mkdir -p ../artifacts/junit ../artifacts/messages ../artifacts/coverage/frontend
+          if git -C .. rev-parse HEAD^ >/dev/null 2>&1; then
+            git -C .. diff --name-only HEAD^ HEAD > ../artifacts/coverage/changed-files.txt
+          else
+            git -C .. ls-files > ../artifacts/coverage/changed-files.txt
+          fi
           npm run lint
           LINT_EXIT=$?
           timeout 8m npm run test:ci 2>&1 | tee ../artifacts/messages/frontend-vitest.log
@@ -138,6 +154,7 @@ jobs:
             --suite frontend \
             --format vitest-json-summary \
             --input ../artifacts/coverage/frontend/coverage-summary.json \
+            --changed-files ../artifacts/coverage/changed-files.txt \
             --output ../artifacts/messages/frontend-coverage.txt \
             --json-output ../artifacts/coverage/frontend-metrics.json \
             --target frontend_ui=90 \
@@ -178,6 +195,7 @@ jobs:
             artifacts/junit/frontend.xml
             artifacts/coverage/frontend
             artifacts/coverage/frontend-metrics.json
+            artifacts/coverage/changed-files.txt
             artifacts/messages/frontend.txt
             artifacts/messages/frontend-coverage.txt
             artifacts/messages/frontend-vitest.log
