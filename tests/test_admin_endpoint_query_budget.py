@@ -10,6 +10,7 @@ import services.admin_extended_service as admin_extended_service
 from services.admin_coverage_metrics import build_coverage_summary
 from services.admin_metrics_service import build_metrics_summary
 from services.admin_mobile_place_review import list_review_cities
+from services.admin_overview_service import build_admin_overview
 from services.place_verification_service import get_place_verification_queue, place_verification_summary
 from services.taxonomy_admin_service import list_categories
 
@@ -170,3 +171,30 @@ def test_admin_metrics_summary_uses_compact_aggregates(db_session, place_factory
 
     assert payload["places_total"] >= 2
     assert len(statements) <= 4
+
+
+def test_admin_overview_uses_compact_aggregates(db_session, city_factory, place_factory):
+    city = city_factory(slug="overview-perf-city", name="Overview Perf")
+    for idx in range(12):
+        place = place_factory(
+            city_id=city.id,
+            slug=f"overview-perf-place-{idx}",
+            is_published=True,
+            image_url=None if idx % 2 == 0 else "https://img.test/a.jpg",
+            address=None if idx % 3 == 0 else "ул. Мира, 1",
+        )
+        place.short_description = None if idx % 4 == 0 else "Описание"
+        place.existence_confidence_level = "low" if idx % 5 == 0 else "high"
+        place.verification_status = "needs_recheck" if idx % 6 == 0 else "verified"
+        db_session.add(place)
+    db_session.commit()
+
+    with _select_statements(db_session) as statements:
+        payload = build_admin_overview(db_session)
+
+    data_quality = {item.code: item.count for item in payload["data_quality"]}
+    assert data_quality["no_photo"] >= 6
+    assert data_quality["no_address"] >= 4
+    assert data_quality["no_description"] >= 3
+    assert data_quality["needs_verification"] >= 2
+    assert len(statements) <= 5
