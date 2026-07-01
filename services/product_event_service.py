@@ -45,23 +45,51 @@ def count_events_since(db: Session, event_type: str, *, days: int = 7) -> int:
 def build_product_metrics(db: Session) -> dict[str, object]:
     today = datetime.utcnow() - timedelta(days=1)
     week = datetime.utcnow() - timedelta(days=7)
-    routes_ok = _count(db, "route_generation_success", week)
-    routes_fail = _count(db, "route_generation_failed", week)
+    events = _event_counts_since(db, week)
+    today_events = _event_counts_since(db, today)
+    routes_ok = events.get("route_generation_success", 0)
+    routes_fail = events.get("route_generation_failed", 0)
     total = routes_ok + routes_fail
+    places = _place_counts(db)
     return {
-        "routes_today": _count(db, "route_generation_success", today) + _count(db, "route_generation_failed", today),
+        "routes_today": today_events.get("route_generation_success", 0) + today_events.get("route_generation_failed", 0),
         "routes_week": total,
         "routes_failed_week": routes_fail,
         "route_success_rate": round(routes_ok / total * 100, 1) if total else None,
-        "places_total": db.query(Place).count(),
-        "places_published": db.query(Place).filter(Place.is_published.is_(True)).count(),
-        "places_no_photo": db.query(Place).filter(Place.image_url.is_(None)).count(),
-        "places_no_address": db.query(Place).filter(Place.address.is_(None)).count(),
-        "places_no_description": db.query(Place).filter(Place.short_description.is_(None)).count(),
-        "imports_ok_week": _count(db, "import_finished", week),
-        "imports_fail_week": _count(db, "import_failed", week),
-        "enrichment_ok_week": _count(db, "enrichment_finished", week),
-        "ai_requests_week": _count(db, "ai_request_success", week) + _count(db, "ai_request_failed", week),
+        "places_total": places["total"],
+        "places_published": places["published"],
+        "places_no_photo": places["no_photo"],
+        "places_no_address": places["no_address"],
+        "places_no_description": places["no_description"],
+        "imports_ok_week": events.get("import_finished", 0),
+        "imports_fail_week": events.get("import_failed", 0),
+        "enrichment_ok_week": events.get("enrichment_finished", 0),
+        "ai_requests_week": events.get("ai_request_success", 0) + events.get("ai_request_failed", 0),
+    }
+
+
+def _event_counts_since(db: Session, since: datetime) -> dict[str, int]:
+    rows = (
+        db.query(ProductEvent.event_type, func.count(ProductEvent.id))
+        .filter(ProductEvent.created_at >= since)
+        .group_by(ProductEvent.event_type)
+        .all()
+    )
+    return {str(event_type): int(count or 0) for event_type, count in rows}
+
+
+def _place_counts(db: Session) -> dict[str, int]:
+    total = int(db.query(func.count(Place.id)).scalar() or 0)
+    published = int(db.query(func.count(Place.id)).filter(Place.is_published.is_(True)).scalar() or 0)
+    no_photo = int(db.query(func.count(Place.id)).filter(Place.image_url.is_(None)).scalar() or 0)
+    no_address = int(db.query(func.count(Place.id)).filter(Place.address.is_(None)).scalar() or 0)
+    no_description = int(db.query(func.count(Place.id)).filter(Place.short_description.is_(None)).scalar() or 0)
+    return {
+        "total": total,
+        "published": published,
+        "no_photo": no_photo,
+        "no_address": no_address,
+        "no_description": no_description,
     }
 
 
