@@ -54,11 +54,11 @@ export const AdminMobileToolsPage = () => {
       <select value={citySlug} onChange={(event) => setCitySlug(event.target.value)} aria-label="Город">
         {cities.map((city) => <option key={city.slug} value={city.slug}>{city.name} · {city.needs_review} · {city.rejected}</option>)}
       </select>
-      <button className="admin-btn admin-btn-sm" type="button" onClick={() => loadNext()}>Следующая</button>
-      <button className="admin-btn admin-btn-sm" type="button" onClick={loadRejected}>Отклонённые</button>
+      <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void loadNext() }}>Следующая</button>
+      <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void loadRejected() }}>Отклонённые</button>
     </section>
     {message ? <p className="admin-success-text">{message}</p> : null}
-    {mode === 'rejected' ? <section className="admin-card">{rejected.map((item) => <article key={item.id} className="admin-help-panel"><strong>{item.title}</strong><button className="admin-btn admin-btn-sm" type="button" onClick={async () => { await adminPost(`/admin/mobile-tools/places/${item.id}/defer`, {}); await loadRejected(); await loadCities() }}>Вернуть</button></article>)}</section> : <section className="admin-card">
+    {mode === 'rejected' ? <section className="admin-card">{rejected.map((item) => <article key={item.id} className="admin-help-panel"><strong>{item.title}</strong><button className="admin-btn admin-btn-sm" type="button" onClick={() => { void adminPost(`/admin/mobile-tools/places/${item.id}/defer`, {}).then(loadRejected).then(loadCities) }}>Вернуть</button></article>)}</section> : <section className="admin-card">
       <p className="admin-muted">Осталось: {remaining}</p>
       {place ? <>
         {photo ? <img src={photo} alt={place.title} style={{ width: '100%', maxHeight: 260, objectFit: 'cover', borderRadius: 16 }} /> : <p>Фото нет</p>}
