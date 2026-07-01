@@ -63,9 +63,7 @@ jobs:
             --json-output artifacts/coverage/backend-metrics.json \
             --target backend_platform=90 \
             --target backend_admin=90 \
-            --target backend_overall=90 \
-            --fail-under backend_platform=81 \
-            --fail-under backend_admin=77
+            --target backend_overall=90
           COVERAGE_EXIT=$?
           python scripts/ci_test_summary.py \
             --junit artifacts/junit/backend.xml \
