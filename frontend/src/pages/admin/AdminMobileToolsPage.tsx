@@ -66,9 +66,9 @@ export const AdminMobileToolsPage = () => {
         <h3>{place.title}</h3>
         <p>{place.category || 'без категории'} · {place.address || 'адрес не указан'}</p>
         <p>{place.short_description || 'описание не заполнено'}</p>
-        <button className="admin-btn admin-btn-sm admin-btn-primary" type="button" onClick={() => act('publish')}>Опубликовать</button>
-        <button className="admin-btn admin-btn-sm" type="button" onClick={() => act('reject')}>Отклонить</button>
-        <button className="admin-btn admin-btn-sm" type="button" onClick={() => act('defer')}>В конец очереди</button>
+        <button className="admin-btn admin-btn-sm admin-btn-primary" type="button" onClick={() => { void act('publish') }}>Опубликовать</button>
+        <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void act('reject') }}>Отклонить</button>
+        <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void act('defer') }}>В конец очереди</button>
       </> : <p>Очередь пуста.</p>}
     </section>}
   </main>
