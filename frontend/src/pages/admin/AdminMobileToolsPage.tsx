@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { adminGet, adminPost } from './adminApi'
 
 type City = { slug: string; name: string; needs_review: number; rejected: number }
@@ -19,19 +19,19 @@ export const AdminMobileToolsPage = () => {
   const photos = useMemo(() => getPhotos(place), [place])
   const photo = photos[photoIndex] ?? photos[0]
 
-  const loadCities = async () => {
+  const loadCities = useCallback(async () => {
     const data = await adminGet<{ items: City[] }>('/admin/mobile-tools/cities')
     setCities(data.items)
     if (!citySlug && data.items[0]) setCitySlug(data.items[0].slug)
-  }
-  const loadNext = async (slug = citySlug) => {
+  }, [citySlug])
+  const loadNext = useCallback(async (slug = citySlug) => {
     if (!slug) return
     const data = await adminGet<NextPayload>(`/admin/mobile-tools/places/next?city_slug=${encodeURIComponent(slug)}`)
     setPlace(data.place)
     setRemaining(data.remaining)
     setPhotoIndex(0)
     setMode('queue')
-  }
+  }, [citySlug])
   const loadRejected = async () => {
     const data = await adminGet<{ items: Place[] }>(`/admin/mobile-tools/places/rejected?city_slug=${encodeURIComponent(citySlug)}`)
     setRejected(data.items)
@@ -45,8 +45,8 @@ export const AdminMobileToolsPage = () => {
     await loadCities()
   }
 
-  useEffect(() => { void Promise.resolve().then(loadCities) }, [])
-  useEffect(() => { if (citySlug) void Promise.resolve().then(() => loadNext(citySlug)) }, [citySlug])
+  useEffect(() => { void Promise.resolve().then(loadCities) }, [loadCities])
+  useEffect(() => { if (citySlug) void Promise.resolve().then(() => loadNext(citySlug)) }, [citySlug, loadNext])
 
   return <main className="admin-page">
     <h2 className="admin-page-title">Мобильные инструменты</h2>
