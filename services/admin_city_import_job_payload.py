@@ -21,10 +21,31 @@ REVIEWABLE_CITY_STATUSES = {"review_required", "imported"}
 PIPELINE_MODE = "legacy_osm_plus_foundation"
 PIPELINE_MODE_LABEL = "OSM сбор + foundation quality layer"
 SNAPSHOT_KEY = "admin_import_snapshot"
+SOURCE_PHOTO_ENRICHMENT = "admin_photo_enrichment"
+SOURCE_ADDRESS_ENRICHMENT = "admin_address_enrichment"
 
 
 def _latest_job(db: Session, city_id: int) -> CityAdminImportJob | None:
     return db.query(CityAdminImportJob).filter(CityAdminImportJob.city_id == city_id).order_by(CityAdminImportJob.created_at.desc()).first()
+
+
+def _latest_job_by_source(db: Session, city_id: int, source: str) -> CityAdminImportJob | None:
+    return (
+        db.query(CityAdminImportJob)
+        .filter(CityAdminImportJob.city_id == city_id, CityAdminImportJob.source == source)
+        .order_by(CityAdminImportJob.created_at.desc())
+        .first()
+    )
+
+
+def _latest_step_result(db: Session, city_id: int, *, source: str, key: str) -> dict[str, object] | None:
+    job = _latest_job_by_source(db, city_id, source)
+    if job is None:
+        return None
+    value = dict(job.step_details or {}).get(key)
+    if not isinstance(value, dict):
+        return None
+    return {**value, "job_id": job.id, "job_status": job.status, "job_source": job.source, "finished_at": job.finished_at.isoformat() if job.finished_at else None}
 
 
 def _is_published(city: City) -> bool:
@@ -38,10 +59,7 @@ def _is_active_job(job: CityAdminImportJob | None) -> bool:
 
 
 def recover_failed_import_with_places(db: Session, city: City, *, places_total: int | None = None, job: CityAdminImportJob | None = None, actor_id: str = "admin-panel-read") -> bool:
-    """Deprecated compatibility shim.
-
-    Recovery must not run during GET/read flows. Use worker/maintenance or explicit POST actions.
-    """
+    """Deprecated compatibility shim. Recovery must not run during GET/read flows."""
     return False
 
 
@@ -77,7 +95,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
     raw_step = job.current_step if job is not None else STEP_QUEUED
     status = "published" if display_as_published else raw_status
     current_step = "published" if display_as_published else raw_step
-    details = _admin_step_details(city=city, job=job, places_total=int(places_total), places_published=int(places_published), pending_photos=int(pending_photos), snapshot=snapshot)
+    details = _admin_step_details(db=db, city=city, job=job, places_total=int(places_total), places_published=int(places_published), pending_photos=int(pending_photos), snapshot=snapshot)
     return {
         "id": f"city-import-{city.id}",
         "city_id": city.id,
@@ -143,20 +161,14 @@ def refresh_import_job_snapshot(db: Session, *, city_id: int, source: str = "exp
     coverage = _data_coverage(db, city_id=int(city.id), total=int(total), published=int(published), pending_photos=int(pending_photos))
     changes = _cached_change_summary(job, city)
     changes = {**changes, "total_changes": sum(int(changes.get(key) or 0) for key in CHANGE_TYPES)}
-    snapshot = {
-        "version": 1,
-        "source": source,
-        "taken_at": datetime.utcnow().isoformat(),
-        "city_id": city.id,
-        "city_slug": city.slug,
-        "job_id": job.id,
-        "data_coverage": coverage,
-        "change_summary": changes,
-    }
+    snapshot = {"version": 1, "source": source, "taken_at": datetime.utcnow().isoformat(), "city_id": city.id, "city_slug": city.slug, "job_id": job.id, "data_coverage": coverage, "change_summary": changes}
     details = dict(job.step_details or {})
     details[SNAPSHOT_KEY] = snapshot
     details["data_coverage"] = coverage
     details["change_summary"] = changes
+    latest_photo = _latest_step_result(db, int(city.id), source=SOURCE_PHOTO_ENRICHMENT, key="photo_enrichment")
+    if latest_photo:
+        details["latest_photo_enrichment"] = latest_photo
     job.step_details = details
     job.updated_at = datetime.utcnow()
     db.commit()
@@ -164,10 +176,17 @@ def refresh_import_job_snapshot(db: Session, *, city_id: int, source: str = "exp
     return snapshot
 
 
-def _admin_step_details(*, city: City, job: CityAdminImportJob | None, places_total: int, places_published: int, pending_photos: int, snapshot: dict[str, object] | None) -> dict[str, object]:
+def _admin_step_details(*, db: Session, city: City, job: CityAdminImportJob | None, places_total: int, places_published: int, pending_photos: int, snapshot: dict[str, object] | None) -> dict[str, object]:
     details = dict(job.step_details or {}) if job is not None else {}
     coverage = _snapshot_coverage(snapshot)
     changes = _snapshot_changes(snapshot)
+    latest_photo = _latest_step_result(db, int(city.id), source=SOURCE_PHOTO_ENRICHMENT, key="photo_enrichment")
+    latest_address = _latest_step_result(db, int(city.id), source=SOURCE_ADDRESS_ENRICHMENT, key="address_enrichment")
+    if latest_photo:
+        details["latest_photo_enrichment"] = latest_photo
+        details.setdefault("photo_enrichment", latest_photo)
+    if latest_address:
+        details["latest_address_enrichment"] = latest_address
     details.update({
         "admin_pipeline_contract": {"mode": PIPELINE_MODE, "label": PIPELINE_MODE_LABEL, "collection": "legacy_osm_import", "quality_layer": "foundation_pipeline", "publication_mode": "manual_review_required_for_changed_places"},
         "admin_status_group": _status_group(job.status if job is not None else city.launch_status, job.current_step if job is not None else STEP_QUEUED, city.launch_status, bool(city.is_active)),
@@ -256,7 +275,7 @@ def _can_run(job: CityAdminImportJob | None, city: City) -> bool:
 
 def _can_retry(job: CityAdminImportJob | None, status: str) -> bool:
     if job is None:
-        return False
+        return status in {"import_failed", "failed", "stalled"}
     return status in {"failed", "stalled", "import_failed", "success", "success_with_warnings", "partial_success", "cancelled"}
 
 
