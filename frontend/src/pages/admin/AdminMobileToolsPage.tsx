@@ -11,8 +11,10 @@ export const AdminMobileToolsPage = () => {
   const [cities, setCities] = useState<City[]>([])
   const [citySlug, setCitySlug] = useState('')
   const [place, setPlace] = useState<Place | null>(null)
+  const [rejected, setRejected] = useState<Place[]>([])
   const [remaining, setRemaining] = useState(0)
   const [photoIndex, setPhotoIndex] = useState(0)
+  const [mode, setMode] = useState<'queue' | 'rejected'>('queue')
   const [message, setMessage] = useState('')
   const photos = useMemo(() => getPhotos(place), [place])
   const photo = photos[photoIndex] ?? photos[0]
@@ -28,6 +30,7 @@ export const AdminMobileToolsPage = () => {
     setPlace(data.place)
     setRemaining(data.remaining)
     setPhotoIndex(0)
+    setMode('queue')
   }
   const act = async (action: 'publish' | 'reject' | 'defer') => {
     if (!place) return
@@ -49,7 +52,7 @@ export const AdminMobileToolsPage = () => {
       <button className="admin-btn admin-btn-sm" type="button" onClick={() => loadNext()}>Следующая</button>
     </section>
     {message ? <p className="admin-success-text">{message}</p> : null}
-    <section className="admin-card">
+    {mode === 'rejected' ? <section className="admin-card">{rejected.map((item) => <p key={item.id}>{item.title}</p>)}</section> : <section className="admin-card">
       <p className="admin-muted">Осталось: {remaining}</p>
       {place ? <>
         {photo ? <img src={photo} alt={place.title} style={{ width: '100%', maxHeight: 260, objectFit: 'cover', borderRadius: 16 }} /> : <p>Фото нет</p>}
@@ -61,6 +64,6 @@ export const AdminMobileToolsPage = () => {
         <button className="admin-btn admin-btn-sm" type="button" onClick={() => act('reject')}>Отклонить</button>
         <button className="admin-btn admin-btn-sm" type="button" onClick={() => act('defer')}>В конец очереди</button>
       </> : <p>Очередь пуста.</p>}
-    </section>
+    </section>}
   </main>
 }
