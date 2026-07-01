@@ -94,18 +94,19 @@ def main(argv: list[str] | None = None) -> int:
         selected = select_group(args.suite, name, files)
         covered = sum(item[1] for item in selected)
         total = sum(item[2] for item in selected)
-        target = enforced.get(name, targets.get(name, default_target))
+        target = targets.get(name, default_target)
+        fail_under = enforced.get(name, target)
         value = pct(covered, total)
         is_enforced = name in enforced
-        passed = total > 0 and value >= target
+        passed = total > 0 and value >= fail_under
         failed = failed or (is_enforced and not passed)
-        rows.append({'name': name, 'covered': covered, 'total': total, 'pct': round(value, 2), 'target': target, 'enforced': is_enforced, 'passed': passed})
+        rows.append({'name': name, 'covered': covered, 'total': total, 'pct': round(value, 2), 'target': target, 'fail_under': fail_under, 'enforced': is_enforced, 'passed': passed})
 
     icon = '❌' if failed else '✅'
     lines = [f'{icon} City Go {args.suite} coverage', f"Прогон: #{os.getenv('GITHUB_RUN_NUMBER', 'unknown')} · commit {os.getenv('GITHUB_SHA', 'unknown')[:7]}", '', 'Метрики покрытия строк:']
     for row in rows:
         mark = '✅' if row['passed'] else ('❌' if row['enforced'] else '⚠️')
-        mode = 'enforced' if row['enforced'] else 'tracked'
+        mode = f"baseline {row['fail_under']:.1f}% enforced" if row['enforced'] else 'tracked'
         lines.append(f"- {mark} {row['name'].replace('_', ' ')}: {row['pct']:.1f}% ({row['covered']}/{row['total']}) · target {row['target']:.1f}% · {mode}")
     if failed:
         lines += ['', 'Что делать: открыть coverage artifact, найти непокрытые строки и добавить атомарные unit/API/UI тесты под эти ветки.']
