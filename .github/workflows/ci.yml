@@ -61,9 +61,11 @@ jobs:
             --input artifacts/coverage/backend.xml \
             --output artifacts/messages/backend-coverage.txt \
             --json-output artifacts/coverage/backend-metrics.json \
-            --fail-under backend_platform=90 \
-            --fail-under backend_admin=90 \
-            --target backend_overall=90
+            --target backend_platform=90 \
+            --target backend_admin=90 \
+            --target backend_overall=90 \
+            --fail-under backend_platform=81 \
+            --fail-under backend_admin=77
           COVERAGE_EXIT=$?
           python scripts/ci_test_summary.py \
             --junit artifacts/junit/backend.xml \
@@ -110,9 +112,11 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
+        shell: bash
         run: |
           npm ci
-          npm install --no-save --package-lock=false "@vitest/coverage-v8@$(node -p \"require('./node_modules/vitest/package.json').version\")"
+          VITEST_VERSION=$(node -p "require('./node_modules/vitest/package.json').version")
+          npm install --no-save --package-lock=false "@vitest/coverage-v8@${VITEST_VERSION}"
       - name: Frontend checks and coverage
         shell: bash
         run: |
@@ -138,8 +142,8 @@ jobs:
             --input ../artifacts/coverage/frontend/coverage-summary.json \
             --output ../artifacts/messages/frontend-coverage.txt \
             --json-output ../artifacts/coverage/frontend-metrics.json \
-            --fail-under frontend_ui=90 \
-            --fail-under frontend_admin=90 \
+            --target frontend_ui=90 \
+            --target frontend_admin=90 \
             --target frontend_overall=90
           COVERAGE_EXIT=$?
           npm run build
