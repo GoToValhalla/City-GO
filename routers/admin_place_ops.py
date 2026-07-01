@@ -13,6 +13,8 @@ from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
+from models.city import City
+from models.place import Place
 from schemas.admin_place_ops import (
     AdminAddressRefreshRequest,
     AdminBulkApplyRequest,
@@ -32,7 +34,8 @@ from services.admin_place_detail_service import build_admin_place_detail
 from services.admin_place_duplicate_service import find_similar_places
 from services.admin_place_lookup_service import lookup_place_candidates
 from services.admin_place_update_service import update_admin_place_fields
-from services.system_log_service import list_system_logs
+from services.place_read_service import build_place_read
+from services.system_log_service import list_system_logs, write_system_log
 
 router = APIRouter(prefix="/admin", tags=["admin-place-ops"])
 
