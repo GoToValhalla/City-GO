@@ -1,12 +1,18 @@
 """Admin ops: обзор, feature toggles, метрики."""
 
+from datetime import datetime
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
 from schemas.admin_coverage import AdminCoverageSummaryResponse, AdminCityCoverageRow
 from schemas.admin_ops import (
+    AdminActionCard,
     AdminMetricsSummary,
     AdminOverviewResponse,
     AdminVerificationSummary,
@@ -22,17 +28,31 @@ from services.feature_toggle_service import list_city_toggles, list_global_toggl
 from services.local_persistent_cache import cache_stats
 from services.verification_queue_summary import verification_queue_summary
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin-ops"])
+ADMIN_READ_STATEMENT_TIMEOUT_MS = 3000
 
 
 @router.get("/overview", response_model=AdminOverviewResponse)
 def read_admin_overview(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminOverviewResponse:
-    return AdminOverviewResponse(**build_admin_overview(db))
+    try:
+        _apply_admin_read_timeout(db)
+        return AdminOverviewResponse(**build_admin_overview(db))
+    except (SQLAlchemyError, TimeoutError) as exc:
+        db.rollback()
+        logger.exception("Admin overview degraded", exc_info=exc)
+        return _degraded_overview()
 
 
 @router.get("/metrics/summary", response_model=AdminMetricsSummary)
 def read_admin_metrics(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminMetricsSummary:
-    return AdminMetricsSummary(**build_metrics_summary(db))
+    try:
+        _apply_admin_read_timeout(db)
+        return AdminMetricsSummary(**build_metrics_summary(db))
+    except (SQLAlchemyError, TimeoutError) as exc:
+        db.rollback()
+        logger.exception("Admin metrics summary degraded", exc_info=exc)
+        return _degraded_metrics()
 
 
 @router.get("/cache/local")
@@ -80,7 +100,13 @@ def put_feature_toggle(
 
 @router.get("/place-verifications/summary", response_model=AdminVerificationSummary)
 def read_verification_summary(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminVerificationSummary:
-    return AdminVerificationSummary(**verification_queue_summary(db))
+    try:
+        _apply_admin_read_timeout(db)
+        return AdminVerificationSummary(**verification_queue_summary(db))
+    except (SQLAlchemyError, TimeoutError) as exc:
+        db.rollback()
+        logger.exception("Admin verification summary degraded", exc_info=exc)
+        return AdminVerificationSummary(queue_total=0, needs_recheck=0, unverified=0, low_confidence=0, verified_today=0)
 
 
 @router.get("/coverage/summary", response_model=AdminCoverageSummaryResponse)
@@ -90,8 +116,63 @@ def read_coverage_summary(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> AdminCoverageSummaryResponse:
-    items, total = build_coverage_summary(db, limit=limit, offset=offset)
-    return AdminCoverageSummaryResponse(
-        items=[AdminCityCoverageRow.model_validate(row) for row in items],
-        total=total, limit=limit, offset=offset,
+    try:
+        _apply_admin_read_timeout(db)
+        items, total = build_coverage_summary(db, limit=limit, offset=offset)
+        return AdminCoverageSummaryResponse(
+            items=[AdminCityCoverageRow.model_validate(row) for row in items],
+            total=total, limit=limit, offset=offset,
+        )
+    except (SQLAlchemyError, TimeoutError) as exc:
+        db.rollback()
+        logger.exception("Admin coverage summary degraded", exc_info=exc)
+        return AdminCoverageSummaryResponse(items=[], total=0, limit=limit, offset=offset)
+
+
+def _apply_admin_read_timeout(db: Session) -> None:
+    bind = db.get_bind()
+    if bind.dialect.name == "postgresql":
+        db.execute(text(f"SET LOCAL statement_timeout = {ADMIN_READ_STATEMENT_TIMEOUT_MS}"))
+
+
+def _degraded_overview() -> AdminOverviewResponse:
+    return AdminOverviewResponse(
+        critical=[
+            AdminActionCard(
+                code="admin_overview_degraded",
+                title="Админка в деградированном режиме",
+                count=1,
+                severity="red",
+                link_path="/admin/system-health",
+                hint="Быстрый обзор не смог прочитать БД за лимит времени. Остальные разделы должны продолжить открываться.",
+            )
+        ],
+        data_quality=[],
+        operations=[],
+        recent_audit_count=0,
+        generated_at=datetime.utcnow(),
+    )
+
+
+def _degraded_metrics() -> AdminMetricsSummary:
+    return AdminMetricsSummary(
+        dau=0,
+        mau=0,
+        routes_built=0,
+        routes_failed=0,
+        avg_route_stops=0.0,
+        routes_today=0,
+        routes_week=0,
+        routes_failed_week=0,
+        route_success_rate=None,
+        places_total=0,
+        places_published=0,
+        places_no_photo=0,
+        places_no_address=0,
+        places_no_description=0,
+        imports_ok_week=0,
+        imports_fail_week=0,
+        enrichment_ok_week=0,
+        ai_requests_week=0,
+        data_collection_note="Admin metrics degraded: БД не ответила за быстрый лимит.",
     )
