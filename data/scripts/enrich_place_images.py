@@ -4,7 +4,8 @@
 - Place.image_url, если ссылка уже есть, но нет PlaceImage;
 - Place.website / Place.source_url -> OpenGraph image;
 - OSM image / wikimedia_commons / wikidata P18 / wikipedia / website tags;
-- Wikimedia Commons search по названию места и городу как fallback для мест без source evidence.
+- Wikimedia Commons search по названию места и городу;
+- Openverse image search по CC/public-domain источникам как последний fallback.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 REQUEST_TIMEOUT_SECONDS = 12
 USER_AGENT = "CityGoImageEnricher/1.0"
 HTTP_TEXT_CACHE_NAMESPACE = "image_enrichment_http_text_v1"
+OPENVERSE_ACCEPTED_LICENSES = {"cc0", "pdm", "by", "by-sa"}
 SOURCE_EVIDENCE_PROVIDERS = (
     "place.image_url",
     "place.website/open_graph",
@@ -48,6 +50,7 @@ SOURCE_EVIDENCE_PROVIDERS = (
     "source_observation.wikipedia_page_image",
     "source_observation.website_open_graph",
     "wikimedia_commons_search",
+    "openverse_licensed_image_search",
 )
 
 
@@ -90,7 +93,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             "skipped_no_source": 0,
             "errors": [],
             "warnings": [],
-            "provider_mode": "trusted_source_evidence_plus_commons_search",
+            "provider_mode": "trusted_source_evidence_plus_commons_and_openverse_search",
             "source_evidence_providers": list(SOURCE_EVIDENCE_PROVIDERS),
             "dry_run": args.dry_run,
             "preview": [],
@@ -152,7 +155,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
                 summary["place_image_url_synced"] += 1
 
         if int(summary["created"] or 0) == 0 and int(summary["candidates_found"] or 0) == 0:
-            summary["warnings"].append("No image candidates found from trusted sources or Wikimedia Commons search.")
+            summary["warnings"].append("No image candidates found from trusted sources, Wikimedia Commons, or Openverse.")
             summary["provider_status"] = "source_evidence_exhausted"
         else:
             summary["provider_status"] = "candidates_found"
@@ -195,6 +198,10 @@ def _collect_candidates_for_place(db: Session, place: Place, city: City) -> list
         commons_candidate = _candidate_from_wikimedia_search(place, city)
         if commons_candidate:
             candidates.append(commons_candidate)
+    if not candidates:
+        openverse_candidate = _candidate_from_openverse_search(place, city)
+        if openverse_candidate:
+            candidates.append(openverse_candidate)
     return _deduplicate_candidates(candidates)
 
 
@@ -361,6 +368,47 @@ def _candidate_from_wikimedia_search(place: Place, city: City) -> dict[str, Any]
             attribution="Wikimedia Commons contributors",
             confidence=0.68,
         )
+    return None
+
+
+def _candidate_from_openverse_search(place: Place, city: City) -> dict[str, Any] | None:
+    title = (place.title or "").strip()
+    city_name = (city.name or city.slug or "").strip()
+    if not title or len(title) < 3 or BAD_TITLE_PATTERN.match(title):
+        return None
+    queries = [f"{title} {city_name}".strip(), title]
+    for query in queries:
+        params = {
+            "q": query,
+            "page_size": "3",
+            "license": "cc0,pdm,by,by-sa",
+        }
+        data = _fetch_json("https://api.openverse.engineering/v1/images/?" + urllib.parse.urlencode(params))
+        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(results, list):
+            continue
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            image_url = item.get("url")
+            if not isinstance(image_url, str) or not _is_reviewable_image_url(image_url):
+                continue
+            license_code = str(item.get("license") or "").lower().strip()
+            if license_code and license_code not in OPENVERSE_ACCEPTED_LICENSES:
+                continue
+            source_url = item.get("foreign_landing_url") if isinstance(item.get("foreign_landing_url"), str) else None
+            creator = item.get("creator") if isinstance(item.get("creator"), str) else None
+            provider = item.get("source") if isinstance(item.get("source"), str) else "Openverse"
+            attribution = creator or f"{provider} via Openverse"
+            license_label = license_code.upper() if license_code else None
+            return _candidate(
+                image_url=image_url,
+                source_type="openverse_licensed_image_search",
+                source_url=source_url,
+                attribution=attribution,
+                license=license_label,
+                confidence=0.56,
+            )
     return None
 
 
