@@ -273,6 +273,8 @@ jobs:
 
           docker load -i /tmp/city-go-images.tar.gz
           docker compose up -d --remove-orphans
+          echo "=== Docker compose status after deploy up ==="
+          docker compose ps
 
           rm -f /tmp/city-go-images.tar.gz || true
           docker image prune -f || true
@@ -304,8 +306,41 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
           set -euo pipefail
-          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            'curl -fsS --max-time 10 http://localhost:8000/ready'
+          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'REMOTE'
+          set -euo pipefail
+          cd /srv/app
+
+          show_logs() {
+            service="$1"
+            lines="$2"
+            echo "=== docker compose logs --tail=${lines} ${service} ==="
+            docker compose logs --tail="${lines}" "${service}" || true
+          }
+
+          echo "=== Waiting for backend /ready ==="
+          ready=0
+          for attempt in $(seq 1 18); do
+            if curl -fsS --max-time 10 http://localhost:8000/ready; then
+              echo
+              echo "Backend ready check passed on attempt ${attempt}/18."
+              ready=1
+              break
+            fi
+            echo "Backend is not ready yet attempt=${attempt}/18; retrying in 5 seconds..."
+            sleep 5
+          done
+
+          if [ "$ready" != "1" ]; then
+            echo "ERROR: backend /ready did not pass within 90 seconds." >&2
+            echo "=== docker compose ps ==="
+            docker compose ps || true
+            show_logs backend 200
+            show_logs migrate 200
+            show_logs db 100
+            show_logs bot 100
+            exit 1
+          fi
+          REMOTE
 
       - name: Upload deploy log
         if: always()
