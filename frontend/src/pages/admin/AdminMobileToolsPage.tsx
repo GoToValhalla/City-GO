@@ -32,11 +32,11 @@ export const AdminMobileToolsPage = () => {
     setPhotoIndex(0)
     setMode('queue')
   }, [citySlug])
-  const loadRejected = async () => {
+  const loadRejected = useCallback(async () => {
     const data = await adminGet<{ items: Place[] }>(`/admin/mobile-tools/places/rejected?city_slug=${encodeURIComponent(citySlug)}`)
     setRejected(data.items)
     setMode('rejected')
-  }
+  }, [citySlug])
   const act = async (action: 'publish' | 'reject' | 'defer') => {
     if (!place) return
     await adminPost(`/admin/mobile-tools/places/${place.id}/${action}`, {})
