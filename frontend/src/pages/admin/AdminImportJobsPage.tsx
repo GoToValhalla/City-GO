@@ -83,7 +83,8 @@ const WorkerQueuePanel = ({ queue, loading, error, onRefresh, onMarkStalled }: {
       {queue?.next_job_ids?.length ? <p className="admin-muted">Следующие job id: {queue.next_job_ids.join(', ')}</p> : null}
       {!hasWork && <p className="admin-muted">Фоновых задач сейчас нет.</p>}
     </>}
-    <button type="button" className="admin-btn admin-btn-sm" onClick={onRefresh}>Обновить очередь</button>
+    {loading && queue ? <p className="admin-muted">Обновляем очередь…</p> : null}
+    <button type="button" className="admin-btn admin-btn-sm admin-btn-primary" aria-busy={loading} onClick={() => onRefresh()}>Обновить очередь</button>
     {(queue?.stalled_running ?? 0) > 0 && <button type="button" className="admin-btn admin-btn-danger admin-btn-sm" onClick={onMarkStalled}>Пометить зависшие</button>}
   </section>
 }
@@ -146,7 +147,7 @@ export const AdminImportJobsPage = () => {
     <h2 className="admin-page-title">Сбор и обогащение ({cityFilter ? visibleItems.length : total})</h2>
     <p className="admin-page-subtitle">Список читает только лёгкие counters/snapshot. Тяжёлые расчёты запускаются POST-действиями и import-worker.</p>
     <section className="admin-help-panel"><div className="admin-help-title">Полный запуск для всех городов</div><p className="admin-muted">HTTP-запуск только ставит задачу в очередь. Выполнение делает import-worker, состояние очереди обновляется кнопкой ниже.</p><button type="button" className="admin-btn" disabled={allBusy || items.length === 0} onClick={() => void runAll()}>{allBusy ? 'Ставим задачи…' : 'Собрать и обогатить все города'}</button>{cityFilter && <button type="button" className="admin-btn" onClick={clearFilter}>Показать все города</button>}</section>
-    <WorkerQueuePanel queue={queue} loading={queueLoading} error={queueError} onRefresh={() => refreshAll(true)} onMarkStalled={() => void markStalled()} />
+    <WorkerQueuePanel queue={queue} loading={queueLoading} error={queueError} onRefresh={loadQueue} onMarkStalled={() => void markStalled()} />
     {notice && <p className="admin-success-text">{notice}</p>}{error && <AdminError message={error} />}{loading ? <AdminLoading /> : visibleItems.length === 0 ? <AdminEmpty message="Задач по выбранному фильтру нет" /> : <><ImportJobsCards items={visibleItems} busy={busy} onAction={runAction} onSelect={selectDetail} />{selected && <ImportJobDetail selected={selected} busy={busy} onAction={runAction} onClose={closeDetail} />}<ImportJobsTable items={visibleItems} busy={busy} onAction={runAction} onSelect={selectDetail} /></>}
   </div>
 }
