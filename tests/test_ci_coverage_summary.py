@@ -6,7 +6,7 @@ from pathlib import Path
 from scripts import ci_coverage_summary
 
 
-def test_backend_admin_coverage_metric(tmp_path: Path) -> None:
+def test_backend_admin_coverage_metric_is_non_blocking(tmp_path: Path) -> None:
     coverage_xml = tmp_path / 'coverage.xml'
     coverage_xml.write_text(
         '<coverage><packages><package><classes>'
@@ -22,17 +22,19 @@ def test_backend_admin_coverage_metric(tmp_path: Path) -> None:
         '--input', str(coverage_xml),
         '--output', str(tmp_path / 'coverage.txt'),
         '--json-output', str(tmp_path / 'coverage.json'),
-        '--fail-under', 'backend_admin=90',
+        '--target', 'backend_admin=90',
     ])
 
     payload = json.loads((tmp_path / 'coverage.json').read_text(encoding='utf-8'))
     admin = next(group for group in payload['groups'] if group['name'] == 'backend_admin')
-    assert result == 1
+    assert result == 0
     assert admin['pct'] == 75.0
-    assert admin['enforced'] is True
+    assert admin['risk'] == 'action_required'
+    assert admin['passed'] is True
+    assert 'coverage не валит CI' in (tmp_path / 'coverage.txt').read_text(encoding='utf-8')
 
 
-def test_frontend_admin_coverage_metric(tmp_path: Path) -> None:
+def test_frontend_admin_coverage_metric_reports_ok(tmp_path: Path) -> None:
     summary_json = tmp_path / 'coverage-summary.json'
     summary_json.write_text(
         json.dumps({
@@ -48,11 +50,12 @@ def test_frontend_admin_coverage_metric(tmp_path: Path) -> None:
         '--input', str(summary_json),
         '--output', str(tmp_path / 'coverage.txt'),
         '--json-output', str(tmp_path / 'coverage.json'),
-        '--fail-under', 'frontend_admin=90',
+        '--target', 'frontend_admin=90',
     ])
 
     payload = json.loads((tmp_path / 'coverage.json').read_text(encoding='utf-8'))
     admin = next(group for group in payload['groups'] if group['name'] == 'frontend_admin')
     assert result == 0
     assert admin['pct'] == 100.0
+    assert admin['risk'] == 'ok'
     assert admin['passed'] is True
