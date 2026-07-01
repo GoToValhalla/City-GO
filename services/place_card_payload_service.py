@@ -14,6 +14,8 @@ def place_card_payload(place: Place) -> dict[str, object]:
         "category": place.category,
         "short_description": place.short_description,
         "image_url": getattr(place, "public_image_url", None),
+        "image_urls": getattr(place, "public_image_urls", None),
+        "photo_urls": getattr(place, "public_photo_urls", None),
         "image_id": getattr(place, "public_image_id", None),
         "image_source_type": getattr(place, "public_image_source_type", None),
         "image_attribution": getattr(place, "public_image_attribution", None),
