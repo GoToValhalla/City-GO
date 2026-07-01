@@ -206,6 +206,10 @@ def run_ci_workflow(body: dict[str, object], auth: AdminContext = Depends(admin_
     }
 
 
+def _mobile_review_place_payload(db: Session, place: Place) -> dict[str, object]:
+    return build_place_read(db, place).model_dump(mode="json")
+
+
 def _workflow_dispatch_payload() -> bytes:
     payload: dict[str, object] = {"ref": GITHUB_BRANCH}
     if GITHUB_WORKFLOW == "deploy.yml":
