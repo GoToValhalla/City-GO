@@ -7,7 +7,13 @@ import argparse
 import os
 from pathlib import Path
 
-SUMMARY_NAMES = {"backend.txt", "frontend.txt"}
+SUMMARY_ORDER = {
+    "backend.txt": 0,
+    "backend-coverage.txt": 1,
+    "frontend.txt": 2,
+    "frontend-coverage.txt": 3,
+}
+SUMMARY_NAMES = set(SUMMARY_ORDER)
 
 
 def _read_messages(messages_dir: Path) -> list[str]:
@@ -25,8 +31,7 @@ def _read_messages(messages_dir: Path) -> list[str]:
             continue
         if text:
             messages.append((path.name, text))
-    order = {"backend.txt": 0, "frontend.txt": 1}
-    return [text for _, text in sorted(messages, key=lambda item: order.get(item[0], 99))]
+    return [text for _, text in sorted(messages, key=lambda item: SUMMARY_ORDER.get(item[0], 99))]
 
 
 def build_report(messages_dir: Path) -> str:
@@ -49,7 +54,7 @@ def build_report(messages_dir: Path) -> str:
         lines.append("")
         lines.extend(messages)
     else:
-        lines.append("Нет backend.txt/frontend.txt summary artifacts. Проверьте backend/frontend jobs.")
+        lines.append("Нет backend/frontend/coverage summary artifacts. Проверьте backend/frontend jobs.")
     if run_url:
         lines.append("")
         lines.append(run_url)
