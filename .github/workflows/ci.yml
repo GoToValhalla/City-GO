@@ -105,16 +105,14 @@ jobs:
           if-no-files-found: warn
 
   frontend-tests:
-    name: Frontend lint, tests, coverage and build
+    name: Frontend lint, tests and build
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -123,62 +121,25 @@ jobs:
       - name: Install frontend dependencies
         shell: bash
         run: npm ci
-      - name: Frontend checks and coverage
+      - name: Frontend lint, tests and build
         shell: bash
         run: |
           set +e
-          mkdir -p ../artifacts/junit ../artifacts/messages ../artifacts/coverage/frontend
-          if git -C .. rev-parse HEAD^ >/dev/null 2>&1; then
-            git -C .. diff --name-only HEAD^ HEAD > ../artifacts/coverage/changed-files.txt
-          else
-            git -C .. ls-files > ../artifacts/coverage/changed-files.txt
-          fi
+          mkdir -p ../artifacts/junit ../artifacts/messages
           npm run lint
           LINT_EXIT=$?
           timeout 8m npm run test:ci 2>&1 | tee ../artifacts/messages/frontend-vitest.log
           TEST_EXIT=${PIPESTATUS[0]}
-          timeout 8m npx vitest run \
-            --coverage \
-            --coverage.provider=v8 \
-            --coverage.reporter=text \
-            --coverage.reporter=json-summary \
-            --coverage.reportsDirectory=../artifacts/coverage/frontend \
-            --coverage.include='src/**/*.{ts,tsx}' \
-            --coverage.exclude='src/**/*.test.{ts,tsx}' \
-            --coverage.exclude='src/**/__tests__/**'
-          COVERAGE_RUN_EXIT=$?
-          if [ "$COVERAGE_RUN_EXIT" = "0" ] && [ -f ../artifacts/coverage/frontend/coverage-summary.json ]; then
-            python ../scripts/ci_coverage_summary.py \
-              --suite frontend \
-              --format vitest-json-summary \
-              --input ../artifacts/coverage/frontend/coverage-summary.json \
-              --changed-files ../artifacts/coverage/changed-files.txt \
-              --output ../artifacts/messages/frontend-coverage.txt \
-              --json-output ../artifacts/coverage/frontend-metrics.json \
-              --target frontend_ui=90 \
-              --target frontend_admin=90 \
-              --target frontend_overall=90
-            COVERAGE_SUMMARY_EXIT=$?
-          else
-            COVERAGE_SUMMARY_EXIT=0
-            cat > ../artifacts/messages/frontend-coverage.txt <<'TXT'
-📊 City Go frontend coverage
-
-Метрики покрытия строк: недоступны.
-Risk: action_required.
-Причина: frontend coverage provider/report не собрался. CI не валится только из-за coverage, но метрику нужно восстановить отдельной задачей.
-TXT
-          fi
           npm run build
           BUILD_EXIT=$?
           python - <<PY
           import json
           from pathlib import Path
-          stages = {'lint': $LINT_EXIT, 'tests': $TEST_EXIT, 'coverage': max($COVERAGE_RUN_EXIT, $COVERAGE_SUMMARY_EXIT), 'build': $BUILD_EXIT}
+          stages = {'lint': $LINT_EXIT, 'tests': $TEST_EXIT, 'build': $BUILD_EXIT}
           Path('../artifacts/messages/frontend-stages.json').write_text(json.dumps(stages), encoding='utf-8')
-          hard_failed = [name for name in ('lint', 'tests', 'build') if stages[name] != 0]
-          if hard_failed:
-              Path('../artifacts/messages/frontend.txt').write_text('❌ City Go Frontend lint/tests/build FAILED\nПровалены этапы: ' + ', '.join(hard_failed) + '\n', encoding='utf-8')
+          failed = [name for name, code in stages.items() if code != 0]
+          if failed:
+              Path('../artifacts/messages/frontend.txt').write_text('❌ City Go Frontend lint/tests/build FAILED\nПровалены этапы: ' + ', '.join(failed) + '\n', encoding='utf-8')
           PY
           if [ -f ../artifacts/junit/frontend.xml ] && [ "$TEST_EXIT" = "0" ] && [ "$LINT_EXIT" = "0" ] && [ "$BUILD_EXIT" = "0" ]; then
             python ../scripts/ci_test_summary.py \
@@ -189,8 +150,11 @@ TXT
               --artifact-hint "frontend-test-artifacts/frontend.xml" \
               --exit-code "$TEST_EXIT" || true
           fi
-          [ -f ../artifacts/messages/frontend.txt ] && cat ../artifacts/messages/frontend.txt
-          [ -f ../artifacts/messages/frontend-coverage.txt ] && cat ../artifacts/messages/frontend-coverage.txt
+          if [ ! -f ../artifacts/messages/frontend.txt ]; then
+            echo '❌ City Go Frontend lint/tests/build FAILED' > ../artifacts/messages/frontend.txt
+            echo 'JUnit report was not created. Open frontend job logs.' >> ../artifacts/messages/frontend.txt
+          fi
+          cat ../artifacts/messages/frontend.txt
           if [ "$LINT_EXIT" != "0" ] || [ "$TEST_EXIT" != "0" ] || [ "$BUILD_EXIT" != "0" ]; then
             exit 1
           fi
@@ -201,11 +165,7 @@ TXT
           name: frontend-test-artifacts
           path: |
             artifacts/junit/frontend.xml
-            artifacts/coverage/frontend
-            artifacts/coverage/frontend-metrics.json
-            artifacts/coverage/changed-files.txt
             artifacts/messages/frontend.txt
-            artifacts/messages/frontend-coverage.txt
             artifacts/messages/frontend-vitest.log
             artifacts/messages/frontend-stages.json
           if-no-files-found: warn
