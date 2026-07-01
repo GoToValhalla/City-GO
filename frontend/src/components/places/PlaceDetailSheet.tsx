@@ -1,4 +1,4 @@
-import { ArrowLeft, Clock3, Globe2, MapPin, Phone, Sparkles } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Clock3, Globe2, MapPin, Phone, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import type { ReactNode } from 'react'
@@ -58,11 +58,14 @@ const FactRow = ({ children, icon, label }: FactRowProps) => (
 
 export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps) => {
   const [expanded, setExpanded] = useState(false)
+  const [photoIndex, setPhotoIndex] = useState(0)
   const title = placeTitle(place)
   const status = placeStatus(place)
   const description = placeDescription(place)
   const gallery = placeGallery(place)
-  const imageUrl = gallery[0] ?? placeImageUrl(place)
+  const fallbackImageUrl = placeImageUrl(place)
+  const safePhotoIndex = gallery.length ? Math.min(photoIndex, gallery.length - 1) : 0
+  const imageUrl = gallery[safePhotoIndex] ?? fallbackImageUrl
   const address = placeAddressLabel(place)
   const hours = placeHoursLabel(place)
   const atmosphere = meaningfulDetail(listText(place.atmosphere))
@@ -76,6 +79,9 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
   const visibleDescription = description && shouldCollapseDescription && !expanded
     ? `${description.slice(0, DESCRIPTION_LIMIT).trim()}...`
     : description
+  const showCarousel = gallery.length > 1
+  const showPreviousPhoto = () => setPhotoIndex((value) => (value <= 0 ? gallery.length - 1 : value - 1))
+  const showNextPhoto = () => setPhotoIndex((value) => (value >= gallery.length - 1 ? 0 : value + 1))
   const hero = (
     <PlacePhoto
       imageUrl={imageUrl}
@@ -91,10 +97,30 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
     <main className="place-detail-sheet place-detail-sheet--refined">
       <div className="place-detail-sheet__media">
         {imageUrl ? (
-          <a href={imageUrl} target="_blank" rel="noopener noreferrer" aria-label={`Открыть фото: ${title}`}>
+          <a href={imageUrl} target="_blank" rel="noopener noreferrer" aria-label={`Открыть фото ${safePhotoIndex + 1} из ${Math.max(gallery.length, 1)}: ${title}`}>
             {hero}
           </a>
         ) : hero}
+        {showCarousel ? (
+          <div className="place-photo-carousel" aria-label={`Фотографии места: ${title}`}>
+            <button className="place-photo-carousel__nav" type="button" onClick={showPreviousPhoto} aria-label="Предыдущее фото"><ChevronLeft size={18} /></button>
+            <div className="place-photo-carousel__dots" role="tablist" aria-label="Выбор фото">
+              {gallery.map((url, index) => (
+                <button
+                  key={`${url}-${index}`}
+                  className={index === safePhotoIndex ? 'place-photo-carousel__dot place-photo-carousel__dot--active' : 'place-photo-carousel__dot'}
+                  type="button"
+                  onClick={() => setPhotoIndex(index)}
+                  aria-label={`Показать фото ${index + 1} из ${gallery.length}`}
+                  aria-selected={index === safePhotoIndex}
+                >
+                  {index + 1}
+                </button>
+              ))}
+            </div>
+            <button className="place-photo-carousel__nav" type="button" onClick={showNextPhoto} aria-label="Следующее фото"><ChevronRight size={18} /></button>
+          </div>
+        ) : null}
       </div>
 
       <section className="place-detail-sheet__panel">
