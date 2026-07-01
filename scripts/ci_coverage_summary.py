@@ -48,12 +48,35 @@ def read_vitest_summary(path: Path) -> list[tuple[str, int, int]]:
     return files
 
 
+def read_changed_files(path: Path | None) -> set[str]:
+    if path is None or not path.exists():
+        return set()
+    return {norm(line.strip()) for line in path.read_text(encoding='utf-8').splitlines() if line.strip()}
+
+
 def has(path: str, needle: str) -> bool:
     value = '/' + norm(path)
     return value.startswith('/' + needle) or ('/' + needle) in value
 
 
-def select_group(suite: str, group: str, files: list[tuple[str, int, int]]) -> list[tuple[str, int, int]]:
+def same_file(coverage_path: str, changed_path: str) -> bool:
+    coverage = norm(coverage_path)
+    changed = norm(changed_path)
+    variants = {changed}
+    for prefix in ('frontend/', './frontend/'):
+        if changed.startswith(prefix):
+            variants.add(changed.removeprefix(prefix))
+    return any(coverage == item or coverage.endswith('/' + item) or item.endswith('/' + coverage) for item in variants)
+
+
+def is_changed(path: str, changed_files: set[str]) -> bool:
+    return any(same_file(path, changed) for changed in changed_files)
+
+
+def select_group(suite: str, group: str, files: list[tuple[str, int, int]], changed_files: set[str]) -> list[tuple[str, int, int]]:
+    if group.endswith('_changed'):
+        source_group = group.removesuffix('_changed')
+        return [item for item in select_group(suite, source_group, files, changed_files) if is_changed(item[0], changed_files)]
     if group.endswith('_overall'):
         return files
     if suite == 'backend' and group == 'backend_admin':
@@ -71,12 +94,26 @@ def pct(covered: int, total: int) -> float:
     return covered / total * 100 if total else 0.0
 
 
-def risk(value: float, target: float) -> tuple[str, str, str]:
+def risk(value: float, target: float, total: int) -> tuple[str, str, str]:
+    if total == 0:
+        return 'ℹ️', 'no_data', 'В этой группе нет покрываемых строк.'
     if value >= target:
         return '✅', 'ok', 'Покрытие на целевом уровне.'
     if value >= target - 5:
         return '🟨', 'watch', 'Нужно добирать покрытие точечно при ближайших изменениях в модуле.'
     return '🟥', 'action_required', 'Нужно завести/взять задачу на добор тестов и закрывать непокрытые ветки по coverage artifact.'
+
+
+def group_names_for(suite: str, changed_files: set[str]) -> list[str]:
+    if suite == 'backend':
+        names = ['backend_platform', 'backend_admin', 'backend_overall']
+        if changed_files:
+            names += ['backend_platform_changed', 'backend_admin_changed']
+        return names
+    names = ['frontend_ui', 'frontend_admin', 'frontend_overall']
+    if changed_files:
+        names += ['frontend_ui_changed', 'frontend_admin_changed']
+    return names
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,6 +123,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--input', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--json-output', type=Path, required=True)
+    parser.add_argument('--changed-files', type=Path)
     parser.add_argument('--target', action='append', default=[])
     parser.add_argument('--fail-under', action='append', default=[])
     args = parser.parse_args(argv)
@@ -93,22 +131,26 @@ def main(argv: list[str] | None = None) -> int:
     targets = parse_limit(args.target)
     default_target = targets.get('default', 90.0)
     files = read_cobertura(args.input) if args.format == 'cobertura' else read_vitest_summary(args.input)
-    group_names = ['backend_platform', 'backend_admin', 'backend_overall'] if args.suite == 'backend' else ['frontend_ui', 'frontend_admin', 'frontend_overall']
+    changed_files = read_changed_files(args.changed_files)
 
     rows = []
-    for name in group_names:
-        selected = select_group(args.suite, name, files)
+    for name in group_names_for(args.suite, changed_files):
+        selected = select_group(args.suite, name, files, changed_files)
         covered = sum(item[1] for item in selected)
         total = sum(item[2] for item in selected)
-        target = targets.get(name, default_target)
+        base_name = name.removesuffix('_changed')
+        target = targets.get(name, targets.get(base_name, default_target))
         value = pct(covered, total)
-        mark, state, action = risk(value, target)
-        rows.append({'name': name, 'covered': covered, 'total': total, 'pct': round(value, 2), 'target': target, 'risk': state, 'action': action, 'passed': True})
+        mark, state, action = risk(value, target, total)
+        rows.append({'name': name, 'covered': covered, 'total': total, 'pct': round(value, 2), 'target': target, 'risk': state, 'action': action, 'changed_files_metric': name.endswith('_changed'), 'passed': True})
 
     lines = [f'📊 City Go {args.suite} coverage', f"Прогон: #{os.getenv('GITHUB_RUN_NUMBER', 'unknown')} · commit {os.getenv('GITHUB_SHA', 'unknown')[:7]}", '', 'Метрики покрытия строк:']
     for row in rows:
-        mark, _, _ = risk(float(row['pct']), float(row['target']))
-        lines.append(f"- {mark} {row['name'].replace('_', ' ')}: {row['pct']:.1f}% ({row['covered']}/{row['total']}) · target {row['target']:.1f}% · {row['risk']}")
+        mark, _, _ = risk(float(row['pct']), float(row['target']), int(row['total']))
+        suffix = ' · changed files' if row['changed_files_metric'] else ''
+        lines.append(f"- {mark} {row['name'].replace('_', ' ')}: {row['pct']:.1f}% ({row['covered']}/{row['total']}) · target {row['target']:.1f}% · {row['risk']}{suffix}")
+    if changed_files:
+        lines += ['', 'Changed-files coverage показывает покрытие файлов, изменённых в текущем diff. Это главный сигнал, что новый функционал забыли покрыть тестами.']
     if any(row['risk'] == 'action_required' for row in rows):
         lines += ['', 'Действие: coverage не валит CI. Низкие группы попадают в отчёт как action_required; по ним нужно добавлять атомарные unit/API/UI тесты из coverage artifact.']
     message = '\n'.join(lines) + '\n'
@@ -116,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(message, encoding='utf-8')
     args.json_output.parent.mkdir(parents=True, exist_ok=True)
-    args.json_output.write_text(json.dumps({'suite': args.suite, 'groups': rows}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    args.json_output.write_text(json.dumps({'suite': args.suite, 'changed_files': sorted(changed_files), 'groups': rows}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     if os.getenv('GITHUB_STEP_SUMMARY'):
         Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8').write('\n```text\n' + message + '```\n')
     print(message)
