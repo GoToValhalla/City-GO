@@ -15,6 +15,7 @@ from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
 from models.city import City
 from models.place import Place
+from routers.admin_mobile_tools import router as admin_mobile_tools_router
 from schemas.admin_place_ops import (
     AdminAddressRefreshRequest,
     AdminBulkApplyRequest,
@@ -38,6 +39,7 @@ from services.place_read_service import build_place_read
 from services.system_log_service import list_system_logs, write_system_log
 
 router = APIRouter(prefix="/admin", tags=["admin-place-ops"])
+router.include_router(admin_mobile_tools_router)
 
 GITHUB_REPO = os.getenv("GITHUB_DEPLOY_REPO", "GoToValhalla/City-GO")
 GITHUB_WORKFLOW = os.getenv("GITHUB_DEPLOY_WORKFLOW", "deploy.yml")
