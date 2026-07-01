@@ -2,6 +2,14 @@ name: Full Autotests
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '17 3 * * *'
 
 permissions:
   contents: read
@@ -52,24 +60,46 @@ jobs:
           print(include_app_routers.__name__)
           PY
 
-      - name: Run backend regression tests with Allure
+      - name: Run backend regression tests with coverage and Allure
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p artifacts/junit artifacts/allure-results/backend artifacts/messages
-          printf 'Environment=GitHub Actions\nBranch=%s\nCommit=%s\nPython=3.11\nDatabase=SQLite\n' \
+          mkdir -p artifacts/junit artifacts/allure-results/backend artifacts/messages artifacts/coverage
+          printf 'Environment=GitHub Actions\nBranch=%s\nCommit=%s\nPython=3.11\nDatabase=SQLite\nCoverage=enabled\n' \
             "${GITHUB_REF_NAME}" "${GITHUB_SHA}" > artifacts/allure-results/backend/environment.properties
           printf '{"name":"GitHub Actions","type":"github","url":"%s/%s/actions/runs/%s","buildOrder":%s,"buildName":"Full Autotests #%s","buildUrl":"%s/%s/actions/runs/%s"}\n' \
             "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" "${GITHUB_RUN_NUMBER}" "${GITHUB_RUN_NUMBER}" \
             "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}" > artifacts/allure-results/backend/executor.json
           set +e
-          python -m pytest -q --no-cov --junitxml=artifacts/junit/backend.xml --alluredir=artifacts/allure-results/backend
+          python -m pytest -q \
+            --cov=core \
+            --cov=routers \
+            --cov=services \
+            --cov=models \
+            --cov=scripts \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml:artifacts/coverage/backend.xml \
+            --junitxml=artifacts/junit/backend.xml \
+            --alluredir=artifacts/allure-results/backend
           TEST_EXIT=$?
-          set -e
+          python scripts/ci_coverage_summary.py \
+            --suite backend \
+            --format cobertura \
+            --input artifacts/coverage/backend.xml \
+            --output artifacts/messages/backend-coverage.txt \
+            --json-output artifacts/coverage/backend-metrics.json \
+            --fail-under backend_platform=90 \
+            --fail-under backend_admin=90 \
+            --target backend_overall=90
+          COVERAGE_EXIT=$?
           python scripts/ci_test_summary.py --junit artifacts/junit/backend.xml --output artifacts/messages/backend.txt \
             --job-name "Backend full regression" --run-type "Full Autotests" \
-            --artifact-hint "backend-test-artifacts/allure-report/backend/index.html" --exit-code "$TEST_EXIT"
-          exit "$TEST_EXIT"
+            --artifact-hint "backend-test-artifacts/allure-report/backend/index.html" --exit-code "$TEST_EXIT" || true
+          set -e
+          if [ "$TEST_EXIT" != "0" ]; then
+            exit "$TEST_EXIT"
+          fi
+          exit "$COVERAGE_EXIT"
 
       - name: Generate readable Allure HTML report
         if: always()
@@ -91,13 +121,16 @@ jobs:
             artifacts/junit/backend.xml
             artifacts/allure-results/backend
             artifacts/allure-report/backend
+            artifacts/coverage/backend.xml
+            artifacts/coverage/backend-metrics.json
             artifacts/messages/backend.txt
+            artifacts/messages/backend-coverage.txt
           if-no-files-found: warn
 
   frontend-tests:
-    name: Frontend lint, tests and build
+    name: Frontend lint, tests, coverage and build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: frontend
@@ -116,9 +149,15 @@ jobs:
         shell: bash
         run: npm ci
 
+      - name: Install Vitest coverage provider
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-save --package-lock=false "@vitest/coverage-v8@$(node -p \"require('vitest/package.json').version\")"
+
       - name: Prepare frontend artifacts
         shell: bash
-        run: mkdir -p ../artifacts/junit ../artifacts/messages
+        run: mkdir -p ../artifacts/junit ../artifacts/messages ../artifacts/coverage/frontend
 
       - name: Frontend lint
         id: frontend-lint
@@ -146,6 +185,38 @@ jobs:
           fi
           exit "$TEST_EXIT"
 
+      - name: Frontend coverage gate
+        id: frontend-coverage
+        shell: bash
+        continue-on-error: true
+        run: |
+          set +e
+          timeout 8m npx vitest run \
+            --coverage \
+            --coverage.provider=v8 \
+            --coverage.reporter=text \
+            --coverage.reporter=json-summary \
+            --coverage.reportsDirectory=../artifacts/coverage/frontend \
+            --coverage.include='src/**/*.{ts,tsx}' \
+            --coverage.exclude='src/**/*.test.{ts,tsx}' \
+            --coverage.exclude='src/**/__tests__/**'
+          COVERAGE_RUN_EXIT=$?
+          python ../scripts/ci_coverage_summary.py \
+            --suite frontend \
+            --format vitest-json-summary \
+            --input ../artifacts/coverage/frontend/coverage-summary.json \
+            --output ../artifacts/messages/frontend-coverage.txt \
+            --json-output ../artifacts/coverage/frontend-metrics.json \
+            --fail-under frontend_ui=90 \
+            --fail-under frontend_admin=90 \
+            --target frontend_overall=90
+          COVERAGE_SUMMARY_EXIT=$?
+          set -e
+          if [ "$COVERAGE_RUN_EXIT" != "0" ]; then
+            exit "$COVERAGE_RUN_EXIT"
+          fi
+          exit "$COVERAGE_SUMMARY_EXIT"
+
       - name: Frontend build
         id: frontend-build
         shell: bash
@@ -158,6 +229,7 @@ jobs:
         env:
           LINT_RESULT: ${{ steps.frontend-lint.outcome }}
           TEST_RESULT: ${{ steps.frontend-tests.outcome }}
+          COVERAGE_RESULT: ${{ steps.frontend-coverage.outcome }}
           BUILD_RESULT: ${{ steps.frontend-build.outcome }}
         run: |
           set -euo pipefail
@@ -166,19 +238,22 @@ jobs:
           import os
           from pathlib import Path
 
-          lint = os.environ['LINT_RESULT']
-          tests = os.environ['TEST_RESULT']
-          build = os.environ['BUILD_RESULT']
+          stages = {
+              'lint': os.environ['LINT_RESULT'],
+              'tests': os.environ['TEST_RESULT'],
+              'coverage': os.environ['COVERAGE_RESULT'],
+              'build': os.environ['BUILD_RESULT'],
+          }
           Path('../artifacts/messages/frontend-stages.json').write_text(
-              json.dumps({'lint': lint, 'tests': tests, 'build': build}),
+              json.dumps(stages),
               encoding='utf-8',
           )
-          failed = [name for name, value in {'lint': lint, 'tests': tests, 'build': build}.items() if value != 'success']
+          failed = [name for name, value in stages.items() if value != 'success']
           if failed:
               Path('../artifacts/messages/frontend.txt').write_text(
-                  '❌ City Go Frontend lint/tests/build FAILED\n'
+                  '❌ City Go Frontend lint/tests/coverage/build FAILED\n'
                   f'Провалены этапы: {", ".join(failed)}\n'
-                  f'Lint: {lint}\nTests: {tests}\nBuild: {build}\n'
+                  f'Lint: {stages["lint"]}\nTests: {stages["tests"]}\nCoverage: {stages["coverage"]}\nBuild: {stages["build"]}\n'
                   'Действие: открыть лог job и смотреть первый failed frontend stage.\n',
                   encoding='utf-8',
               )
@@ -191,13 +266,14 @@ jobs:
               --run-type "Full Autotests" --artifact-hint "frontend-test-artifacts/frontend.xml" --exit-code "${TEST_EXIT}" || true
           elif [ ! -f ../artifacts/messages/frontend.txt ]; then
             {
-              echo "❌ Frontend lint/tests/build: JUnit report was not created"
+              echo "❌ Frontend lint/tests/coverage/build: JUnit report was not created"
               echo "Причина: Vitest завершился до формирования структурированного отчёта."
               echo "Действие: открыть frontend-vitest.log и проверить первое необработанное исключение."
             } > ../artifacts/messages/frontend.txt
           fi
           cat ../artifacts/messages/frontend.txt
-          if [ "${LINT_RESULT}" != "success" ] || [ "${TEST_RESULT}" != "success" ] || [ "${BUILD_RESULT}" != "success" ]; then
+          [ -f ../artifacts/messages/frontend-coverage.txt ] && cat ../artifacts/messages/frontend-coverage.txt
+          if [ "${LINT_RESULT}" != "success" ] || [ "${TEST_RESULT}" != "success" ] || [ "${COVERAGE_RESULT}" != "success" ] || [ "${BUILD_RESULT}" != "success" ]; then
             exit 1
           fi
 
@@ -208,7 +284,10 @@ jobs:
           name: frontend-test-artifacts
           path: |
             artifacts/junit/frontend.xml
+            artifacts/coverage/frontend
+            artifacts/coverage/frontend-metrics.json
             artifacts/messages/frontend.txt
+            artifacts/messages/frontend-coverage.txt
             artifacts/messages/frontend-vitest.log
             artifacts/messages/frontend-stages.json
           if-no-files-found: warn
