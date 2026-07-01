@@ -42,10 +42,10 @@ def _is_stuck(job: CityAdminImportJob, *, now: datetime) -> bool:
 
 def _summary(db: Session) -> dict[str, Any]:
     now = datetime.utcnow()
-    jobs = db.query(CityAdminImportJob).all()
-    queued = [job for job in jobs if job.status == "queued"]
-    running = [job for job in jobs if job.status == "running"]
-    active = queued + running
+    total = db.query(CityAdminImportJob.id).count()
+    active = db.query(CityAdminImportJob).filter(CityAdminImportJob.status.in_(("queued", "running"))).all()
+    queued = [job for job in active if job.status == "queued"]
+    running = [job for job in active if job.status == "running"]
     stuck = [job for job in running if _is_stuck(job, now=now)]
     oldest_queued_seconds = None
     if queued:
@@ -54,7 +54,7 @@ def _summary(db: Session) -> dict[str, Any]:
             oldest_queued_seconds = int((now - oldest).total_seconds())
     running_seconds = [_running_seconds(job, now=now) or 0 for job in running]
     return {
-        "total": len(jobs),
+        "total": total,
         "active_total": len(active),
         "queued": len(queued),
         "running": len(running),
