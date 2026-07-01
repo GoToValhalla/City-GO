@@ -43,6 +43,7 @@ GITHUB_REPO = os.getenv("GITHUB_DEPLOY_REPO", "GoToValhalla/City-GO")
 GITHUB_WORKFLOW = os.getenv("GITHUB_DEPLOY_WORKFLOW", "deploy.yml")
 GITHUB_BRANCH = os.getenv("GITHUB_DEPLOY_BRANCH", "main")
 GITHUB_TOKEN_ENV_KEYS = ("GITHUB_DEPLOY_TOKEN", "GITHUB_WORKFLOW_TOKEN", "GITHUB_TOKEN")
+REVIEW_STATUSES = ("draft", "needs_review", "deferred", "unpublished")
 
 
 @router.get("/places/{place_id}/detail", response_model=AdminPlaceDetailRead)
@@ -112,6 +113,19 @@ def refresh_addresses(
     if op.status == "queued":
         background_tasks.add_task(run_address_refresh_operation, op.id)
     return {"operation_id": op.id, "status": op.status, "result": op.result, "error": op.error_message}
+
+
+@router.get("/mobile-tools/cities")
+def mobile_tools_cities(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)):
+    items = []
+    for city in db.query(City).order_by(City.name.asc(), City.slug.asc()).all():
+        base = db.query(Place).filter(Place.city_id == city.id)
+        needs_review = base.filter(Place.publication_status.in_(REVIEW_STATUSES)).count()
+        rejected = base.filter(Place.publication_status == "rejected").count()
+        published = base.filter(Place.publication_status == "published").count()
+        if needs_review or rejected or published or city.launch_status != "draft":
+            items.append({"id": city.id, "slug": city.slug, "name": city.name, "needs_review": needs_review, "rejected": rejected, "published": published})
+    return {"items": items, "total": len(items)}
 
 
 @router.get("/cities/{city_slug}/settings")
