@@ -13,6 +13,7 @@ from aiogram.enums import ParseMode
 from aiogram.types import BotCommand, CallbackQuery, Message, TelegramObject, Update
 
 from core.config import settings
+from telegram_bot.handlers.admin_moderation import router as admin_moderation_router
 from telegram_bot.handlers.catalog import router as catalog_router
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ def create_dispatcher() -> Dispatcher:
     dp = Dispatcher()
     dp.message.middleware(SoftRateLimitMiddleware())
     dp.callback_query.middleware(SoftRateLimitMiddleware())
+    dp.include_router(admin_moderation_router)
     dp.include_router(catalog_router)
     return dp
 
@@ -64,6 +66,7 @@ async def setup_bot_commands(bot: Bot) -> None:
             [
                 BotCommand(command="start", description="Запустить City GO"),
                 BotCommand(command="menu", description="Открыть главное меню"),
+                BotCommand(command="moderation", description="Модерация мест"),
                 BotCommand(command="help", description="Помощь и возможности"),
             ]
         )
