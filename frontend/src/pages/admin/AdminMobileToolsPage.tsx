@@ -32,6 +32,11 @@ export const AdminMobileToolsPage = () => {
     setPhotoIndex(0)
     setMode('queue')
   }
+  const loadRejected = async () => {
+    const data = await adminGet<{ items: Place[] }>(`/admin/mobile-tools/places/rejected?city_slug=${encodeURIComponent(citySlug)}`)
+    setRejected(data.items)
+    setMode('rejected')
+  }
   const act = async (action: 'publish' | 'reject' | 'defer') => {
     if (!place) return
     await adminPost(`/admin/mobile-tools/places/${place.id}/${action}`, {})
@@ -50,6 +55,7 @@ export const AdminMobileToolsPage = () => {
         {cities.map((city) => <option key={city.slug} value={city.slug}>{city.name} · {city.needs_review} · {city.rejected}</option>)}
       </select>
       <button className="admin-btn admin-btn-sm" type="button" onClick={() => loadNext()}>Следующая</button>
+      <button className="admin-btn admin-btn-sm" type="button" onClick={loadRejected}>Отклонённые</button>
     </section>
     {message ? <p className="admin-success-text">{message}</p> : null}
     {mode === 'rejected' ? <section className="admin-card">{rejected.map((item) => <p key={item.id}>{item.title}</p>)}</section> : <section className="admin-card">
