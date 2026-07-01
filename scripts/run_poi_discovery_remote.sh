@@ -8,12 +8,24 @@ PER_CITY_TIMEOUT_SECONDS="${PER_CITY_TIMEOUT_SECONDS:-90}"
 QUEUE_TIMEOUT_SECONDS="${QUEUE_TIMEOUT_SECONDS:-20}"
 RESULTS_JSONL="/tmp/city-go-poi-discovery-results-${RANDOM}.jsonl"
 SUMMARY_EMITTED=0
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3 || command -v python || printf 'python3')}"
+CONTAINER_PYTHON_BIN="${CONTAINER_PYTHON_BIN:-python}"
 : > "$RESULTS_JSONL"
+
+run_with_timeout() {
+  local seconds="$1"
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout --signal=TERM "${seconds}s" "$@"
+    return $?
+  fi
+  "$@"
+}
 
 emit_empty_summary() {
   local status="$1"
   local error_text="${2:-}"
-  python - "$CITY_SLUG" "$LIMIT" "$APPLY_DISCOVERED" "$status" "$error_text" <<'PY'
+  "$PYTHON_BIN" - "$CITY_SLUG" "$LIMIT" "$APPLY_DISCOVERED" "$status" "$error_text" <<'PY'
 import json
 import sys
 city_slug, limit, apply_discovered, status, error_text = sys.argv[1:6]
@@ -34,7 +46,7 @@ PY
 
 emit_final_summary() {
   local status="$1"
-  python - "$RESULTS_JSONL" "$CITY_SLUG" "$LIMIT" "$APPLY_DISCOVERED" "$status" <<'PY'
+  "$PYTHON_BIN" - "$RESULTS_JSONL" "$CITY_SLUG" "$LIMIT" "$APPLY_DISCOVERED" "$status" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -88,7 +100,7 @@ fi
 append_failed_city() {
   local city="$1"
   local reason="$2"
-  python - "$city" "$reason" >> "$RESULTS_JSONL" <<'PY'
+  "$PYTHON_BIN" - "$city" "$reason" >> "$RESULTS_JSONL" <<'PY'
 import json
 import sys
 city, reason = sys.argv[1:3]
@@ -130,11 +142,11 @@ else
   queue_file="/tmp/city-go-poi-city-queue-${RANDOM}.txt"
   queue_error="/tmp/city-go-poi-city-queue-${RANDOM}.err"
   set +e
-  timeout --signal=TERM "${QUEUE_TIMEOUT_SECONDS}s" ${COMPOSE[@]} exec -T \
+  run_with_timeout "${QUEUE_TIMEOUT_SECONDS}" "${COMPOSE[@]}" exec -T \
     -e DB_POOL_SIZE=1 \
     -e DB_MAX_OVERFLOW=0 \
     -e DB_POOL_TIMEOUT_SECONDS=10 \
-    backend python - <<'PY' > "$queue_file" 2> "$queue_error"
+    backend "$CONTAINER_PYTHON_BIN" - <<'PY' > "$queue_file" 2> "$queue_error"
 from db.session import SessionLocal
 from models.city import City
 
@@ -168,13 +180,13 @@ failed=0
 for city in "${city_slugs[@]}"; do
   echo "=== poi discovery city: ${city} ==="
   city_log="/tmp/city-go-poi-discovery-${city}-${RANDOM}.log"
-  cmd=(python -u scripts/discover_new_pois.py --city "$city" --limit "$LIMIT")
+  cmd=("$CONTAINER_PYTHON_BIN" -u scripts/discover_new_pois.py --city "$city" --limit "$LIMIT")
   if [ "$APPLY_DISCOVERED" = "true" ]; then
     cmd+=(--apply)
   fi
 
   set +e
-  timeout --signal=TERM "${PER_CITY_TIMEOUT_SECONDS}s" ${COMPOSE[@]} exec -T \
+  run_with_timeout "${PER_CITY_TIMEOUT_SECONDS}" "${COMPOSE[@]}" exec -T \
     -e DB_POOL_SIZE=1 \
     -e DB_MAX_OVERFLOW=0 \
     -e DB_POOL_TIMEOUT_SECONDS=10 \
@@ -198,7 +210,7 @@ for city in "${city_slugs[@]}"; do
     continue
   fi
 
-  python - "$city_summary" >> "$RESULTS_JSONL" <<'PY'
+  "$PYTHON_BIN" - "$city_summary" >> "$RESULTS_JSONL" <<'PY'
 import json
 import sys
 payload = json.loads(sys.argv[1])

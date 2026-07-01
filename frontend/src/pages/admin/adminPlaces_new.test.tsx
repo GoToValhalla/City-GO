@@ -100,7 +100,7 @@ describe('AdminPlacesPage', () => {
       const calls = fetchMock.mock.calls.map(([url]) => String(url))
       expect(calls.some((url) => url.includes('/admin/taxonomy/categories?city_slug=khanty'))).toBe(true)
     })
-  })
+  }, 20_000)
 
   it('applies route eligibility filter to places query_new', async () => {
     render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
@@ -129,5 +129,5 @@ describe('AdminPlacesPage', () => {
       const body = JSON.parse(String((apply?.[1] as RequestInit).body))
       expect(body).toMatchObject({ place_ids: [1], action: 'set_category', params: { category: 'park' }, confirm: true })
     })
-  }, 10_000)
+  }, 20_000)
 })

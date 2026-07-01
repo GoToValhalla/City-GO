@@ -28,3 +28,13 @@ City-level toggles (`hide_without_photo`, `verified_places_only`) — **филь
 ## Где влияют
 
 См. `services/feature_toggle_guards.py`, `core/public_access_middleware.py`, `services/city_place_filters.py`.
+
+## Telegram
+
+`telegram_admin_moderation` управляет production-модерацией мест в Telegram bot.
+
+- `false`: кнопка `Модерация` скрыта, `/moderation` отвечает, что модерация временно выключена.
+- `true`: в inline main menu появляется `🛠 Модерация`, команда `/moderation` открывает тот же flow.
+
+Этот toggle не является схемой авторизации. Доступ по-прежнему проверяется
+существующими Telegram admin ids, а callback data не содержит секретов.

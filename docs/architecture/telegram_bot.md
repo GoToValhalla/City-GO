@@ -1,6 +1,6 @@
 # City GO Telegram Bot
 
-Last updated: 2026-06-23
+Last updated: 2026-07-01
 
 The Telegram bot is a lightweight tourist interface over the same City GO data quality rules as the web product. It must be presentable, short, and safe: no raw OSM ids, no service-category trash, no debug labels, no unreliable open-now answers.
 
@@ -19,6 +19,7 @@ The bot supports the key website functionality in Telegram:
 - favorites;
 - text search;
 - help and fallback states.
+- place moderation for admins when the feature toggle is enabled.
 
 The bot does not try to replace a full interactive map. It links out to external maps for place/route point navigation.
 
@@ -58,6 +59,7 @@ telegram_bot/session.py            bot_sessions repository helpers, nav stack, s
 telegram_bot/quality.py            final quality filters for bot visibility
 telegram_bot/renderers.py          HTML message rendering and fallbacks
 telegram_bot/keyboards/catalog.py  inline/reply keyboards
+telegram_bot/handlers/admin_moderation.py  admin place moderation callbacks
 telegram_bot/services/facade.py    BotFacade over ORM and quality gates
 telegram_bot/handlers/catalog.py   /start, menu, callbacks, route mode, places, search, location
 telegram_bot/analytics.py          bot_events logger
@@ -127,6 +129,16 @@ route_session_points
 
 ## User Flows
 
+### Keyboard Contract
+
+The production main menu is inline-only. The bot may send
+`ReplyKeyboardRemove` to hide old persistent keyboards, but it must not use
+`ReplyKeyboardMarkup` for the main menu. Native location request keyboards are
+allowed only in flows where Telegram location is explicitly needed.
+
+Slash commands such as `/start`, `/menu`, `/help`, and `/moderation` are handled
+by command routers and are ignored by the generic text fallback.
+
 ### Start
 
 `/start`:
@@ -155,6 +167,30 @@ Buttons:
 - `❤️ Избранное`
 - `🏙 Сменить город`
 - `❓ Помощь`
+
+When global feature toggle `telegram_admin_moderation` is enabled, admins also
+see:
+
+- `🛠 Модерация`
+
+The button uses callback data only and does not carry secrets.
+
+### Admin Moderation
+
+`/moderation` and `🛠 Модерация` open the same place review flow when
+`telegram_admin_moderation` is enabled. When the toggle is disabled, the command
+answers: `Модерация временно выключена`.
+
+The flow:
+
+- shows cities with review/rejected counters;
+- opens one place card;
+- supports publish, reject, move to queue end, next, back to cities;
+- supports restoring rejected places to the review queue.
+
+Publishing delegates to shared backend review logic and its publication blockers.
+Telegram does not duplicate safety rules and does not pass admin tokens through
+messages, callback data, deep links, or web app query strings.
 
 ### Routes
 

@@ -9,6 +9,7 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy.orm import Session
 
+from services.feature_toggle_service import is_toggle_enabled
 from db.session import SessionLocal
 from services.route_session_service import (
     RouteSessionError,
@@ -92,7 +93,7 @@ async def location_message(message: Message) -> None:
             pending_state = session.route_session if isinstance(session.route_session, dict) else {}
             route = facade.route(_int(pending_state.get("pending_route_id"), 0))
             if route is None:
-                await message.answer("Ожидавший маршрут уже недоступен.", reply_markup=kb.main_menu())
+                await message.answer("Ожидавший маршрут уже недоступен.", reply_markup=_main_menu_markup(db))
                 return
             backend_session = start_backend_route_session(db, route.id, user_key=f"tg:{session.telegram_user_id}")
             session.route_session = _route_state_from_backend(backend_session)
@@ -104,7 +105,7 @@ async def location_message(message: Message) -> None:
             )
             return
         if pending == "build_route":
-            await message.answer("Геопозиция получена. Теперь можно построить маршрут.", reply_markup=kb.main_menu())
+            await message.answer("Геопозиция получена. Теперь можно построить маршрут.", reply_markup=_main_menu_markup(db))
             return
         places = facade.nearby_places(session.selected_city_slug, message.location.latitude, message.location.longitude)
         log_event(db, session, "nearby_used", payload={"results_count": len(places)})
@@ -136,7 +137,7 @@ async def text_message(message: Message) -> None:
         if lowered == "использовать центр города":
             session.current_flow = None
             save_session(db, session)
-            await _answer_main_menu(message, "Используем центр выбранного города.")
+            await _answer_main_menu(message, "Используем центр выбранного города.", db)
             return
         if lowered == "сменить город":
             await _show_city_select_message(message, facade, db=db, session=session)
@@ -236,14 +237,14 @@ async def _start_flow(db: Session, session, facade: BotFacade, message: Message)
         session.current_flow = "main"
         session.nav_stack = ["m:main"]
         save_session(db, session)
-        await _answer_main_menu(message, renderers.main_menu_text(selected))
+        await _answer_main_menu(message, renderers.main_menu_text(selected), db)
         return
     if len(cities) == 1:
         session.selected_city_slug = cities[0].slug
         session.current_flow = "main"
         session.nav_stack = ["m:main"]
         save_session(db, session)
-        await _answer_main_menu(message, renderers.main_menu_text(cities[0]))
+        await _answer_main_menu(message, renderers.main_menu_text(cities[0]), db)
         return
     session.current_flow = "city_select"
     session.nav_stack = ["c:list"]
@@ -260,12 +261,16 @@ async def _show_main_menu_message(db: Session, session, facade: BotFacade, messa
         return
     session.current_flow = "main"
     save_session(db, session)
-    await _answer_main_menu(message, renderers.main_menu_text(city))
+    await _answer_main_menu(message, renderers.main_menu_text(city), db)
 
 
-async def _answer_main_menu(message: Message, text: str) -> None:
+async def _answer_main_menu(message: Message, text: str, db: Session) -> None:
     await _remove_reply_keyboard(message)
-    await message.answer(text, reply_markup=kb.main_menu())
+    await message.answer(text, reply_markup=_main_menu_markup(db))
+
+
+def _main_menu_markup(db: Session) -> object:
+    return kb.main_menu(show_moderation=is_toggle_enabled(db, "telegram_admin_moderation", default=False))
 
 
 async def _remove_reply_keyboard(message: Message) -> None:
@@ -280,7 +285,7 @@ async def _show_main_menu_callback(callback: CallbackQuery, db: Session, session
         return
     session.current_flow = "main"
     save_session(db, session)
-    await _edit_or_answer(callback, renderers.main_menu_text(city), reply_markup=kb.main_menu())
+    await _edit_or_answer(callback, renderers.main_menu_text(city), reply_markup=_main_menu_markup(db))
 
 
 async def _show_city_select_message(message: Message, facade: BotFacade, *, db: Session | None = None, session=None) -> None:
@@ -313,7 +318,7 @@ async def _select_city_from_text(db: Session, session, facade: BotFacade, messag
         session.nav_stack = ["m:main"]
         save_session(db, session)
         log_event(db, session, "city_selected", entity_type="city", entity_id=city.slug)
-        await _answer_main_menu(message, renderers.main_menu_text(city))
+        await _answer_main_menu(message, renderers.main_menu_text(city), db)
         return
 
     cities = facade.published_cities()
@@ -340,7 +345,7 @@ async def _handle_city(callback: CallbackQuery, db: Session, session, facade: Bo
         session.nav_stack = ["m:main"]
         save_session(db, session)
         log_event(db, session, "city_selected", entity_type="city", entity_id=city.slug)
-        await _edit_or_answer(callback, renderers.main_menu_text(city), reply_markup=kb.main_menu())
+        await _edit_or_answer(callback, renderers.main_menu_text(city), reply_markup=_main_menu_markup(db))
         return
     await _show_city_select_callback(callback, facade, db=db, session=session)
 

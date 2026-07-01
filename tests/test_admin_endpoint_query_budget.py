@@ -7,6 +7,9 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 import services.admin_extended_service as admin_extended_service
+from services.admin_coverage_metrics import build_coverage_summary
+from services.admin_metrics_service import build_metrics_summary
+from services.admin_mobile_place_review import list_review_cities
 from services.place_verification_service import get_place_verification_queue, place_verification_summary
 from services.taxonomy_admin_service import list_categories
 
@@ -124,3 +127,46 @@ def test_admin_cities_batches_counters_and_latest_jobs(db_session, monkeypatch, 
         assert rows_by_slug[city.slug]["places_total"] == 2
         assert rows_by_slug[city.slug]["places_published"] == 1
     assert len(statements) <= 5
+
+
+def test_admin_coverage_summary_batches_city_metrics(db_session, city_factory, place_factory):
+    cities = [city_factory(slug=f"coverage-perf-{idx}", name=f"Coverage Perf {idx}") for idx in range(5)]
+    for city in cities:
+        published = place_factory(city_id=city.id, slug=f"coverage-perf-published-{city.id}", is_published=True, image_url="https://img.test/a.jpg", address="ул. Мира, 1")
+        published.short_description = "Описание"
+        place_factory(city_id=city.id, slug=f"coverage-perf-hidden-{city.id}", is_published=False, image_url=None, address=None)
+    db_session.commit()
+
+    with _select_statements(db_session) as statements:
+        items, total = build_coverage_summary(db_session, limit=5, offset=0)
+
+    assert total >= len(cities)
+    assert len(items) == 5
+    assert len(statements) <= 6
+
+
+def test_telegram_moderation_city_list_batches_counts(db_session, city_factory, place_factory):
+    cities = [city_factory(slug=f"moderation-perf-{idx}", name=f"Moderation Perf {idx}") for idx in range(4)]
+    for city in cities:
+        place_factory(city_id=city.id, publication_status="needs_review")
+        place_factory(city_id=city.id, publication_status="rejected")
+        place_factory(city_id=city.id, publication_status="published")
+    db_session.commit()
+
+    with _select_statements(db_session) as statements:
+        payload = list_review_cities(db_session)
+
+    assert payload["total"] >= len(cities)
+    assert len(statements) <= 2
+
+
+def test_admin_metrics_summary_uses_compact_aggregates(db_session, place_factory):
+    place_factory(slug="metrics-summary-a", is_published=True, image_url=None, address=None)
+    place_factory(slug="metrics-summary-b", is_published=False, image_url="https://img.test/b.jpg", address="ул. Мира, 2")
+    db_session.commit()
+
+    with _select_statements(db_session) as statements:
+        payload = build_metrics_summary(db_session)
+
+    assert payload["places_total"] >= 2
+    assert len(statements) <= 4

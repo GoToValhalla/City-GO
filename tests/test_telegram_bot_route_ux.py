@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aiogram.types import ReplyKeyboardRemove
+from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardRemove
 
 from telegram_bot.keyboards.main_menu import get_location_request_keyboard, get_main_menu_keyboard
 from telegram_bot.keyboards.route_actions import get_route_actions_keyboard
@@ -8,7 +8,8 @@ from telegram_bot.services.route_formatter import format_route_message
 
 
 def _button_texts(markup) -> list[str]:
-    return [button.text for row in markup.keyboard for button in row]
+    rows = getattr(markup, "keyboard", None) or getattr(markup, "inline_keyboard", None) or []
+    return [button.text for row in rows for button in row]
 
 
 def test_main_keyboard_removes_persistent_reply_keyboard_new() -> None:
@@ -28,6 +29,7 @@ def test_location_keyboard_exposes_location_request_new() -> None:
 
 def test_route_actions_keyboard_exposes_extend_route_new() -> None:
     keyboard = get_route_actions_keyboard()
+    assert isinstance(keyboard, InlineKeyboardMarkup)
     texts = _button_texts(keyboard)
     assert "Добавить точку" in texts
     assert "Маршрут короче" in texts

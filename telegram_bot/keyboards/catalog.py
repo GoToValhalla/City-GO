@@ -16,11 +16,13 @@ CITY_LIST_VISIBLE_LIMIT = 5
 BUTTON_TITLE_LIMIT = 42
 
 
-def main_menu() -> InlineKeyboardMarkup:
+def main_menu(*, show_moderation: bool = False) -> InlineKeyboardMarkup:
     rows = []
     mini_app_button = _mini_app_button("🚀 Открыть City GO", "/")
     if mini_app_button is not None:
         rows.append([mini_app_button])
+    if show_moderation:
+        rows.append([InlineKeyboardButton(text="🛠 Модерация", callback_data="admrev:cities")])
     rows.extend(
         [
             [

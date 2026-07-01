@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from db.session import SessionLocal
+from services.feature_toggle_service import is_toggle_enabled
 from services.admin_mobile_place_review import defer_place, list_review_cities, next_review_place, publish_place, rejected_places, reject_place, restore_place
 
 router = Router()
@@ -20,10 +21,13 @@ CALLBACK_PREFIX = "admrev"
 @router.message(Command("moderation", "mod", "review"))
 async def cmd_moderation(message: Message) -> None:
     await _remove_reply_keyboard(message)
-    if not _is_admin_message(message):
-        await message.answer("Модерация мест доступна только администратору.", reply_markup=ReplyKeyboardRemove())
-        return
     with SessionLocal() as db:
+        if not _is_enabled(db):
+            await message.answer("Модерация временно выключена.", reply_markup=ReplyKeyboardRemove())
+            return
+        if not _is_admin_message(message):
+            await message.answer("Модерация мест доступна только администратору.", reply_markup=ReplyKeyboardRemove())
+            return
         await message.answer(_cities_text(db), reply_markup=_cities_keyboard(db))
 
 
@@ -39,6 +43,9 @@ async def moderation_callback(callback: CallbackQuery) -> None:
     actor = f"tg:{callback.from_user.id if callback.from_user else 'unknown'}"
     try:
         with SessionLocal() as db:
+            if not _is_enabled(db):
+                await callback.answer("Модерация временно выключена", show_alert=True)
+                return
             if action == "cities":
                 await _edit(callback, _cities_text(db), _cities_keyboard(db))
                 return
@@ -223,6 +230,10 @@ def _allowed_ids() -> set[int]:
         with suppress(ValueError):
             result.add(int(item.strip()))
     return result
+
+
+def _is_enabled(db: Session) -> bool:
+    return is_toggle_enabled(db, "telegram_admin_moderation", default=False)
 
 
 def _int(value: object, default: int = 0) -> int:

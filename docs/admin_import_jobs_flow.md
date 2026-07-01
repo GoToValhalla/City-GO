@@ -78,6 +78,19 @@ Import-worker must route queued jobs by `CityAdminImportJob.source`:
 
 If a worker task raises an exception, the active job is marked `failed`, moves to `error`, stores `last_error` and `step_details.worker_exception`, and gets `finished_at`. The job must not stay indefinitely in `running`.
 
+## Discovery summary contract
+
+POI discovery jobs must emit one machine-readable line:
+
+```text
+POI_DISCOVERY_SUMMARY_JSON={...}
+```
+
+The line is emitted for success, partial failure, and early infrastructure
+failures such as missing compose/backend container. The remote shell wrapper uses
+host `python3`/`python` for summary assembly and treats GNU `timeout` as optional,
+so local/macOS smoke tests and production Linux runs keep the same JSON contract.
+
 ## Stuck queue recovery
 
 `GET /admin/import-queue` is still read-only, but it reports hard-stuck running jobs:

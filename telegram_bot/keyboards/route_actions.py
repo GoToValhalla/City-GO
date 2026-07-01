@@ -1,14 +1,14 @@
-from aiogram.types import KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
-def get_route_actions_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="Добавить точку"), KeyboardButton(text="Маршрут короче")],
-            [KeyboardButton(text="Перестроить отсюда"), KeyboardButton(text="Убрать первую точку")],
-            [KeyboardButton(text="📡 Отправить геолокацию", request_location=True)],
-            [KeyboardButton(text="🗺 Построить маршрут"), KeyboardButton(text="⚙️ Сменить город")],
+def get_route_actions_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Добавить точку", callback_data="r:extend")],
+            [InlineKeyboardButton(text="Маршрут короче", callback_data="r:shorter")],
+            [InlineKeyboardButton(text="Перестроить отсюда", callback_data="r:rebuild")],
+            [InlineKeyboardButton(text="Убрать первую точку", callback_data="r:drop_first")],
+            [InlineKeyboardButton(text="🗺 Построить маршрут", callback_data="r:list:0")],
+            [InlineKeyboardButton(text="⚙️ Сменить город", callback_data="c:list")],
         ],
-        resize_keyboard=True,
-        input_field_placeholder="Например: добавить точку или маршрут длиннее",
     )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from models.place import Place
@@ -79,17 +79,19 @@ def _event_counts_since(db: Session, since: datetime) -> dict[str, int]:
 
 
 def _place_counts(db: Session) -> dict[str, int]:
-    total = int(db.query(func.count(Place.id)).scalar() or 0)
-    published = int(db.query(func.count(Place.id)).filter(Place.is_published.is_(True)).scalar() or 0)
-    no_photo = int(db.query(func.count(Place.id)).filter(Place.image_url.is_(None)).scalar() or 0)
-    no_address = int(db.query(func.count(Place.id)).filter(Place.address.is_(None)).scalar() or 0)
-    no_description = int(db.query(func.count(Place.id)).filter(Place.short_description.is_(None)).scalar() or 0)
+    row = db.query(
+        func.count(Place.id),
+        func.sum(case((Place.is_published.is_(True), 1), else_=0)),
+        func.sum(case((Place.image_url.is_(None), 1), else_=0)),
+        func.sum(case((Place.address.is_(None), 1), else_=0)),
+        func.sum(case((Place.short_description.is_(None), 1), else_=0)),
+    ).one()
     return {
-        "total": total,
-        "published": published,
-        "no_photo": no_photo,
-        "no_address": no_address,
-        "no_description": no_description,
+        "total": int(row[0] or 0),
+        "published": int(row[1] or 0),
+        "no_photo": int(row[2] or 0),
+        "no_address": int(row[3] or 0),
+        "no_description": int(row[4] or 0),
     }
 
 

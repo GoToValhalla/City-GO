@@ -18,6 +18,7 @@ GLOBAL_TOGGLES: tuple[ToggleDef, ...] = (
     {"key": "ai_intent_parsing_enabled", "label": "AI intent parsing", "description": "Разбор намерений из текста", "default": True, "scope": "global", "group": "ai"},
     {"key": "ai_retrieval_enabled", "label": "AI retrieval", "description": "Поиск кандидатов через AI", "default": True, "scope": "global", "group": "ai"},
     {"key": "admin_moderation_enabled", "label": "Админ-модерация", "description": "Операционные действия в админке", "default": True, "scope": "global", "group": "moderation"},
+    {"key": "telegram_admin_moderation", "label": "Telegram-модерация", "description": "Модерация мест в production Telegram-боте", "default": False, "scope": "global", "group": "moderation"},
     {"key": "place_verification_enabled", "label": "Верификация мест", "description": "Очередь проверки мест", "default": True, "scope": "global", "group": "moderation"},
     {"key": "photo_moderation_enabled", "label": "Модерация фото", "description": "Очередь фото на проверке", "default": True, "scope": "global", "group": "moderation"},
     {"key": "auto_import_enabled", "label": "Автоимпорт", "description": "Фоновые задачи импорта", "default": True, "scope": "global", "group": "data"},

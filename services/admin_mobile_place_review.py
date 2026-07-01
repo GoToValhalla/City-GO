@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from models.city import City
@@ -16,15 +17,32 @@ NON_ROUTE_LAYERS = {"service", "transport", "utility"}
 
 
 def list_review_cities(db: Session) -> dict[str, object]:
+    cities = db.query(City).order_by(City.name.asc(), City.slug.asc()).all()
+    counts = _publication_counts(db, [int(city.id) for city in cities])
     items = []
-    for city in db.query(City).order_by(City.name.asc(), City.slug.asc()).all():
-        base = db.query(Place).filter(Place.city_id == city.id)
-        needs_review = base.filter(Place.publication_status.in_(REVIEW_STATUSES)).count()
-        rejected = base.filter(Place.publication_status == "rejected").count()
-        published = base.filter(Place.publication_status == "published").count()
+    for city in cities:
+        city_counts = counts.get(int(city.id), {})
+        needs_review = sum(int(city_counts.get(status, 0)) for status in REVIEW_STATUSES)
+        rejected = int(city_counts.get("rejected", 0))
+        published = int(city_counts.get("published", 0))
         if needs_review or rejected or published or city.launch_status != "draft":
             items.append({"id": city.id, "slug": city.slug, "name": city.name, "needs_review": needs_review, "rejected": rejected, "published": published})
     return {"items": items, "total": len(items)}
+
+
+def _publication_counts(db: Session, city_ids: list[int]) -> dict[int, dict[str, int]]:
+    if not city_ids:
+        return {}
+    rows = (
+        db.query(Place.city_id, Place.publication_status, func.count(Place.id))
+        .filter(Place.city_id.in_(city_ids))
+        .group_by(Place.city_id, Place.publication_status)
+        .all()
+    )
+    result: dict[int, dict[str, int]] = {}
+    for city_id, status, count in rows:
+        result.setdefault(int(city_id), {})[str(status or "unknown")] = int(count or 0)
+    return result
 
 
 def next_review_place(db: Session, city_slug: str) -> dict[str, object]:
