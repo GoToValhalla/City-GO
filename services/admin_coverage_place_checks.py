@@ -25,7 +25,7 @@ def published_quality_counts(
 ) -> tuple[int, int, int, int, int, int]:
     """Возвращает with/without photo, address, description для опубликованных мест."""
     public_by_id = resolve_public_place_images_bulk(db, published_places)
-    with_photo = sum(1 for place in published_places if public_by_id.get(place.id) is not None)
+    with_photo = sum(1 for place in published_places if bool(public_by_id.get(place.id)))
     with_addr = sum(1 for place in published_places if place_has_coverage_address(place))
     with_desc = sum(1 for place in published_places if place_has_coverage_description(place))
     published = len(published_places)
