@@ -5,6 +5,9 @@ from services.place_runtime_defaults import effective_opening_hours, effective_v
 def place_card_payload(place: Place) -> dict[str, object]:
     has_hours = isinstance(place.opening_hours, dict) and bool(place.opening_hours)
     has_duration = bool(place.average_visit_duration_minutes)
+    image_url = getattr(place, "public_image_url", None) or place.image_url
+    image_urls = getattr(place, "public_image_urls", None) or getattr(place, "image_urls", None)
+    photo_urls = getattr(place, "public_photo_urls", None) or getattr(place, "photo_urls", None) or image_urls
     return {
         "id": place.id,
         "slug": place.slug,
@@ -13,9 +16,9 @@ def place_card_payload(place: Place) -> dict[str, object]:
         "category_id": place.category_id,
         "category": place.category,
         "short_description": place.short_description,
-        "image_url": getattr(place, "public_image_url", None),
-        "image_urls": getattr(place, "public_image_urls", None),
-        "photo_urls": getattr(place, "public_photo_urls", None),
+        "image_url": image_url,
+        "image_urls": image_urls,
+        "photo_urls": photo_urls,
         "image_id": getattr(place, "public_image_id", None),
         "image_source_type": getattr(place, "public_image_source_type", None),
         "image_attribution": getattr(place, "public_image_attribution", None),
