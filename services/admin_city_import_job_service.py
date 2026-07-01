@@ -126,7 +126,15 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
     if city is None: raise ValueError("Город не найден")
     job = ensure_import_job(db, city_id=city_id); job.status = "running"; job.source = SOURCE_PHOTO_ENRICHMENT; job.current_step = "finding_images"; job.started_at = datetime.utcnow(); db.commit()
     result = run_image_enrich(["--city", city.slug, "--limit", str(IMAGE_LIMIT), "--apply"])
-    job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result}; job.status = "success"; job.finished_at = datetime.utcnow(); job.current_step = "snapshot_refresh"; db.commit(); _refresh_snapshot_light(db, city=city, job=job, source="photo_enrichment_finished"); db.refresh(job); return job
+    scanned = int(result.get("scanned_places") or 0) if isinstance(result, dict) else 0
+    created = int(result.get("created") or 0) if isinstance(result, dict) else 0
+    errors = result.get("errors") if isinstance(result, dict) else []
+    provider_status = result.get("provider_status") if isinstance(result, dict) else None
+    job.places_found = scanned; job.places_saved = created; job.total_items = scanned; job.processed_items = scanned; job.successful_items = scanned; job.failed_items = len(errors or []) if isinstance(errors, list) else 0
+    job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result}
+    job.status = "success"; job.finished_at = datetime.utcnow(); job.current_step = "snapshot_refresh"
+    log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result})
+    db.commit(); _refresh_snapshot_light(db, city=city, job=job, source="photo_enrichment_finished"); db.refresh(job); return job
 
 
 def _refresh_snapshot_light(db: Session, *, city: City, job: CityAdminImportJob, source: str) -> dict[str, object]:
