@@ -24,7 +24,8 @@ def add_photo_candidate(
     match_type: str,
     confidence: float,
 ) -> PlacePhotoCandidate:
-    item = db.query(PlacePhotoCandidate).filter_by(place_id=place_id, image_url=image_url).first()
+    item = _pending_photo_candidate(db, place_id=place_id, image_url=image_url)
+    item = item or db.query(PlacePhotoCandidate).filter_by(place_id=place_id, image_url=image_url).first()
     item = item or PlacePhotoCandidate(place_id=place_id, image_url=image_url)
     item.source_type = source_type
     item.match_type = match_type
@@ -91,6 +92,13 @@ def _place_image(db: Session, candidate: PlacePhotoCandidate) -> PlaceImage:
         source_url=candidate.source_url,
         confidence=candidate.confidence,
     )
+
+
+def _pending_photo_candidate(db: Session, *, place_id: int, image_url: str) -> PlacePhotoCandidate | None:
+    for pending in db.new:
+        if isinstance(pending, PlacePhotoCandidate) and pending.place_id == place_id and pending.image_url == image_url:
+            return pending
+    return None
 
 
 def _is_generic(candidate: PlacePhotoCandidate) -> bool:
