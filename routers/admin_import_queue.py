@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends
@@ -19,11 +19,20 @@ router = APIRouter(prefix="/admin", tags=["admin-import-queue"])
 MAX_RUNNING_SECONDS = 60 * 60
 
 
+def _utc_naive(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _running_seconds(job: CityAdminImportJob, *, now: datetime) -> int | None:
-    ref = job.started_at or job.updated_at or job.created_at
+    now_value = _utc_naive(now) or datetime.utcnow()
+    ref = _utc_naive(job.started_at or job.updated_at or job.created_at)
     if ref is None:
         return None
-    return max(0, int((now - ref).total_seconds()))
+    return max(0, int((now_value - ref).total_seconds()))
 
 
 def _is_stuck(job: CityAdminImportJob, *, now: datetime) -> bool:
@@ -40,7 +49,7 @@ def _summary(db: Session) -> dict[str, Any]:
     stuck = [job for job in running if _is_stuck(job, now=now)]
     oldest_queued_seconds = None
     if queued:
-        oldest = min((job.created_at for job in queued if job.created_at), default=None)
+        oldest = min((_utc_naive(job.created_at) for job in queued if job.created_at), default=None)
         if oldest is not None:
             oldest_queued_seconds = int((now - oldest).total_seconds())
     running_seconds = [_running_seconds(job, now=now) or 0 for job in running]
@@ -54,7 +63,7 @@ def _summary(db: Session) -> dict[str, Any]:
         "longest_running_seconds": max(running_seconds, default=None),
         "running_job_ids": [job.id for job in running],
         "stale_job_ids": [job.id for job in stuck],
-        "next_job_ids": [job.id for job in sorted(queued, key=lambda item: (item.created_at or datetime.min, item.id))[:10]],
+        "next_job_ids": [job.id for job in sorted(queued, key=lambda item: (_utc_naive(item.created_at) or datetime.min, item.id))[:10]],
         "by_status": dict(Counter(str(job.status or "unknown") for job in active)),
         "by_source": dict(Counter(str(job.source or "unknown") for job in active)),
     }
