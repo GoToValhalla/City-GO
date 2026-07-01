@@ -1,19 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd /srv/app
-
-if docker compose version >/dev/null 2>&1; then
-  COMPOSE=(docker compose)
-  echo "Docker Compose command: docker compose"
-elif command -v docker-compose >/dev/null 2>&1; then
-  COMPOSE=(docker-compose)
-  echo "Docker Compose command: docker-compose"
-else
-  echo "ERROR: neither docker compose nor docker-compose is available." >&2
-  exit 127
-fi
-
 CITY_SLUG="${CITY_SLUG:-}"
 LIMIT="${LIMIT:-50}"
 APPLY_DISCOVERED="${APPLY_DISCOVERED:-true}"
@@ -83,6 +70,20 @@ on_exit() {
   fi
 }
 trap on_exit EXIT
+
+cd /srv/app
+
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE=(docker compose)
+  echo "Docker Compose command: docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE=(docker-compose)
+  echo "Docker Compose command: docker-compose"
+else
+  echo "ERROR: neither docker compose nor docker-compose is available." >&2
+  emit_empty_summary "error" "compose_not_available"
+  exit 127
+fi
 
 append_failed_city() {
   local city="$1"
