@@ -6,7 +6,16 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from models.city_admin_import_job import CityAdminImportJob
 from models.review_queue_item import ReviewQueueItem
+
+
+def _safe_job_id(db: Session, job_id: int | None) -> int | None:
+    if job_id is None:
+        return None
+    if db.get(CityAdminImportJob, job_id) is not None:
+        return job_id
+    return None
 
 
 def ensure_review_item(
@@ -27,6 +36,11 @@ def ensure_review_item(
     issue, or may first create a generic field issue and later normalize it to a
     concrete reason. Always prefer the exact open item before mutating any other
     row; otherwise changing ``reason`` can collide with an already existing row.
+
+    ``job_id`` is optional context only. It must never break the import pipeline:
+    older collectors may pass a scope/internal job id instead of a
+    ``city_admin_import_jobs.id``. In that case keep the review item and drop the
+    invalid FK value, preserving it in payload for diagnostics.
     """
     item = _pending_item(db, place_id=place_id, field_name=field_name, reason=reason)
     item = item or _open_item(db, place_id=place_id, field_name=field_name, reason=reason)
@@ -40,11 +54,15 @@ def ensure_review_item(
             reason=reason,
             status="open",
         )
+    safe_job_id = _safe_job_id(db, job_id)
+    next_payload = dict(payload or {})
+    if job_id is not None and safe_job_id is None:
+        next_payload["dropped_invalid_job_id"] = job_id
     item.city_id = city_id
     item.reason = reason
-    item.job_id = job_id
+    item.job_id = safe_job_id
     item.severity = severity
-    item.payload = payload or {}
+    item.payload = next_payload
     db.add(item)
     return item
 
