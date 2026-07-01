@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a compact Telegram report from per-job CI summary artifacts only."""
+"""Build a compact Telegram report from per-job CI summary artifacts and job results."""
 
 from __future__ import annotations
 
@@ -14,12 +14,16 @@ SUMMARY_ORDER = {
     "frontend-coverage.txt": 3,
 }
 SUMMARY_NAMES = set(SUMMARY_ORDER)
+REQUIRED_JOBS = {
+    "backend": "BACKEND_JOB_RESULT",
+    "frontend": "FRONTEND_JOB_RESULT",
+}
 
 
-def _read_messages(messages_dir: Path) -> list[str]:
+def _read_messages(messages_dir: Path) -> dict[str, str]:
     messages: list[tuple[str, str]] = []
     if not messages_dir.exists():
-        return []
+        return {}
     for path in sorted(messages_dir.rglob("*.txt")):
         if path.name not in SUMMARY_NAMES:
             continue
@@ -31,7 +35,24 @@ def _read_messages(messages_dir: Path) -> list[str]:
             continue
         if text:
             messages.append((path.name, text))
-    return [text for _, text in sorted(messages, key=lambda item: SUMMARY_ORDER.get(item[0], 99))]
+    return {name: text for name, text in sorted(messages, key=lambda item: SUMMARY_ORDER.get(item[0], 99))}
+
+
+def _job_failure_messages(messages: dict[str, str]) -> list[str]:
+    failures: list[str] = []
+    for label, env_name in REQUIRED_JOBS.items():
+        result = os.getenv(env_name, "unknown")
+        if result in {"success", "skipped"}:
+            continue
+        summary_name = f"{label}.txt"
+        if summary_name in messages:
+            continue
+        failures.append(
+            f"❌ City Go {label.capitalize()} job FAILED\n"
+            f"Статус job: {result}. Summary artifact `{summary_name}` не создан. "
+            "Откройте job logs: падение произошло до формирования отчёта."
+        )
+    return failures
 
 
 def build_report(messages_dir: Path) -> str:
@@ -41,7 +62,9 @@ def build_report(messages_dir: Path) -> str:
     sha = os.getenv("GITHUB_SHA", "")
     ref = os.getenv("GITHUB_REF_NAME", "main")
     run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if run_id else ""
-    messages = _read_messages(messages_dir)
+    messages_by_name = _read_messages(messages_dir)
+    messages = [messages_by_name[name] for name in sorted(messages_by_name, key=lambda key: SUMMARY_ORDER.get(key, 99))]
+    messages.extend(_job_failure_messages(messages_by_name))
     failed = any(message.startswith("❌") for message in messages)
     lines = [
         "❌ CITY GO · CI" if failed else "✅ CITY GO · CI",
