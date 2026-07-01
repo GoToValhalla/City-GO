@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import suppress
 from html import escape
 
@@ -11,11 +12,14 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from db.session import SessionLocal
-from services.feature_toggle_service import is_toggle_enabled
 from services.admin_mobile_place_review import defer_place, list_review_cities, next_review_place, publish_place, rejected_places, reject_place, restore_place
+from services.feature_toggle_service import is_toggle_enabled
 
+logger = logging.getLogger(__name__)
 router = Router()
 CALLBACK_PREFIX = "admrev"
+MAX_MESSAGE_TEXT = 3900
+MAX_PHOTO_CAPTION = 950
 
 
 @router.message(Command("moderation", "mod", "review"))
@@ -47,12 +51,15 @@ async def moderation_callback(callback: CallbackQuery) -> None:
                 await callback.answer("Модерация временно выключена", show_alert=True)
                 return
             if action == "cities":
+                await _ack(callback, "Обновляю города…")
                 await _edit(callback, _cities_text(db), _cities_keyboard(db))
                 return
             if action == "next":
+                await _ack(callback, f"Открываю {city_slug}…")
                 await _send_next(callback, db, city_slug)
                 return
             if action == "rejected":
+                await _ack(callback, "Открываю отклонённые…")
                 await _edit(callback, _rejected_text(db, city_slug), _rejected_keyboard(db, city_slug))
                 return
             if action in {"publish", "reject", "defer", "restore"} and place_id:
@@ -60,10 +67,10 @@ async def moderation_callback(callback: CallbackQuery) -> None:
                 return
         await callback.answer("Команда не распознана", show_alert=False)
     except HTTPException as exc:
-        await callback.answer(str(exc.detail), show_alert=True)
+        await _show_callback_error(callback, str(exc.detail))
     except Exception:
-        await callback.answer("Ошибка модерации. Смотри backend logs.", show_alert=True)
-        raise
+        logger.exception("Telegram moderation callback failed", extra={"callback_data": callback.data})
+        await _show_callback_error(callback, "Ошибка модерации. Смотри backend logs.")
 
 
 def _cities_text(db: Session) -> str:
@@ -99,18 +106,24 @@ async def _send_next(callback: CallbackQuery, db: Session, city_slug: str) -> No
 
 
 async def _send_place(callback: CallbackQuery, place: dict[str, object], city_slug: str, remaining: int) -> None:
-    text = _place_text(place, city_slug, remaining)
+    text = _truncate(_place_text(place, city_slug, remaining), MAX_MESSAGE_TEXT)
     markup = _place_keyboard(city_slug, int(place.get("id") or 0))
     photo = _first_photo(place)
     if callback.message is None:
-        await callback.answer()
         return
     with suppress(Exception):
         await callback.message.edit_reply_markup(reply_markup=None)
     if photo:
-        await callback.message.answer_photo(photo=photo, caption=text, reply_markup=markup)
-    else:
+        try:
+            await callback.message.answer_photo(photo=photo, caption=_truncate(text, MAX_PHOTO_CAPTION), reply_markup=markup)
+            return
+        except Exception:
+            logger.exception("Failed to send Telegram moderation photo", extra={"place_id": place.get("id"), "city_slug": city_slug})
+    try:
         await callback.message.answer(text, reply_markup=markup)
+    except Exception:
+        logger.exception("Failed to send Telegram moderation place card", extra={"place_id": place.get("id"), "city_slug": city_slug})
+        await _show_callback_error(callback, "Не удалось отправить карточку места. Смотри backend logs.")
 
 
 async def _apply_action(callback: CallbackQuery, db: Session, action: str, city_slug: str, place_id: int, actor: str) -> None:
@@ -194,17 +207,37 @@ def _first_photo(place: dict[str, object]) -> str | None:
 
 async def _edit(callback: CallbackQuery, text: str, markup: InlineKeyboardMarkup | None = None) -> None:
     if callback.message is None:
-        await callback.answer()
         return
+    limited_text = _truncate(text, MAX_MESSAGE_TEXT)
     with suppress(Exception):
-        await callback.message.edit_text(text, reply_markup=markup)
+        await callback.message.edit_text(limited_text, reply_markup=markup)
         return
-    await callback.message.answer(text, reply_markup=markup)
+    await callback.message.answer(limited_text, reply_markup=markup)
 
 
 async def _remove_reply_keyboard(message: Message) -> None:
     with suppress(Exception):
         await message.answer("Клавиатура скрыта.", reply_markup=ReplyKeyboardRemove())
+
+
+async def _ack(callback: CallbackQuery, text: str) -> None:
+    with suppress(Exception):
+        await callback.answer(text, show_alert=False)
+
+
+async def _show_callback_error(callback: CallbackQuery, text: str) -> None:
+    with suppress(Exception):
+        await callback.answer(text, show_alert=True)
+        return
+    if callback.message is not None:
+        with suppress(Exception):
+            await callback.message.answer(text)
+
+
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 1, 0)].rstrip() + "…"
 
 
 def _is_admin_message(message: Message) -> bool:
