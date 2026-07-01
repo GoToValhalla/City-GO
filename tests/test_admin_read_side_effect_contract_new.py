@@ -157,6 +157,24 @@ def test_import_queue_handles_timezone_aware_timestamps_without_crashing():
     assert 29 * 60 <= (_running_seconds(job, now=datetime.utcnow()) or 0) <= 31 * 60
 
 
+def test_import_queue_get_reads_only_active_jobs_for_queue_summary(client, db_session, city_factory, monkeypatch):
+    city = city_factory(slug="queue-active-only", name="Queue Active Only", launch_status="importing", is_active=False)
+    active_job = _job(db_session, city_id=city.id, status="queued", source="admin_city_enrichment", current_step="queued")
+    for index in range(5):
+        _job(db_session, city_id=city.id, status="success", source="admin_city_import", current_step="ready_for_review", created_at=datetime.utcnow() - timedelta(days=index + 1), step_details={SNAPSHOT_KEY: {"large": "historical"}})
+
+    response = client.get("/admin/import-queue")
+
+    assert response.status_code == 200
+    queue = response.json()
+    assert queue["total"] >= 6
+    assert queue["active_total"] == 1
+    assert queue["queued"] == 1
+    assert queue["running"] == 0
+    assert queue["by_source"] == {"admin_city_enrichment": 1}
+    assert queue["next_job_ids"] == [active_job.id]
+
+
 def test_import_queue_get_is_read_only_and_mark_stalled_is_explicit_write(client, db_session, city_factory, monkeypatch):
     city = city_factory(slug="queue-readonly", name="Queue Read Only", launch_status="importing", is_active=False)
     job = _job(db_session, city_id=city.id, status="running", source="admin_photo_enrichment", current_step="finding_images", created_at=datetime.utcnow() - timedelta(hours=3))
