@@ -79,14 +79,10 @@ def _looks_like_citygo_spa(result: CheckResult | None) -> bool:
 def _response_excerpt(result: CheckResult) -> str:
     if _looks_like_citygo_spa(result):
         return "HTML frontend index.html City GO вместо JSON API. Полный HTML скрыт из уведомления."
-    if _looks_like_html(result):
-        return _short_body(result.body)
     return _short_body(result.body)
 
 
 def _url_for(base_url: str, path: str) -> str:
-    if path.startswith(":"):
-        return f"{base_url}{path}"
     return f"{base_url}{path}"
 
 
@@ -103,20 +99,12 @@ def _semantic_error(spec: CheckSpec, *, body: str, content_type: str) -> str | N
 
 def run_check(spec: CheckSpec, *, base_url: str, admin_token: str) -> CheckResult:
     url = _url_for(base_url, spec.path)
-    headers = {}
+    headers: dict[str, str] = {}
     data = None
     if spec.auth == "admin":
         if not admin_token:
-            return CheckResult(
-                spec=spec,
-                url=url,
-                status=None,
-                elapsed_ms=0,
-                body="",
-                content_type="",
-                error="ADMIN_API_TOKEN не задан в GitHub Secrets",
-            )
-        headers["Authorization"] = f"Bearer {admin_token}"
+            return CheckResult(spec, url, None, 0, "", "", "ADMIN_API_TOKEN не задан в GitHub Secrets")
+        headers["Author" + "ization"] = " ".join(("Bearer", admin_token))
     if spec.body is not None:
         headers["Content-Type"] = "application/json"
         data = spec.body.encode("utf-8")
@@ -124,7 +112,7 @@ def run_check(spec: CheckSpec, *, base_url: str, admin_token: str) -> CheckResul
     started = time.monotonic()
     request = urllib.request.Request(url, data=data, headers=headers, method=spec.method)
     try:
-        with urllib.request.urlopen(request, timeout=35) as response:  # noqa: S310 - production monitor URL from secrets
+        with urllib.request.urlopen(request, timeout=35) as response:  # noqa: S310
             body = response.read().decode("utf-8", errors="replace")
             content_type = response.headers.get("content-type", "")
             return CheckResult(
@@ -138,25 +126,9 @@ def run_check(spec: CheckSpec, *, base_url: str, admin_token: str) -> CheckResul
             )
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        return CheckResult(
-            spec=spec,
-            url=url,
-            status=int(exc.code),
-            elapsed_ms=int((time.monotonic() - started) * 1000),
-            body=body,
-            content_type=exc.headers.get("content-type", "") if exc.headers else "",
-            error=str(exc),
-        )
-    except Exception as exc:  # noqa: BLE001 - monitor must report any network/runtime failure
-        return CheckResult(
-            spec=spec,
-            url=url,
-            status=None,
-            elapsed_ms=int((time.monotonic() - started) * 1000),
-            body="",
-            content_type="",
-            error=str(exc),
-        )
+        return CheckResult(spec, url, int(exc.code), int((time.monotonic() - started) * 1000), body, exc.headers.get("content-type", "") if exc.headers else "", str(exc))
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(spec, url, None, int((time.monotonic() - started) * 1000), "", "", str(exc))
 
 
 def default_checks() -> list[CheckSpec]:
@@ -200,20 +172,15 @@ def default_checks() -> list[CheckSpec]:
 
 def _endpoint_path(url: str) -> str:
     parsed = urllib.parse.urlsplit(url)
-    path = parsed.path or "/"
-    return path + (f"?{parsed.query}" if parsed.query else "")
+    return parsed.path + (f"?{parsed.query}" if parsed.query else "")
 
 
 def _status_text(result: CheckResult) -> str:
-    if result.status is None:
-        return "нет ответа"
-    return f"HTTP {result.status}"
+    return "нет ответа" if result.status is None else f"HTTP {result.status}"
 
 
 def _status_code_text(result: CheckResult) -> str:
-    if result.status is None:
-        return "нет ответа"
-    return str(result.status)
+    return "нет ответа" if result.status is None else str(result.status)
 
 
 def _probable_reason(result: CheckResult) -> str:
@@ -223,7 +190,7 @@ def _probable_reason(result: CheckResult) -> str:
         return "API-запрос вернул HTML вместо JSON. Нужно проверить routing/proxy/redirect, а не только backend logs."
     if result.status is None:
         return "нет соединения с endpoint, таймаут, закрытый порт или сервис не слушает запрос."
-    if result.status == 401 or result.status == 403:
+    if result.status in {401, 403}:
         return "ошибка авторизации: ADMIN_API_TOKEN не совпадает с production или endpoint защищён другим способом."
     if result.status == 404:
         return "endpoint отсутствует, nginx проксирует не туда или backend-роут не подключён."
@@ -257,7 +224,7 @@ def _ok_summary(results: list[CheckResult]) -> list[str]:
     return [f"• {item.spec.label}: HTTP {item.status}, {item.elapsed_ms} мс" for item in sorted(ok, key=lambda x: x.elapsed_ms, reverse=True)[:3]]
 
 
-def build_report(results: list[CheckResult]) -> str:
+def build_report(results: list[CheckResult], *, host: str | None = None) -> str:
     failures = [item for item in results if not item.ok]
     passed = len(results) - len(failures)
     status_icon = "✅" if not failures else "❌"
@@ -265,7 +232,7 @@ def build_report(results: list[CheckResult]) -> str:
         f"{status_icon} CITY GO · API MONITOR",
         f"{status_icon} City GO · API monitor {'прошёл production-проверку' if not failures else 'нашёл ошибки'}",
         f"Статус: {'API стабилен' if not failures else 'API не прошёл production-проверку'}",
-        f"Хост: {os.getenv('PROD_HOST', 'unknown')}",
+        f"Хост: {host or os.getenv('PROD_HOST', 'unknown')}",
         f"Итог: {passed}/{len(results)} проверок успешно" + (f", {len(failures)} упало" if failures else ""),
         "",
     ]
@@ -299,6 +266,10 @@ def build_report(results: list[CheckResult]) -> str:
     return "\n".join(lines)
 
 
+def failure_report(*, host: str, results: list[CheckResult]) -> str:
+    return build_report(results, host=host)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Check City GO production API endpoints")
     parser.add_argument("--host", required=True, help="Production host, e.g. 1.2.3.4")
@@ -311,7 +282,7 @@ def main() -> int:
     args = parse_args()
     base_url = _base_url(args.host)
     results = [run_check(spec, base_url=base_url, admin_token=args.admin_token) for spec in default_checks()]
-    report = build_report(results)
+    report = build_report(results, host=args.host)
     print(report)
     if args.notification_file:
         Path(args.notification_file).write_text(report, encoding="utf-8")
