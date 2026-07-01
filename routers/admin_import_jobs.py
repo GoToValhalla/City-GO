@@ -27,15 +27,16 @@ from services.admin_city_import_job_service import (
 )
 from services.admin_city_import_tasks import import_queue_summary
 from services.admin_city_publication_service import publish_city
-from services.admin_extended_service import get_admin_import_job, list_admin_import_jobs
+from services.admin_extended_service import get_admin_import_job
 from services.admin_import_job_change_service import CHANGE_TYPES, import_job_changes_summary, list_import_job_changes, serialize_change
+from services.admin_import_jobs_fast import list_admin_import_jobs_fast
 
 router = APIRouter(prefix="/admin", tags=["admin-import-jobs"])
 
 
 @router.get("/import-jobs", response_model=AdminImportJobListResponse)
 def read_import_jobs(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0), auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobListResponse:
-    payload = list_admin_import_jobs(db, limit=limit, offset=offset)
+    payload = list_admin_import_jobs_fast(db, limit=limit, offset=offset)
     return AdminImportJobListResponse(items=[AdminImportJobRead.model_validate(item) for item in payload["items"]], total=int(payload["total"]), limit=int(payload["limit"]), offset=int(payload["offset"]))
 
 
@@ -181,7 +182,7 @@ def enrich_city_job(city_id: int, auth: AdminContext = Depends(admin_required), 
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     db.commit()
-    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Полный сбор и обогащение поставлены в очередь.")
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Полный сбор и обогащение поставлен в очередь.")
 
 
 @router.post("/import-jobs/enrich-all", response_model=AdminImportJobActionResponse)
