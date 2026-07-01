@@ -8,6 +8,7 @@ from scripts import ci_coverage_summary
 
 def test_backend_admin_coverage_metric_is_non_blocking(tmp_path: Path) -> None:
     coverage_xml = tmp_path / 'coverage.xml'
+    changed_files = tmp_path / 'changed-files.txt'
     coverage_xml.write_text(
         '<coverage><packages><package><classes>'
         '<class filename="routers/admin_import_jobs.py"><lines><line hits="1"/><line hits="0"/></lines></class>'
@@ -16,10 +17,12 @@ def test_backend_admin_coverage_metric_is_non_blocking(tmp_path: Path) -> None:
         '</classes></package></packages></coverage>',
         encoding='utf-8',
     )
+    changed_files.write_text('routers/admin_import_jobs.py\ncore/settings.py\n', encoding='utf-8')
     result = ci_coverage_summary.main([
         '--suite', 'backend',
         '--format', 'cobertura',
         '--input', str(coverage_xml),
+        '--changed-files', str(changed_files),
         '--output', str(tmp_path / 'coverage.txt'),
         '--json-output', str(tmp_path / 'coverage.json'),
         '--target', 'backend_admin=90',
@@ -27,15 +30,21 @@ def test_backend_admin_coverage_metric_is_non_blocking(tmp_path: Path) -> None:
 
     payload = json.loads((tmp_path / 'coverage.json').read_text(encoding='utf-8'))
     admin = next(group for group in payload['groups'] if group['name'] == 'backend_admin')
+    changed_admin = next(group for group in payload['groups'] if group['name'] == 'backend_admin_changed')
     assert result == 0
     assert admin['pct'] == 75.0
     assert admin['risk'] == 'action_required'
+    assert changed_admin['pct'] == 50.0
+    assert changed_admin['changed_files_metric'] is True
     assert admin['passed'] is True
-    assert 'coverage не валит CI' in (tmp_path / 'coverage.txt').read_text(encoding='utf-8')
+    message = (tmp_path / 'coverage.txt').read_text(encoding='utf-8')
+    assert 'coverage не валит CI' in message
+    assert 'Changed-files coverage показывает покрытие файлов' in message
 
 
 def test_frontend_admin_coverage_metric_reports_ok(tmp_path: Path) -> None:
     summary_json = tmp_path / 'coverage-summary.json'
+    changed_files = tmp_path / 'changed-files.txt'
     summary_json.write_text(
         json.dumps({
             'total': {'lines': {'total': 10, 'covered': 9, 'pct': 90}},
@@ -44,10 +53,12 @@ def test_frontend_admin_coverage_metric_reports_ok(tmp_path: Path) -> None:
         }),
         encoding='utf-8',
     )
+    changed_files.write_text('frontend/src/pages/admin/AdminImportJobsPage.tsx\n', encoding='utf-8')
     result = ci_coverage_summary.main([
         '--suite', 'frontend',
         '--format', 'vitest-json-summary',
         '--input', str(summary_json),
+        '--changed-files', str(changed_files),
         '--output', str(tmp_path / 'coverage.txt'),
         '--json-output', str(tmp_path / 'coverage.json'),
         '--target', 'frontend_admin=90',
@@ -55,7 +66,9 @@ def test_frontend_admin_coverage_metric_reports_ok(tmp_path: Path) -> None:
 
     payload = json.loads((tmp_path / 'coverage.json').read_text(encoding='utf-8'))
     admin = next(group for group in payload['groups'] if group['name'] == 'frontend_admin')
+    changed_admin = next(group for group in payload['groups'] if group['name'] == 'frontend_admin_changed')
     assert result == 0
     assert admin['pct'] == 100.0
+    assert changed_admin['pct'] == 100.0
     assert admin['risk'] == 'ok'
     assert admin['passed'] is True
