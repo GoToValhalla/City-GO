@@ -1,5 +1,5 @@
 """
-Публичный выбор изображения места: только approved/active из place_images
+Публичный выбор изображений места: только approved/active из place_images
 или доверенный legacy place.image_url.
 """
 
@@ -45,46 +45,62 @@ def _image_to_public(image: PlaceImage) -> PublicPlaceImage:
     )
 
 
-def _pick_best_image(images: list[PlaceImage]) -> PlaceImage | None:
-    public_images = [image for image in images if image.status in PUBLIC_PLACE_IMAGE_STATUSES]
-    if not public_images:
+def _legacy_image(place: Place) -> PublicPlaceImage | None:
+    legacy_source = (place.source or "").strip().lower()
+    if not place.image_url or legacy_source not in TRUSTED_LEGACY_IMAGE_SOURCES:
         return None
-    primary = next((image for image in public_images if image.is_primary), None)
-    if primary is not None:
-        return primary
-    return sorted(public_images, key=lambda image: image.id)[0]
+    return PublicPlaceImage(
+        image_url=place.image_url,
+        image_id=None,
+        image_source_type=legacy_source or "manual",
+        image_attribution=None,
+        image_license=None,
+        image_confidence=None,
+        image_status="legacy",
+        image_reviewed_at=place.last_verified_at,
+    )
 
 
-def resolve_public_place_image(db: Session, place: Place) -> PublicPlaceImage | None:
-    images = (
+def _ordered_public_images(images: list[PlaceImage]) -> list[PublicPlaceImage]:
+    public_images = [image for image in images if image.status in PUBLIC_PLACE_IMAGE_STATUSES]
+    return [_image_to_public(image) for image in sorted(public_images, key=lambda image: (not image.is_primary, image.id))]
+
+
+def _dedupe_public_images(images: list[PublicPlaceImage]) -> list[PublicPlaceImage]:
+    result: list[PublicPlaceImage] = []
+    seen: set[str] = set()
+    for image in images:
+        if image.image_url in seen:
+            continue
+        seen.add(image.image_url)
+        result.append(image)
+    return result
+
+
+def resolve_public_place_images(db: Session, place: Place, *, limit: int = 10) -> list[PublicPlaceImage]:
+    rows = (
         db.query(PlaceImage)
         .filter(
             PlaceImage.place_id == place.id,
             PlaceImage.status.in_(tuple(PUBLIC_PLACE_IMAGE_STATUSES)),
         )
         .order_by(PlaceImage.is_primary.desc(), PlaceImage.id.asc())
+        .limit(limit)
         .all()
     )
-    selected = _pick_best_image(images)
-    if selected is not None:
-        return _image_to_public(selected)
-
-    legacy_source = (place.source or "").strip().lower()
-    if place.image_url and legacy_source in TRUSTED_LEGACY_IMAGE_SOURCES:
-        return PublicPlaceImage(
-            image_url=place.image_url,
-            image_id=None,
-            image_source_type=legacy_source or "manual",
-            image_attribution=None,
-            image_license=None,
-            image_confidence=None,
-            image_status="legacy",
-            image_reviewed_at=place.last_verified_at,
-        )
-    return None
+    images = _ordered_public_images(rows)
+    legacy = _legacy_image(place)
+    if legacy is not None:
+        images.append(legacy)
+    return _dedupe_public_images(images)[:limit]
 
 
-def resolve_public_place_images_bulk(db: Session, places: list[Place]) -> dict[int, PublicPlaceImage | None]:
+def resolve_public_place_image(db: Session, place: Place) -> PublicPlaceImage | None:
+    images = resolve_public_place_images(db, place, limit=1)
+    return images[0] if images else None
+
+
+def resolve_public_place_images_bulk(db: Session, places: list[Place], *, limit_per_place: int = 10) -> dict[int, list[PublicPlaceImage]]:
     if not places:
         return {}
 
@@ -95,35 +111,23 @@ def resolve_public_place_images_bulk(db: Session, places: list[Place]) -> dict[i
             PlaceImage.place_id.in_(place_ids),
             PlaceImage.status.in_(tuple(PUBLIC_PLACE_IMAGE_STATUSES)),
         )
-        .order_by(PlaceImage.is_primary.desc(), PlaceImage.id.asc())
+        .order_by(PlaceImage.place_id.asc(), PlaceImage.is_primary.desc(), PlaceImage.id.asc())
         .all()
     )
 
     by_place: dict[int, list[PlaceImage]] = {}
     for row in rows:
-        by_place.setdefault(row.place_id, []).append(row)
+        bucket = by_place.setdefault(row.place_id, [])
+        if len(bucket) < limit_per_place:
+            bucket.append(row)
 
-    result: dict[int, PublicPlaceImage | None] = {}
+    result: dict[int, list[PublicPlaceImage]] = {}
     for place in places:
-        selected = _pick_best_image(by_place.get(place.id, []))
-        if selected is not None:
-            result[place.id] = _image_to_public(selected)
-            continue
-
-        legacy_source = (place.source or "").strip().lower()
-        if place.image_url and legacy_source in TRUSTED_LEGACY_IMAGE_SOURCES:
-            result[place.id] = PublicPlaceImage(
-                image_url=place.image_url,
-                image_id=None,
-                image_source_type=legacy_source or "manual",
-                image_attribution=None,
-                image_license=None,
-                image_confidence=None,
-                image_status="legacy",
-                image_reviewed_at=place.last_verified_at,
-            )
-        else:
-            result[place.id] = None
+        images = _ordered_public_images(by_place.get(place.id, []))
+        legacy = _legacy_image(place)
+        if legacy is not None:
+            images.append(legacy)
+        result[place.id] = _dedupe_public_images(images)[:limit_per_place]
 
     return result
 
