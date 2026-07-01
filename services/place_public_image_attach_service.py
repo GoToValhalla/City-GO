@@ -8,13 +8,23 @@ from services.place_public_image_service import PublicPlaceImage, resolve_public
 
 def attach_public_images(db: Session, places: list[Place]) -> list[Place]:
     public_by_id = resolve_public_place_images_bulk(db, places)
-    return [_attach(place, public_by_id.get(place.id)) for place in places]
+    return [_attach(place, public_by_id.get(place.id, [])) for place in places]
 
 
-def _attach(place: Place, public_image: PublicPlaceImage | None) -> Place:
-    image = _public_image_attrs(public_image)
-    for key, value in image.items():
-        setattr(place, key, value)
+def _attach(place: Place, public_images: list[PublicPlaceImage] | None) -> Place:
+    images = public_images or []
+    primary = images[0] if images else None
+    urls = [image.image_url for image in images if image.image_url]
+    attrs = _public_image_attrs(primary)
+    place.public_image_url = attrs["public_image_url"]
+    place.public_image_id = attrs["public_image_id"]
+    place.public_image_source_type = attrs["public_image_source_type"]
+    place.public_image_attribution = attrs["public_image_attribution"]
+    place.public_image_license = attrs["public_image_license"]
+    place.public_image_confidence = attrs["public_image_confidence"]
+    place.public_image_status = attrs["public_image_status"]
+    place.public_image_urls = urls or None
+    place.public_photo_urls = urls or None
     return place
 
 
