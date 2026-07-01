@@ -187,18 +187,14 @@ def default_checks() -> list[CheckSpec]:
     return [
         CheckSpec("frontend", "Главная страница frontend", "GET", "/", expected="html"),
         CheckSpec("api_health_proxy", "Health через nginx /api", "GET", "/api/health"),
-        CheckSpec("backend_health_direct", "Health backend напрямую", "GET", ":8000/health"),
+        CheckSpec("api_ready_proxy", "Ready через nginx /api", "GET", "/api/ready"),
         CheckSpec("admin_overview_proxy", "Админка: обзор", "GET", "/api/admin/overview", "admin"),
         CheckSpec("admin_metrics_proxy", "Админка: метрики", "GET", "/api/admin/metrics/summary", "admin"),
         CheckSpec("admin_coverage_proxy", "Админка: покрытие данных", "GET", "/api/admin/coverage/summary?limit=5", "admin"),
         CheckSpec("admin_verification_proxy", "Админка: очередь проверки", "GET", "/api/admin/place-verifications/summary", "admin"),
-        CheckSpec("admin_route_eligibility_proxy", "Админка: готовность мест к маршрутам", "GET", "/api/admin/routes/eligibility?limit=1", "admin"),
+        CheckSpec("admin_route_eligibility_proxy", "Админка: готовность мест к маршрутам", "GET", "/api/admin/routes/eligibility?limit=1&city_slug=yerevan", "admin"),
         CheckSpec("admin_route_readiness_proxy", "Админка: готовность маршрутов", "GET", "/api/admin/routes/readiness?limit=1", "admin"),
-        CheckSpec("admin_overview_backend", "Backend: обзор админки напрямую", "GET", ":8000/admin/overview", "admin"),
-        CheckSpec("admin_coverage_backend", "Backend: покрытие напрямую", "GET", ":8000/admin/coverage/summary?limit=5", "admin"),
-        CheckSpec("admin_route_readiness_backend", "Backend: готовность маршрутов напрямую", "GET", ":8000/admin/routes/readiness?limit=1", "admin"),
         CheckSpec("route_preview_yerevan_proxy", "Route preview через nginx", "POST", "/api/v1/user-routes/preview", body=route_body),
-        CheckSpec("route_preview_yerevan_backend", "Route preview backend напрямую", "POST", ":8000/v1/user-routes/preview", body=route_body),
     ]
 
 
@@ -258,102 +254,68 @@ def _recommended_action(result: CheckResult) -> str:
 
 def _ok_summary(results: list[CheckResult]) -> list[str]:
     ok = [item for item in results if item.ok]
-    slow = sorted(ok, key=lambda item: item.elapsed_ms, reverse=True)[:3]
-    if not slow:
-        return []
-    return [f"• {item.spec.label}: HTTP {item.status}, {item.elapsed_ms} мс" for item in slow]
+    return [f"• {item.spec.label}: HTTP {item.status}, {item.elapsed_ms} мс" for item in sorted(ok, key=lambda x: x.elapsed_ms, reverse=True)[:3]]
 
 
-def failure_report(*, host: str, results: list[CheckResult]) -> str:
-    failed = [item for item in results if not item.ok]
+def build_report(results: list[CheckResult]) -> str:
+    failures = [item for item in results if not item.ok]
+    passed = len(results) - len(failures)
+    status_icon = "✅" if not failures else "❌"
     lines = [
-        "❌ CITY GO · API MONITOR",
-        "❌ City GO · API monitor нашёл ошибки",
-        "Статус: API не прошёл production-проверку",
-        f"Хост: {host}",
-        f"Итог: {len(results) - len(failed)}/{len(results)} проверок успешно, {len(failed)} упало",
+        f"{status_icon} CITY GO · API MONITOR",
+        f"{status_icon} City GO · API monitor {'прошёл production-проверку' if not failures else 'нашёл ошибки'}",
+        f"Статус: {'API стабилен' if not failures else 'API не прошёл production-проверку'}",
+        f"Хост: {os.getenv('PROD_HOST', 'unknown')}",
+        f"Итог: {passed}/{len(results)} проверок успешно" + (f", {len(failures)} упало" if failures else ""),
         "",
-        "Сломанные проверки:",
     ]
-    for index, item in enumerate(failed[:6], start=1):
-        lines.extend(
-            [
-                f"{index}. {item.spec.label}",
-                f"   Запрос: {item.spec.method} {_endpoint_path(item.url)}",
-                f"   Endpoint: {item.spec.method} {_endpoint_path(item.url)}",
-                f"   Факт: {_status_text(item)} за {item.elapsed_ms} мс",
-                f"   HTTP: {_status_code_text(item)}",
-                f"   Время: {item.elapsed_ms} мс",
-                f"   Content-Type: {item.content_type or 'не указан'}",
-                f"   Техническая причина: {item.error or 'HTTP status >= 400'}",
-                f"   Вероятная причина: {_probable_reason(item)}",
-                f"   Причина: {_probable_reason(item)}",
-                f"   Что делать: {_recommended_action(item)}",
-                f"   Ответ: {_response_excerpt(item)}",
-            ]
-        )
-    if len(failed) > 6:
-        lines.append(f"Ещё упавших проверок: {len(failed) - 6}")
-
-    ok_summary = _ok_summary(results)
-    if ok_summary:
-        lines.extend(["", "Самые медленные успешные проверки:", *ok_summary])
-
-    lines.extend(
-        [
-            "",
-            "Следующий шаг: открыть GitHub run и логи соответствующего слоя. При HTML вместо JSON сначала проверять routing/nginx/redirect, при 500 — backend logs и /ready.",
-            f"GitHub Actions: {_run_url()}",
-        ]
-    )
-    return "\n".join(lines)
-
-
-def success_report(*, host: str, results: list[CheckResult]) -> str:
-    lines = [
-        "✅ CITY GO · API MONITOR",
-        "Статус: все API-проверки прошли",
-        f"Хост: {host}",
-        f"Итог: {len(results)}/{len(results)} проверок успешно",
-    ]
-    slow = _ok_summary(results)
-    if slow:
-        lines.extend(["Медленные успешные проверки:", *slow])
+    if failures:
+        lines.append("Сломанные проверки:")
+        for index, result in enumerate(failures[:6], start=1):
+            lines.extend([
+                f"{index}. {result.spec.label}",
+                f"   Запрос: {result.spec.method} {_endpoint_path(result.url)}",
+                f"   Endpoint: {result.spec.method} {result.spec.path}",
+                f"   Факт: {_status_text(result)} за {result.elapsed_ms} мс",
+                f"   HTTP: {_status_code_text(result)}",
+                f"   Время: {result.elapsed_ms} мс",
+                f"   Content-Type: {result.content_type or 'не указан'}",
+                f"   Техническая причина: {result.error or 'нет'}",
+                f"   Вероятная причина: {_probable_reason(result)}",
+                f"   Причина: {_probable_reason(result)}",
+                f"   Что делать: {_recommended_action(result)}",
+                f"   Ответ: {_response_excerpt(result)}",
+            ])
+        if len(failures) > 6:
+            lines.append(f"Ещё упавших проверок: {len(failures) - 6}")
+        lines.append("")
+    ok_lines = _ok_summary(results)
+    if ok_lines:
+        lines.append("Самые медленные успешные проверки:")
+        lines.extend(ok_lines)
+        lines.append("")
+    lines.append("Следующий шаг: открыть GitHub run и логи соответствующего слоя. При HTML вместо JSON сначала проверять routing/nginx/redirect, при 500 — backend logs и /ready.")
     lines.append(f"GitHub Actions: {_run_url()}")
     return "\n".join(lines)
 
 
-def run_monitor(host: str, *, admin_token: str) -> tuple[int, str]:
-    base_url = _base_url(host)
-    results = [run_check(spec, base_url=base_url, admin_token=admin_token) for spec in default_checks()]
-    failed = [item for item in results if not item.ok]
-    if failed:
-        return 1, failure_report(host=host, results=results)
-    return 0, success_report(host=host, results=results)
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Check City GO production API endpoints")
+    parser.add_argument("--host", required=True, help="Production host, e.g. 1.2.3.4")
+    parser.add_argument("--admin-token", default="", help="Admin API token")
+    parser.add_argument("--notification-file", default="", help="Optional file for Telegram notification text")
+    return parser.parse_args()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default=os.getenv("PROD_HOST", ""))
-    parser.add_argument("--admin-token", default=os.getenv("ADMIN_API_TOKEN", ""))
-    parser.add_argument("--notification-file", type=Path, required=True)
-    args = parser.parse_args()
-
-    if not args.host.strip():
-        args.notification_file.write_text(
-            "❌ CITY GO · API MONITOR\n"
-            "Статус: проверка не запущена\n"
-            "Проблема: GitHub secret SSH_HOST/PROD_HOST пустой.\n"
-            "Что делать: заполнить secret SSH_HOST и повторить workflow.\n"
-            f"GitHub Actions: {_run_url()}\n",
-            encoding="utf-8",
-        )
-        return 1
-
-    exit_code, text = run_monitor(args.host.strip(), admin_token=args.admin_token.strip())
-    args.notification_file.write_text(text + "\n", encoding="utf-8")
-    print(text)
-    return exit_code
+    args = parse_args()
+    base_url = _base_url(args.host)
+    results = [run_check(spec, base_url=base_url, admin_token=args.admin_token) for spec in default_checks()]
+    report = build_report(results)
+    print(report)
+    if args.notification_file:
+        Path(args.notification_file).write_text(report, encoding="utf-8")
+    return 0 if all(item.ok for item in results) else 1
 
 
 if __name__ == "__main__":
