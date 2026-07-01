@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -146,6 +146,15 @@ def test_active_state_backend_uses_status_not_current_step(db_session, city_fact
     assert row["status_group"] == "running"
     assert row["auto_refresh_seconds"] == 7
     assert row["can_cancel"] is True
+
+
+def test_import_queue_handles_timezone_aware_timestamps_without_crashing():
+    from routers.admin_import_queue import _running_seconds
+
+    started_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+    job = CityAdminImportJob(city_id=1, status="running", source="admin_city_import", current_step="importing", started_at=started_at, updated_at=started_at, created_at=started_at)
+
+    assert 29 * 60 <= (_running_seconds(job, now=datetime.utcnow()) or 0) <= 31 * 60
 
 
 def test_import_queue_get_is_read_only_and_mark_stalled_is_explicit_write(client, db_session, city_factory, monkeypatch):
