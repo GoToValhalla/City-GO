@@ -153,7 +153,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm install --no-save --package-lock=false "@vitest/coverage-v8@$(node -p \"require('vitest/package.json').version\")"
+          npm install --no-save --package-lock=false "@vitest/coverage-v8@$(node -p \"require('./node_modules/vitest/package.json').version\")"
 
       - name: Prepare frontend artifacts
         shell: bash
