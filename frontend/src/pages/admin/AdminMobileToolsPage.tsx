@@ -45,8 +45,8 @@ export const AdminMobileToolsPage = () => {
     await loadCities()
   }
 
-  useEffect(() => { void loadCities() }, [])
-  useEffect(() => { if (citySlug) void loadNext(citySlug) }, [citySlug])
+  useEffect(() => { void Promise.resolve().then(loadCities) }, [])
+  useEffect(() => { if (citySlug) void Promise.resolve().then(() => loadNext(citySlug)) }, [citySlug])
 
   return <main className="admin-page">
     <h2 className="admin-page-title">Мобильные инструменты</h2>
