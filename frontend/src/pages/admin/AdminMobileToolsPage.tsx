@@ -37,6 +37,12 @@ export const AdminMobileToolsPage = () => {
     setRejected(data.items)
     setMode('rejected')
   }, [citySlug])
+  const act = useCallback(async (id: number, action: 'publish' | 'reject' | 'defer') => {
+    await adminPost(`/admin/mobile-tools/places/${id}/${action}`, {})
+    setMessage(action)
+    await loadNext()
+    await loadCities()
+  }, [loadNext, loadCities])
 
   useEffect(() => { void Promise.resolve().then(loadCities) }, [loadCities])
   useEffect(() => { if (citySlug) void Promise.resolve().then(() => loadNext(citySlug)) }, [citySlug, loadNext])
@@ -51,7 +57,7 @@ export const AdminMobileToolsPage = () => {
       <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void loadRejected() }}>Отклонённые</button>
     </section>
     {message ? <p className="admin-success-text">{message}</p> : null}
-    {mode === 'rejected' ? <section className="admin-card">{rejected.map((item) => <article key={item.id} className="admin-help-panel"><strong>{item.title}</strong><button className="admin-btn admin-btn-sm" type="button" onClick={() => { void adminPost(`/admin/mobile-tools/places/${item.id}/defer`, {}).then(() => loadRejected()).then(() => loadCities()) }}>Вернуть</button></article>)}</section> : <section className="admin-card">
+    {mode === 'rejected' ? <section className="admin-card">{rejected.map((item) => <article key={item.id} className="admin-help-panel"><strong>{item.title}</strong><button className="admin-btn admin-btn-sm" type="button" onClick={() => { void act(item.id, 'defer').then(loadRejected) }}>Вернуть</button></article>)}</section> : <section className="admin-card">
       <p className="admin-muted">Осталось: {remaining}</p>
       {place ? <>
         {photo ? <img src={photo} alt={place.title} style={{ width: '100%', maxHeight: 260, objectFit: 'cover', borderRadius: 16 }} /> : <p>Фото нет</p>}
@@ -59,9 +65,9 @@ export const AdminMobileToolsPage = () => {
         <h3>{place.title}</h3>
         <p>{place.category || 'без категории'} · {place.address || 'адрес не указан'}</p>
         <p>{place.short_description || 'описание не заполнено'}</p>
-        <button className="admin-btn admin-btn-sm admin-btn-primary" type="button" onClick={() => { void adminPost(`/admin/mobile-tools/places/${place.id}/publish`, {}).then(() => setMessage('publish')).then(() => loadNext()).then(() => loadCities()) }}>Опубликовать</button>
-        <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void adminPost(`/admin/mobile-tools/places/${place.id}/reject`, {}).then(() => setMessage('reject')).then(() => loadNext()).then(() => loadCities()) }}>Отклонить</button>
-        <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void adminPost(`/admin/mobile-tools/places/${place.id}/defer`, {}).then(() => setMessage('defer')).then(() => loadNext()).then(() => loadCities()) }}>В конец очереди</button>
+        <button className="admin-btn admin-btn-sm admin-btn-primary" type="button" onClick={() => { void act(place.id, 'publish') }}>Опубликовать</button>
+        <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void act(place.id, 'reject') }}>Отклонить</button>
+        <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void act(place.id, 'defer') }}>В конец очереди</button>
       </> : <p>Очередь пуста.</p>}
     </section>}
   </main>
