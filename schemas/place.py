@@ -11,6 +11,8 @@ class PlaceBase(BaseModel):
     title: str
     short_description: str | None = None
     image_url: str | None = None
+    image_urls: list[str] | None = None
+    photo_urls: list[str] | None = None
     image_id: int | None = None
     image_source_type: str | None = None
     image_attribution: str | None = None
