@@ -140,15 +140,10 @@ def get_public_primary_image(db: Session, place_id: int) -> PublicPlaceImage | N
 
 
 def place_has_public_image(db: Session, place_id: int) -> bool:
-    return (
-        db.query(PlaceImage.id)
-        .filter(
-            PlaceImage.place_id == place_id,
-            PlaceImage.status.in_(tuple(PUBLIC_PLACE_IMAGE_STATUSES)),
-        )
-        .first()
-        is not None
-    )
+    place = db.query(Place).filter(Place.id == place_id).first()
+    if place is None:
+        return False
+    return bool(resolve_public_place_images(db, place, limit=1))
 
 
 def clear_primary_flags(db: Session, place_id: int, *, except_image_id: int | None = None) -> None:
