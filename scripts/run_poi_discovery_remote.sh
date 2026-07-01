@@ -20,6 +20,7 @@ APPLY_DISCOVERED="${APPLY_DISCOVERED:-true}"
 PER_CITY_TIMEOUT_SECONDS="${PER_CITY_TIMEOUT_SECONDS:-90}"
 QUEUE_TIMEOUT_SECONDS="${QUEUE_TIMEOUT_SECONDS:-20}"
 RESULTS_JSONL="/tmp/city-go-poi-discovery-results-${RANDOM}.jsonl"
+SUMMARY_EMITTED=0
 : > "$RESULTS_JSONL"
 
 emit_empty_summary() {
@@ -41,6 +42,7 @@ payload = {
 }
 print("POI_DISCOVERY_SUMMARY_JSON=" + json.dumps(payload, ensure_ascii=False, sort_keys=True), flush=True)
 PY
+  SUMMARY_EMITTED=1
 }
 
 emit_final_summary() {
@@ -70,7 +72,17 @@ payload = {
 }
 print("POI_DISCOVERY_SUMMARY_JSON=" + json.dumps(payload, ensure_ascii=False, sort_keys=True), flush=True)
 PY
+  SUMMARY_EMITTED=1
 }
+
+on_exit() {
+  local exit_code=$?
+  if [ "${SUMMARY_EMITTED:-0}" != "1" ]; then
+    echo "ERROR: POI discovery exited before emitting summary. exit_code=${exit_code}" >&2
+    emit_empty_summary "error" "script_exited_before_summary:${exit_code}"
+  fi
+}
+trap on_exit EXIT
 
 append_failed_city() {
   local city="$1"
@@ -117,9 +129,21 @@ else
   queue_file="/tmp/city-go-poi-city-queue-${RANDOM}.txt"
   queue_error="/tmp/city-go-poi-city-queue-${RANDOM}.err"
   set +e
-  timeout --signal=TERM "${QUEUE_TIMEOUT_SECONDS}s" ${COMPOSE[@]} exec -T db \
-    psql -U postgres -d city_guide -Atc "SELECT slug FROM cities WHERE slug IS NOT NULL AND slug <> '' ORDER BY slug;" \
-    > "$queue_file" 2> "$queue_error"
+  timeout --signal=TERM "${QUEUE_TIMEOUT_SECONDS}s" ${COMPOSE[@]} exec -T \
+    -e DB_POOL_SIZE=1 \
+    -e DB_MAX_OVERFLOW=0 \
+    -e DB_POOL_TIMEOUT_SECONDS=10 \
+    backend python - <<'PY' > "$queue_file" 2> "$queue_error"
+from db.session import SessionLocal
+from models.city import City
+
+db = SessionLocal()
+try:
+    for slug, in db.query(City.slug).filter(City.slug.isnot(None), City.slug != "").order_by(City.slug.asc()).all():
+        print(slug, flush=True)
+finally:
+    db.close()
+PY
   queue_status=$?
   set -e
   if [ "$queue_status" -ne 0 ]; then
