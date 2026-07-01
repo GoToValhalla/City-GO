@@ -50,6 +50,7 @@ const urls = () => fetchCalls().map(([input]) => fetchUrl(input))
 const countCalls = (part: string) => urls().filter((url) => url.includes(part)).length
 const jsonResponse = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status }))
 const renderPage = (initialEntry = '/admin/imports') => render(<MemoryRouter initialEntries={[initialEntry]}><AdminImportJobsPage /></MemoryRouter>)
+const flushPromises = async () => { await Promise.resolve(); await Promise.resolve() }
 
 const installFetch = ({
   items = [completedQueuedJob],
@@ -86,6 +87,7 @@ describe('AdminImportJobsPage', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
     vi.stubGlobal('confirm', vi.fn(() => true))
+    window.HTMLElement.prototype.scrollIntoView = vi.fn()
   })
 
   afterEach(() => {
@@ -163,14 +165,14 @@ describe('AdminImportJobsPage', () => {
 
     await screen.findByText('Ереван · запуск #12')
     await screen.findByText('Результат добора фото')
-    expect(screen.getByText(/source_evidence_exhausted/)).toBeTruthy()
+    expect(screen.getAllByText(/source_evidence_exhausted/).length).toBeGreaterThan(0)
     expect(countCalls('/admin/import-jobs/4')).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('button', { name: 'Обновить очередь' }))
 
     await waitFor(() => expect(countCalls('/admin/import-queue')).toBeGreaterThanOrEqual(2))
     expect(screen.getByText('Ереван · запуск #12')).toBeTruthy()
-    expect(screen.getByText(/source_evidence_exhausted/)).toBeTruthy()
+    expect(screen.getAllByText(/source_evidence_exhausted/).length).toBeGreaterThan(0)
   })
 
   it('Snapshot job does not hide latest photo enrichment result', async () => {
@@ -194,7 +196,7 @@ describe('AdminImportJobsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '#13 →' }))
 
     await screen.findByText('Результат добора фото')
-    expect(screen.getByText(/no_candidates/)).toBeTruthy()
+    expect(screen.getAllByText(/no_candidates/).length).toBeGreaterThan(0)
   })
 
   it('Photo blocker warning is shown only when no pending photo candidates exist', async () => {
@@ -223,7 +225,10 @@ describe('AdminImportJobsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '#14 →' }))
     await screen.findByText(/Фото остаются блокером/)
 
+    fireEvent.click(screen.getByRole('button', { name: 'Показать все города' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '#15 →' })).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: '#15 →' }))
+
     await screen.findByText('Фото-кандидаты · запуск #15')
     expect(screen.queryByText(/Фото остаются блокером/)).toBeNull()
   })
@@ -238,18 +243,20 @@ describe('AdminImportJobsPage', () => {
       },
     })
     renderPage()
-    await waitFor(() => expect(listRequests).toBe(1))
-    await waitFor(() => expect(screen.getAllByText('Алматы').length).toBeGreaterThan(0))
+
+    await act(async () => { await flushPromises() })
+    expect(listRequests).toBe(1)
+    expect(screen.getAllByText('Алматы').length).toBeGreaterThan(0)
 
     await act(async () => {
       vi.advanceTimersByTime(7000)
-      await Promise.resolve()
+      await flushPromises()
     })
-    await waitFor(() => expect(listRequests).toBe(2))
+    expect(listRequests).toBe(2)
 
     await act(async () => {
       vi.advanceTimersByTime(14000)
-      await Promise.resolve()
+      await flushPromises()
     })
     expect(listRequests).toBe(2)
   })
