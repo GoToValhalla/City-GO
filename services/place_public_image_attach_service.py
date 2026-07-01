@@ -25,6 +25,7 @@ def _attach(place: Place, public_images: list[PublicPlaceImage] | None) -> Place
     place.public_image_status = attrs["public_image_status"]
     place.public_image_urls = urls or None
     place.public_photo_urls = urls or None
+    place.image_urls = urls or None
     return place
 
 
