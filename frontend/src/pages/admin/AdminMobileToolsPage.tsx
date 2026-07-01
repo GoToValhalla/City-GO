@@ -58,7 +58,7 @@ export const AdminMobileToolsPage = () => {
       <button className="admin-btn admin-btn-sm" type="button" onClick={loadRejected}>Отклонённые</button>
     </section>
     {message ? <p className="admin-success-text">{message}</p> : null}
-    {mode === 'rejected' ? <section className="admin-card">{rejected.map((item) => <p key={item.id}>{item.title}</p>)}</section> : <section className="admin-card">
+    {mode === 'rejected' ? <section className="admin-card">{rejected.map((item) => <article key={item.id} className="admin-help-panel"><strong>{item.title}</strong><button className="admin-btn admin-btn-sm" type="button" onClick={async () => { await adminPost(`/admin/mobile-tools/places/${item.id}/defer`, {}); await loadRejected(); await loadCities() }}>↩</button></article>)}</section> : <section className="admin-card">
       <p className="admin-muted">Осталось: {remaining}</p>
       {place ? <>
         {photo ? <img src={photo} alt={place.title} style={{ width: '100%', maxHeight: 260, objectFit: 'cover', borderRadius: 16 }} /> : <p>Фото нет</p>}
