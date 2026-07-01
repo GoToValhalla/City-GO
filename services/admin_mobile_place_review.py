@@ -92,6 +92,33 @@ def reject_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
     return {"action": "rejected", "place": place_payload(db, place)}
 
 
+def defer_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
+    return move_back_to_queue(db, place_id=place_id, actor=actor, action="deferred")
+
+
+def restore_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
+    return move_back_to_queue(db, place_id=place_id, actor=actor, action="restored")
+
+
+def move_back_to_queue(db: Session, *, place_id: int, actor: str, action: str) -> dict[str, object]:
+    place = db.get(Place, place_id)
+    if place is None:
+        return {"action": "not_found", "place_id": place_id}
+    now = datetime.utcnow()
+    place.is_published = False
+    place.is_visible_in_catalog = False
+    place.is_route_eligible = False
+    place.is_searchable = False
+    place.publication_status = "needs_review"
+    place.publication_comment = f"{action} from mobile review"
+    place.updated_at = now
+    db.add(place)
+    audit(db, place, actor, f"mobile_review_{action}")
+    db.commit()
+    db.refresh(place)
+    return {"action": action, "place_id": place.id, "place": place_payload(db, place)}
+
+
 def publication_blockers(place: Place) -> list[str]:
     category = (place.canonical_category or place.category or "").strip().lower()
     blockers = []
