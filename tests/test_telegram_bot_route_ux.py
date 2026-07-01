@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from telegram_bot.keyboards.main_menu import get_main_menu_keyboard
+from aiogram.types import ReplyKeyboardRemove
+
+from telegram_bot.keyboards.main_menu import get_location_request_keyboard, get_main_menu_keyboard
 from telegram_bot.keyboards.route_actions import get_route_actions_keyboard
 from telegram_bot.services.route_formatter import format_route_message
 
@@ -9,11 +11,17 @@ def _button_texts(markup) -> list[str]:
     return [button.text for row in markup.keyboard for button in row]
 
 
-def test_main_keyboard_exposes_location_new() -> None:
+def test_main_keyboard_removes_persistent_reply_keyboard_new() -> None:
     keyboard = get_main_menu_keyboard()
+    assert isinstance(keyboard, ReplyKeyboardRemove)
+    assert keyboard.remove_keyboard is True
+
+
+def test_location_keyboard_exposes_location_request_new() -> None:
+    keyboard = get_location_request_keyboard()
     texts = _button_texts(keyboard)
-    assert "📡 Отправить геолокацию" in texts
-    location_buttons = [button for row in keyboard.keyboard for button in row if button.text == "📡 Отправить геолокацию"]
+    assert "Отправить геопозицию" in texts
+    location_buttons = [button for row in keyboard.keyboard for button in row if button.text == "Отправить геопозицию"]
     assert location_buttons
     assert location_buttons[0].request_location is True
 
