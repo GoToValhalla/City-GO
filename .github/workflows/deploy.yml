@@ -252,8 +252,34 @@ jobs:
             -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'REMOTE'
           set -euo pipefail
           cd /srv/app
+
+          echo "=== Production disk before deploy cleanup ==="
+          df -h /
+          docker system df || true
+
+          echo "=== Stop and remove app containers before image replacement ==="
+          docker compose stop frontend backend import-worker bot || true
+          docker compose rm -f frontend backend import-worker bot migrate seed address-backfill place-enrichment-export || true
+
+          echo "=== Prune unused docker data before docker load ==="
+          docker container prune -f || true
+          docker image prune -af || true
+          docker builder prune -af || true
+          rm -rf /tmp/city-go-build-* /tmp/city-go-deploy-* || true
+
+          echo "=== Production disk after deploy cleanup ==="
+          df -h /
+          docker system df || true
+
           docker load -i /tmp/city-go-images.tar.gz
           docker compose up -d --remove-orphans
+
+          rm -f /tmp/city-go-images.tar.gz || true
+          docker image prune -f || true
+
+          echo "=== Production disk after deploy ==="
+          df -h /
+          docker system df || true
           REMOTE
 
       - name: Verify build.json
