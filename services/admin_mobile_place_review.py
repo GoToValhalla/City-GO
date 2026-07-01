@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from models.city import City
@@ -10,6 +11,8 @@ from services.place_read_service import build_place_read
 from services.system_log_service import write_system_log
 
 REVIEW_STATUSES = ("draft", "needs_review", "deferred", "unpublished")
+NON_ROUTE_CATEGORIES = {"service", "transport", "utility", "pharmacy", "bank", "atm"}
+NON_ROUTE_LAYERS = {"service", "transport", "utility"}
 
 
 def list_review_cities(db: Session) -> dict[str, object]:
@@ -46,6 +49,9 @@ def publish_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
     place = db.get(Place, place_id)
     if place is None:
         return {"action": "not_found", "place": None}
+    blockers = publication_blockers(place)
+    if blockers:
+        raise HTTPException(422, "; ".join(blockers))
     now = datetime.utcnow()
     place.is_published = True
     place.is_visible_in_catalog = True
@@ -86,9 +92,21 @@ def reject_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
     return {"action": "rejected", "place": place_payload(db, place)}
 
 
+def publication_blockers(place: Place) -> list[str]:
+    category = (place.canonical_category or place.category or "").strip().lower()
+    blockers = []
+    if place.status in {"closed", "temporarily_closed", "inactive"} or place.lifecycle_status in {"closed", "removed", "inactive"}:
+        blockers.append("Место закрыто или неактивно")
+    if category in NON_ROUTE_CATEGORIES or place.place_layer in NON_ROUTE_LAYERS:
+        blockers.append("Категория не подходит для маршрутов")
+    if place.lat is None or place.lng is None:
+        blockers.append("Нет координат")
+    return blockers
+
+
 def place_payload(db: Session, place: Place) -> dict[str, object]:
     payload = build_place_read(db, place).model_dump(mode="json")
-    payload["publication_blockers"] = []
+    payload["publication_blockers"] = publication_blockers(place)
     return payload
 
 
