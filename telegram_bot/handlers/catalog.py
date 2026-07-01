@@ -122,6 +122,8 @@ async def location_message(message: Message) -> None:
 @router.message()
 async def text_message(message: Message) -> None:
     text = (message.text or "").strip()
+    if text.startswith("/"):
+        return
 
     async def action(db: Session, session, facade: BotFacade, _message: Message) -> None:
         if not text:
@@ -268,9 +270,7 @@ async def _answer_main_menu(message: Message, text: str) -> None:
 
 async def _remove_reply_keyboard(message: Message) -> None:
     with suppress(Exception):
-        cleanup = await message.answer("\u2063", reply_markup=ReplyKeyboardRemove())
-        with suppress(Exception):
-            await cleanup.delete()
+        await message.answer("Клавиатура скрыта.", reply_markup=ReplyKeyboardRemove(remove_keyboard=True, selective=False))
 
 
 async def _show_main_menu_callback(callback: CallbackQuery, db: Session, session, facade: BotFacade) -> None:
@@ -358,168 +358,152 @@ async def _handle_route(callback: CallbackQuery, db: Session, session, facade: B
             if generated is not None:
                 session.route_session = _route_state_from_generated(generated)
                 save_session(db, session)
-                await _edit_or_answer(callback, renderers.generated_route_intro_text(city, generated), reply_markup=kb.generated_route_card(generated))
+                await _edit_or_answer(callback, renderers.route_card_text(generated), reply_markup=kb.generated_route_card(generated))
                 return
-        await _edit_or_answer(callback, renderers.routes_list_text(city, page.items, page.page), reply_markup=kb.routes_page(page, session))
-        return
-    if action in {"ggo", "gpts"}:
-        route = _generated_route_for_city(facade, session, city.slug)
-        if route is None:
-            await _edit_or_answer(callback, "Маршрут пока не собрать: в городе меньше двух качественных точек для прогулки.", reply_markup=kb.back_to_menu())
+            await _edit_or_answer(callback, renderers.routes_empty_text(city), reply_markup=kb.back_to_menu())
             return
-        session.route_session = _route_state_from_generated(route)
-        save_session(db, session)
-        if action == "gpts":
-            await _edit_or_answer(callback, renderers.route_points_text(route), reply_markup=kb.generated_route_card(route))
-            return
-        log_event(db, session, "route_started", entity_type="route", entity_id="generated", payload={"points": len(route.points)})
-        await _render_route_step(callback, session, route, 0)
+        await _edit_or_answer(callback, renderers.routes_list_text(city, page), reply_markup=kb.routes_page(page, session))
         return
-    if action in {"view", "pts", "go"} and parts:
+    if action == "view" and parts:
         route = _route_by_short_id(facade, session, parts[0])
-        if route is None:
-            await _edit_or_answer(callback, "Маршрут недоступен или снят с публикации.", reply_markup=kb.back_to_menu())
+        if route is not None:
+            log_event(db, session, "route_viewed", entity_type="route", entity_id=route.id)
+            await _edit_or_answer(callback, renderers.route_card_text(route), reply_markup=kb.route_card(route, session))
             return
-        if action == "pts":
+    if action == "pts" and parts:
+        route = _route_by_short_id(facade, session, parts[0])
+        if route is not None:
             await _edit_or_answer(callback, renderers.route_points_text(route), reply_markup=kb.route_card(route, session))
             return
-        if action == "go":
-            if get_temporary_location(session) is None:
-                set_pending_intent(session, "continue_route")
-                session.route_session = {"pending_route_id": route.id}
-                save_session(db, session)
-                if callback.message:
-                    await callback.message.answer(
-                        "Отправьте геопозицию для старта маршрута или вернитесь к маршруту и используйте ручной режим.",
-                        reply_markup=get_location_request_keyboard(),
-                    )
-                return
-            try:
-                backend_session = start_backend_route_session(db, route.id, user_key=f"tg:{session.telegram_user_id}")
-            except RouteSessionError:
-                logger.exception("Failed to start backend route session for Telegram")
-                await _edit_or_answer(callback, "Маршрут нельзя начать: недостаточно качественных точек.", reply_markup=kb.route_card(route, session))
-                return
+    if action == "gpts":
+        route = _generated_route_for_city(facade, session, city.slug)
+        if route is not None:
+            await _edit_or_answer(callback, renderers.route_points_text(route), reply_markup=kb.generated_route_card(route))
+            return
+    if action == "ggo":
+        route = _generated_route_for_city(facade, session, city.slug)
+        if route is None:
+            await _edit_or_answer(callback, renderers.routes_empty_text(city), reply_markup=kb.back_to_menu())
+            return
+        await _start_generated_route(callback, session, route)
+        return
+    if action == "go" and parts:
+        route = _route_by_short_id(facade, session, parts[0])
+        if route is not None:
+            await _start_published_route(callback, db, session, route)
+            return
+    await _show_main_menu_callback(callback, db, session, facade)
+
+
+async def _start_published_route(callback: CallbackQuery, db: Session, session, route: BotRoute) -> None:
+    if callback.message is None:
+        return
+    location = get_temporary_location(session)
+    if location:
+        try:
+            backend_session = start_backend_route_session(db, route.id, user_key=f"tg:{session.telegram_user_id}")
             session.route_session = _route_state_from_backend(backend_session)
             save_session(db, session)
-            log_event(db, session, "route_started", entity_type="route", entity_id=route.id)
             await _render_route_step(callback, session, route, 0)
             return
-        log_event(db, session, "route_viewed", entity_type="route", entity_id=route.id)
-        await _edit_or_answer(callback, renderers.route_card_text(route), reply_markup=kb.route_card(route, session))
+        except RouteSessionError as exc:
+            await _edit_or_answer(callback, str(exc), reply_markup=kb.route_card(route, session))
+            return
+    set_pending_intent(session, "continue_route")
+    session.route_session = {"pending_route_id": route.id}
+    save_session(db, session)
+    await callback.message.answer(
+        "Чтобы вести по маршруту, отправь геопозицию или начни от центра города.",
+        reply_markup=get_location_request_keyboard(),
+    )
+
+
+async def _start_generated_route(callback: CallbackQuery, session, route: BotRoute) -> None:
+    if callback.message is None:
         return
-    await _edit_or_answer(callback, renderers.error_text(), reply_markup=kb.back_to_menu())
+    location = get_temporary_location(session)
+    if not location:
+        set_pending_intent(session, "continue_generated_route")
+        session.route_session = _route_state_from_generated(route)
+        await callback.message.answer(
+            "Чтобы вести по маршруту, отправь геопозицию или начни от центра города.",
+            reply_markup=get_location_request_keyboard(),
+        )
+        return
+    await _render_route_step(callback, session, route, 0)
 
 
 async def _handle_route_navigation(callback: CallbackQuery, db: Session, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
-    route_state = dict(session.route_session) if isinstance(session.route_session, dict) else None
-    if not route_state:
-        await _edit_or_answer(callback, "Активный маршрут не найден.", reply_markup=kb.back_to_menu())
-        return
+    route_state = session.route_session if isinstance(session.route_session, dict) else {}
     route = _route_from_session_state(facade, route_state)
     if route is None:
-        session.route_session = None
-        await _edit_or_answer(callback, "Маршрут больше недоступен.", reply_markup=kb.back_to_menu())
+        await _show_main_menu_callback(callback, db, session, facade)
         return
-
-    backend_session_id = 0 if route_state.get("generated") else _int(route_state.get("session_id"), 0)
-    event_entity_id = route.id if route.id else "generated"
-    if action == "done":
-        visited_count = len(list(route_state.get("visited", [])))
-        if backend_session_id:
-            with suppress(RouteSessionError):
-                backend_session = complete_backend_route_session(db, backend_session_id)
-                visited_count = len(list(backend_session.visited_point_indexes or []))
-        log_event(db, session, "route_completed", entity_type="route", entity_id=event_entity_id, payload={"visited": visited_count, "total": len(route.points)})
-        session.route_session = None
-        save_session(db, session)
-        await _edit_or_answer(callback, renderers.route_completed_text(route, visited_count), reply_markup=kb.back_to_menu())
-        return
-
     index = _int(parts[0] if parts else route_state.get("current_index", 0))
-    index = min(max(index, 0), len(route.points) - 1)
-
-    if action in {"visit", "skip"}:
-        if backend_session_id:
-            try:
-                backend_session = check_in_backend_route_point(db, backend_session_id, index, "visit" if action == "visit" else "skip")
-            except RouteSessionError:
-                logger.exception("Failed to update Telegram route point")
-                await _edit_or_answer(callback, "Не удалось обновить точку. Попробуй еще раз.", reply_markup=kb.route_step(route.points[index], len(route.points), False))
-                return
-            route_state = _route_state_from_backend(backend_session)
-            session.route_session = route_state
-            save_session(db, session)
-            log_event(db, session, "route_point_visited" if action == "visit" else "route_point_skipped", entity_type="route", entity_id=event_entity_id, payload={"index": index})
-            if backend_session.status == "completed":
-                visited_count = len(list(backend_session.visited_point_indexes or []))
-                log_event(db, session, "route_completed", entity_type="route", entity_id=event_entity_id, payload={"visited": visited_count, "total": len(route.points)})
-                session.route_session = None
-                save_session(db, session)
-                await _edit_or_answer(callback, renderers.route_completed_text(route, visited_count), reply_markup=kb.back_to_menu())
-                return
-            index = min(_int(route_state.get("current_index"), 0), len(route.points) - 1)
-            await _render_route_step(callback, session, route, index)
-            return
-
-        key = "visited" if action == "visit" else "skipped"
-        values = list(route_state.get(key, []))
-        if index not in values:
-            values.append(index)
-            log_event(db, session, "route_point_visited" if action == "visit" else "route_point_skipped", entity_type="route", entity_id=event_entity_id, payload={"index": index})
-            index = min(index + 1, len(route.points) - 1)
-        route_state[key] = values
+    index = min(max(index, 0), max(len(route.points) - 1, 0))
+    if action == "pt":
         route_state["current_index"] = index
         session.route_session = route_state
         save_session(db, session)
-        if len(set(route_state.get("visited", []) + route_state.get("skipped", []))) >= len(route.points):
-            session.route_session = None
-            save_session(db, session)
-            await _edit_or_answer(callback, renderers.route_completed_text(route, len(route_state.get("visited", []))), reply_markup=kb.back_to_menu())
-            return
         await _render_route_step(callback, session, route, index)
         return
-
-    if action == "pt" and backend_session_id:
-        with suppress(RouteSessionError):
-            backend_session = update_backend_route_session(db, backend_session_id, current_point_index=index)
-            route_state = _route_state_from_backend(backend_session)
-
-    route_state["current_index"] = index
-    session.route_session = route_state
-    save_session(db, session)
+    if action == "visit":
+        visited = list(route_state.get("visited", []))
+        if index not in visited:
+            visited.append(index)
+        route_state["visited"] = visited
+        route_state["current_index"] = min(index + 1, max(len(route.points) - 1, 0))
+        session.route_session = route_state
+        save_session(db, session)
+        await _render_route_step(callback, session, route, _int(route_state["current_index"]))
+        return
+    if action == "skip":
+        skipped = list(route_state.get("skipped", []))
+        if index not in skipped:
+            skipped.append(index)
+        route_state["skipped"] = skipped
+        route_state["current_index"] = min(index + 1, max(len(route.points) - 1, 0))
+        session.route_session = route_state
+        save_session(db, session)
+        await _render_route_step(callback, session, route, _int(route_state["current_index"]))
+        return
+    if action == "done":
+        if route_state.get("session_id"):
+            try:
+                complete_backend_route_session(db, int(route_state["session_id"]))
+            except RouteSessionError:
+                logger.exception("Failed to complete backend route session")
+        session.route_session = None
+        save_session(db, session)
+        await _show_main_menu_callback(callback, db, session, facade)
+        return
     await _render_route_step(callback, session, route, index)
 
 
 async def _handle_place(callback: CallbackQuery, db: Session, session, facade: BotFacade, action: str | None, parts: tuple[str, ...]) -> None:
-    if not session.selected_city_slug:
-        await _show_city_select_callback(callback, facade, db=db, session=session)
-        return
-    if action == "cat" and len(parts) >= 2:
-        category = parts[0]
-        page_no = _int(parts[1])
-        page = facade.places_by_category(session.selected_city_slug, category, page_no)
-        title = CATEGORY_TITLES.get(category, f"📍 {category}")
+    if action == "cat":
+        category = parts[0] if parts else "all"
+        page_no = _int(parts[1] if len(parts) > 1 else 0)
+        page = facade.places(session.selected_city_slug, category, page_no)
+        if not page.items:
+            await _edit_or_answer(callback, renderers.places_empty_text(CATEGORY_TITLES.get(category, category)), reply_markup=kb.back_to_menu())
+            return
+        title = CATEGORY_TITLES.get(category, "📍 Места")
         await _edit_or_answer(callback, renderers.places_list_text(title, page.items, page.page), reply_markup=kb.places_page(page, session, "p", "cat", category))
         return
     if action == "src":
         query = _current_search_query(session)
-        if not query:
-            await _edit_or_answer(callback, renderers.no_results_text(""), reply_markup=kb.back_to_menu())
-            return
-        page_no = _int(parts[0] if parts else "0")
-        page = facade.search_places(session.selected_city_slug, query, page_no)
+        page_no = _int(parts[0] if parts else 0)
+        page = facade.search_places(session.selected_city_slug, query or "", page_no)
         await _edit_or_answer(callback, renderers.places_list_text(f"🔎 Поиск: {query}", page.items, page.page), reply_markup=kb.places_page(page, session, "p", "src"))
         return
     if action == "view" and parts:
         place_id = resolve_short_id(session, parts[0])
-        place = facade.place(place_id or 0)
-        if place is None:
-            await _edit_or_answer(callback, "Место недоступно или снято с публикации.", reply_markup=kb.back_to_menu())
+        place = facade.place(place_id) if place_id is not None else None
+        if place is not None:
+            log_event(db, session, "place_viewed", entity_type="place", entity_id=place.id)
+            await _send_place_card(callback, session, place)
             return
-        log_event(db, session, "place_viewed", entity_type="place", entity_id=place.id)
-        await _send_place_card(callback, session, place)
-        return
     await _edit_or_answer(callback, renderers.error_text(), reply_markup=kb.back_to_menu())
 
 
