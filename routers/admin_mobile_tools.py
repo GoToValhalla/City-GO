@@ -7,7 +7,7 @@ from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
 from services.admin_mobile_place_review import list_review_cities, next_review_place, publish_place, rejected_places, reject_place
 
-router = APIRouter(prefix="/admin/mobile-tools", tags=["admin-mobile-tools"])
+router = APIRouter(prefix="/mobile-tools", tags=["admin-mobile-tools"])
 
 
 @router.get("/cities")
