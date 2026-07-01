@@ -5,7 +5,7 @@ from html import escape
 
 from aiogram import F, Router
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardRemove
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -19,8 +19,9 @@ CALLBACK_PREFIX = "admrev"
 
 @router.message(Command("moderation", "mod", "review"))
 async def cmd_moderation(message: Message) -> None:
+    await _remove_reply_keyboard(message)
     if not _is_admin_message(message):
-        await message.answer("Модерация мест доступна только администратору.")
+        await message.answer("Модерация мест доступна только администратору.", reply_markup=ReplyKeyboardRemove())
         return
     with SessionLocal() as db:
         await message.answer(_cities_text(db), reply_markup=_cities_keyboard(db))
@@ -192,6 +193,11 @@ async def _edit(callback: CallbackQuery, text: str, markup: InlineKeyboardMarkup
         await callback.message.edit_text(text, reply_markup=markup)
         return
     await callback.message.answer(text, reply_markup=markup)
+
+
+async def _remove_reply_keyboard(message: Message) -> None:
+    with suppress(Exception):
+        await message.answer("Клавиатура скрыта.", reply_markup=ReplyKeyboardRemove())
 
 
 def _is_admin_message(message: Message) -> bool:
