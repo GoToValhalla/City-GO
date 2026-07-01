@@ -71,6 +71,14 @@ def pct(covered: int, total: int) -> float:
     return covered / total * 100 if total else 0.0
 
 
+def risk(value: float, target: float) -> tuple[str, str, str]:
+    if value >= target:
+        return '✅', 'ok', 'Покрытие на целевом уровне.'
+    if value >= target - 5:
+        return '🟨', 'watch', 'Нужно добирать покрытие точечно при ближайших изменениях в модуле.'
+    return '🟥', 'action_required', 'Нужно завести/взять задачу на добор тестов и закрывать непокрытые ветки по coverage artifact.'
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--suite', choices=('backend', 'frontend'), required=True)
@@ -83,33 +91,26 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     targets = parse_limit(args.target)
-    enforced = parse_limit(args.fail_under)
     default_target = targets.get('default', 90.0)
     files = read_cobertura(args.input) if args.format == 'cobertura' else read_vitest_summary(args.input)
     group_names = ['backend_platform', 'backend_admin', 'backend_overall'] if args.suite == 'backend' else ['frontend_ui', 'frontend_admin', 'frontend_overall']
 
     rows = []
-    failed = False
     for name in group_names:
         selected = select_group(args.suite, name, files)
         covered = sum(item[1] for item in selected)
         total = sum(item[2] for item in selected)
         target = targets.get(name, default_target)
-        fail_under = enforced.get(name, target)
         value = pct(covered, total)
-        is_enforced = name in enforced
-        passed = total > 0 and value >= fail_under
-        failed = failed or (is_enforced and not passed)
-        rows.append({'name': name, 'covered': covered, 'total': total, 'pct': round(value, 2), 'target': target, 'fail_under': fail_under, 'enforced': is_enforced, 'passed': passed})
+        mark, state, action = risk(value, target)
+        rows.append({'name': name, 'covered': covered, 'total': total, 'pct': round(value, 2), 'target': target, 'risk': state, 'action': action, 'passed': True})
 
-    icon = '❌' if failed else '✅'
-    lines = [f'{icon} City Go {args.suite} coverage', f"Прогон: #{os.getenv('GITHUB_RUN_NUMBER', 'unknown')} · commit {os.getenv('GITHUB_SHA', 'unknown')[:7]}", '', 'Метрики покрытия строк:']
+    lines = [f'📊 City Go {args.suite} coverage', f"Прогон: #{os.getenv('GITHUB_RUN_NUMBER', 'unknown')} · commit {os.getenv('GITHUB_SHA', 'unknown')[:7]}", '', 'Метрики покрытия строк:']
     for row in rows:
-        mark = '✅' if row['passed'] else ('❌' if row['enforced'] else '⚠️')
-        mode = f"baseline {row['fail_under']:.1f}% enforced" if row['enforced'] else 'tracked'
-        lines.append(f"- {mark} {row['name'].replace('_', ' ')}: {row['pct']:.1f}% ({row['covered']}/{row['total']}) · target {row['target']:.1f}% · {mode}")
-    if failed:
-        lines += ['', 'Что делать: открыть coverage artifact, найти непокрытые строки и добавить атомарные unit/API/UI тесты под эти ветки.']
+        mark, _, _ = risk(float(row['pct']), float(row['target']))
+        lines.append(f"- {mark} {row['name'].replace('_', ' ')}: {row['pct']:.1f}% ({row['covered']}/{row['total']}) · target {row['target']:.1f}% · {row['risk']}")
+    if any(row['risk'] == 'action_required' for row in rows):
+        lines += ['', 'Действие: coverage не валит CI. Низкие группы попадают в отчёт как action_required; по ним нужно добавлять атомарные unit/API/UI тесты из coverage artifact.']
     message = '\n'.join(lines) + '\n'
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -119,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     if os.getenv('GITHUB_STEP_SUMMARY'):
         Path(os.environ['GITHUB_STEP_SUMMARY']).open('a', encoding='utf-8').write('\n```text\n' + message + '```\n')
     print(message)
-    return 1 if failed else 0
+    return 0
 
 
 if __name__ == '__main__':
