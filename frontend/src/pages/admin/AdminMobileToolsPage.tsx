@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { adminGet, adminPost } from './adminApi'
 
 type City = { slug: string; name: string; needs_review: number; rejected: number }
@@ -19,37 +19,34 @@ export const AdminMobileToolsPage = () => {
   const photos = useMemo(() => getPhotos(place), [place])
   const photo = photos[photoIndex] ?? photos[0]
 
-  const loadCities = useCallback(async () => {
+  const loadCities = async () => {
     const data = await adminGet<{ items: City[] }>('/admin/mobile-tools/cities')
     setCities(data.items)
     if (!citySlug && data.items[0]) setCitySlug(data.items[0].slug)
-  }, [citySlug])
-  const loadNext = useCallback(async (slug = citySlug) => {
+  }
+  const loadNext = async (slug = citySlug) => {
     if (!slug) return
     const data = await adminGet<NextPayload>(`/admin/mobile-tools/places/next?city_slug=${encodeURIComponent(slug)}`)
     setPlace(data.place)
     setRemaining(data.remaining)
     setPhotoIndex(0)
     setMode('queue')
-  }, [citySlug])
-  const loadRejected = useCallback(async () => {
+  }
+  const loadRejected = async () => {
     const data = await adminGet<{ items: Place[] }>(`/admin/mobile-tools/places/rejected?city_slug=${encodeURIComponent(citySlug)}`)
     setRejected(data.items)
     setMode('rejected')
-  }, [citySlug])
-  const act = useCallback(async (id: number, action: 'publish' | 'reject' | 'defer') => {
-    await adminPost(`/admin/mobile-tools/places/${id}/${action}`, {})
+  }
+  const act = async (action: 'publish' | 'reject' | 'defer') => {
+    if (!place) return
+    await adminPost(`/admin/mobile-tools/places/${place.id}/${action}`, {})
     setMessage(action)
     await loadNext()
     await loadCities()
-  }, [loadNext, loadCities])
-  const returnRejected = useCallback(async (id: number) => {
-    await act(id, 'defer')
-    await loadRejected()
-  }, [act, loadRejected])
+  }
 
-  useEffect(() => { void Promise.resolve().then(loadCities) }, [loadCities])
-  useEffect(() => { if (citySlug) void Promise.resolve().then(() => loadNext(citySlug)) }, [citySlug, loadNext])
+  useEffect(() => { void Promise.resolve().then(loadCities) }, [])
+  useEffect(() => { if (citySlug) void Promise.resolve().then(() => loadNext(citySlug)) }, [citySlug])
 
   return <main className="admin-page">
     <h2 className="admin-page-title">Мобильные инструменты</h2>
@@ -57,11 +54,11 @@ export const AdminMobileToolsPage = () => {
       <select value={citySlug} onChange={(event) => setCitySlug(event.target.value)} aria-label="Город">
         {cities.map((city) => <option key={city.slug} value={city.slug}>{city.name} · {city.needs_review} · {city.rejected}</option>)}
       </select>
-      <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void loadNext() }}>Следующая</button>
-      <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void loadRejected() }}>Отклонённые</button>
+      <button className="admin-btn admin-btn-sm" type="button" onClick={() => loadNext()}>Следующая</button>
+      <button className="admin-btn admin-btn-sm" type="button" onClick={loadRejected}>Отклонённые</button>
     </section>
     {message ? <p className="admin-success-text">{message}</p> : null}
-    {mode === 'rejected' ? <section className="admin-card">{rejected.map((item) => <article key={item.id} className="admin-help-panel"><strong>{item.title}</strong><button className="admin-btn admin-btn-sm" type="button" onClick={() => { void returnRejected(item.id) }}>Вернуть</button></article>)}</section> : <section className="admin-card">
+    {mode === 'rejected' ? <section className="admin-card">{rejected.map((item) => <article key={item.id} className="admin-help-panel"><strong>{item.title}</strong><button className="admin-btn admin-btn-sm" type="button" onClick={async () => { await adminPost(`/admin/mobile-tools/places/${item.id}/defer`, {}); await loadRejected(); await loadCities() }}>Вернуть</button></article>)}</section> : <section className="admin-card">
       <p className="admin-muted">Осталось: {remaining}</p>
       {place ? <>
         {photo ? <img src={photo} alt={place.title} style={{ width: '100%', maxHeight: 260, objectFit: 'cover', borderRadius: 16 }} /> : <p>Фото нет</p>}
@@ -69,9 +66,9 @@ export const AdminMobileToolsPage = () => {
         <h3>{place.title}</h3>
         <p>{place.category || 'без категории'} · {place.address || 'адрес не указан'}</p>
         <p>{place.short_description || 'описание не заполнено'}</p>
-        <button className="admin-btn admin-btn-sm admin-btn-primary" type="button" onClick={() => { void act(place.id, 'publish') }}>Опубликовать</button>
-        <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void act(place.id, 'reject') }}>Отклонить</button>
-        <button className="admin-btn admin-btn-sm" type="button" onClick={() => { void act(place.id, 'defer') }}>В конец очереди</button>
+        <button className="admin-btn admin-btn-sm admin-btn-primary" type="button" onClick={() => act('publish')}>Опубликовать</button>
+        <button className="admin-btn admin-btn-sm" type="button" onClick={() => act('reject')}>Отклонить</button>
+        <button className="admin-btn admin-btn-sm" type="button" onClick={() => act('defer')}>В конец очереди</button>
       </> : <p>Очередь пуста.</p>}
     </section>}
   </main>
