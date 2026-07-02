@@ -1,3 +1,28 @@
+"""LEGACY COMPATIBILITY CLI for old publication flag reconciliation.
+
+Status: historical/operational compatibility wrapper.
+
+How it worked:
+- This script was the original manual entrypoint for reconciling old public city
+  feature toggles and leaked public place flags.
+- Before publication state invariants were introduced, an operator could run this
+  script to apply reconciliation directly.
+
+Current source of truth:
+- Diagnostic only: `scripts/diagnose_publication_states.py`.
+- Repair flow: `scripts/repair_publication_states.py`.
+- Service contract: `services/publication_reconciliation_service.py` is
+  non-destructive by default; destructive changes require explicit flag, reason,
+  actor and audit.
+
+Rules:
+- Do not use this as the default repair path for production incidents.
+- Do not assume `--apply` hides published places; default service behavior is now
+  protected/non-destructive.
+- Keep this wrapper only for legacy visibility-toggle materialization and audited
+  rollback compatibility.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +45,7 @@ from services.publication_reconciliation_service import (
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Inspect or reconcile legacy public-city flags.")
-    parser.add_argument("--apply", action="store_true", help="Hide leaked public places in unpublished cities.")
+    parser.add_argument("--apply", action="store_true", help="Legacy wrapper: run non-destructive reconciliation apply path.")
     parser.add_argument(
         "--materialize-legacy-city-visibility-defaults",
         action="store_true",
