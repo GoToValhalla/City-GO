@@ -16,6 +16,14 @@ After every successful production deploy, run automatic smoke checks and send a 
 
 The user should not have to open every admin tab manually to discover 400/500 errors.
 
+## Important auth boundary
+
+The smoke suite does not change admin authentication.
+
+It does not create, rotate, print, fetch, or expose admin tokens.
+
+No one should copy `ADMIN_API_TOKEN` from a phone. If the secret already exists in GitHub, admin smoke uses it automatically. If the secret is missing, admin checks are reported as `skipped` and the public smoke still runs.
+
 ## Implementation
 
 Files:
@@ -35,7 +43,7 @@ Required secret:
 
 - `PRODUCTION_BASE_URL`
 
-Optional secret:
+Optional existing secret:
 
 - `ADMIN_API_TOKEN`
 
@@ -61,13 +69,15 @@ Telegram notification uses existing secrets:
 
 ### Authenticated admin checks
 
-Enabled only when `ADMIN_API_TOKEN` is present.
+Admin checks are visible in the smoke summary every time.
+
+When `ADMIN_API_TOKEN` exists as a GitHub Secret, admin checks run with `Authorization: Bearer <ADMIN_API_TOKEN>`.
+
+When the secret is absent, admin checks are reported as `skipped`:
 
 - `admin_system_health` — GET `/admin/system-health`.
 - `admin_quality` — GET `/admin/quality`.
 - `admin_taxonomy_categories` — GET `/admin/taxonomy/categories?limit=1`.
-
-Admin checks use `Authorization: Bearer <ADMIN_API_TOKEN>`.
 
 Smoke summary does not include authenticated response bodies.
 
@@ -92,6 +102,19 @@ Commit: c56c844
 ✅ admin_system_health: ok · http_200
 ```
 
+Skipped admin example:
+
+```text
+⚠️ CITY GO · PRODUCTION SMOKE
+Commit: c56c844
+✅ build: ok · sha_c56c844
+✅ backend_ready: ok · http_200
+✅ frontend: ok · http_200
+⚠️ admin_quality: skipped · ADMIN_API_TOKEN secret is not configured
+Skipped checks:
+- admin_quality: ADMIN_API_TOKEN secret is not configured
+```
+
 Failure example:
 
 ```text
@@ -106,7 +129,8 @@ Failed checks:
 ## Invariants
 
 - Production deploy is not equivalent to production verification.
-- Admin smoke must be authenticated.
+- Admin smoke is optional and uses only an already configured GitHub Secret.
+- Missing admin secret is a skipped check, not a reason to ask the user for a token.
 - Failed checks must be named directly.
 - Telegram output must stay short.
 - Response bodies from admin endpoints must not be sent to Telegram.
@@ -115,8 +139,10 @@ Failed checks:
 ## What still needs follow-up
 
 1. Add `PRODUCTION_BASE_URL` secret if it is not already configured.
-2. Decide whether route smoke should be enabled immediately.
-3. If enabled, configure route smoke city/coordinates variables.
-4. Add deeper API-level tests for Route Builder v2 endpoints.
-5. Add frontend Playwright smoke for user flows and admin screens.
-6. Promote smoke failures into deploy-blocking release policy after initial stabilization.
+2. Run `Production Smoke` manually once.
+3. Confirm whether admin checks are `ok` or `skipped`.
+4. Decide whether route smoke should be enabled immediately.
+5. If enabled, configure route smoke city/coordinates variables.
+6. Add deeper API-level tests for Route Builder v2 endpoints.
+7. Add frontend Playwright smoke for user flows and admin screens.
+8. Promote smoke failures into deploy-blocking release policy after initial stabilization.
