@@ -240,7 +240,7 @@ def place_factory(db_session: Session, city_factory, category_factory):
         is_route_eligible: bool = True,
         is_searchable: bool = True,
         publication_status: str = "published",
-    ) -> Place:
+    ):
         nonlocal counter
         counter += 1
         if category_id is not None:
@@ -282,3 +282,73 @@ def place_factory(db_session: Session, city_factory, category_factory):
         return place
 
     return create_place
+
+
+@pytest.fixture
+def published_place_factory(place_factory):
+    def create_published_place(**kwargs):
+        kwargs.setdefault("is_active", True)
+        kwargs.setdefault("is_published", True)
+        kwargs.setdefault("is_visible_in_catalog", True)
+        kwargs.setdefault("is_route_eligible", True)
+        kwargs.setdefault("is_searchable", True)
+        kwargs.setdefault("publication_status", "published")
+        return place_factory(**kwargs)
+
+    return create_published_place
+
+
+@pytest.fixture
+def draft_place_factory(place_factory):
+    def create_draft_place(**kwargs):
+        kwargs.setdefault("is_active", True)
+        kwargs.setdefault("is_published", False)
+        kwargs.setdefault("is_visible_in_catalog", False)
+        kwargs.setdefault("is_route_eligible", False)
+        kwargs.setdefault("is_searchable", False)
+        kwargs.setdefault("publication_status", "draft")
+        return place_factory(**kwargs)
+
+    return create_draft_place
+
+
+@pytest.fixture
+def manual_review_place_factory(place_factory):
+    def create_manual_review_place(**kwargs):
+        kwargs.setdefault("is_active", True)
+        kwargs.setdefault("is_published", False)
+        kwargs.setdefault("is_visible_in_catalog", False)
+        kwargs.setdefault("is_route_eligible", False)
+        kwargs.setdefault("is_searchable", False)
+        kwargs.setdefault("publication_status", "needs_review")
+        return place_factory(**kwargs)
+
+    return create_manual_review_place
+
+
+@pytest.fixture
+def auto_backlog_place_factory(place_factory):
+    def create_auto_backlog_place(**kwargs):
+        kwargs.setdefault("is_active", True)
+        kwargs.setdefault("is_published", False)
+        kwargs.setdefault("is_visible_in_catalog", False)
+        kwargs.setdefault("is_route_eligible", False)
+        kwargs.setdefault("is_searchable", False)
+        kwargs.setdefault("publication_status", "auto_backlog")
+        return place_factory(**kwargs)
+
+    return create_auto_backlog_place
+
+
+@pytest.fixture
+def hidden_place_factory(place_factory):
+    def create_hidden_place(**kwargs):
+        kwargs.setdefault("is_active", False)
+        kwargs.setdefault("is_published", False)
+        kwargs.setdefault("is_visible_in_catalog", False)
+        kwargs.setdefault("is_route_eligible", False)
+        kwargs.setdefault("is_searchable", False)
+        kwargs.setdefault("publication_status", "hidden")
+        return place_factory(**kwargs)
+
+    return create_hidden_place
