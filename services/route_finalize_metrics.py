@@ -6,6 +6,7 @@ from typing import List
 
 from schemas.merged_context import MergedContext
 from services.route_assembly_service import RoutePoint
+from services.route_geometry import URBAN_FACTOR, distance_meters
 
 
 def compute_total_time(route: List[RoutePoint]) -> int:
@@ -13,15 +14,16 @@ def compute_total_time(route: List[RoutePoint]) -> int:
 
 
 def compute_distance(route: List[RoutePoint], ctx: MergedContext) -> float:
-    points = [(point.lat, point.lng) for point in route]
+    points = [(float(point.lat), float(point.lng)) for point in route]
     start = (0.0, ctx.location)
 
     def add_distance(state: tuple[float, tuple[float, float]], point: tuple[float, float]):
         total, previous = state
-        return (total + distance(previous[0], previous[1], point[0], point[1]), point)
+        meters = distance_meters(previous[0], previous[1], point[0], point[1]) * URBAN_FACTOR
+        return (total + meters, point)
 
-    total, _previous = reduce(add_distance, points, start)
-    return round(total, 3)
+    total_meters, _previous = reduce(add_distance, points, start)
+    return round(total_meters / 1000.0, 3)
 
 
 def point_arrival(point: RoutePoint) -> datetime | None:
@@ -43,7 +45,3 @@ def compute_time_aware_span(route: List[RoutePoint]) -> tuple[int, datetime | No
     walk_sum = sum(int(getattr(point, "estimated_walk_minutes", 0) or 0) for point in route)
     visit_sum = compute_total_time(route)
     return max(0, walk_sum + visit_sum), last_departure
-
-
-def distance(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
-    return ((lat1 - lat2) ** 2 + (lng1 - lng2) ** 2) ** 0.5
