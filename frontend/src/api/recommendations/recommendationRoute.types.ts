@@ -10,6 +10,14 @@ export type RouteStart = {
   address?: string | null
 }
 
+export type RouteBuilderSlot = {
+  type?: string
+  category?: string
+  min_count?: number
+  max_count?: number
+  required?: boolean
+}
+
 export type RecommendationRouteRequest = {
   lat: number
   lng: number
@@ -30,6 +38,8 @@ export type RecommendationRouteRequest = {
   visit_city_id: string | null
   visit_days: number | null
   user_id?: string | null
+  selected_place_ids?: string[]
+  route_slots?: RouteBuilderSlot[]
 }
 
 export type RecommendationRoutePoint = {
@@ -63,6 +73,13 @@ export type RecommendationExplanation = {
   key_reasons?: string[]
   warnings?: string[]
   data_notes?: string[]
+  route_builder_v2?: {
+    mode?: string
+    executor_mode?: string
+    expected_min_points?: number
+    expected_max_points?: number
+    removed_junk_place_ids?: string[]
+  }
   points?: Array<{
     place_id: string
     reason: string
