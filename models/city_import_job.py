@@ -1,3 +1,21 @@
+"""LEGACY/SCOPE SCHEDULER MODEL.
+
+This table belongs to the old import-scope cron foundation. It is not the source
+of truth for the admin import monitor, latest import status, or dashboard import
+state.
+
+Active admin import source of truth:
+- `models.city_admin_import_job.CityAdminImportJob`
+- table `city_admin_import_jobs`
+- admin import job services/runners.
+
+Rules:
+- Do not use this model for admin latest import status.
+- Do not use this model to change `City.is_active` or `City.launch_status`.
+- Keep it for historical scope scheduler compatibility until a dedicated import
+  storage consolidation task migrates old jobs safely.
+"""
+
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String
