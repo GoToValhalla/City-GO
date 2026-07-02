@@ -1,3 +1,25 @@
+"""LEGACY OPERATOR CLI for the first publication-policy runner.
+
+Status: kept for historical and emergency operator compatibility.
+
+How it worked:
+- Loads unpublished active places and runs `services.publication_policy` one row
+  at a time.
+- Can run in shadow/apply mode and writes publication review rows.
+
+Current preferred flow:
+- State diagnostics: `scripts/diagnose_publication_states.py`.
+- State repair: `scripts/repair_publication_states.py`.
+- Auto-backlog reporting/processing foundation:
+  `scripts/auto_process_publication_backlog.py`.
+
+Rules:
+- Do not use this script as the default path for the 17k auto backlog.
+- Do not wire it into new admin buttons without batch limits, audit and tests.
+- Keep it only as a documented legacy operator entrypoint around the old policy
+  runner.
+"""
+
 from __future__ import annotations
 
 import argparse
