@@ -39,6 +39,9 @@
 | Legacy itinerary scoring | `services/itinerary_scoring_service.py` | LEGACY ITINERARY SCORING SERVICE | `services/scoring_service.py`, `services/route_quality_score.py`, `services/route_builder_flow.py` | Старый скоринг itinerary. Новые scoring-фичи сюда не добавлять. |
 | Legacy itinerary route builder helpers | `services/itinerary_route_builder_service.py` | LEGACY ITINERARY ROUTE BUILDER HELPERS | `services/route_builder_flow.py`, route assembly/optimizer services | Старый helper stack для `/routes/generate`. |
 | Legacy itinerary time estimator | `services/itinerary_time_estimator.py` | LEGACY ITINERARY TIME ESTIMATOR | `services/route_builder_flow.py`, route assembly/optimizer and route quality services | Старые расчетные helpers времени/дистанции для itinerary stack. Новые timing rules сюда не добавлять. |
+| Legacy itinerary explanation | `services/itinerary_explanation_service.py` | LEGACY ITINERARY EXPLANATION SERVICE | `services/route_explanation_reasons.py`, `services/explainability_service.py`, `services/route_builder_flow.py` | Старое объяснение маршрута для itinerary stack. Новые explanation rules сюда не добавлять. |
+| Legacy itinerary text parser | `services/itinerary_text_parser.py` | LEGACY ITINERARY TEXT PARSER | `services/route_builder_flow.py`, route request contracts, route draft/session flows | Старый parsing free text для `/routes/generate`. Новые intent rules сюда не добавлять. |
+| Legacy Telegram route handler | `telegram_bot/handlers/route.py` | LEGACY, router not registered | `telegram_bot.handlers.catalog`, `telegram_bot.handlers.admin_moderation`, future TMA/Web route flow | `telegram_bot.main.create_dispatcher()` подключает только admin moderation и catalog. Старый `/route` handler не регистрировать обратно без migration task. |
 | Admin overview old semantics | old use of `verification_status in ('needs_recheck','unverified')` as `needs_review` | DEPRECATED SEMANTIC | `manual_review = Place.publication_status in ('needs_review','needs_manual_review','deferred')` | Verification backlog должен называться отдельно `needs_verification`, не “Требуют проверки”. |
 | Product publication repair | direct SQL/manual flag reset scripts | FORBIDDEN LEGACY PRACTICE | `scripts/repair_publication_states.py` with dry-run snapshot | Любой direct reset `City.is_active`, `City.launch_status`, `Place.is_published` без snapshot/reason/audit запрещён. |
 
@@ -90,6 +93,16 @@ scripts/production_place_import.py
 
 Оставлены как operator compatibility/history, но не являются текущим source of truth для admin import monitor, publication state repair или массовой обработки backlog.
 
+### 7. Telegram route handler split
+
+```text
+telegram_bot.main.create_dispatcher()
+  -> admin_moderation_router
+  -> catalog_router
+```
+
+`telegram_bot/handlers/route.py` не подключён и считается старым bot route flow.
+
 ## Запреты для новых изменений
 
 1. Не создавать новые фикстуры через `PlaceChangeReview`.
@@ -102,8 +115,9 @@ scripts/production_place_import.py
 8. Не регистрировать `routers.admin_extra` обратно без отдельной migration task.
 9. Не использовать `refresh_all_cities.py` как текущий admin import pipeline.
 10. Не использовать `production_place_import.py` как production city import path.
-11. Не добавлять новые candidate retrieval/scoring/assembly/timing rules в `services/itinerary_*`.
+11. Не добавлять новые candidate retrieval/scoring/assembly/timing/explanation/intent rules в `services/itinerary_*`.
 12. Не использовать `schemas/admin_extra.py` для новых admin endpoint contracts.
+13. Не регистрировать `telegram_bot/handlers/route.py` обратно без отдельного Telegram route migration task.
 
 ## Проверка перед фиксом
 
