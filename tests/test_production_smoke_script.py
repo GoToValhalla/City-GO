@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+
 import pytest
 
 from scripts.production_smoke import (
@@ -9,8 +11,10 @@ from scripts.production_smoke import (
     build_default_checks,
     build_summary,
     build_url,
+    config_from_env,
     execute_check,
     normalize_base_url,
+    resolve_base_url,
     safe_build_detail,
     validate_build_sha,
     validate_route_response,
@@ -27,6 +31,38 @@ def test_production_smoke_validates_base_url() -> None:
 
     with pytest.raises(ValueError):
         normalize_base_url("example.com")
+
+
+@title("Production smoke falls back to SSH_HOST when base URL secret is absent")
+def test_production_smoke_falls_back_to_ssh_host_when_base_url_secret_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert resolve_base_url("", "203.0.113.10") == "http://203.0.113.10"
+    assert resolve_base_url("https://city.example", "203.0.113.10") == "https://city.example"
+
+    monkeypatch.setenv("SSH_HOST", "203.0.113.10")
+    args = argparse.Namespace(
+        base_url=None,
+        expected_sha=None,
+        admin_token=None,
+        route_smoke=False,
+        route_city_id=None,
+        route_lat=None,
+        route_lng=None,
+    )
+
+    assert config_from_env(args).base_url == "http://203.0.113.10"
+
+
+@title("Production smoke reports missing target as skipped")
+def test_production_smoke_reports_missing_target_as_skipped_summary() -> None:
+    summary = build_summary(
+        [SmokeResult("production_base_url", "skipped", "PRODUCTION_BASE_URL or SSH_HOST is required")],
+        commit="abcdef123456",
+    )
+
+    assert summary.startswith("⚠️ CITY GO · PRODUCTION SMOKE")
+    assert "production_base_url: skipped" in summary
+    assert "Skipped checks:" in summary
+    assert "Failed checks:" not in summary
 
 
 @title("Production smoke builds URL without double slashes")
