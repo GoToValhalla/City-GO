@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from scripts.ci_test_summary import _allure_coverage_lines, parse_junit, render_message
-from tests.allure_support import citygo_test
+from tests.allure_support import title
 
 
-@citygo_test("CI summary выводит блок покрытия явными Allure-сценариями")
+@title("CI summary выводит блок покрытия явными Allure-сценариями")
 def test_ci_summary_includes_allure_scenario_coverage(tmp_path, monkeypatch) -> None:
     messages = tmp_path / "artifacts" / "messages"
     messages.mkdir(parents=True)
@@ -25,7 +23,7 @@ def test_ci_summary_includes_allure_scenario_coverage(tmp_path, monkeypatch) -> 
     assert "Ignored: x" not in lines
 
 
-@citygo_test("CI summary парсит JUnit и показывает actionable failure details")
+@title("CI summary парсит JUnit и показывает actionable failure details")
 def test_ci_summary_renders_actionable_failure_message(tmp_path, monkeypatch) -> None:
     junit = tmp_path / "junit.xml"
     junit.write_text(
