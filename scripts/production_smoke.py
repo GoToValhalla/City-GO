@@ -64,7 +64,6 @@ USER_FACING_ROUTE_FIELDS = (
     "warnings",
     "user_warnings",
     "user_explanation",
-    "partial_reason",
     "explanation",
 )
 
