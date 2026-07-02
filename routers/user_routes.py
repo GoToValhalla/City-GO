@@ -19,6 +19,7 @@ from schemas.user_route import (
     UserRouteUpdateRequest,
 )
 from services.route_analytics_service import record_route_build
+from services.route_builder_v2_service import RouteBuilderV2Error
 from services.user_route_build_service import UserRouteBuildService
 from services.user_route_correct_service import UserRouteCorrectService
 from services.user_route_edit_service import UserRouteEditService
@@ -35,7 +36,10 @@ def build_user_route(
         raise HTTPException(status_code=422, detail="lat/lng required for current_location")
 
     started = perf_counter()
-    route = UserRouteBuildService().build(db=db, request=payload)
+    try:
+        route = UserRouteBuildService().build(db=db, request=payload)
+    except RouteBuilderV2Error as exc:
+        raise HTTPException(status_code=422, detail={"code": "route_builder_v2_invalid_request", "message": str(exc)}) from exc
     record_route_build(
         db,
         route,
@@ -55,6 +59,8 @@ def preview_user_route(
     try:
         route = UserRouteBuildService().build(db=db, request=UserRouteBuildRequest(**payload.model_dump()))
         return route.model_copy(update={"status": "preview"})
+    except RouteBuilderV2Error as exc:
+        raise HTTPException(status_code=422, detail={"code": "route_builder_v2_invalid_request", "message": str(exc)}) from exc
     except Exception as exc:
         return UserRouteState(
             route_id="preview-unavailable",
