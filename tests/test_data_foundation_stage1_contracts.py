@@ -6,6 +6,7 @@ from sqlalchemy import inspect
 import models.data_foundation_stage1  # noqa: F401
 import models.place_published_snapshot  # noqa: F401
 from db.base import Base
+from services.data_foundation_projection_service import build_snapshot_from_place
 from tests.allure_support import title
 
 
@@ -161,3 +162,23 @@ def test_published_place_snapshot_has_public_projection_contract() -> None:
         if constraint.__class__.__name__ == "UniqueConstraint"
     }
     assert ("place_id", "snapshot_version") in unique_columns
+
+
+@title("Legacy Place можно преобразовать в Stage 1 public snapshot без изменения Place")
+def test_legacy_place_projection_helper_builds_snapshot(published_place_factory) -> None:
+    place = published_place_factory(slug="stage1-projection-place", title="Stage 1 Place")
+
+    snapshot = build_snapshot_from_place(place, snapshot_version=7, locale="ru")
+
+    assert snapshot.place_id == place.id
+    assert snapshot.city_id == place.city_id
+    assert snapshot.snapshot_version == 7
+    assert snapshot.locale == "ru"
+    assert snapshot.title == "Stage 1 Place"
+    assert snapshot.is_public is True
+    assert snapshot.is_catalog_visible is True
+    assert snapshot.is_search_visible is True
+    assert snapshot.is_route_visible is True
+    assert snapshot.snapshot_payload["slug"] == "stage1-projection-place"
+    assert snapshot.quality_payload["quality_score"] == place.quality_score
+    assert snapshot.source_event_type == "legacy_compatibility"
