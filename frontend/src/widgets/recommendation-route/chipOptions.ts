@@ -15,9 +15,14 @@ export const interestOptions: InterestOption[] = [
 ]
 
 const interestFeatureByValue: Record<string, RouteFeature | null> = {
+  beach: 'sea',
+  coast: 'sea',
+  coastal: 'sea',
   coffee: null,
   food: null,
+  promenade: 'sea',
   sea: 'sea',
+  seaside: 'sea',
   walk: null,
   quiet: null,
   museum: null,
