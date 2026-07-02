@@ -28,27 +28,24 @@ create destination
 ## Launch states
 
 ```text
-draft
--> import_configured
+created
+-> import_pending
 -> importing
--> import_ready
+-> enrichment_pending
 -> enriching
--> enrichment_ready
+-> readiness_pending
 -> review_required
--> ready_to_publish
--> publishing
+-> publishable
 -> published
--> projection_ready
--> route_smoke_ready
+-> projections_pending
+-> route_ready
 -> live
 ```
 
 Additional states:
 
-- blocked;
-- paused;
-- cancelled;
-- archived.
+- failed;
+- blocked.
 
 ## Required checklist items
 
@@ -103,9 +100,7 @@ Admin workspace must show:
 - MarkProjectionReady;
 - MarkRouteSmokeReady;
 - MarkLive;
-- BlockLaunch;
-- PauseLaunch;
-- CancelLaunch.
+- BlockLaunch.
 
 ## Events
 
@@ -122,9 +117,7 @@ Admin workspace must show:
 - ProjectionReady;
 - RouteSmokeReady;
 - LaunchLive;
-- LaunchBlocked;
-- LaunchPaused;
-- LaunchCancelled.
+- LaunchBlocked.
 
 ## Definition of Done
 
@@ -132,6 +125,7 @@ Pipeline v1 is complete when:
 
 - state model exists;
 - checklist model exists;
+- event model exists;
 - transition helper blocks invalid state jumps;
 - readiness helper calculates progress;
 - live helper requires all critical checklist items;
