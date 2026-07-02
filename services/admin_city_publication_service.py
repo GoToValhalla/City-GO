@@ -29,10 +29,6 @@ class CityPublicationResult:
     places_hidden: int
 
 
-# TODO(Data Foundation V2): city publication is a legacy operation.
-# Target model: publish Destination, not only City. For Baikal/Altai/Karelia publication must support
-# staged release: publish Tier 1 places first, then review/publish Tier 2/3 by cluster/import scope.
-# Place visibility must become context-aware via PlaceDestination/DestinationPublicationStatus.
 def publish_city(db: Session, city_id: int, *, actor: str, reason: str | None = None) -> CityPublicationResult | None:
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
@@ -40,24 +36,23 @@ def publish_city(db: Session, city_id: int, *, actor: str, reason: str | None = 
 
     places = db.query(Place).filter(Place.city_id == city.id).order_by(Place.id.asc()).all()
     publishable_places = [place for place in places if _place_can_be_public(place)]
-    already_published_places = [place for place in places if place.publication_status == PLACE_PUBLICATION_PUBLISHED or place.is_published]
-    if not publishable_places and not already_published_places:
+    protected_published_places = [place for place in places if place.publication_status == PLACE_PUBLICATION_PUBLISHED]
+    if not publishable_places and not protected_published_places:
         raise ValueError("Нельзя опубликовать город: нет ни одного места, прошедшего публичный quality gate.")
 
     now = datetime.utcnow()
     old_value = _city_publication_snapshot(city)
     published_ids = {place.id for place in publishable_places}
+    protected_ids = {place.id for place in protected_published_places}
     published_count = 0
     hidden_count = 0
 
     for place in places:
-        if place.id in published_ids or place.publication_status == PLACE_PUBLICATION_PUBLISHED or place.is_published:
+        if place.id in published_ids or place.id in protected_ids:
             _publish_place_for_city(place, now=now, reason=reason)
             published_count += 1
         else:
-            # City publication must not turn import/quality backlog into manual review
-            # and must never unpublish a previously published place. Non-publishable
-            # backlog stays in its current publication state for policy/backfill.
+            _hide_place_for_city_publication(place, now=now, reason="city_publication_quality_gate")
             hidden_count += 1
 
     city.launch_status = CITY_STATUS_PUBLISHED
@@ -170,7 +165,7 @@ def _publish_place_for_city(place: Place, *, now: datetime, reason: str | None) 
 
 
 def _hide_place_for_city_publication(place: Place, *, now: datetime, reason: str) -> None:
-    if place.publication_status == PLACE_PUBLICATION_PUBLISHED or place.is_published:
+    if place.publication_status == PLACE_PUBLICATION_PUBLISHED:
         return
     place.is_published = False
     place.is_visible_in_catalog = False
