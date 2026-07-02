@@ -9,6 +9,7 @@ from scripts.production_smoke import (
     build_default_checks,
     build_summary,
     build_url,
+    execute_check,
     normalize_base_url,
     safe_build_detail,
     validate_build_sha,
@@ -34,14 +35,26 @@ def test_production_smoke_builds_url_without_double_slashes() -> None:
     assert build_url("https://city.example", "admin/quality") == "https://city.example/admin/quality"
 
 
-@title("Production smoke includes admin checks only when token exists")
-def test_production_smoke_includes_admin_checks_only_when_token_exists() -> None:
-    public_only = build_default_checks(ProductionSmokeConfig(base_url="https://city.example"))
-    with_admin = build_default_checks(ProductionSmokeConfig(base_url="https://city.example", admin_token="secret"))
+@title("Production smoke keeps admin checks visible without requiring token")
+def test_production_smoke_keeps_admin_checks_visible_without_requiring_token() -> None:
+    checks = build_default_checks(ProductionSmokeConfig(base_url="https://city.example"))
 
-    assert [check.name for check in public_only] == ["build", "backend_ready", "frontend"]
-    assert "admin_quality" in {check.name for check in with_admin}
-    assert all(check.admin for check in with_admin if check.name.startswith("admin_"))
+    names = [check.name for check in checks]
+    assert names[:3] == ["build", "backend_ready", "frontend"]
+    assert "admin_quality" in names
+    assert all(check.admin for check in checks if check.name.startswith("admin_"))
+
+
+@title("Production smoke skips admin checks when token is not configured")
+def test_production_smoke_skips_admin_checks_when_token_is_not_configured() -> None:
+    result = execute_check(
+        ProductionSmokeConfig(base_url="https://city.example"),
+        SmokeCheck(name="admin_quality", method="GET", path="/admin/quality", admin=True),
+    )
+
+    assert result.status == "skipped"
+    assert result.ok
+    assert result.detail == "ADMIN_API_TOKEN secret is not configured"
 
 
 @title("Production smoke can include route smoke request")
@@ -110,6 +123,22 @@ def test_production_smoke_summary_lists_failed_checks_without_response_bodies() 
     assert "Failed checks:" in summary
     assert "response" not in summary.lower()
     assert "https://github.example/run/1" in summary
+
+
+@title("Production smoke summary shows skipped checks as warning not failure")
+def test_production_smoke_summary_shows_skipped_checks_as_warning_not_failure() -> None:
+    summary = build_summary(
+        [
+            SmokeResult("build", "ok", "sha_abcdef1", 200),
+            SmokeResult("admin_quality", "skipped", "ADMIN_API_TOKEN secret is not configured"),
+        ],
+        commit="abcdef123456",
+    )
+
+    assert summary.startswith("⚠️ CITY GO · PRODUCTION SMOKE")
+    assert "admin_quality: skipped" in summary
+    assert "Skipped checks:" in summary
+    assert "Failed checks:" not in summary
 
 
 @title("Production smoke check model keeps admin flag explicit")
