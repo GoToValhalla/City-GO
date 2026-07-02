@@ -1,3 +1,17 @@
+"""LEGACY ITINERARY EXPLANATION SERVICE.
+
+Status: part of the old `/routes/generate` itinerary stack.
+
+Active explanation source of truth:
+- `services.route_explanation_reasons`
+- `services.explainability_service`
+- `services.route_builder_flow`
+
+Rules:
+- Do not add new route explanation product behavior here.
+- Keep only for old itinerary endpoint compatibility until consumers migrate.
+"""
+
 from models.place import Place
 
 
