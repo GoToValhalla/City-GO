@@ -29,11 +29,23 @@ describe('buildRecommendationRouteRequest', () => {
     expect(result.value.city_id).toBe('zelenogradsk')
   })
 
-  it('does not inject hidden walk interest when none selected', () => {
+  it('sends Route Builder v2 category mode when interests are selected', () => {
+    const result = buildRecommendationRouteRequest(form, 'zelenogradsk')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.value.build_mode).toBe('by_categories')
+    expect(result.value.interests).toEqual(['walk'])
+    expect(result.value.selected_place_ids).toEqual([])
+    expect(result.value.route_slots).toEqual([])
+  })
+
+  it('uses quick Route Builder v2 mode when no interests are selected', () => {
     const result = buildRecommendationRouteRequest({ ...form, interests: [] }, 'zelenogradsk')
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
+    expect(result.value.build_mode).toBe('auto')
     expect(result.value.interests).toEqual([])
   })
 })
