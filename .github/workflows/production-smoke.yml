@@ -1,4 +1,4 @@
-name: Production Smoke
+name: 02 · CITY GO · Production Smoke
 
 on:
   workflow_dispatch:
