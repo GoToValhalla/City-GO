@@ -1,3 +1,22 @@
+"""LEGACY SEED IMPORT CLI.
+
+Status: historical manual seed importer for early place import work.
+
+How it worked:
+- Posts local seed JSON files to `/place-seed/import/`.
+- Defaults to Zelenogradsk seed files.
+
+Current source of truth:
+- admin import pipeline and city import job services;
+- place discovery/import queue flows;
+- audited import jobs from admin UI.
+
+Rules:
+- Do not use this as the production city import path.
+- Do not use it for publication state repair or backlog processing.
+- Keep only as historical seed-import helper.
+"""
+
 from __future__ import annotations
 
 import json
