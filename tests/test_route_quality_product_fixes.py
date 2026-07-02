@@ -1,9 +1,18 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
+from scripts.production_smoke import validate_route_response
 from services.place_coverage_route_score import route_features
+from services.route_diversity_policy import (
+    add_category,
+    can_use_category,
+    is_route_junk_category,
+    normalize_category,
+)
 from services.route_finalize_metrics import compute_distance
+from services.route_quality_score import build_route_quality_score, minimum_points_for_budget
 from services.route_user_warnings import route_warning_message, user_warnings
 from tests.allure_support import title
 
@@ -44,3 +53,101 @@ def test_explicit_beach_category_enables_sea_route_feature() -> None:
     places = [SimpleNamespace(category="beach", title="Beach", short_description="")]
 
     assert route_features(places) == ["sea"]  # type: ignore[arg-type]
+
+
+@title("Route quality requires three points from 120 minutes")
+def test_route_quality_requires_three_points_from_120_minutes() -> None:
+    assert minimum_points_for_budget(74) == 1
+    assert minimum_points_for_budget(75) == 2
+    assert minimum_points_for_budget(119) == 2
+    assert minimum_points_for_budget(120) == 3
+
+    route = [_quality_point("museum"), _quality_point("park")]
+
+    quality = build_route_quality_score(route, expected_stops=4, budget_minutes=120, warnings=[])
+
+    assert quality.minimum_points == 3
+    assert quality.actual_points == 2
+    assert quality.status == "weak"
+
+
+@title("Route diversity normalizes aliases and blocks service junk")
+def test_route_diversity_normalizes_aliases_and_blocks_service_junk() -> None:
+    assert normalize_category("coffee") == "cafe"
+    assert normalize_category("attraction") == "landmark"
+    assert normalize_category("promenade") == "walk"
+    assert is_route_junk_category("pharmacy") is True
+    assert is_route_junk_category("bus_stop") is True
+    assert can_use_category("bank", {}) is False
+
+
+@title("Route diversity caps food family for overview walks")
+def test_route_diversity_caps_food_family_for_overview_walks() -> None:
+    used = add_category("cafe", {})
+    used = add_category("restaurant", used)
+
+    assert can_use_category("food", used) is False
+    assert can_use_category("museum", used) is True
+
+
+@title("Production route smoke allows honest weak route but blocks junk")
+def test_production_route_smoke_allows_honest_weak_route_but_blocks_junk() -> None:
+    weak_payload = {
+        "status": "partial_route",
+        "quality_status": "weak",
+        "partial_reason": "not_enough_route_points",
+        "total_places": 2,
+        "points": [_route_payload_point("1", "Museum", "museum"), _route_payload_point("2", "Park", "park")],
+        "user_warnings": [{"user_message": "Маршрут короткий: в городе мало готовых данных."}],
+    }
+    junk_payload = {
+        "status": "ready",
+        "quality_status": "good",
+        "total_places": 3,
+        "points": [
+            _route_payload_point("1", "Museum", "museum"),
+            _route_payload_point("2", "Аптека 24", "pharmacy"),
+            _route_payload_point("3", "Park", "park"),
+        ],
+    }
+
+    assert validate_route_response(json.dumps(weak_payload), 200).status == "ok"
+    assert validate_route_response(json.dumps(junk_payload), 200).failed is True
+
+
+@title("Production route smoke fails raw technical user-facing warning codes")
+def test_production_route_smoke_fails_raw_technical_user_warning_codes() -> None:
+    payload = {
+        "status": "ready",
+        "quality_status": "good",
+        "total_places": 3,
+        "points": [
+            _route_payload_point("1", "Museum", "museum"),
+            _route_payload_point("2", "Park", "park"),
+            _route_payload_point("3", "View", "viewpoint"),
+        ],
+        "user_warnings": [{"user_message": "route_short_due_to_low_place_density"}],
+    }
+
+    result = validate_route_response(json.dumps(payload), 200)
+
+    assert result.failed is True
+    assert result.detail == "raw_technical_codes_in_public_payload"
+
+
+def _quality_point(category: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        category=category,
+        lat=40.1,
+        lng=44.5,
+        visit_minutes=25,
+        estimated_walk_minutes=5,
+        address="Center",
+        image_url="https://example.test/photo.jpg",
+        short_description="Good place",
+        validation={"is_valid": True},
+    )
+
+
+def _route_payload_point(place_id: str, title: str, category: str) -> dict[str, object]:
+    return {"place_id": place_id, "title": title, "category": category, "lat": 40.1, "lng": 44.5}
