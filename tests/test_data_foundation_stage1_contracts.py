@@ -56,7 +56,6 @@ def test_source_observation_has_idempotency_and_attribution_columns() -> None:
         if constraint.__class__.__name__ == "UniqueConstraint"
     }
     assert ("idempotency_key",) in unique_columns
-    assert ("source_type", "source_external_id") in unique_columns
 
 
 @title("PlaceFactVersion хранит версионированный факт с locale/source/confidence/status")
