@@ -24,6 +24,18 @@ It does not create, rotate, print, fetch, or expose admin tokens.
 
 No one should copy `ADMIN_API_TOKEN` from a phone. If the secret already exists in GitHub, admin smoke uses it automatically. If the secret is missing, admin checks are reported as `skipped` and the public smoke still runs.
 
+## Production URL resolution
+
+The user should not have to configure a production URL from a phone just to get a smoke summary.
+
+Resolution order:
+
+1. Use `PRODUCTION_BASE_URL` when configured.
+2. If it is absent, use existing deploy secret `SSH_HOST` as `http://<SSH_HOST>`.
+3. If both are absent, create a `⚠️ production_base_url: skipped` summary instead of failing before summary creation.
+
+This prevents fallback messages such as `smoke workflow did not produce summary` for configuration-only cases.
+
 ## Implementation
 
 Files:
@@ -39,9 +51,13 @@ Files:
 - `workflow_dispatch` for manual runs;
 - `workflow_run` after successful `Production Deploy`.
 
-Required secret:
+Preferred secret:
 
 - `PRODUCTION_BASE_URL`
+
+Fallback existing deploy secret:
+
+- `SSH_HOST`
 
 Optional existing secret:
 
@@ -102,6 +118,16 @@ Commit: c56c844
 ✅ admin_system_health: ok · http_200
 ```
 
+Skipped target example:
+
+```text
+⚠️ CITY GO · PRODUCTION SMOKE
+Commit: c56c844
+⚠️ production_base_url: skipped · PRODUCTION_BASE_URL or SSH_HOST is required
+Skipped checks:
+- production_base_url: PRODUCTION_BASE_URL or SSH_HOST is required
+```
+
 Skipped admin example:
 
 ```text
@@ -129,6 +155,7 @@ Failed checks:
 ## Invariants
 
 - Production deploy is not equivalent to production verification.
+- Smoke must always produce a summary, even when configuration is incomplete.
 - Admin smoke is optional and uses only an already configured GitHub Secret.
 - Missing admin secret is a skipped check, not a reason to ask the user for a token.
 - Failed checks must be named directly.
@@ -138,8 +165,8 @@ Failed checks:
 
 ## What still needs follow-up
 
-1. Add `PRODUCTION_BASE_URL` secret if it is not already configured.
-2. Run `Production Smoke` manually once.
+1. Run `Production Smoke` again after this fix.
+2. Confirm whether URL resolution uses `PRODUCTION_BASE_URL`, `SSH_HOST`, or `production_base_url: skipped`.
 3. Confirm whether admin checks are `ok` or `skipped`.
 4. Decide whether route smoke should be enabled immediately.
 5. If enabled, configure route smoke city/coordinates variables.
