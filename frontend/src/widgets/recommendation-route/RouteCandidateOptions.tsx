@@ -8,7 +8,7 @@ type Props = {
   onAdd: (placeId: string) => void
 }
 
-const MAX_VISIBLE_OPTIONS = 12
+const MAX_VISIBLE_OPTIONS = 6
 
 const score = (point: RecommendationRoutePoint): number | null => {
   const value = point.scoring_breakdown?.interest ?? point.scoring_breakdown?.base_quality
@@ -20,15 +20,12 @@ export const RouteCandidateOptions = ({ disabled = false, options = [], onAdd }:
   const displayed = options.slice(0, MAX_VISIBLE_OPTIONS)
 
   return (
-    <div className="route-result-tile">
-      <div className="route-section-heading">
-        <div>
-          <p className="route-eyebrow">Итеративный маршрут</p>
-          <h2>Доступные точки</h2>
-        </div>
-        <span className="route-status-chip">{displayed.length} из {options.length}</span>
-      </div>
-      <p className="route-muted">Показываем короткий список подходящих точек, из которых можно добавить место в текущий маршрут.</p>
+    <details className="route-result-tile route-candidate-details">
+      <summary>
+        <span>Добавить место</span>
+        <small>{displayed.length} из {options.length}</small>
+      </summary>
+      <p className="route-muted">Короткий список подходящих точек, которые можно добавить в текущий маршрут.</p>
       <div className="route-candidate-grid">
         {displayed.map((point) => (
           <article className="route-candidate-card" key={point.place_id}>
@@ -49,12 +46,12 @@ export const RouteCandidateOptions = ({ disabled = false, options = [], onAdd }:
                 {score(point) !== null ? <span>Совпадение {score(point)}%</span> : null}
               </div>
               <button type="button" className="route-candidate-action" disabled={disabled} onClick={() => onAdd(point.place_id)}>
-                <Plus size={15} /> Добавить в маршрут
+                <Plus size={15} /> Добавить
               </button>
             </div>
           </article>
         ))}
       </div>
-    </div>
+    </details>
   )
 }

@@ -7,7 +7,6 @@ import type { RecommendationRoutePoint } from '../../api/recommendations/recomme
 
 const option = (index: number): RecommendationRoutePoint => ({
   place_id: String(index),
-  position: index,
   title: `Place ${index}`,
   lat: 40 + index / 100,
   lng: 44 + index / 100,
@@ -16,11 +15,12 @@ const option = (index: number): RecommendationRoutePoint => ({
 })
 
 describe('RouteCandidateOptions', () => {
-  it('renders only a short visible candidate list', () => {
+  it('keeps candidate options behind add-place accordion and caps the list', () => {
     render(<RouteCandidateOptions options={Array.from({ length: 20 }, (_, index) => option(index + 1))} onAdd={vi.fn()} />)
 
-    expect(screen.getByText('12 из 20')).toBeTruthy()
-    expect(screen.getByText('Place 12')).toBeTruthy()
-    expect(screen.queryByText('Place 13')).toBeNull()
+    expect(screen.getByText('Добавить место')).toBeTruthy()
+    expect(screen.getByText('6 из 20')).toBeTruthy()
+    expect(screen.getByText('Place 6')).toBeTruthy()
+    expect(screen.queryByText('Place 7')).toBeNull()
   })
 })

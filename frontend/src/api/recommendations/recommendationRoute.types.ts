@@ -11,11 +11,14 @@ export type RouteStart = {
 }
 
 export type RouteBuilderSlot = {
+  slot_id?: string
   type?: string
   category?: string
   min_count?: number
   max_count?: number
   required?: boolean
+  duration?: number | null
+  selected_place_id?: string | null
 }
 
 export type RecommendationRouteRequest = {

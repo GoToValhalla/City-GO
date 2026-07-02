@@ -104,13 +104,33 @@ export const sendRouteFeedback = async (
 export const correctUserRoute = async (
   currentRoute: RecommendationRouteResponse,
   action: UserRouteCorrectionAction,
+  targetPlaceId?: string | null,
 ): Promise<RecommendationRouteResponse> => {
   const firstPlaceId = currentRoute.points[0]?.place_id ?? null
   const url = buildApiUrl('/v1/user-routes/correct')
   const requestBody = {
     current_route: currentRoute,
     action,
-    target_place_id: action === 'remove_place' ? firstPlaceId : null,
+    target_place_id: targetPlaceId ?? (action === 'remove_place' ? firstPlaceId : null),
+  }
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  })
+
+  await assertOk(response, { url, method: 'POST', requestBody })
+  return response.json()
+}
+
+export const updateUserRouteOrder = async (
+  currentRoute: RecommendationRouteResponse,
+  orderedPlaceIds: string[],
+): Promise<RecommendationRouteResponse> => {
+  const url = buildApiUrl(`/v1/user-routes/${currentRoute.route_id}/update`)
+  const requestBody = {
+    current_route: currentRoute,
+    ordered_place_ids: orderedPlaceIds,
   }
   const response = await fetch(url, {
     method: 'POST',

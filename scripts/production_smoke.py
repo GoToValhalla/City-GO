@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -31,6 +32,40 @@ DEFAULT_ADMIN_CHECKS: tuple[tuple[str, str], ...] = (
 )
 
 ROUTE_SMOKE_PATH = "/v1/user-routes/build"
+DEFAULT_ROUTE_SMOKE_CITY_ID = "yerevan"
+DEFAULT_ROUTE_SMOKE_LAT = 40.1792
+DEFAULT_ROUTE_SMOKE_LNG = 44.4991
+ROUTE_SMOKE_BUDGET_MINUTES = 120
+RAW_TECHNICAL_CODE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+){1,}$")
+TRACEBACK_MARKERS = ("Traceback (most recent call last)", "sqlalchemy.exc", "pydantic_core", "Internal Server Error")
+FORBIDDEN_ROUTE_JUNK = frozenset(
+    {
+        "pharmacy",
+        "apteka",
+        "bus_stop",
+        "stop",
+        "bank",
+        "atm",
+        "parking",
+        "fuel",
+        "toilet",
+        "toilets",
+        "utility",
+        "service",
+        "services",
+        "transport",
+        "health",
+        "healthcare",
+        "clinic",
+        "hospital",
+    }
+)
+USER_FACING_ROUTE_FIELDS = (
+    "warnings",
+    "user_warnings",
+    "user_explanation",
+    "explanation",
+)
 
 
 @dataclass(frozen=True)
@@ -132,6 +167,8 @@ def execute_check(config: ProductionSmokeConfig, check: SmokeCheck) -> SmokeResu
     except (OSError, urllib.error.URLError) as exc:
         return SmokeResult(check.name, "failed", exc.__class__.__name__)
 
+    if _contains_traceback(raw):
+        return SmokeResult(check.name, "failed", "raw_traceback_or_internal_error", http_status)
     if http_status not in check.expected_statuses:
         return SmokeResult(check.name, "failed", f"unexpected_http_{http_status}", http_status)
     if check.name == "build":
@@ -169,30 +206,98 @@ def validate_route_response(raw: str, http_status: int) -> SmokeResult:
         payload = json.loads(raw or "{}")
     except ValueError:
         return SmokeResult("route_quick", "failed", "invalid_json", http_status)
-    total_places = int(payload.get("total_places") or len(payload.get("points") or []))
+
+    if not isinstance(payload, dict):
+        return SmokeResult("route_quick", "failed", "json_not_object", http_status)
+
     status = str(payload.get("status") or "")
+    points = payload.get("points") if isinstance(payload.get("points"), list) else []
+    total_places = int(payload.get("total_places") or len(points))
+    quality_status = str(payload.get("quality_status") or payload.get("route_quality_status") or "")
+    partial_reason = str(payload.get("partial_reason") or "")
+
     if status in {"failed", "empty", "preview_failed"}:
         return SmokeResult("route_quick", "failed", f"status_{status}", http_status)
-    if total_places < 2:
-        return SmokeResult("route_quick", "failed", f"expected_min_2_points_got_{total_places}", http_status)
-    return SmokeResult("route_quick", "ok", f"points_{total_places}", http_status)
+    if _contains_forbidden_route_junk(points):
+        return SmokeResult("route_quick", "failed", "route_contains_forbidden_junk", http_status)
+    if _public_payload_has_raw_technical_codes(payload):
+        return SmokeResult("route_quick", "failed", "raw_technical_codes_in_public_payload", http_status)
+
+    minimum_points = minimum_points_for_budget(ROUTE_SMOKE_BUDGET_MINUTES)
+    if total_places < minimum_points and not _has_honest_weak_reason(status, quality_status, partial_reason, payload):
+        return SmokeResult("route_quick", "failed", f"expected_min_{minimum_points}_points_got_{total_places}", http_status)
+
+    reason = f"points_{total_places}"
+    if status == "partial_route" or quality_status == "weak":
+        reason = f"honest_{status or quality_status}_{reason}"
+    return SmokeResult("route_quick", "ok", reason, http_status)
+
+
+def minimum_points_for_budget(budget_minutes: int) -> int:
+    if budget_minutes < 75:
+        return 1
+    if budget_minutes < 120:
+        return 2
+    return 3
+
+
+def _contains_traceback(raw: str) -> bool:
+    return any(marker in raw for marker in TRACEBACK_MARKERS)
+
+
+def _contains_forbidden_route_junk(points: Sequence[Any]) -> bool:
+    for point in points:
+        if not isinstance(point, dict):
+            continue
+        category = str(point.get("category") or "").strip().lower()
+        title = str(point.get("title") or "").strip().lower()
+        if category in FORBIDDEN_ROUTE_JUNK:
+            return True
+        if any(token in title for token in ("аптек", "pharmacy", "остановк", "bus stop", "банкомат", "atm")):
+            return True
+    return False
+
+
+def _public_payload_has_raw_technical_codes(payload: Mapping[str, Any]) -> bool:
+    for field in USER_FACING_ROUTE_FIELDS:
+        if _contains_raw_code(payload.get(field)):
+            return True
+    return False
+
+
+def _contains_raw_code(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(RAW_TECHNICAL_CODE.fullmatch(value.strip()))
+    if isinstance(value, Mapping):
+        return any(_contains_raw_code(item) for item in value.values())
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+        return any(_contains_raw_code(item) for item in value)
+    return False
+
+
+def _has_honest_weak_reason(status: str, quality_status: str, partial_reason: str, payload: Mapping[str, Any]) -> bool:
+    if status == "partial_route" or quality_status == "weak" or partial_reason:
+        return True
+    warnings = payload.get("user_warnings") or payload.get("warnings") or []
+    return bool(warnings)
 
 
 def _route_smoke_check(config: ProductionSmokeConfig) -> SmokeCheck:
-    if not config.route_city_id:
-        raise ValueError("CITY_GO_ROUTE_SMOKE_CITY_ID is required when route smoke is enabled")
+    route_city_id = config.route_city_id or DEFAULT_ROUTE_SMOKE_CITY_ID
     body: dict[str, Any] = {
         "build_mode": "auto",
         "start_source": "city_center",
-        "city_id": config.route_city_id,
-        "visit_city_id": config.route_city_id,
-        "time_budget_minutes": 180,
-        "interests": ["architecture", "history", "nature"],
+        "city_id": route_city_id,
+        "visit_city_id": route_city_id,
+        "time_budget_minutes": ROUTE_SMOKE_BUDGET_MINUTES,
+        "interests": ["architecture", "history", "museum", "walk"],
     }
     if config.route_lat is not None and config.route_lng is not None:
         body.update({"lat": config.route_lat, "lng": config.route_lng})
     else:
-        body.update({"lat": 43.238949, "lng": 76.889709})
+        body.update({"lat": DEFAULT_ROUTE_SMOKE_LAT, "lng": DEFAULT_ROUTE_SMOKE_LNG})
     return SmokeCheck(name="route_quick", method="POST", path=ROUTE_SMOKE_PATH, body=body)
 
 
@@ -233,7 +338,7 @@ def config_from_env(args: argparse.Namespace) -> ProductionSmokeConfig:
         expected_sha=args.expected_sha or os.getenv("EXPECTED_SHA", ""),
         admin_token=args.admin_token or os.getenv("ADMIN_API_TOKEN", ""),
         route_smoke_enabled=args.route_smoke or os.getenv("CITY_GO_ROUTE_SMOKE_ENABLED", "").lower() == "true",
-        route_city_id=args.route_city_id or os.getenv("CITY_GO_ROUTE_SMOKE_CITY_ID", ""),
+        route_city_id=args.route_city_id or os.getenv("CITY_GO_ROUTE_SMOKE_CITY_ID", "") or DEFAULT_ROUTE_SMOKE_CITY_ID,
         route_lat=_optional_float(args.route_lat or os.getenv("CITY_GO_ROUTE_SMOKE_LAT", "")),
         route_lng=_optional_float(args.route_lng or os.getenv("CITY_GO_ROUTE_SMOKE_LNG", "")),
     )

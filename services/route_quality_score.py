@@ -81,7 +81,7 @@ def build_route_quality_score(
 def minimum_points_for_budget(budget_minutes: int) -> int:
     if budget_minutes < 75:
         return 1
-    if budget_minutes < 150:
+    if budget_minutes < 120:
         return 2
     return 3
 
@@ -91,7 +91,7 @@ def quality_status(score: float, route: list[Any], budget_minutes: int) -> Quali
         return "failed"
     if any(not _has_coordinates(point) for point in route):
         return "failed"
-    if budget_minutes >= 90 and len(route) <= 1:
+    if len(route) < minimum_points_for_budget(budget_minutes):
         return "weak"
     if score >= 0.75:
         return "good"
