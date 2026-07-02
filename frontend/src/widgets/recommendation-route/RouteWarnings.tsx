@@ -3,16 +3,44 @@ import type { RecommendationRouteResponse, RouteUserWarning } from '../../api/re
 
 type Props = { route: RecommendationRouteResponse }
 
+const isTechnicalCode = (value: string): boolean => /^[a-z0-9_]+$/.test(value.trim())
+
+const cleanMessage = (value: string): string => {
+  if (!isTechnicalCode(value)) return value
+  if (value.includes('photo')) return 'У части мест пока нет фото.'
+  if (value.includes('budget')) return 'Маршрут немного выходит за выбранное время.'
+  if (value.includes('walk')) return 'В маршруте есть длинные переходы пешком.'
+  if (value.includes('interest')) return 'Маршрут собран без точного совпадения по интересам.'
+  if (value.includes('neutral')) return 'Добавлены нейтральные точки, чтобы маршрут был полезнее.'
+  return 'Маршрут собран с ограничениями по данным.'
+}
+
 const fallbackWarnings = (warnings: string[]): RouteUserWarning[] => warnings.map((warning) => ({
-  type: 'data_quality_low',
+  type: warning,
   severity: 'warning',
-  user_message: warning,
+  user_message: cleanMessage(warning),
   affected_place_ids: [],
   action_hint: 'Проверь детали мест перед прогулкой.',
 }))
 
+const normalizeWarning = (warning: RouteUserWarning): RouteUserWarning => ({
+  ...warning,
+  user_message: cleanMessage(warning.user_message),
+})
+
+const uniqueWarnings = (warnings: RouteUserWarning[]): RouteUserWarning[] => {
+  const seen = new Set<string>()
+  return warnings.filter((warning) => {
+    const key = `${warning.severity}:${warning.user_message}:${warning.action_hint ?? ''}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export const RouteWarnings = ({ route }: Props) => {
-  const warnings = route.user_warnings?.length ? route.user_warnings : fallbackWarnings(route.warnings)
+  const source = route.user_warnings?.length ? route.user_warnings : fallbackWarnings(route.warnings)
+  const warnings = uniqueWarnings(source.map(normalizeWarning)).slice(0, 5)
   if (!warnings.length) return null
 
   return (
