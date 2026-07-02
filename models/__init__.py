@@ -20,6 +20,7 @@ import models.collection_place  # noqa: F401
 import models.country  # noqa: F401
 import models.data_quality  # noqa: F401
 import models.data_foundation  # noqa: F401
+import models.data_foundation_stage1  # noqa: F401
 import models.import_batch  # noqa: F401
 import models.import_job_step  # noqa: F401
 import models.known_missing_poi  # noqa: F401
