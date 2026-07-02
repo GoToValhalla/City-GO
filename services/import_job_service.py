@@ -1,3 +1,20 @@
+"""LEGACY/SCOPE SCHEDULER SERVICE.
+
+This service belongs to the old import-scope cron foundation around
+`CityImportJob` and `CityImportScope`.
+
+Active admin import source of truth:
+- `services.admin_city_import_job_service`
+- `services.admin_city_import_runner`
+- `models.city_admin_import_job.CityAdminImportJob`
+
+Rules:
+- Do not use this service for admin import monitor/latest import status.
+- Do not use it to change product publication state.
+- Keep it only for old scope scheduler compatibility until the import storage
+  consolidation task is done.
+"""
+
 from datetime import datetime
 
 from sqlalchemy import and_
