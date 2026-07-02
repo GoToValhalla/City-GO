@@ -15,7 +15,6 @@ class SourceObservation(Base):
 
     __tablename__ = "source_observations"
     __table_args__ = (
-        UniqueConstraint("source_type", "source_external_id", name="uq_source_observation_provider_object"),
         UniqueConstraint("idempotency_key", name="uq_source_observation_idempotency_key"),
     )
 
@@ -29,7 +28,7 @@ class SourceObservation(Base):
     source_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     source_license: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     attribution_text: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    idempotency_key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     raw_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     raw_category: Mapped[str | None] = mapped_column(String(128), nullable=True)
     raw_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
