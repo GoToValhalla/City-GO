@@ -52,6 +52,8 @@ import models.route_generation_candidate  # noqa: F401
 import models.route_place  # noqa: F401
 import models.route_session  # noqa: F401
 import models.review_queue_item  # noqa: F401
+import models.search_routing_stage5  # noqa: F401
+import models.service_extraction_stage6  # noqa: F401
 import models.source_observation  # noqa: F401
 import models.tag  # noqa: F401
 import models.taxonomy  # noqa: F401
