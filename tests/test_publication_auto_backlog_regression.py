@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from services.admin_mobile_place_review import auto_publish_trusted_places, is_trusted_auto_publish_candidate, list_review_cities
-from tests.allure_support import citygo_test
+from tests.allure_support import title
 
 
-@citygo_test("Trusted official draft auto-publishes without requiring photo")
+@title("Trusted official draft auto-publishes without requiring photo")
 def test_trusted_official_draft_auto_publishes_without_photo(
     db_session,
     city_factory,
@@ -39,7 +39,7 @@ def test_trusted_official_draft_auto_publishes_without_photo(
     assert place.is_route_eligible is True
 
 
-@citygo_test("Low confidence без trusted address остаётся auto backlog и не попадает в manual")
+@title("Low confidence без trusted address остаётся auto backlog и не попадает в manual")
 def test_low_confidence_stays_auto_backlog_not_manual_queue(
     db_session,
     city_factory,
@@ -64,7 +64,7 @@ def test_low_confidence_stays_auto_backlog_not_manual_queue(
     assert queue == {"items": [], "total": 0}
 
 
-@citygo_test("Duplicate suspected auto backlog не публикуется автоматически")
+@title("Duplicate suspected auto backlog не публикуется автоматически")
 def test_duplicate_suspected_auto_backlog_is_not_auto_published(
     db_session,
     city_factory,
