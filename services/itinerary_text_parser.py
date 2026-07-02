@@ -1,3 +1,16 @@
+"""LEGACY ITINERARY TEXT PARSER.
+
+Status: part of the old `/routes/generate` itinerary stack.
+
+Active route intent/source-of-truth:
+- `services.route_builder_flow`
+- user route request contracts and route draft/session flows.
+
+Rules:
+- Do not add new route intent parsing behavior here.
+- Keep only for old itinerary endpoint compatibility until consumers migrate.
+"""
+
 import re
 from typing import Any
 
@@ -144,7 +157,7 @@ def extract_route_mode(query: str) -> str | None:
     return None
 
 
-# Извлекает сценарные интересы из текста.
+# Извлекает сценарные интересы из текста пользователя.
 def extract_route_preferences(query: str) -> dict[str, Any]:
     normalized_query = query.lower().strip()
 
