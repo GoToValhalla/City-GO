@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -53,7 +52,15 @@ class SmokeResult:
 
     @property
     def ok(self) -> bool:
-        return self.status == "ok"
+        return self.status in {"ok", "skipped"}
+
+    @property
+    def failed(self) -> bool:
+        return self.status == "failed"
+
+    @property
+    def skipped(self) -> bool:
+        return self.status == "skipped"
 
 
 @dataclass(frozen=True)
@@ -78,8 +85,7 @@ def normalize_base_url(value: str) -> str:
 
 def build_default_checks(config: ProductionSmokeConfig) -> list[SmokeCheck]:
     checks = [SmokeCheck(name=name, method="GET", path=path) for name, path in DEFAULT_PUBLIC_CHECKS]
-    if config.admin_token:
-        checks.extend(SmokeCheck(name=name, method="GET", path=path, admin=True) for name, path in DEFAULT_ADMIN_CHECKS)
+    checks.extend(SmokeCheck(name=name, method="GET", path=path, admin=True) for name, path in DEFAULT_ADMIN_CHECKS)
     if config.route_smoke_enabled:
         checks.append(_route_smoke_check(config))
     return checks
@@ -90,7 +96,7 @@ def run_smoke(config: ProductionSmokeConfig, checks: Sequence[SmokeCheck] | None
     results: list[SmokeResult] = []
     for check in selected_checks:
         result = execute_check(config, check)
-        if result.ok and check.name == "build" and config.expected_sha:
+        if result.status == "ok" and check.name == "build" and config.expected_sha:
             result = validate_build_sha(result, config.expected_sha)
         results.append(result)
     return results
@@ -100,7 +106,7 @@ def execute_check(config: ProductionSmokeConfig, check: SmokeCheck) -> SmokeResu
     headers = {"User-Agent": "city-go-production-smoke/1.0"}
     if check.admin:
         if not config.admin_token:
-            return SmokeResult(check.name, "skipped", "admin token is missing")
+            return SmokeResult(check.name, "skipped", "ADMIN_API_TOKEN secret is not configured")
         headers["Authorization"] = f"Bearer {config.admin_token}"
     data = None
     if check.body is not None:
@@ -182,19 +188,25 @@ def _route_smoke_check(config: ProductionSmokeConfig) -> SmokeCheck:
 
 
 def build_summary(results: Sequence[SmokeResult], *, run_url: str = "", commit: str = "") -> str:
-    ok = all(result.ok for result in results)
+    has_failed = any(result.failed for result in results)
+    has_skipped = any(result.skipped for result in results)
+    header_icon = "❌" if has_failed else "⚠️" if has_skipped else "✅"
     lines = [
-        f"{'✅' if ok else '❌'} CITY GO · PRODUCTION SMOKE",
+        f"{header_icon} CITY GO · PRODUCTION SMOKE",
         f"Commit: {commit[:7] if commit else 'unknown'}",
     ]
     for result in results:
-        icon = "✅" if result.ok else "❌" if result.status == "failed" else "⚠️"
+        icon = "✅" if result.status == "ok" else "⚠️" if result.skipped else "❌"
         detail = f" · {result.detail}" if result.detail else ""
         lines.append(f"{icon} {result.name}: {result.status}{detail}")
-    failed = [result for result in results if not result.ok]
+    failed = [result for result in results if result.failed]
+    skipped = [result for result in results if result.skipped]
     if failed:
         lines.append("Failed checks:")
         lines.extend(f"- {result.name}: {result.detail or result.status}" for result in failed)
+    if skipped:
+        lines.append("Skipped checks:")
+        lines.extend(f"- {result.name}: {result.detail or result.status}" for result in skipped)
     if run_url:
         lines.append(run_url)
     return "\n".join(lines).strip() + "\n"
