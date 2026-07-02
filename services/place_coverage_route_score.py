@@ -1,15 +1,9 @@
-"""Route-readiness scoring and feature detection for place coverage reports."""
-
 from __future__ import annotations
 
 from models.place import Place
 
 REQUIRED_ROUTE_CATEGORIES = ("coffee", "food", "walk", "museum", "bar", "park")
-
-_SEA_KEYWORDS = (
-    "sea", "beach", "coast", "coastal", "seaside",
-    "promenade", "waterfront", "embankment",
-)
+SEA_ROUTE_CATEGORIES = {"sea", "beach", "coast", "coastal", "seaside"}
 
 
 def route_features(places: list[Place]) -> list[str]:
@@ -35,7 +29,5 @@ def route_ready_score(
 
 
 def _has_sea_feature(place: Place) -> bool:
-    text = " ".join(str(v or "") for v in (
-        place.category, place.title, place.short_description, place.address,
-    )).casefold()
-    return any(kw in text for kw in _SEA_KEYWORDS)
+    category = str(getattr(place, "category", "") or "").strip().casefold()
+    return category in SEA_ROUTE_CATEGORIES
