@@ -26,6 +26,7 @@
 |---|---|---|---|---|
 | Public catalog change review | `models/place_change_review.py` / `PlaceChangeReview` / table `place_change_reviews` | LEGACY, historical compatibility only | `models/review_queue_item.py` / `ReviewQueueItem` with `field_name='place_change'`, `status='open'` | Старый row-per-field workflow. Активные `/admin/place-change-reviews/*` endpoint'ы читают `ReviewQueueItem`, не `PlaceChangeReview`. |
 | Admin extra endpoints | `routers/admin_extra.py`, `services/admin_extra_service.py`, `schemas/admin_extra.py` | LEGACY, router not registered | Active admin overview/coverage/platform/route feedback routers and services | Старые `/admin/roles`, `/admin/cities/{id}/coverage`, `/admin/route-feedback`. `routers.admin_extra` не подключён в `core/router_setup.py`; не регистрировать обратно без migration task. |
+| Admin extra schemas | `schemas/admin_extra.py` | LEGACY SCHEMAS | Active dedicated admin schemas for overview/coverage/platform/feedback | Response models for the unregistered `admin_extra` router; do not reuse for new endpoints. |
 | Publication reconciliation CLI | `scripts/reconcile_publication_flags.py` | LEGACY COMPATIBILITY CLI | `scripts/diagnose_publication_states.py`, `scripts/repair_publication_states.py`, `services/publication_reconciliation_service.py` | Старый операторский entrypoint. Оставлен для visibility-toggle materialization и rollback compatibility. Не использовать как основной repair path. |
 | Publication policy batch runner | `scripts/run_publication_policy.py` | LEGACY OPERATOR CLI | `scripts/auto_process_publication_backlog.py`, `services/publication_policy.py`, будущий batch processor с тестами | Старый runner по unpublished active places. Не использовать как основной путь для 17k backlog и не вешать на новые admin buttons без batch/audit tests. |
 | Import jobs | `models/city_import_job.py` / table `city_import_jobs` | LEGACY/SCOPE SCHEDULER STORAGE, not admin dashboard source of truth | `models/city_admin_import_job.py` / table `city_admin_import_jobs` for admin import monitor | Старый scope/cron import foundation. Не использовать для admin latest import status и не менять через него product city state. |
@@ -101,6 +102,7 @@ scripts/production_place_import.py
 9. Не использовать `refresh_all_cities.py` как текущий admin import pipeline.
 10. Не использовать `production_place_import.py` как production city import path.
 11. Не добавлять новые candidate retrieval/scoring/assembly rules в `services/itinerary_*`.
+12. Не использовать `schemas/admin_extra.py` для новых admin endpoint contracts.
 
 ## Проверка перед фиксом
 
