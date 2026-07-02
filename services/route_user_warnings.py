@@ -43,14 +43,14 @@ _WARNING_CODE_MESSAGES: dict[str, tuple[str, str, str, str]] = {
     "route_short_due_to_time_budget": (
         "route_short_due_to_time_budget",
         "info",
-        "Маршрут получился коротким из-за небольшого бюджета времени.",
+        "Маршрут получился коротким из-за выбранного времени.",
         "Увеличьте время, если хотите добавить больше мест.",
     ),
     "route_short_due_to_low_place_density": (
         "route_short_due_to_low_place_density",
         "warning",
-        "В городе пока мало подходящих мест для длинного маршрута.",
-        "Попробуйте расширить интересы или выбрать другую стартовую точку.",
+        "Подходящих точек для длинного маршрута пока мало.",
+        "Попробуйте расширить интересы или добавить место вручную.",
     ),
     "some_places_have_no_address": (
         "some_places_have_no_address",
@@ -76,7 +76,76 @@ _WARNING_CODE_MESSAGES: dict[str, tuple[str, str, str, str]] = {
         "В маршруте есть длинные переходы пешком.",
         "Посмотрите расстояния между точками перед стартом.",
     ),
+    "route_built_without_selected_interests": (
+        "route_built_without_selected_interests",
+        "info",
+        "Маршрут собран в авто-режиме без выбранных интересов.",
+        "Выберите интересы, если хотите более тематическую прогулку.",
+    ),
+    "neutral_poi_added": (
+        "neutral_poi_added",
+        "info",
+        "Добавлены нейтральные точки, чтобы маршрут был полезнее.",
+        "Проверьте список точек и удалите лишнее.",
+    ),
+    "related_categories_added": (
+        "related_categories_added",
+        "info",
+        "Добавлены близкие категории, потому что точных совпадений мало.",
+        "Можно изменить интересы или пересобрать маршрут.",
+    ),
+    "selected_interests_have_no_exact_matches": (
+        "selected_interests_have_no_exact_matches",
+        "warning",
+        "По выбранным интересам не нашлось точных совпадений.",
+        "Попробуйте выбрать другие интересы.",
+    ),
+    "selected_interest_has_single_anchor": (
+        "selected_interest_has_single_anchor",
+        "info",
+        "По интересу нашлась только одна сильная точка.",
+        "Остальные точки подобраны рядом.",
+    ),
+    "route_budget_overflow_tolerated": (
+        "route_budget_overflow_tolerated",
+        "warning",
+        "Маршрут немного выходит за выбранное время.",
+        "Сократите маршрут или увеличьте время.",
+    ),
+    "route_builder_v2_removed_route_junk": (
+        "route_builder_v2_removed_route_junk",
+        "info",
+        "Из маршрута убраны неподходящие сервисные точки.",
+        "Проверьте итоговый список мест.",
+    ),
+    "route_builder_v2_insufficient_points": (
+        "route_builder_v2_insufficient_points",
+        "warning",
+        "После проверки осталось мало подходящих точек.",
+        "Добавьте место вручную или расширьте интересы.",
+    ),
+    "long_initial_transfer": (
+        "long_initial_transfer",
+        "warning",
+        "До первой точки далеко идти.",
+        "Выберите старт ближе к центру маршрута.",
+    ),
+    "budget_swallowed_by_transfer": (
+        "budget_swallowed_by_transfer",
+        "warning",
+        "Переходы съедают слишком много времени маршрута.",
+        "Выберите старт ближе к точкам или увеличьте время.",
+    ),
 }
+
+
+def route_warning_copy(code: str) -> tuple[str, str, str, str] | None:
+    return _WARNING_CODE_MESSAGES.get(str(code or "").strip())
+
+
+def route_warning_message(code: str) -> str:
+    mapped = route_warning_copy(code)
+    return mapped[2] if mapped else str(code or "").strip()
 
 
 def user_warnings(final: object) -> list[dict[str, object]]:
@@ -99,7 +168,7 @@ def _time_warning_items(place_ids: tuple[str, ...]) -> list[dict[str, object]]:
 
 def _warning_from_text(text: str) -> dict[str, object]:
     normalized = text.strip()
-    mapped = _WARNING_CODE_MESSAGES.get(normalized)
+    mapped = route_warning_copy(normalized)
     if mapped:
         kind, severity, message, hint = mapped
         return _item(kind, severity, message, (), hint)
