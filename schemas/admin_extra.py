@@ -1,3 +1,16 @@
+"""LEGACY SCHEMAS for the unregistered `routers.admin_extra` router.
+
+Status: historical compatibility only.
+
+These response contracts belonged to the first admin UI extra endpoints:
+- `/admin/roles`
+- `/admin/cities/{city_id}/coverage`
+- `/admin/route-feedback`
+
+Active replacements live in the dedicated admin overview, coverage, platform and
+route feedback schemas/services. Do not use these schemas for new endpoints.
+"""
+
 from datetime import datetime
 from pydantic import BaseModel
 
