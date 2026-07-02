@@ -24,6 +24,7 @@ import models.data_foundation_stage1  # noqa: F401
 import models.import_batch  # noqa: F401
 import models.import_discipline_stage2  # noqa: F401
 import models.import_job_step  # noqa: F401
+import models.intelligence_discipline_stage3  # noqa: F401
 import models.known_missing_poi  # noqa: F401
 import models.place_image  # noqa: F401
 import models.place_field_confidence  # noqa: F401
