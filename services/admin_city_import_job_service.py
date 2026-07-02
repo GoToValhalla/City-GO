@@ -160,12 +160,9 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
         job.step_details = {**dict(job.step_details or {}), "warnings": warnings, "changed_place_ids": ids, "has_changes": bool(ids), "unified_pipeline": {"collection_and_legacy_enrichment": legacy, "source_enrichment": source, "readiness_score": readiness.get("readiness_score"), "completed": True}}
         job.status = "success_with_warnings" if warnings else "success"
         job.finished_at = datetime.utcnow()
-        if ids:
-            city.launch_status = "review_required"
-            city.is_active = False
         city.last_import_at = job.finished_at
         _refresh_snapshot_light(db, city=city, job=job, source="import_worker_finished")
-        log_import_event(db, event="unified_import_pipeline_finished", city_slug=city.slug, actor_id=actor_id, message=f"Полный pipeline #{job.id}: {len(ids)} изменений", details={"job_id": job.id, "changed_places": len(ids), "warnings": warnings})
+        log_import_event(db, event="unified_import_pipeline_finished", city_slug=city.slug, actor_id=actor_id, message=f"Полный pipeline #{job.id}: {len(ids)} изменений; публикация города сохранена", details={"job_id": job.id, "changed_places": len(ids), "warnings": warnings, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active)})
         db.commit()
         _alert(db, city, job, len(ids), readiness, warnings)
     except Exception as exc:
@@ -178,11 +175,10 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
             job.status = "partial_success" if total > 0 else "failed"
             job.last_error = str(exc)[:2000]
             job.finished_at = datetime.utcnow()
-        if city is not None and ids:
-            city.launch_status = "review_required"
-            city.is_active = False
+        if city is not None:
+            city.last_import_at = datetime.utcnow()
         db.commit()
-        send_admin_alert(title="Import completed with warnings" if total > 0 else "Import pipeline failed", message=f"Pipeline прерван. Изменённых мест: {len(ids)}.", level="warning" if total > 0 else "error", city_slug=city.slug if city else None, job_id=int(job.id) if job else None, details={"status": job.status if job else "failed", "places_total": total, "changed_places": len(ids), "warnings": [{"step": "unified_pipeline", "error": str(exc)[:1000]}]})
+        send_admin_alert(title="Import completed with warnings" if total > 0 else "Import pipeline failed", message=f"Pipeline прерван. Изменённых мест: {len(ids)}. Публикация города не изменялась.", level="warning" if total > 0 else "error", city_slug=city.slug if city else None, job_id=int(job.id) if job else None, details={"status": job.status if job else "failed", "places_total": total, "changed_places": len(ids), "city_launch_status": city.launch_status if city else None, "city_is_active": bool(city.is_active) if city else None, "warnings": [{"step": "unified_pipeline", "error": str(exc)[:1000]}]})
     db.refresh(job)
     return job
 
@@ -294,7 +290,7 @@ def _foundation(db, city, job, actor_id, ids):
 
 def _alert(db, city, job, changed, readiness, warnings):
     total = db.query(Place).filter(Place.city_id == city.id).count()
-    send_admin_alert(title="Import completed with warnings" if warnings else "Import pipeline finished", message=f"{city.name}: {changed} мест обновлено и отправлено на подтверждение." if changed else f"{city.name}: изменений нет, публикация сохранена.", level="warning" if warnings else "info", city_slug=city.slug, job_id=int(job.id), details={"status": job.status, "source": job.source, "places_total": total, "changed_places": changed, "readiness": readiness, "warnings": warnings})
+    send_admin_alert(title="Import completed with warnings" if warnings else "Import pipeline finished", message=f"{city.name}: {changed} мест обновлено. Публикация города сохранена." if changed else f"{city.name}: изменений нет, публикация сохранена.", level="warning" if warnings else "info", city_slug=city.slug, job_id=int(job.id), details={"status": job.status, "source": job.source, "places_total": total, "changed_places": changed, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active), "readiness": readiness, "warnings": warnings})
 
 
 def reset_import_job_to_queued(db: Session, *, city_id: int) -> CityAdminImportJob:
