@@ -11,9 +11,13 @@ from models.place import Place
 from services.place_read_service import build_place_read
 from services.system_log_service import write_system_log
 
-REVIEW_STATUSES = ("draft", "needs_review", "deferred", "unpublished")
+MANUAL_REVIEW_STATUSES = ("needs_review", "deferred", "unpublished")
+AUTO_BACKLOG_STATUSES = ("draft",)
 NON_ROUTE_CATEGORIES = {"service", "transport", "utility", "pharmacy", "bank", "atm"}
 NON_ROUTE_LAYERS = {"service", "transport", "utility"}
+TRUSTED_ADDRESS_CONFIDENCE = 0.85
+TRUSTED_PLACE_QUALITY_SCORE = 65
+OFFICIAL_ADDRESS_SOURCES = {"official", "official_site", "official_website", "website", "site", "business_site"}
 
 
 def list_review_cities(db: Session) -> dict[str, object]:
@@ -22,11 +26,20 @@ def list_review_cities(db: Session) -> dict[str, object]:
     items = []
     for city in cities:
         city_counts = counts.get(int(city.id), {})
-        needs_review = sum(int(city_counts.get(status, 0)) for status in REVIEW_STATUSES)
+        needs_review = sum(int(city_counts.get(status, 0)) for status in MANUAL_REVIEW_STATUSES)
         rejected = int(city_counts.get("rejected", 0))
-        published = int(city_counts.get("published", 0))
-        if needs_review or rejected or published or city.launch_status != "draft":
-            items.append({"id": city.id, "slug": city.slug, "name": city.name, "needs_review": needs_review, "rejected": rejected, "published": published})
+        auto_backlog = sum(int(city_counts.get(status, 0)) for status in AUTO_BACKLOG_STATUSES)
+        if needs_review or rejected:
+            items.append(
+                {
+                    "id": city.id,
+                    "slug": city.slug,
+                    "name": city.name,
+                    "needs_review": needs_review,
+                    "rejected": rejected,
+                    "auto_backlog": auto_backlog,
+                }
+            )
     return {"items": items, "total": len(items)}
 
 
@@ -49,7 +62,7 @@ def next_review_place(db: Session, city_slug: str) -> dict[str, object]:
     city = db.query(City).filter(City.slug == city_slug).first()
     if city is None:
         return {"city": None, "remaining": 0, "place": None}
-    query = db.query(Place).filter(Place.city_id == city.id, Place.publication_status.in_(REVIEW_STATUSES))
+    query = db.query(Place).filter(Place.city_id == city.id, Place.publication_status.in_(MANUAL_REVIEW_STATUSES))
     total = query.count()
     place = query.order_by(Place.updated_at.asc(), Place.id.asc()).first()
     return {"city": {"id": city.id, "slug": city.slug, "name": city.name}, "remaining": total, "place": place_payload(db, place) if place else None}
@@ -70,6 +83,53 @@ def publish_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
     blockers = publication_blockers(place)
     if blockers:
         raise HTTPException(422, "; ".join(blockers))
+    _publish_place(place, actor, comment="published from moderation")
+    db.add(place)
+    audit(db, place, actor, "mobile_review_publish")
+    db.commit()
+    db.refresh(place)
+    return {"action": "published", "place": place_payload(db, place)}
+
+
+def auto_publish_trusted_places(db: Session, *, city_slug: str | None = None, limit: int = 500, actor: str = "publication_policy") -> dict[str, object]:
+    query = db.query(Place).join(City, City.id == Place.city_id).filter(Place.publication_status.in_(AUTO_BACKLOG_STATUSES))
+    if city_slug:
+        query = query.filter(City.slug == city_slug)
+    candidates = query.order_by(Place.updated_at.asc(), Place.id.asc()).limit(limit).all()
+    published = 0
+    skipped = 0
+    for place in candidates:
+        if is_trusted_auto_publish_candidate(place):
+            _publish_place(place, actor, comment="published by trusted source policy")
+            audit(db, place, actor, "trusted_auto_publish")
+            db.add(place)
+            published += 1
+        else:
+            skipped += 1
+    db.commit()
+    return {"published": published, "skipped": skipped, "checked": len(candidates), "limit": limit}
+
+
+def is_trusted_auto_publish_candidate(place: Place) -> bool:
+    if place.publication_status not in AUTO_BACKLOG_STATUSES:
+        return False
+    if publication_blockers(place):
+        return False
+    source = str(place.address_source or place.source or "").strip().lower()
+    source_is_official = source in OFFICIAL_ADDRESS_SOURCES or "official" in source
+    address_confidence = float(place.address_confidence or 0)
+    if not place.address or not source_is_official or address_confidence < TRUSTED_ADDRESS_CONFIDENCE:
+        return False
+    if place.is_spam_poi or place.is_duplicate_suspected:
+        return False
+    if not place.tourist_eligible:
+        return False
+    if int(place.quality_score or 0) < TRUSTED_PLACE_QUALITY_SCORE:
+        return False
+    return True
+
+
+def _publish_place(place: Place, actor: str, *, comment: str) -> None:
     now = datetime.utcnow()
     place.is_active = True
     place.is_published = True
@@ -77,18 +137,13 @@ def publish_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
     place.is_route_eligible = True
     place.is_searchable = True
     place.publication_status = "published"
-    place.publication_comment = "published from moderation"
+    place.publication_comment = comment
     place.published_at = now
     place.unpublished_at = None
     place.verification_status = "verified"
     place.verified_at = now
     place.verified_by = actor
     place.updated_at = now
-    db.add(place)
-    audit(db, place, actor, "mobile_review_publish")
-    db.commit()
-    db.refresh(place)
-    return {"action": "published", "place": place_payload(db, place)}
 
 
 def reject_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
