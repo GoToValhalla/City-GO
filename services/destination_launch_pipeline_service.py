@@ -13,6 +13,22 @@ class DestinationRouteReadyError(ValueError):
     pass
 
 
+class DestinationLaunchReadinessError(ValueError):
+    pass
+
+
+REQUIRED_DESTINATION_LAUNCH_CHECKLIST_ITEMS: tuple[str, ...] = (
+    "import_scope_configured",
+    "import_completed",
+    "enrichment_completed",
+    "quality_gate_passed",
+    "review_queue_empty_or_accepted",
+    "publication_approved",
+    "projections_rebuilt",
+    "route_smoke_passed",
+)
+
+
 ALLOWED_DESTINATION_LAUNCH_TRANSITIONS: set[tuple[str, str]] = {
     ("created", "import_pending"),
     ("import_pending", "importing"),
@@ -24,6 +40,7 @@ ALLOWED_DESTINATION_LAUNCH_TRANSITIONS: set[tuple[str, str]] = {
     ("publishable", "published"),
     ("published", "projections_pending"),
     ("projections_pending", "route_ready"),
+    ("route_ready", "live"),
     ("created", "failed"),
     ("import_pending", "failed"),
     ("importing", "failed"),
@@ -40,6 +57,35 @@ ALLOWED_DESTINATION_LAUNCH_TRANSITIONS: set[tuple[str, str]] = {
 def assert_launch_transition_allowed(*, from_status: str, to_status: str) -> None:
     if (from_status, to_status) not in ALLOWED_DESTINATION_LAUNCH_TRANSITIONS:
         raise DestinationLaunchTransitionError(f"Destination launch transition is not allowed: {from_status} -> {to_status}")
+
+
+def calculate_launch_readiness_percent(checklist_statuses: dict[str, str]) -> int:
+    if not REQUIRED_DESTINATION_LAUNCH_CHECKLIST_ITEMS:
+        return 0
+    completed = sum(
+        1
+        for item_code in REQUIRED_DESTINATION_LAUNCH_CHECKLIST_ITEMS
+        if checklist_statuses.get(item_code) == "completed"
+    )
+    return round((completed / len(REQUIRED_DESTINATION_LAUNCH_CHECKLIST_ITEMS)) * 100)
+
+
+def missing_required_launch_items(checklist_statuses: dict[str, str]) -> list[str]:
+    return [
+        item_code
+        for item_code in REQUIRED_DESTINATION_LAUNCH_CHECKLIST_ITEMS
+        if checklist_statuses.get(item_code) != "completed"
+    ]
+
+
+def assert_launch_can_go_live(*, launch_status: str, checklist_statuses: dict[str, str], route_smoke_status: str | None) -> None:
+    if launch_status != "route_ready":
+        raise DestinationLaunchReadinessError(f"Destination cannot go live from state: {launch_status}")
+    missing_items = missing_required_launch_items(checklist_statuses)
+    if missing_items:
+        raise DestinationLaunchReadinessError(f"Destination launch checklist is incomplete: {missing_items}")
+    if route_smoke_status != "passed":
+        raise DestinationLaunchReadinessError("Route smoke must pass before live")
 
 
 def assert_destination_publishable(
