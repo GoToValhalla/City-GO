@@ -1,4 +1,4 @@
-name: Production Deploy
+name: 01 · CITY GO · Production Deploy
 
 on:
   workflow_dispatch:
