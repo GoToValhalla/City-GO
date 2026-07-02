@@ -1,4 +1,4 @@
-name: Refresh City Catalog
+name: 92 · CITY GO · OPS · Refresh City Catalog
 
 on:
   workflow_dispatch:
