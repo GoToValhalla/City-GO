@@ -1,35 +1,35 @@
 # Publication state invariants
 
-Этот документ фиксирует границы между product publication state, import operational state, quality state и manual review state.
+This document fixes boundaries between product publication state, import operational state, quality state and manual review state.
 
 ## City product state
 
-Поля product publication state:
+Product publication state fields:
 
 - `City.is_active`
 - `City.launch_status`
 
-Право менять эти поля имеют только:
+Only these flows may change them:
 
-- `services/admin_city_publication_service.py` — явная публикация/снятие публикации города;
-- `scripts/repair_publication_states.py` — явный repair action с dry-run/apply;
-- будущие explicit admin actions, если они пишут audit/reason и проходят тесты инвариантов.
+- `services/admin_city_publication_service.py` — explicit city publish/unpublish;
+- `scripts/repair_publication_states.py` — explicit repair action with dry-run/apply;
+- future explicit admin actions, only with audit/reason and invariant tests.
 
-Не имеют права менять City product state:
+These flows must not change City product state:
 
 - import jobs;
 - enrichment jobs;
 - snapshot refresh;
 - admin overview/read endpoints;
-- publication reconciliation по умолчанию;
+- publication reconciliation by default;
 - quality/readiness scoring;
 - Telegram moderation.
 
-Import status `failed/partial/stale/running` — это operational state. Он не должен переводить опубликованный город в draft/hidden/unpublished.
+Import status `failed/partial/stale/running` is operational state. It must not turn a published city into draft/hidden/unpublished.
 
 ## Place publication state
 
-Поля publication state:
+Publication state fields:
 
 - `Place.is_active`
 - `Place.is_published`
@@ -38,65 +38,91 @@ Import status `failed/partial/stale/running` — это operational state. Он 
 - `Place.is_searchable`
 - `Place.publication_status`
 
-Published place нельзя сбрасывать в draft/hidden/rejected из import/enrichment/reconciliation. Снять место с публикации можно только:
+Published place must not be reset to draft/hidden/rejected by import/enrichment/reconciliation. Unpublishing is allowed only through:
 
-- явным admin action;
-- явной destructive policy с reason/audit;
-- repair script с явным флагом.
+- explicit admin action;
+- explicit destructive policy with reason/audit;
+- repair script with explicit flag.
 
-Import/enrichment/backfill могут улучшать raw/data-quality поля, но не должны выключать уже published flags.
+Import/enrichment/backfill may improve raw/data-quality fields, but must not disable already published flags.
 
 ## Manual review state
 
-Manual queue — только explicit manual cases:
+Manual queue includes only explicit manual cases:
 
 - `publication_status in ('needs_review', 'needs_manual_review', 'deferred')`;
-- либо `review_queue_items.status='open'` для явно ручной проверки.
+- or `review_queue_items.status='open'` for explicit manual review.
 
-Не являются manual queue по умолчанию:
+These are not manual queue by default:
 
 - `draft`;
 - `auto_backlog`;
 - `low_confidence`;
-- отсутствие фото;
-- отсутствие адреса;
-- низкая уверенность без конфликта/high-risk reason.
+- missing photo;
+- missing address;
+- low confidence without conflict/high-risk reason.
 
-Telegram moderation использует только manual queue. Если manual queue пустая, бот пишет `Очередь пуста` и не подтягивает draft/backlog.
+Telegram moderation uses only manual queue. If manual queue is empty, the bot returns `Очередь пуста` and does not pull draft/backlog.
 
 ## Auto backlog
 
-Auto backlog — это очередь для deterministic policy, enrichment и backfill. Она не должна превращаться в ручную задачу на 17k мест.
+Auto backlog is for deterministic policy, enrichment and backfill. It must not become a manual task for 17k places.
 
-Trusted auto publish допустим, если место:
+Trusted auto publish is allowed if a place:
 
-- `draft/auto_backlog/low_confidence`;
-- имеет координаты;
-- имеет адрес;
-- `address_source` официальный/сайтовый/provider official;
-- `address_confidence >= 0.85`;
-- `quality_score >= 65`;
-- не closed/inactive/spam;
-- не duplicate suspected;
-- категория подходит для catalog/route.
+- is `draft/auto_backlog/low_confidence`;
+- has coordinates;
+- has address;
+- has official/site/provider official `address_source`;
+- has `address_confidence >= 0.85`;
+- has `quality_score >= 65`;
+- is not closed/inactive/spam;
+- is not duplicate suspected;
+- has catalog/route eligible category.
 
-Отсутствие фото не блокирует trusted auto publish. Это отдельная data-quality/enrichment задача.
+Missing photo must not block trusted auto publish. It is a separate data-quality/enrichment task.
 
 ## Admin statistics semantics
 
-- `Требуют проверки` = только manual review queue.
+- `Требуют проверки` = only manual review queue.
 - `Не проверено авто` = auto backlog.
-- `Низкая уверенность` = quality bucket, не ручная очередь.
-- `Ошибка импорта` = operational import problem, не product hidden state.
+- `Низкая уверенность` = quality bucket, not manual queue.
+- `Ошибка импорта` = operational import problem, not product hidden state.
 - `Активные города` = `City.is_active=true AND City.launch_status='published'`.
+
+## Source of truth chain before every fix
+
+Before changing any endpoint/service/test fixture in admin/import/publication/review/Telegram, check and record the actual chain:
+
+```text
+router -> service -> model/table -> status field -> tests
+```
+
+Rules:
+
+1. Do not change an endpoint based on a similarly named model.
+2. Do not write a test fixture before checking which table the service actually reads.
+3. If the chain contains a legacy artifact from `docs/architecture/legacy_code_register.md`, it must not be used as source of truth.
+4. For `/admin/place-change-reviews/*`, the active chain is:
+
+```text
+routers/admin_place_change_review.py
+  -> services/place_change_review_service.py
+  -> ReviewQueueItem
+  -> field_name='place_change'
+  -> status='open'
+```
+
+5. `PlaceChangeReview` / `place_change_reviews` is legacy and must not be used in new endpoint tests or services.
 
 ## Protected invariants
 
-Защищены кодом и должны покрываться тестами:
+Protected by code and tests:
 
-1. Failed/partial import не снимает опубликованный город с публикации.
-2. Import/enrichment/reconciliation не снимает published place с публикации.
-3. Publication reconciliation не делает destructive bulk reset без явного destructive флага и reason.
-4. Manual moderation не показывает draft/auto_backlog/low_confidence.
-5. Admin overview разделяет manual review, auto backlog и quality buckets.
-6. Repair scripts работают через dry-run по умолчанию и пишут snapshot/report перед apply.
+1. Failed/partial import does not unpublish a published city.
+2. Import/enrichment/reconciliation does not unpublish a published place.
+3. Publication reconciliation does not perform destructive bulk reset without explicit destructive flag and reason.
+4. Manual moderation does not show draft/auto_backlog/low_confidence.
+5. Admin overview separates manual review, auto backlog and quality buckets.
+6. Repair scripts use dry-run by default and write snapshot/report before apply.
+7. Active endpoint tests do not use legacy source-of-truth models instead of the actual router/service/model chain.
