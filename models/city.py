@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -93,3 +93,29 @@ class City(Base):
     # Связь города со снапшотами качества и enrichment runs.
     quality_snapshots = relationship("CityQualitySnapshot", back_populates="city")
     enrichment_runs = relationship("CityEnrichmentRun", back_populates="city")
+
+
+_PUBLICATION_GUARD_FLAG = "_allow_product_publication_state_change"
+
+
+def allow_city_product_state_change(city: City) -> None:
+    """Mark an explicit admin/repair action as allowed to change product state."""
+    setattr(city, _PUBLICATION_GUARD_FLAG, True)
+
+
+def _city_product_state_change_allowed(city: City) -> bool:
+    return bool(getattr(city, _PUBLICATION_GUARD_FLAG, False))
+
+
+@event.listens_for(City.launch_status, "set", retval=True)
+def protect_published_city_launch_status(target: City, value: object, oldvalue: object, initiator: object) -> object:
+    if oldvalue == "published" and value != "published" and not _city_product_state_change_allowed(target):
+        return oldvalue
+    return value
+
+
+@event.listens_for(City.is_active, "set", retval=True)
+def protect_published_city_is_active(target: City, value: object, oldvalue: object, initiator: object) -> object:
+    if oldvalue is True and value is False and getattr(target, "launch_status", None) == "published" and not _city_product_state_change_allowed(target):
+        return oldvalue
+    return value
