@@ -38,6 +38,7 @@
 | Legacy itinerary candidate retrieval | `services/itinerary_candidate_service.py` | LEGACY ITINERARY CANDIDATE SERVICE | `services/candidate_retrieval_service.py`, route eligibility query filters | Старый candidate retrieval для itinerary stack. Новые retrieval/filtering rules сюда не добавлять. |
 | Legacy itinerary scoring | `services/itinerary_scoring_service.py` | LEGACY ITINERARY SCORING SERVICE | `services/scoring_service.py`, `services/route_quality_score.py`, `services/route_builder_flow.py` | Старый скоринг itinerary. Новые scoring-фичи сюда не добавлять. |
 | Legacy itinerary route builder helpers | `services/itinerary_route_builder_service.py` | LEGACY ITINERARY ROUTE BUILDER HELPERS | `services/route_builder_flow.py`, route assembly/optimizer services | Старый helper stack для `/routes/generate`. |
+| Legacy itinerary time estimator | `services/itinerary_time_estimator.py` | LEGACY ITINERARY TIME ESTIMATOR | `services/route_builder_flow.py`, route assembly/optimizer and route quality services | Старые расчетные helpers времени/дистанции для itinerary stack. Новые timing rules сюда не добавлять. |
 | Admin overview old semantics | old use of `verification_status in ('needs_recheck','unverified')` as `needs_review` | DEPRECATED SEMANTIC | `manual_review = Place.publication_status in ('needs_review','needs_manual_review','deferred')` | Verification backlog должен называться отдельно `needs_verification`, не “Требуют проверки”. |
 | Product publication repair | direct SQL/manual flag reset scripts | FORBIDDEN LEGACY PRACTICE | `scripts/repair_publication_states.py` with dry-run snapshot | Любой direct reset `City.is_active`, `City.launch_status`, `Place.is_published` без snapshot/reason/audit запрещён. |
 
@@ -101,7 +102,7 @@ scripts/production_place_import.py
 8. Не регистрировать `routers.admin_extra` обратно без отдельной migration task.
 9. Не использовать `refresh_all_cities.py` как текущий admin import pipeline.
 10. Не использовать `production_place_import.py` как production city import path.
-11. Не добавлять новые candidate retrieval/scoring/assembly rules в `services/itinerary_*`.
+11. Не добавлять новые candidate retrieval/scoring/assembly/timing rules в `services/itinerary_*`.
 12. Не использовать `schemas/admin_extra.py` для новых admin endpoint contracts.
 
 ## Проверка перед фиксом
