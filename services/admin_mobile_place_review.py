@@ -11,13 +11,21 @@ from models.place import Place
 from services.place_read_service import build_place_read
 from services.system_log_service import write_system_log
 
-MANUAL_REVIEW_STATUSES = ("needs_review", "deferred", "unpublished")
-AUTO_BACKLOG_STATUSES = ("draft",)
+MANUAL_REVIEW_STATUSES = ("needs_review", "needs_manual_review", "deferred")
+AUTO_BACKLOG_STATUSES = ("draft", "auto_backlog", "low_confidence")
 NON_ROUTE_CATEGORIES = {"service", "transport", "utility", "pharmacy", "bank", "atm"}
 NON_ROUTE_LAYERS = {"service", "transport", "utility"}
 TRUSTED_ADDRESS_CONFIDENCE = 0.85
 TRUSTED_PLACE_QUALITY_SCORE = 65
-OFFICIAL_ADDRESS_SOURCES = {"official", "official_site", "official_website", "website", "site", "business_site"}
+OFFICIAL_ADDRESS_SOURCES = {
+    "official",
+    "official_site",
+    "official_website",
+    "website",
+    "site",
+    "business_site",
+    "provider_official",
+}
 
 
 def list_review_cities(db: Session) -> dict[str, object]:
@@ -27,16 +35,15 @@ def list_review_cities(db: Session) -> dict[str, object]:
     for city in cities:
         city_counts = counts.get(int(city.id), {})
         needs_review = sum(int(city_counts.get(status, 0)) for status in MANUAL_REVIEW_STATUSES)
-        rejected = int(city_counts.get("rejected", 0))
         auto_backlog = sum(int(city_counts.get(status, 0)) for status in AUTO_BACKLOG_STATUSES)
-        if needs_review or rejected:
+        if needs_review:
             items.append(
                 {
                     "id": city.id,
                     "slug": city.slug,
                     "name": city.name,
                     "needs_review": needs_review,
-                    "rejected": rejected,
+                    "rejected": 0,
                     "auto_backlog": auto_backlog,
                 }
             )
@@ -95,7 +102,7 @@ def auto_publish_trusted_places(db: Session, *, city_slug: str | None = None, li
     query = db.query(Place).join(City, City.id == Place.city_id).filter(Place.publication_status.in_(AUTO_BACKLOG_STATUSES))
     if city_slug:
         query = query.filter(City.slug == city_slug)
-    candidates = query.order_by(Place.updated_at.asc(), Place.id.asc()).limit(limit).all()
+    candidates = query.order_by(Place.id.asc()).limit(limit).all()
     published = 0
     skipped = 0
     for place in candidates:
@@ -140,7 +147,7 @@ def _publish_place(place: Place, actor: str, *, comment: str) -> None:
     place.publication_comment = comment
     place.published_at = now
     place.unpublished_at = None
-    place.verification_status = "verified"
+    place.verification_status = "trusted"
     place.verified_at = now
     place.verified_by = actor
     place.updated_at = now
