@@ -9,7 +9,7 @@ on:
         type: string
   workflow_run:
     workflows:
-      - Production Deploy
+      - 01 · CITY GO · Production Deploy
     types:
       - completed
 
