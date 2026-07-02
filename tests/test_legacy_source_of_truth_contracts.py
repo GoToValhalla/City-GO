@@ -66,5 +66,7 @@ def test_admin_place_change_review_contract_points_to_review_queue_item() -> Non
     assert "approve_place_change" in router
     assert "reject_place_change" in router
     assert "ReviewQueueItem" in service
-    assert "field_name == \"place_change\"" in service or 'field_name == "place_change"' in service
-    assert "status == \"open\"" in service or 'status == "open"' in service
+    assert 'PLACE_CHANGE_FIELD = "place_change"' in service
+    assert 'OPEN_STATUS = "open"' in service
+    assert "ReviewQueueItem.field_name == PLACE_CHANGE_FIELD" in service
+    assert "ReviewQueueItem.status == OPEN_STATUS" in service
