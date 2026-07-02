@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 
 class RouteBuilderV2Error(ValueError):
@@ -18,6 +18,42 @@ ROUTE_BUILDER_V2_MODES: tuple[str, ...] = (
     CATEGORY_BUILDER,
     MANUAL_BUILDER,
     SLOT_BUILDER,
+)
+
+BUILD_MODE_TO_ROUTE_BUILDER_MODE: Mapping[str, str] = {
+    "auto": QUICK_BUILD,
+    "by_categories": CATEGORY_BUILDER,
+    "manual": MANUAL_BUILDER,
+    "constructor": SLOT_BUILDER,
+}
+
+ROUTE_BUILDER_V2_BLOCKED_CATEGORIES = frozenset(
+    {
+        "apteka",
+        "atm",
+        "bank",
+        "bench",
+        "bus_stop",
+        "fuel",
+        "mall",
+        "parking",
+        "pharmacy",
+        "service",
+        "shop",
+        "stop",
+        "supermarket",
+        "toilet",
+        "transport",
+        "utility",
+    }
+)
+ROUTE_BUILDER_V2_BLOCKED_TITLE_TOKENS = (
+    "аптек",
+    "pharmacy",
+    "остановк",
+    "bus stop",
+    "банкомат",
+    "atm",
 )
 
 DEFAULT_ROUTE_POLICY = "city_walking"
@@ -55,6 +91,13 @@ class RouteBuilderV2Plan:
     warnings: tuple[str, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True)
+class RouteBuilderV2GateResult:
+    points: tuple[object, ...]
+    removed_junk_place_ids: tuple[str, ...]
+    warnings: tuple[str, ...]
+
+
 def build_route_builder_v2_plan(request: RouteBuilderV2Request | Mapping[str, object]) -> RouteBuilderV2Plan:
     normalized = normalize_route_builder_request(request)
     if normalized.mode == QUICK_BUILD:
@@ -66,6 +109,118 @@ def build_route_builder_v2_plan(request: RouteBuilderV2Request | Mapping[str, ob
     if normalized.mode == SLOT_BUILDER:
         return _build_slot_plan(normalized)
     raise RouteBuilderV2Error(f"Unsupported route builder mode: {normalized.mode}")
+
+
+def build_route_builder_v2_plan_from_intent(intent: object) -> RouteBuilderV2Plan:
+    """Build the Route Builder v2 execution plan from the public user route API payload."""
+
+    return build_route_builder_v2_plan(route_builder_v2_payload_from_intent(intent))
+
+
+def route_builder_v2_payload_from_intent(intent: object) -> dict[str, object]:
+    build_mode = str(getattr(intent, "build_mode", "auto") or "auto")
+    mode = BUILD_MODE_TO_ROUTE_BUILDER_MODE.get(build_mode, build_mode)
+    city_value = getattr(intent, "city_id", None) or getattr(intent, "visit_city_id", None)
+    selected_ids = getattr(intent, "selected_place_ids", []) or []
+    slots = getattr(intent, "route_slots", []) or []
+    interests = list(getattr(intent, "interests", []) or [])
+    return {
+        "mode": mode,
+        "city_slug": str(city_value) if city_value else None,
+        "duration_minutes": getattr(intent, "time_budget_minutes", None),
+        "categories": interests if mode == CATEGORY_BUILDER else [],
+        "selected_place_ids": selected_ids,
+        "slots": slots,
+        "interests": interests,
+    }
+
+
+def apply_route_builder_v2_plan_to_intent(intent: object, plan: RouteBuilderV2Plan) -> object:
+    """Translate v2 modes into the existing route engine input without bypassing production route code."""
+
+    updates: dict[str, object] = {}
+    if plan.duration_minutes is not None:
+        updates["time_budget_minutes"] = plan.duration_minutes
+    if plan.mode == CATEGORY_BUILDER:
+        updates["interests"] = _merge_unique_strings(getattr(intent, "interests", []) or [], plan.categories)
+    if plan.mode == SLOT_BUILDER:
+        slot_interests = [str(slot.get("type") or "") for slot in plan.slots]
+        updates["interests"] = _merge_unique_strings(getattr(intent, "interests", []) or [], slot_interests)
+    if not updates:
+        return intent
+    if hasattr(intent, "model_copy"):
+        return intent.model_copy(update=updates)
+    raise RouteBuilderV2Error("Route Builder v2 expected a pydantic route intent")
+
+
+def attach_route_builder_v2_result(state: object, plan: RouteBuilderV2Plan) -> object:
+    """Attach v2 metadata and enforce post-build output gates on the public route state."""
+
+    gate = route_builder_v2_output_gate(getattr(state, "points", []) or [])
+    warnings = _unique_strings(
+        [
+            *list(getattr(state, "warnings", []) or []),
+            *plan.warnings,
+            *gate.warnings,
+        ]
+    )
+    status = str(getattr(state, "status", "ready") or "ready")
+    partial_reason = getattr(state, "partial_reason", None)
+    if len(gate.points) < plan.expected_min_points and status not in {"failed", "no_route"}:
+        status = "partial_route" if gate.points else "no_route"
+        partial_reason = "route_builder_v2_insufficient_points"
+        warnings = _unique_strings([*warnings, "route_builder_v2_insufficient_points"])
+
+    explanation = dict(getattr(state, "explanation", {}) or {})
+    explanation["route_builder_v2"] = {
+        "mode": plan.mode,
+        "executor_mode": plan.executor_mode,
+        "expected_min_points": plan.expected_min_points,
+        "expected_max_points": plan.expected_max_points,
+        "removed_junk_place_ids": list(gate.removed_junk_place_ids),
+    }
+    debug_trace = [
+        {
+            "stage": "route_builder_v2",
+            "mode": plan.mode,
+            "executor_mode": plan.executor_mode,
+            "status": "ok" if not gate.removed_junk_place_ids else "sanitized",
+            "expected_min_points": plan.expected_min_points,
+            "expected_max_points": plan.expected_max_points,
+            "output_count": len(gate.points),
+            "removed_junk_place_ids": list(gate.removed_junk_place_ids),
+            "data_contract": "public_catalog_visible_route_eligible_only",
+        },
+        *list(getattr(state, "debug_trace", []) or []),
+    ]
+    category_distribution = _category_distribution(gate.points)
+    updates = {
+        "status": status,
+        "partial_reason": partial_reason,
+        "points": list(gate.points),
+        "total_places": len(gate.points),
+        "category_distribution": category_distribution,
+        "warnings": warnings,
+        "has_warnings": bool(warnings),
+        "warning_count": len(warnings),
+        "explanation": explanation,
+        "debug_trace": debug_trace,
+    }
+    if hasattr(state, "model_copy"):
+        return state.model_copy(update=updates)
+    raise RouteBuilderV2Error("Route Builder v2 expected a pydantic route state")
+
+
+def route_builder_v2_output_gate(points: Sequence[object]) -> RouteBuilderV2GateResult:
+    kept: list[object] = []
+    removed: list[str] = []
+    for point in points:
+        if _is_route_junk(point):
+            removed.append(str(getattr(point, "place_id", "")))
+        else:
+            kept.append(point)
+    warnings = ("route_builder_v2_removed_route_junk",) if removed else ()
+    return RouteBuilderV2GateResult(points=tuple(kept), removed_junk_place_ids=tuple(removed), warnings=warnings)
 
 
 def normalize_route_builder_request(request: RouteBuilderV2Request | Mapping[str, object]) -> RouteBuilderV2Request:
@@ -117,7 +272,9 @@ def normalize_mode(mode: object) -> str:
         "quick_build": QUICK_BUILD,
         "categories": CATEGORY_BUILDER,
         "category_build": CATEGORY_BUILDER,
+        "by_categories": CATEGORY_BUILDER,
         "manual_build": MANUAL_BUILDER,
+        "constructor": SLOT_BUILDER,
         "slots": SLOT_BUILDER,
         "slot_build": SLOT_BUILDER,
     }
@@ -263,3 +420,34 @@ def _optional_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise RouteBuilderV2Error(f"Expected integer value: {value}") from exc
+
+
+def _merge_unique_strings(left: Sequence[object], right: Sequence[object]) -> list[str]:
+    return _unique_strings([str(item).strip().lower() for item in [*left, *right] if str(item).strip()])
+
+
+def _unique_strings(values: Sequence[object]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            result.append(text)
+            seen.add(text)
+    return result
+
+
+def _is_route_junk(point: object) -> bool:
+    category = str(getattr(point, "category", "") or "").strip().lower()
+    title = str(getattr(point, "title", "") or "").strip().lower()
+    if category in ROUTE_BUILDER_V2_BLOCKED_CATEGORIES:
+        return True
+    return any(token in title for token in ROUTE_BUILDER_V2_BLOCKED_TITLE_TOKENS)
+
+
+def _category_distribution(points: Sequence[object]) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for point in points:
+        category = str(getattr(point, "category", "") or "unknown")
+        result[category] = result.get(category, 0) + 1
+    return result
