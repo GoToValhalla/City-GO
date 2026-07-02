@@ -3,10 +3,10 @@ from __future__ import annotations
 from sqlalchemy import inspect
 
 from db.base import Base
-from tests.allure_support import citygo_test
+from tests.allure_support import title
 
 
-@citygo_test("Фабрика published-place явно создаёт опубликованное видимое место")
+@title("Фабрика published-place явно создаёт опубликованное видимое место")
 def test_published_place_factory_sets_consistent_public_flags(published_place_factory) -> None:
     place = published_place_factory(slug="factory-published-place")
 
@@ -18,7 +18,7 @@ def test_published_place_factory_sets_consistent_public_flags(published_place_fa
     assert place.publication_status == "published"
 
 
-@citygo_test("Фабрика draft-place явно создаёт черновик без публичных флагов")
+@title("Фабрика draft-place явно создаёт черновик без публичных флагов")
 def test_draft_place_factory_sets_consistent_draft_flags(draft_place_factory) -> None:
     place = draft_place_factory(slug="factory-draft-place")
 
@@ -30,7 +30,7 @@ def test_draft_place_factory_sets_consistent_draft_flags(draft_place_factory) ->
     assert place.publication_status == "draft"
 
 
-@citygo_test("Фабрика manual-review-place отделяет ручную очередь от auto backlog")
+@title("Фабрика manual-review-place отделяет ручную очередь от auto backlog")
 def test_manual_review_place_factory_sets_explicit_manual_status(manual_review_place_factory) -> None:
     place = manual_review_place_factory(slug="factory-manual-place")
 
@@ -39,7 +39,7 @@ def test_manual_review_place_factory_sets_explicit_manual_status(manual_review_p
     assert place.publication_status == "needs_review"
 
 
-@citygo_test("Фабрика auto-backlog-place не создаёт ручную очередь")
+@title("Фабрика auto-backlog-place не создаёт ручную очередь")
 def test_auto_backlog_place_factory_sets_non_manual_backlog_status(auto_backlog_place_factory) -> None:
     place = auto_backlog_place_factory(slug="factory-auto-backlog-place")
 
@@ -48,7 +48,7 @@ def test_auto_backlog_place_factory_sets_non_manual_backlog_status(auto_backlog_
     assert place.publication_status == "auto_backlog"
 
 
-@citygo_test("Фабрика hidden-place создаёт скрытое неактивное место")
+@title("Фабрика hidden-place создаёт скрытое неактивное место")
 def test_hidden_place_factory_sets_consistent_hidden_flags(hidden_place_factory) -> None:
     place = hidden_place_factory(slug="factory-hidden-place")
 
@@ -60,7 +60,7 @@ def test_hidden_place_factory_sets_consistent_hidden_flags(hidden_place_factory)
     assert place.publication_status == "hidden"
 
 
-@citygo_test("Metadata schema содержит критичные таблицы review/import/photo/publication")
+@title("Metadata schema содержит критичные таблицы review/import/photo/publication")
 def test_metadata_schema_contains_critical_tables() -> None:
     table_names = set(Base.metadata.tables)
 
@@ -71,7 +71,7 @@ def test_metadata_schema_contains_critical_tables() -> None:
     assert "admin_audit_logs" in table_names
 
 
-@citygo_test("Тестовая БД включает критичные таблицы после create_all")
+@title("Тестовая БД включает критичные таблицы после create_all")
 def test_test_database_contains_critical_tables(engine) -> None:
     tables = set(inspect(engine).get_table_names())
 
@@ -82,7 +82,7 @@ def test_test_database_contains_critical_tables(engine) -> None:
     assert "admin_audit_logs" in tables
 
 
-@citygo_test("ReviewQueueItem schema допускает nullable job_id для не-import ручной очереди")
+@title("ReviewQueueItem schema допускает nullable job_id для не-import ручной очереди")
 def test_review_queue_item_job_id_is_nullable_for_manual_items(engine) -> None:
     columns = {column["name"]: column for column in inspect(engine).get_columns("review_queue_items")}
 
@@ -90,7 +90,7 @@ def test_review_queue_item_job_id_is_nullable_for_manual_items(engine) -> None:
     assert columns["job_id"]["nullable"] is True
 
 
-@citygo_test("Place photo candidates имеет уникальность по place_id и image_url")
+@title("Place photo candidates имеет уникальность по place_id и image_url")
 def test_place_photo_candidates_have_place_url_uniqueness() -> None:
     table = Base.metadata.tables["place_photo_candidates"]
     unique_columns = {
