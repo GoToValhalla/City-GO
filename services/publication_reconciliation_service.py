@@ -73,13 +73,7 @@ def materialize_legacy_city_visibility_defaults(
     cutoff: datetime,
     reason: str | None = None,
 ) -> dict[str, object]:
-    """Persist the old admin default=true city visibility state for legacy cities.
-
-    Before the publication toggle became authoritative, the admin UI displayed
-    city_visible_to_users as enabled by default even when no feature_toggle row
-    existed. This one-time transition records that old visible state for cities
-    created before the cutoff. New cities keep the new default=false behavior.
-    """
+    """Persist the old admin default=true city visibility state for legacy cities."""
     created: list[str] = []
     cities = db.query(City).filter(City.created_at <= cutoff).order_by(City.slug.asc()).all()
     for city in cities:
@@ -123,13 +117,7 @@ def apply_city_visibility_toggle_reconciliation(
     city_slugs: list[str] | None = None,
     reason: str | None = None,
 ) -> dict[str, object]:
-    """Apply legacy admin city_visible_to_users toggles to real city publication.
-
-    This is not an automatic publication policy. It only executes an explicit admin
-    state that already exists in the database: city scope toggle
-    city_visible_to_users=true. Publication still goes through the normal city
-    publication quality gate.
-    """
+    """Apply legacy admin city_visible_to_users toggles to real city publication."""
     toggle_query = db.query(FeatureToggle).filter(
         FeatureToggle.scope == "city",
         FeatureToggle.key == CITY_VISIBILITY_TOGGLE,
@@ -181,22 +169,55 @@ def apply_publication_reconciliation(
     actor: str,
     city_slugs: list[str] | None = None,
     reason: str | None = None,
+    allow_destructive: bool = False,
 ) -> dict[str, object]:
+    """Reconcile publication flags without destructive resets by default.
+
+    Import/reconciliation must not hide already published places just because a
+    city import failed or product city state is temporarily wrong. The default
+    behavior is a dry diagnostic apply: report leaked public flags and repair
+    partial flags for places whose publication_status is already published.
+    Destructive hide remains available only for explicit admin repair calls that
+    pass allow_destructive=True with a reason.
+    """
     query = db.query(City)
     if city_slugs:
         query = query.filter(City.slug.in_(city_slugs))
 
     changed_audit_ids: list[int] = []
     changed_places = 0
+    skipped_destructive = 0
     now = datetime.utcnow()
     for city in query.order_by(City.id.asc()).all():
-        if city.is_active and city.launch_status == PUBLIC_CITY_STATUS:
-            continue
         for place in db.query(Place).filter(Place.city_id == city.id).all():
-            if not _has_any_public_flag(place):
+            if place.publication_status == PUBLIC_CITY_STATUS and _has_partial_public_flags(place):
+                old_value = _public_flags(place)
+                _restore_published_place_flags(place, now=now)
+                audit = write_admin_audit_log(
+                    db,
+                    actor=actor,
+                    action=RECONCILIATION_ACTION,
+                    entity_type="place",
+                    entity_id=place.id,
+                    old_value={"city_slug": city.slug, **old_value},
+                    new_value={"city_slug": city.slug, **_public_flags(place)},
+                    reason=reason or "restore_published_place_public_flags",
+                )
+                db.flush()
+                changed_audit_ids.append(audit.id)
+                changed_places += 1
                 continue
+
+            city_is_public = bool(city.is_active and city.launch_status == PUBLIC_CITY_STATUS)
+            if city_is_public or not _has_any_public_flag(place):
+                continue
+            if not allow_destructive:
+                skipped_destructive += 1
+                continue
+            if not reason:
+                raise ValueError("Destructive publication reconciliation requires explicit reason")
             old_value = _public_flags(place)
-            _hide_place(place, now=now, reason=reason or "publication_reconciliation_unpublished_city")
+            _hide_place(place, now=now, reason=reason)
             audit = write_admin_audit_log(
                 db,
                 actor=actor,
@@ -205,7 +226,7 @@ def apply_publication_reconciliation(
                 entity_id=place.id,
                 old_value={"city_slug": city.slug, **old_value},
                 new_value={"city_slug": city.slug, **_public_flags(place)},
-                reason=reason or "city_not_explicitly_published",
+                reason=reason,
             )
             db.flush()
             changed_audit_ids.append(audit.id)
@@ -214,6 +235,7 @@ def apply_publication_reconciliation(
     db.commit()
     return {
         "changed_places": changed_places,
+        "skipped_destructive": skipped_destructive,
         "audit_ids": changed_audit_ids,
         "snapshot": publication_reconciliation_snapshot(db),
     }
@@ -291,6 +313,16 @@ def _is_fully_public(place: Place) -> bool:
 def _has_partial_public_flags(place: Place) -> bool:
     values = (bool(place.is_published), bool(place.is_visible_in_catalog), bool(place.is_searchable))
     return any(values) and not all(values)
+
+
+def _restore_published_place_flags(place: Place, *, now: datetime) -> None:
+    place.is_active = True
+    place.is_published = True
+    place.is_visible_in_catalog = True
+    place.is_searchable = True
+    place.is_route_eligible = True
+    place.unpublished_at = None
+    place.updated_at = now
 
 
 def _hide_place(place: Place, *, now: datetime, reason: str) -> None:
