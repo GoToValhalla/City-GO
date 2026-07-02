@@ -33,15 +33,16 @@
 | Refresh all cities script | `scripts/refresh_all_cities.py` | LEGACY/SCOPE REFRESH OPERATOR SCRIPT | admin import queue/job services and `CityAdminImportJob` | Старый production-container scope refresh через OSM import v2. Не использовать для publication repair и не считать его admin import source of truth. |
 | Seed place import CLI | `scripts/production_place_import.py` | LEGACY SEED IMPORT CLI | admin import pipeline / audited import jobs / place discovery import flow | Старый ручной import seed JSON в `/place-seed/import/`. Не использовать как production city import path. |
 | Legacy itinerary route endpoints | `routers/itinerary.py` | LEGACY COMPATIBILITY ROUTER, registered until clients migrate | `routers/user_routes.py`, `/v1/user-routes/*` | `/routes/generate` deprecated and sends `X-Deprecated: Use POST /v1/user-routes/build instead`. Новые route-фичи сюда не добавлять. |
-| Legacy itinerary generation stack | `services/itinerary_service.py`, `services/itinerary_route_builder_service.py`, `services/itinerary_candidate_service.py`, `services/itinerary_scoring_service.py` | LEGACY ITINERARY DRAFT STACK until route product consolidation | `services/route_builder_flow.py`, `services/user_route_build_service.py`, route draft/session services | Старая ветка генерации itinerary. Не удалять: может обслуживать old endpoint/schema. Новые route features должны идти через route builder/user route flow. |
+| Legacy itinerary orchestration | `services/itinerary_service.py` | LEGACY ITINERARY ORCHESTRATION STACK | `services/route_builder_flow.py`, `services/user_route_build_service.py`, route draft/session services | Старая orchestration ветка для `/routes/generate`. |
+| Legacy itinerary candidate retrieval | `services/itinerary_candidate_service.py` | LEGACY ITINERARY CANDIDATE SERVICE | `services/candidate_retrieval_service.py`, route eligibility query filters | Старый candidate retrieval для itinerary stack. Новые retrieval/filtering rules сюда не добавлять. |
+| Legacy itinerary scoring | `services/itinerary_scoring_service.py` | LEGACY ITINERARY SCORING SERVICE | `services/scoring_service.py`, `services/route_quality_score.py`, `services/route_builder_flow.py` | Старый скоринг itinerary. Новые scoring-фичи сюда не добавлять. |
+| Legacy itinerary route builder helpers | `services/itinerary_route_builder_service.py` | LEGACY ITINERARY ROUTE BUILDER HELPERS | `services/route_builder_flow.py`, route assembly/optimizer services | Старый helper stack для `/routes/generate`. |
 | Admin overview old semantics | old use of `verification_status in ('needs_recheck','unverified')` as `needs_review` | DEPRECATED SEMANTIC | `manual_review = Place.publication_status in ('needs_review','needs_manual_review','deferred')` | Verification backlog должен называться отдельно `needs_verification`, не “Требуют проверки”. |
 | Product publication repair | direct SQL/manual flag reset scripts | FORBIDDEN LEGACY PRACTICE | `scripts/repair_publication_states.py` with dry-run snapshot | Любой direct reset `City.is_active`, `City.launch_status`, `Place.is_published` без snapshot/reason/audit запрещён. |
 
 ## Подтверждённые кейсы
 
 ### 1. `PlaceChangeReview` vs `ReviewQueueItem`
-
-Фактическая цепочка активного endpoint:
 
 ```text
 routers/admin_place_change_review.py
@@ -53,8 +54,6 @@ routers/admin_place_change_review.py
 ```
 
 ### 2. Publication reconciliation CLI
-
-Фактическая новая модель:
 
 ```text
 scripts/diagnose_publication_states.py
@@ -82,8 +81,6 @@ routers/user_routes.py -> route_builder_flow -> user_route_build_service -> rout
 
 ### 6. Import operator scripts split
 
-Старые scripts:
-
 ```text
 scripts/refresh_all_cities.py
 scripts/production_place_import.py
@@ -103,6 +100,7 @@ scripts/production_place_import.py
 8. Не регистрировать `routers.admin_extra` обратно без отдельной migration task.
 9. Не использовать `refresh_all_cities.py` как текущий admin import pipeline.
 10. Не использовать `production_place_import.py` как production city import path.
+11. Не добавлять новые candidate retrieval/scoring/assembly rules в `services/itinerary_*`.
 
 ## Проверка перед фиксом
 
