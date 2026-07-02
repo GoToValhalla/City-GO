@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from models.place import Place
-from models.place_change_review import PlaceChangeReview
+from models.review_queue_item import ReviewQueueItem
 from services.publication_reconciliation_service import (
     apply_publication_reconciliation,
     publication_reconciliation_snapshot,
@@ -19,8 +19,8 @@ def _public_place(city_id: int, slug: str) -> Place:
         canonical_category="cafe",
         source="test",
         status="active",
-        address="ул. Мира, 1",
-        short_description="Описание",
+        address="Test street 1",
+        short_description="Description",
         lat=47.2,
         lng=39.7,
         is_active=True,
@@ -29,6 +29,31 @@ def _public_place(city_id: int, slug: str) -> Place:
         is_searchable=True,
         is_route_eligible=True,
         publication_status="published",
+    )
+
+
+def _review_item(city_id: int, place: Place) -> ReviewQueueItem:
+    return ReviewQueueItem(
+        city_id=city_id,
+        place_id=place.id,
+        field_name="place_change",
+        reason="test_fixture",
+        severity="medium",
+        status="open",
+        payload={
+            "decision": "needs_review",
+            "source": "test",
+            "changes": {"title": {"before": place.title, "after": place.title}},
+            "before_public": {
+                "status": place.status,
+                "is_active": place.is_active,
+                "is_published": place.is_published,
+                "is_visible_in_catalog": place.is_visible_in_catalog,
+                "is_route_eligible": place.is_route_eligible,
+                "is_searchable": place.is_searchable,
+                "publication_status": place.publication_status,
+            },
+        },
     )
 
 
@@ -61,22 +86,12 @@ def test_admin_approve_publishes_changed_place_in_web_and_telegram(client, db_se
     assert client.get(f"/places/{place.id}").status_code == 404
     assert BotFacade(db_session).place(place.id) is None
 
-    review = PlaceChangeReview(
-        city_id=city.id,
-        place_id=place.id,
-        field_name="title",
-        old_value="old",
-        new_value="new",
-        status="pending",
-        source="test",
-        reason="test review fixture",
-    )
+    review = _review_item(city.id, place)
     db_session.add(review)
     db_session.commit()
 
-    review_response = client.post(f"/admin/place-change-reviews/{review.id}/approve", json={"reason": "source is correct"})
-    assert review_response.status_code == 200
-
+    response = client.post(f"/admin/place-change-reviews/{review.id}/approve", json={"reason": "ok"})
+    assert response.status_code == 200
     assert client.get(f"/places/{place.id}").status_code == 200
     assert BotFacade(db_session).place(place.id) is not None
 
@@ -84,46 +99,35 @@ def test_admin_approve_publishes_changed_place_in_web_and_telegram(client, db_se
 def test_admin_reject_keeps_existing_public_place_visible(client, db_session, city_factory) -> None:
     city = city_factory(slug="reject-city", name="Reject City", is_active=True, launch_status="published")
     place = _public_place(city.id, "reject-place")
-    review = PlaceChangeReview(
-        city_id=city.id,
-        place_id=place.id,
-        field_name="title",
-        old_value="old",
-        new_value="bad new",
-        status="pending",
-        source="test",
-        reason="test review fixture",
-    )
-    db_session.add_all([place, review])
+    db_session.add(place)
+    db_session.commit()
+    review = _review_item(city.id, place)
+    db_session.add(review)
     db_session.commit()
 
     assert client.get(f"/places/{place.id}").status_code == 200
     assert BotFacade(db_session).place(place.id) is not None
 
-    review_response = client.post(f"/admin/place-change-reviews/{review.id}/reject", json={"reason": "source is incorrect"})
-    assert review_response.status_code == 200
-
+    response = client.post(f"/admin/place-change-reviews/{review.id}/reject", json={"reason": "no"})
+    assert response.status_code == 200
     assert client.get(f"/places/{place.id}").status_code == 200
     assert BotFacade(db_session).place(place.id) is not None
 
 
-def test_reconciliation_is_non_destructive_by_default_and_destructive_mode_is_audited(
-    db_session,
-    city_factory,
-) -> None:
-    legacy_city = city_factory(slug="legacy", name="Легаси", is_active=False, launch_status="unpublished")
-    draft_city = city_factory(slug="draft", name="Черновик", is_active=False, launch_status="draft")
+def test_reconciliation_is_non_destructive_by_default_and_destructive_mode_is_audited(db_session, city_factory) -> None:
+    legacy_city = city_factory(slug="legacy", name="Legacy", is_active=False, launch_status="unpublished")
+    draft_city = city_factory(slug="draft", name="Draft", is_active=False, launch_status="draft")
     leaked = _public_place(legacy_city.id, "legacy-place")
     draft = Place(
         city_id=draft_city.id,
         slug="draft-place",
-        title="Черновик",
+        title="Draft",
         category="cafe",
         canonical_category="cafe",
         source="test",
         status="active",
-        address="ул. Мира, 1",
-        short_description="Описание",
+        address="Test street 1",
+        short_description="Description",
         lat=47.2,
         lng=39.7,
         is_active=True,
@@ -164,14 +168,10 @@ def test_reconciliation_is_non_destructive_by_default_and_destructive_mode_is_au
     assert leaked.is_published is True
 
 
-def test_admin_approve_publishes_changed_place_in_web_and_telegram_again(
-    client,
-    db_session,
-    city_factory,
-) -> None:
-    city = city_factory(slug="rostov", name="Ростов", is_active=True, launch_status="published")
+def test_admin_approve_publishes_changed_place_in_web_and_telegram_again(client, db_session, city_factory) -> None:
+    city = city_factory(slug="rostov", name="Rostov", is_active=True, launch_status="published")
     place = _public_place(city.id, "rostov-approved-change")
-    place.title = "Новая версия"
+    place.title = "New title"
     place.status = "needs_review"
     place.is_active = False
     place.is_published = False
@@ -182,16 +182,7 @@ def test_admin_approve_publishes_changed_place_in_web_and_telegram_again(
     db_session.add(place)
     db_session.commit()
 
-    review = PlaceChangeReview(
-        city_id=city.id,
-        place_id=place.id,
-        field_name="title",
-        old_value="Старая версия",
-        new_value="Новая версия",
-        status="pending",
-        source="test",
-        reason="test review fixture",
-    )
+    review = _review_item(city.id, place)
     db_session.add(review)
     db_session.commit()
 
