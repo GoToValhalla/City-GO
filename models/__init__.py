@@ -36,6 +36,7 @@ import models.place_publication_decision  # noqa: F401
 import models.place_schedule  # noqa: F401
 import models.place_scope_link  # noqa: F401
 import models.place_snapshot  # noqa: F401
+import models.place_published_snapshot  # noqa: F401
 import models.place_source_presence  # noqa: F401
 import models.place_tag  # noqa: F401
 import models.place_verification_task  # noqa: F401
