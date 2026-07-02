@@ -56,6 +56,7 @@ export const buildRecommendationRouteRequest = (
     return { ok: false, error: 'Укажи время от 15 до 1440 минут' }
   }
 
+  const interests = normalizeRouteInterests(form.interests)
   return {
     ok: true,
     value: {
@@ -69,11 +70,11 @@ export const buildRecommendationRouteRequest = (
         lng,
         address: startAddress || null,
       },
-      build_mode: 'by_categories',
+      build_mode: interests.length ? 'by_categories' : 'auto',
       time_budget_minutes: budget,
       time_of_day: form.timeOfDay || null,
       route_time_mode: form.routeTimeMode || 'flexible',
-      interests: normalizeRouteInterests(form.interests),
+      interests,
       avoided_categories: form.avoidedCategories,
       excluded_place_ids: [],
       budget_level: form.budgetLevel ? Number(form.budgetLevel) : null,
@@ -83,6 +84,8 @@ export const buildRecommendationRouteRequest = (
       visit_city_id: null,
       visit_days: form.isVisiting ? 1 : null,
       user_id: form.userId.trim() || null,
+      selected_place_ids: [],
+      route_slots: [],
     } as RecommendationRouteRequest,
   }
 }
