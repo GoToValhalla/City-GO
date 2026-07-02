@@ -16,6 +16,7 @@ from schemas.admin_ops import AdminActionCard
 
 
 LOW_CONFIDENCE_LEVELS = ("low", "unknown")
+VERIFICATION_QUEUE_STATUSES = ("needs_recheck", "unverified")
 MANUAL_REVIEW_STATUSES = ("needs_review", "needs_manual_review", "deferred")
 AUTO_BACKLOG_STATUSES = ("draft", "auto_backlog", "low_confidence")
 ACTIVE_IMPORT_STATUSES = ("pending", "running")
@@ -43,6 +44,7 @@ def build_admin_overview(db: Session) -> dict[str, object]:
     data_quality = [
         _card("manual_review", "Требуют проверки", place_counts["manual_review"], _sev(place_counts["manual_review"], 20, 100), "/admin/verification?queue=manual", "Только явная ручная очередь."),
         _card("auto_backlog", "Не проверено авто", place_counts["auto_backlog"], _sev(place_counts["auto_backlog"], 500, 5000), "/admin/places?preset=auto_backlog", "Авто backlog для policy/enrichment, не ручная очередь."),
+        _card("needs_verification", "Нужна автоперепроверка", place_counts["needs_verification"], _sev(place_counts["needs_verification"], 20, 100), "/admin/verification?queue=verification", "Verification backlog, не ручная очередь."),
         _card("no_photo", "Опубликовано без фото", place_counts["no_photo"], _sev(place_counts["no_photo"], 20, 100), "/admin/places?preset=no_photo"),
         _card("no_address", "Без адреса", place_counts["no_address"], _sev(place_counts["no_address"], 30, 150), "/admin/places?preset=no_address"),
         _card("no_description", "Без описания", place_counts["no_description"], _sev(place_counts["no_description"], 40, 200), "/admin/places?preset=no_description"),
@@ -63,6 +65,7 @@ def _place_overview_counts(db: Session) -> dict[str, int]:
         func.sum(case((published & Place.existence_confidence_level.in_(LOW_CONFIDENCE_LEVELS), 1), else_=0)).label("low_confidence"),
         func.sum(case((Place.publication_status.in_(MANUAL_REVIEW_STATUSES), 1), else_=0)).label("manual_review"),
         func.sum(case((Place.publication_status.in_(AUTO_BACKLOG_STATUSES), 1), else_=0)).label("auto_backlog"),
+        func.sum(case((Place.verification_status.in_(VERIFICATION_QUEUE_STATUSES), 1), else_=0)).label("needs_verification"),
         func.sum(case((published & Place.is_route_eligible.is_(False), 1), else_=0)).label("not_route_eligible"),
     ).one()
     return {
@@ -72,6 +75,7 @@ def _place_overview_counts(db: Session) -> dict[str, int]:
         "low_confidence": int(row.low_confidence or 0),
         "manual_review": int(row.manual_review or 0),
         "auto_backlog": int(row.auto_backlog or 0),
+        "needs_verification": int(row.needs_verification or 0),
         "not_route_eligible": int(row.not_route_eligible or 0),
     }
 
