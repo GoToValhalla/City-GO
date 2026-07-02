@@ -1,3 +1,16 @@
+"""LEGACY ITINERARY TIME ESTIMATOR.
+
+Status: part of the old `/routes/generate` itinerary stack.
+
+Active route timing/quality source of truth:
+- `services.route_builder_flow`
+- route assembly/optimizer and route quality services.
+
+Rules:
+- Do not add new route timing product behavior here.
+- Keep only for old itinerary endpoint compatibility until consumers migrate.
+"""
+
 from math import asin, cos, radians, sin, sqrt
 
 from models.place import Place
