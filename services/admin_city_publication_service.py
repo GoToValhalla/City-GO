@@ -38,19 +38,17 @@ def publish_city(db: Session, city_id: int, *, actor: str, reason: str | None = 
 
     places = db.query(Place).filter(Place.city_id == city.id).order_by(Place.id.asc()).all()
     publishable_places = [place for place in places if _place_can_be_public(place)]
-    protected_published_places = [place for place in places if place.publication_status == PLACE_PUBLICATION_PUBLISHED]
-    if not publishable_places and not protected_published_places:
+    if not publishable_places:
         raise ValueError("Нельзя опубликовать город: нет ни одного места, прошедшего публичный quality gate.")
 
     now = datetime.utcnow()
     old_value = _city_publication_snapshot(city)
     published_ids = {place.id for place in publishable_places}
-    protected_ids = {place.id for place in protected_published_places}
     published_count = 0
     hidden_count = 0
 
     for place in places:
-        if place.id in published_ids or place.id in protected_ids:
+        if place.id in published_ids:
             _publish_place_for_city(place, now=now, reason=reason)
             published_count += 1
         else:
@@ -171,13 +169,11 @@ def _publish_place_for_city(place: Place, *, now: datetime, reason: str | None) 
 
 
 def _hide_place_for_city_publication(place: Place, *, now: datetime, reason: str) -> None:
-    if place.publication_status == PLACE_PUBLICATION_PUBLISHED:
-        return
     place.is_published = False
     place.is_visible_in_catalog = False
     place.is_searchable = False
     place.is_route_eligible = False
-    if not place.publication_status:
+    if not place.publication_status or place.publication_status == PLACE_PUBLICATION_PUBLISHED:
         place.publication_status = PLACE_PUBLICATION_NEEDS_REVIEW
     place.publication_comment = reason
     place.unpublished_at = now
