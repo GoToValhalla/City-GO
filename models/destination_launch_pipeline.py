@@ -76,6 +76,44 @@ class DestinationLaunchStep(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
+class DestinationLaunchChecklistItem(Base):
+    """Persistent launch checklist item used by admin readiness UI."""
+
+    __tablename__ = "destination_launch_checklist_items"
+    __table_args__ = (
+        UniqueConstraint("city_id", "item_code", name="uq_destination_launch_checklist_city_item"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False, index=True)
+    pipeline_run_id: Mapped[int | None] = mapped_column(ForeignKey("destination_launch_pipeline_runs.id"), nullable=True, index=True)
+    item_code: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(64), default="pending", nullable=False, index=True)
+    is_required_for_live: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
+    evidence_payload: Mapped[dict[str, object] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
+    blocking_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_by: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class DestinationLaunchEvent(Base):
+    """Append-only launch pipeline event for audit and timeline UI."""
+
+    __tablename__ = "destination_launch_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False, index=True)
+    pipeline_run_id: Mapped[int | None] = mapped_column(ForeignKey("destination_launch_pipeline_runs.id"), nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    previous_status: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    next_status: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    actor: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    event_payload: Mapped[dict[str, object] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class DestinationReadinessSummary(Base):
     """Readiness snapshot for launch/publication/route readiness gates."""
 
