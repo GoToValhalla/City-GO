@@ -142,11 +142,11 @@ def publication_blockers(place: Place) -> list[str]:
     category = (place.canonical_category or place.category or "").strip().lower()
     blockers = []
     if place.status in {"closed", "temporarily_closed", "inactive"} or place.lifecycle_status in {"closed", "removed", "inactive"}:
-        blockers.append("Closed or inactive place")
+        blockers.append("Место закрыто или неактивно")
     if category in NON_ROUTE_CATEGORIES or place.place_layer in NON_ROUTE_LAYERS:
-        blockers.append("Category is not eligible for routes")
+        blockers.append("Категория не подходит для маршрутов")
     if place.lat is None or place.lng is None:
-        blockers.append("Missing coordinates")
+        blockers.append("Нет координат")
     return blockers
 
 
