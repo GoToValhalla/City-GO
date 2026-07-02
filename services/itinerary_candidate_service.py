@@ -1,3 +1,17 @@
+"""LEGACY ITINERARY CANDIDATE SERVICE.
+
+Status: part of the old `/routes/generate` itinerary stack.
+
+Active candidate retrieval source of truth:
+- `services.candidate_retrieval_service`
+- `services.route_builder_flow`
+- route eligibility query filters.
+
+Rules:
+- Do not add new retrieval/filtering product logic here.
+- Keep only for old itinerary endpoint compatibility until consumers migrate.
+"""
+
 from sqlalchemy.orm import Session
 
 from models.city import City
