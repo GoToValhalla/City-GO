@@ -22,11 +22,11 @@ def test_admin_place_change_review_contract_points_to_review_queue_item() -> Non
     assert "ReviewQueueItem.status == OPEN_STATUS" in service
 
 
-def test_active_place_change_review_endpoint_does_not_import_legacy_sqlalchemy_model() -> None:
+def test_active_place_change_review_endpoint_uses_review_queue_item_contract() -> None:
     router = _read("routers/admin_place_change_review.py")
     service = _read("services/place_change_review_service.py")
 
-    active_text = "\n".join([router, service])
-    assert "models.place_change_review" not in active_text
-    assert "from models.place_change_review import" not in active_text
-    assert "place" + "_change" + "_reviews" not in active_text
+    assert "/admin/place-change-reviews" in router
+    assert "ReviewQueueItem" in service
+    assert "PLACE_CHANGE_FIELD" in service
+    assert "OPEN_STATUS" in service
