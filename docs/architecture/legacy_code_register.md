@@ -1,6 +1,7 @@
 # CITY GO — Legacy Code Register
 
 Дата начала реестра: 2026-07-02
+Последнее обновление: 2026-07-02
 
 Назначение: фиксировать код, который больше не является source of truth, но сохраняется как историческая реализация. Такой код не удаляется сразу, но должен быть явно помечен как `LEGACY`, описан и запрещён для нового использования.
 
@@ -16,16 +17,25 @@
 3. Не использовать legacy-модели/сервисы в новых endpoint/test fixtures.
 4. Активный source of truth должен быть указан явно.
 5. Любой endpoint должен проверяться по цепочке: router -> service -> model/table -> tests.
+6. Если статус legacy не доказан, код не отключать и не переименовывать.
+7. Если GitHub/CI не даёт безопасно переписать файл, фиксировать статус в этом реестре до отдельного PR.
 
 ## Реестр
 
 | Область | Legacy artifact | Статус | Active source of truth | Комментарий |
 |---|---|---|---|---|
 | Public catalog change review | `models/place_change_review.py` / `PlaceChangeReview` / table `place_change_reviews` | LEGACY, historical compatibility only | `models/review_queue_item.py` / `ReviewQueueItem` with `field_name='place_change'`, `status='open'` | Старый row-per-field workflow. Активные `/admin/place-change-reviews/*` endpoint'ы читают `ReviewQueueItem`, не `PlaceChangeReview`. |
+| Publication reconciliation CLI | `scripts/reconcile_publication_flags.py` | LEGACY COMPATIBILITY CLI | `scripts/diagnose_publication_states.py`, `scripts/repair_publication_states.py`, `services/publication_reconciliation_service.py` | Старый операторский entrypoint. Оставлен для visibility-toggle materialization и rollback compatibility. Не использовать как основной repair path. |
+| Publication policy batch runner | `scripts/run_publication_policy.py` | LEGACY OPERATOR CLI | `scripts/auto_process_publication_backlog.py`, `services/publication_policy.py`, будущий batch processor с тестами | Старый runner по unpublished active places. Не использовать как основной путь для 17k backlog и не вешать на новые admin buttons без batch/audit tests. |
+| Import jobs | `models/city_import_job.py` / table `city_import_jobs` | LEGACY/SCOPE SCHEDULER STORAGE, not admin dashboard source of truth | `models/city_admin_import_job.py` / table `city_admin_import_jobs` for admin import monitor | Старый scope/cron import foundation. Не использовать для admin latest import status и не менять через него product city state. Код пока не переписан из-за риска сломать scheduler; статус зафиксирован здесь. |
+| Import job service | `services/import_job_service.py` | LEGACY/SCOPE SCHEDULER SERVICE | `services/admin_city_import_job_service.py`, `services/admin_city_import_runner.py` for admin imports | Использует `CityImportJob` и `CityImportScope`. Не использовать для admin import dashboard и publication state. |
+| Legacy itinerary generation stack | `services/itinerary_service.py`, `services/itinerary_route_builder_service.py`, `services/itinerary_candidate_service.py`, `services/itinerary_scoring_service.py` | LEGACY ITINERARY DRAFT STACK until route product consolidation | `services/route_builder_flow.py`, `services/user_route_build_service.py`, route draft/session services | Старая ветка генерации itinerary. Не удалять: может обслуживать old endpoint/schema. Новые route features должны идти через route builder/user route flow. |
+| Admin overview old semantics | old use of `verification_status in ('needs_recheck','unverified')` as `needs_review` | DEPRECATED SEMANTIC | `manual_review = Place.publication_status in ('needs_review','needs_manual_review','deferred')` | Verification backlog должен называться отдельно `needs_verification`, не “Требуют проверки”. |
+| Product publication repair | direct SQL/manual flag reset scripts | FORBIDDEN LEGACY PRACTICE | `scripts/repair_publication_states.py` with dry-run snapshot | Любой direct reset `City.is_active`, `City.launch_status`, `Place.is_published` без snapshot/reason/audit запрещён. |
 
-## Первый подтверждённый кейс
+## Подтверждённые кейсы
 
-### `PlaceChangeReview` vs `ReviewQueueItem`
+### 1. `PlaceChangeReview` vs `ReviewQueueItem`
 
 Фактическая цепочка активного endpoint:
 
@@ -51,12 +61,61 @@ routers/admin_place_change_review.py
 - новый код не должен использовать эту модель;
 - active review workflow — только `ReviewQueueItem`.
 
-## Следующие зоны аудита
+### 2. Publication reconciliation CLI
 
-- publication services/scripts;
-- import job tables/services;
-- review queue services;
-- admin overview/metrics summaries;
-- Telegram moderation handlers;
-- old route/itinerary builders;
-- old enrichment scripts.
+Фактическая новая модель:
+
+```text
+scripts/diagnose_publication_states.py        # диагностика без изменения БД
+scripts/repair_publication_states.py          # repair с dry-run snapshot
+services/publication_reconciliation_service.py # non-destructive by default
+```
+
+Старый `scripts/reconcile_publication_flags.py` оставлен как compatibility wrapper. Новые production repair-действия не должны начинаться с него.
+
+### 3. Import job storage split
+
+В проекте есть две линии import jobs:
+
+```text
+city_import_jobs          # старый scope scheduler / cron foundation
+city_admin_import_jobs    # admin import monitor / current admin source of truth
+```
+
+Для admin UI, latest import status, import failed/running/stale используется `city_admin_import_jobs`. `city_import_jobs` не должен влиять на product publication state.
+
+### 4. Route/itinerary split
+
+Старая ветка:
+
+```text
+itinerary_service -> itinerary_candidate/scoring/route_builder
+```
+
+Новая/активная route-ветка:
+
+```text
+route_builder_flow -> user_route_build_service -> route drafts/sessions
+```
+
+До полной миграции old itinerary stack не удалять, но новые route features не добавлять туда без отдельного решения.
+
+## Запреты для новых изменений
+
+1. Не создавать новые фикстуры через `PlaceChangeReview`.
+2. Не читать active `/admin/place-change-reviews/*` из `place_change_reviews`.
+3. Не считать `verification_status` ручной очередью.
+4. Не использовать `city_import_jobs` для admin latest import status.
+5. Не использовать `scripts/reconcile_publication_flags.py` как основной production repair.
+6. Не добавлять новые route features в legacy itinerary stack без архитектурного решения.
+7. Не делать direct reset publication flags без `repair_publication_states.py` или explicit audited admin action.
+
+## Проверка перед фиксом
+
+Перед изменением любого endpoint/service нужно записать фактическую цепочку:
+
+```text
+router -> service -> model/table -> status field -> tests
+```
+
+Если в цепочке есть legacy artifact, его нельзя использовать как source of truth.
