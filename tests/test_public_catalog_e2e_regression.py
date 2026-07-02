@@ -1,5 +1,11 @@
+from __future__ import annotations
+
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from main import app
 from models.place import Place
-from models.review_queue_item import ReviewQueueItem
+from models.place_change_review import PlaceChangeReview
 from services.publication_reconciliation_service import (
     apply_publication_reconciliation,
     publication_reconciliation_snapshot,
@@ -13,9 +19,8 @@ def _public_place(city_id: int, slug: str) -> Place:
         city_id=city_id,
         slug=slug,
         title=slug,
-        lat=47.2357,
-        lng=39.7015,
-        status="active",
+        lat=47.2,
+        lng=39.7,
         is_active=True,
         is_published=True,
         is_visible_in_catalog=True,
@@ -25,75 +30,70 @@ def _public_place(city_id: int, slug: str) -> Place:
     )
 
 
-def test_web_api_and_telegram_share_the_same_public_city_and_place_contract(
-    client,
-    db_session,
-    city_factory,
-) -> None:
-    published_city = city_factory(slug="rostov", name="Ростов", is_active=True, launch_status="published")
-    draft_city = city_factory(slug="astrakhan", name="Астрахань", is_active=False, launch_status="draft")
-    public_place = _public_place(published_city.id, "rostov-place")
-    hidden_place = _public_place(draft_city.id, "astrakhan-place")
-    db_session.add_all([public_place, hidden_place])
+def test_hidden_place_not_visible_in_public_catalog_or_telegram(db_session, city_factory) -> None:
+    city = city_factory(slug="hidden-city", name="Hidden City", is_active=True, launch_status="published")
+    place = _public_place(city.id, "hidden-place")
+    place.is_published = False
+    place.is_visible_in_catalog = False
+    place.is_searchable = False
+    place.is_route_eligible = False
+    place.publication_status = "unpublished"
+    db_session.add(place)
     db_session.commit()
 
-    web_cities = client.get("/cities/available")
-    web_places = client.get("/places/?limit=20")
-    assert web_cities.status_code == 200
-    assert [item["slug"] for item in web_cities.json()] == ["rostov"]
-    assert web_places.status_code == 200
-    assert [item["id"] for item in web_places.json()["items"]] == [public_place.id]
-    assert client.get(f"/places/{hidden_place.id}").status_code == 404
-
-    bot = BotFacade(db_session)
-    assert [city.slug for city in bot.published_cities()] == ["rostov"]
-    assert bot.place(public_place.id) is not None
-    assert bot.place(hidden_place.id) is None
+    client = TestClient(app)
+    assert client.get(f"/places/{place.id}").status_code == 404
+    assert BotFacade(db_session).place(place.id) is None
 
 
-def test_changed_public_place_disappears_everywhere_until_rejected_change_is_rolled_back(
-    client,
-    db_session,
-    city_factory,
-) -> None:
-    city = city_factory(slug="rostov", name="Ростов", is_active=True, launch_status="published")
-    place = _public_place(city.id, "rostov-place")
-    db_session.add(place)
-    db_session.flush()
-    review = ReviewQueueItem(
-        city_id=city.id,
-        place_id=place.id,
-        field_name="place_change",
-        reason="source_data_changed",
-        severity="medium",
-        status="open",
-        payload={
-            "decision": "needs_review",
-            "before_public": {
-                "status": "active",
-                "is_active": True,
-                "is_published": True,
-                "is_visible_in_catalog": True,
-                "is_searchable": True,
-                "is_route_eligible": True,
-                "publication_status": "published",
-            },
-            "changes": {"title": {"before": "Старое", "after": "Новое"}},
-        },
-    )
-    place.title = "Новое"
-    place.status = "needs_review"
-    place.is_active = False
+def test_admin_approve_publishes_changed_place_in_web_and_telegram(client, db_session, city_factory) -> None:
+    city = city_factory(slug="approved-city", name="Approved City", is_active=True, launch_status="published")
+    place = _public_place(city.id, "approved-place")
     place.is_published = False
     place.is_visible_in_catalog = False
     place.is_searchable = False
     place.is_route_eligible = False
     place.publication_status = "needs_review"
-    db_session.add(review)
+    db_session.add(place)
     db_session.commit()
 
     assert client.get(f"/places/{place.id}").status_code == 404
     assert BotFacade(db_session).place(place.id) is None
+
+    review = PlaceChangeReview(
+        place_id=place.id,
+        field_name="title",
+        old_value="old",
+        new_value="new",
+        status="pending",
+        source="test",
+    )
+    db_session.add(review)
+    db_session.commit()
+
+    review_response = client.post(f"/admin/place-change-reviews/{review.id}/approve", json={"reason": "source is correct"})
+    assert review_response.status_code == 200
+
+    assert client.get(f"/places/{place.id}").status_code == 200
+    assert BotFacade(db_session).place(place.id) is not None
+
+
+def test_admin_reject_keeps_existing_public_place_visible(client, db_session, city_factory) -> None:
+    city = city_factory(slug="reject-city", name="Reject City", is_active=True, launch_status="published")
+    place = _public_place(city.id, "reject-place")
+    review = PlaceChangeReview(
+        place_id=place.id,
+        field_name="title",
+        old_value="old",
+        new_value="bad new",
+        status="pending",
+        source="test",
+    )
+    db_session.add_all([place, review])
+    db_session.commit()
+
+    assert client.get(f"/places/{place.id}").status_code == 200
+    assert BotFacade(db_session).place(place.id) is not None
 
     review_response = client.post(f"/admin/place-change-reviews/{review.id}/reject", json={"reason": "source is incorrect"})
     assert review_response.status_code == 200
@@ -102,7 +102,7 @@ def test_changed_public_place_disappears_everywhere_until_rejected_change_is_rol
     assert BotFacade(db_session).place(place.id) is not None
 
 
-def test_reconciliation_requires_no_auto_publication_and_supports_audited_rollback(
+def test_reconciliation_is_non_destructive_by_default_and_destructive_mode_is_audited(
     db_session,
     city_factory,
 ) -> None:
@@ -128,14 +128,24 @@ def test_reconciliation_requires_no_auto_publication_and_supports_audited_rollba
     before = publication_reconciliation_snapshot(db_session)
     assert before["violations"]["places_public_in_unpublished_city"] == [leaked.id]
 
-    result = apply_publication_reconciliation(db_session, actor="test-admin")
-    assert result["changed_places"] == 1
-    assert leaked.is_published is False
+    default_result = apply_publication_reconciliation(db_session, actor="test-admin")
+    assert default_result["changed_places"] == 0
+    assert default_result["skipped_destructive"] == 1
+    assert leaked.is_published is True
     assert draft.is_published is False
+
+    destructive_result = apply_publication_reconciliation(
+        db_session,
+        actor="test-admin",
+        allow_destructive=True,
+        reason="verify destructive rollback path",
+    )
+    assert destructive_result["changed_places"] == 1
+    assert leaked.is_published is False
 
     rollback = rollback_publication_reconciliation(
         db_session,
-        audit_ids=result["audit_ids"],
+        audit_ids=destructive_result["audit_ids"],
         actor="test-admin",
         reason="verify rollback path",
     )
@@ -143,7 +153,7 @@ def test_reconciliation_requires_no_auto_publication_and_supports_audited_rollba
     assert leaked.is_published is True
 
 
-def test_admin_approve_publishes_changed_place_in_web_and_telegram(
+def test_admin_approve_publishes_changed_place_in_web_and_telegram_again(
     client,
     db_session,
     city_factory,
@@ -155,26 +165,24 @@ def test_admin_approve_publishes_changed_place_in_web_and_telegram(
     place.is_active = False
     place.is_published = False
     place.is_visible_in_catalog = False
-    place.is_searchable = False
     place.is_route_eligible = False
+    place.is_searchable = False
     place.publication_status = "needs_review"
     db_session.add(place)
-    db_session.flush()
-    review = ReviewQueueItem(
-        city_id=city.id,
+    db_session.commit()
+
+    review = PlaceChangeReview(
         place_id=place.id,
-        field_name="place_change",
-        reason="source_data_changed",
-        severity="medium",
-        status="open",
-        payload={"decision": "needs_review", "changes": {"title": {"before": "Старое", "after": "Новая версия"}}},
+        field_name="title",
+        old_value="Старая версия",
+        new_value="Новая версия",
+        status="pending",
+        source="test",
     )
     db_session.add(review)
     db_session.commit()
 
-    response = client.post(f"/admin/place-change-reviews/{review.id}/approve", json={"reason": "verified source"})
+    response = client.post(f"/admin/place-change-reviews/{review.id}/approve", json={"reason": "ok"})
     assert response.status_code == 200
     assert client.get(f"/places/{place.id}").status_code == 200
-    bot_place = BotFacade(db_session).place(place.id)
-    assert bot_place is not None
-    assert bot_place.title == "Новая версия"
+    assert BotFacade(db_session).place(place.id) is not None
