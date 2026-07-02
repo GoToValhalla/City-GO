@@ -30,6 +30,8 @@
 | Publication policy batch runner | `scripts/run_publication_policy.py` | LEGACY OPERATOR CLI | `scripts/auto_process_publication_backlog.py`, `services/publication_policy.py`, будущий batch processor с тестами | Старый runner по unpublished active places. Не использовать как основной путь для 17k backlog и не вешать на новые admin buttons без batch/audit tests. |
 | Import jobs | `models/city_import_job.py` / table `city_import_jobs` | LEGACY/SCOPE SCHEDULER STORAGE, not admin dashboard source of truth | `models/city_admin_import_job.py` / table `city_admin_import_jobs` for admin import monitor | Старый scope/cron import foundation. Не использовать для admin latest import status и не менять через него product city state. |
 | Import job service | `services/import_job_service.py` | LEGACY/SCOPE SCHEDULER SERVICE | `services/admin_city_import_job_service.py`, `services/admin_city_import_runner.py` for admin imports | Использует `CityImportJob` и `CityImportScope`. Не использовать для admin import dashboard и publication state. |
+| Refresh all cities script | `scripts/refresh_all_cities.py` | LEGACY/SCOPE REFRESH OPERATOR SCRIPT | admin import queue/job services and `CityAdminImportJob` | Старый production-container scope refresh через OSM import v2. Не использовать для publication repair и не считать его admin import source of truth. |
+| Seed place import CLI | `scripts/production_place_import.py` | LEGACY SEED IMPORT CLI | admin import pipeline / audited import jobs / place discovery import flow | Старый ручной import seed JSON в `/place-seed/import/`. Не использовать как production city import path. |
 | Legacy itinerary route endpoints | `routers/itinerary.py` | LEGACY COMPATIBILITY ROUTER, registered until clients migrate | `routers/user_routes.py`, `/v1/user-routes/*` | `/routes/generate` deprecated and sends `X-Deprecated: Use POST /v1/user-routes/build instead`. Новые route-фичи сюда не добавлять. |
 | Legacy itinerary generation stack | `services/itinerary_service.py`, `services/itinerary_route_builder_service.py`, `services/itinerary_candidate_service.py`, `services/itinerary_scoring_service.py` | LEGACY ITINERARY DRAFT STACK until route product consolidation | `services/route_builder_flow.py`, `services/user_route_build_service.py`, route draft/session services | Старая ветка генерации itinerary. Не удалять: может обслуживать old endpoint/schema. Новые route features должны идти через route builder/user route flow. |
 | Admin overview old semantics | old use of `verification_status in ('needs_recheck','unverified')` as `needs_review` | DEPRECATED SEMANTIC | `manual_review = Place.publication_status in ('needs_review','needs_manual_review','deferred')` | Verification backlog должен называться отдельно `needs_verification`, не “Требуют проверки”. |
@@ -50,72 +52,44 @@ routers/admin_place_change_review.py
   -> status='open'
 ```
 
-Что было ошибкой:
-
-- тесты и фиксы создавали `PlaceChangeReview`, потому что модель называлась похоже;
-- endpoint при этом искал `ReviewQueueItem`, поэтому approve/reject возвращали 404 или падали на NOT NULL constraints;
-- это показало, что в проекте есть неразмеченные legacy-дубли.
-
-Текущее решение:
-
-- `PlaceChangeReview` оставлен как историческая модель;
-- файл помечен как `LEGACY MODEL`;
-- новый код не должен использовать эту модель;
-- active review workflow — только `ReviewQueueItem`.
-
 ### 2. Publication reconciliation CLI
 
 Фактическая новая модель:
 
 ```text
-scripts/diagnose_publication_states.py        # диагностика без изменения БД
-scripts/repair_publication_states.py          # repair с dry-run snapshot
-services/publication_reconciliation_service.py # non-destructive by default
+scripts/diagnose_publication_states.py
+scripts/repair_publication_states.py
+services/publication_reconciliation_service.py
 ```
 
-Старый `scripts/reconcile_publication_flags.py` оставлен как compatibility wrapper. Новые production repair-действия не должны начинаться с него.
-
 ### 3. Import job storage split
-
-В проекте есть две линии import jobs:
 
 ```text
 city_import_jobs          # старый scope scheduler / cron foundation
 city_admin_import_jobs    # admin import monitor / current admin source of truth
 ```
 
-Для admin UI, latest import status, import failed/running/stale используется `city_admin_import_jobs`. `city_import_jobs` не должен влиять на product publication state.
-
 ### 4. Route/itinerary split
-
-Старая ветка:
 
 ```text
 routers/itinerary.py -> itinerary_service -> itinerary_candidate/scoring/route_builder
-```
-
-Новая/активная route-ветка:
-
-```text
 routers/user_routes.py -> route_builder_flow -> user_route_build_service -> route drafts/sessions
 ```
-
-До полной миграции old itinerary stack не удалять, но новые route features не добавлять туда без отдельного решения.
 
 ### 5. Admin extra split
 
 `routers/admin_extra.py` есть в коде, но не подключён в `core/router_setup.py`. Это исторический router ранней админки.
 
-Активные admin sections сейчас разведены по специализированным routers/services:
+### 6. Import operator scripts split
+
+Старые scripts:
 
 ```text
-admin_overview_service
-admin_coverage_metrics / admin_coverage_gaps
-admin_platform*
-route_feedback active flow
+scripts/refresh_all_cities.py
+scripts/production_place_import.py
 ```
 
-`admin_extra` не должен возвращаться как быстрый способ добавить старые endpoints.
+Оставлены как operator compatibility/history, но не являются текущим source of truth для admin import monitor, publication state repair или массовой обработки backlog.
 
 ## Запреты для новых изменений
 
@@ -127,6 +101,8 @@ route_feedback active flow
 6. Не добавлять новые route features в legacy itinerary stack без архитектурного решения.
 7. Не делать direct reset publication flags без `repair_publication_states.py` или explicit audited admin action.
 8. Не регистрировать `routers.admin_extra` обратно без отдельной migration task.
+9. Не использовать `refresh_all_cities.py` как текущий admin import pipeline.
+10. Не использовать `production_place_import.py` как production city import path.
 
 ## Проверка перед фиксом
 
