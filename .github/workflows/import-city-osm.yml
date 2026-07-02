@@ -1,4 +1,4 @@
-name: Import Astrakhan OSM
+name: 94 · CITY GO · OPS · Import Astrakhan OSM
 
 on:
   workflow_dispatch:
