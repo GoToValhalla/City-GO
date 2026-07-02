@@ -49,7 +49,7 @@ def next_review_place(db: Session, city_slug: str) -> dict[str, object]:
     city = db.query(City).filter(City.slug == city_slug).first()
     if city is None:
         return {"city": None, "remaining": 0, "place": None}
-    query = db.query(Place).filter(Place.city_id == city.id, Place.is_active.is_(True), Place.publication_status.in_(REVIEW_STATUSES))
+    query = db.query(Place).filter(Place.city_id == city.id, Place.publication_status.in_(REVIEW_STATUSES))
     total = query.count()
     place = query.order_by(Place.updated_at.asc(), Place.id.asc()).first()
     return {"city": {"id": city.id, "slug": city.slug, "name": city.name}, "remaining": total, "place": place_payload(db, place) if place else None}
@@ -71,12 +71,13 @@ def publish_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
     if blockers:
         raise HTTPException(422, "; ".join(blockers))
     now = datetime.utcnow()
+    place.is_active = True
     place.is_published = True
     place.is_visible_in_catalog = True
     place.is_route_eligible = True
     place.is_searchable = True
     place.publication_status = "published"
-    place.publication_comment = "published from mobile review"
+    place.publication_comment = "published from moderation"
     place.published_at = now
     place.unpublished_at = None
     place.verification_status = "verified"
@@ -100,7 +101,7 @@ def reject_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
     place.is_route_eligible = False
     place.is_searchable = False
     place.publication_status = "rejected"
-    place.publication_comment = "rejected from mobile review"
+    place.publication_comment = "rejected from moderation"
     place.unpublished_at = now
     place.updated_at = now
     db.add(place)
@@ -128,7 +129,7 @@ def move_back_to_queue(db: Session, *, place_id: int, actor: str, action: str) -
     place.is_route_eligible = False
     place.is_searchable = False
     place.publication_status = "needs_review"
-    place.publication_comment = f"{action} from mobile review"
+    place.publication_comment = f"{action} from moderation"
     place.updated_at = now
     db.add(place)
     audit(db, place, actor, f"mobile_review_{action}")
@@ -141,11 +142,11 @@ def publication_blockers(place: Place) -> list[str]:
     category = (place.canonical_category or place.category or "").strip().lower()
     blockers = []
     if place.status in {"closed", "temporarily_closed", "inactive"} or place.lifecycle_status in {"closed", "removed", "inactive"}:
-        blockers.append("Место закрыто или неактивно")
+        blockers.append("Closed or inactive place")
     if category in NON_ROUTE_CATEGORIES or place.place_layer in NON_ROUTE_LAYERS:
-        blockers.append("Категория не подходит для маршрутов")
+        blockers.append("Category is not eligible for routes")
     if place.lat is None or place.lng is None:
-        blockers.append("Нет координат")
+        blockers.append("Missing coordinates")
     return blockers
 
 
