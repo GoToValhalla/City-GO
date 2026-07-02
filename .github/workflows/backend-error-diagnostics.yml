@@ -1,4 +1,4 @@
-name: Backend Error Diagnostics
+name: 96 · CITY GO · DEBUG · Backend Error Diagnostics
 
 on:
   workflow_dispatch:
