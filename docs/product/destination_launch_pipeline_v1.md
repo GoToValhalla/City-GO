@@ -1,7 +1,7 @@
 # City GO — Destination Launch Pipeline v1
 
 Date: 2026-07-02
-Status: implementation baseline
+Status: completed implementation contract
 Jira: CITYGO-154
 Confluence: CITY GO Launch Pipeline v1
 
@@ -67,7 +67,30 @@ Additional states:
 - publication requires quality gate;
 - projection rebuild happens after publication;
 - route smoke is required before live;
+- live state requires route_ready, completed required checklist and passed route smoke;
 - blocked state requires reason.
+
+## Implemented model contract
+
+Persistent launch tables:
+
+- `destination_launch_states` — current launch state per destination/city;
+- `destination_launch_pipeline_runs` — one launch execution;
+- `destination_launch_steps` — per-step execution state;
+- `destination_launch_checklist_items` — required readiness checklist used by admin/live gate;
+- `destination_launch_events` — append-only timeline/audit contract;
+- `destination_readiness_summaries` — readiness, coverage, publishability and projection readiness snapshot.
+
+## Implemented service contract
+
+`services/destination_launch_pipeline_service.py` owns deterministic guards:
+
+- `assert_launch_transition_allowed()` blocks invalid state jumps;
+- `calculate_launch_readiness_percent()` calculates required checklist completion;
+- `missing_required_launch_items()` returns incomplete required live items in contract order;
+- `assert_launch_can_go_live()` blocks live unless state is `route_ready`, all required items are completed and route smoke is `passed`;
+- `assert_destination_publishable()` blocks publication unless readiness gate passes;
+- `assert_destination_route_ready()` blocks route readiness unless publication, projections and route-eligible place count pass.
 
 ## Admin surface
 
@@ -118,6 +141,22 @@ Admin workspace must show:
 - RouteSmokeReady;
 - LaunchLive;
 - LaunchBlocked.
+
+## Test coverage
+
+Covered in `tests/test_destination_launch_pipeline_contracts.py`:
+
+- metadata contains all launch pipeline tables;
+- test DB creates all launch pipeline tables;
+- state/run/step/readiness/checklist/event table contracts;
+- required checklist item order;
+- readiness percent calculation;
+- missing required item detection;
+- full linear state transition path through `route_ready -> live`;
+- invalid jump blocking;
+- publish gate blocking;
+- route-ready gate blocking;
+- live gate blocking for wrong state, incomplete checklist and failed route smoke.
 
 ## Definition of Done
 
