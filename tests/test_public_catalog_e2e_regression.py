@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
-
-from main import app
 from models.place import Place
 from models.place_change_review import PlaceChangeReview
 from services.publication_reconciliation_service import (
@@ -36,7 +32,7 @@ def _public_place(city_id: int, slug: str) -> Place:
     )
 
 
-def test_hidden_place_not_visible_in_public_catalog_or_telegram(db_session, city_factory) -> None:
+def test_hidden_place_not_visible_in_public_catalog_or_telegram(client, db_session, city_factory) -> None:
     city = city_factory(slug="hidden-city", name="Hidden City", is_active=True, launch_status="published")
     place = _public_place(city.id, "hidden-place")
     place.is_published = False
@@ -47,7 +43,6 @@ def test_hidden_place_not_visible_in_public_catalog_or_telegram(db_session, city
     db_session.add(place)
     db_session.commit()
 
-    client = TestClient(app)
     assert client.get(f"/places/{place.id}").status_code == 404
     assert BotFacade(db_session).place(place.id) is None
 
@@ -74,6 +69,7 @@ def test_admin_approve_publishes_changed_place_in_web_and_telegram(client, db_se
         new_value="new",
         status="pending",
         source="test",
+        reason="test review fixture",
     )
     db_session.add(review)
     db_session.commit()
@@ -96,6 +92,7 @@ def test_admin_reject_keeps_existing_public_place_visible(client, db_session, ci
         new_value="bad new",
         status="pending",
         source="test",
+        reason="test review fixture",
     )
     db_session.add_all([place, review])
     db_session.commit()
@@ -193,6 +190,7 @@ def test_admin_approve_publishes_changed_place_in_web_and_telegram_again(
         new_value="Новая версия",
         status="pending",
         source="test",
+        reason="test review fixture",
     )
     db_session.add(review)
     db_session.commit()
