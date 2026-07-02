@@ -6,6 +6,11 @@ from models.city import City
 from schemas.user_route import UserRouteBuildRequest, UserRouteState
 from services.geocoding_service import GeocodingService
 from services.route_builder_service import RouteBuilderService
+from services.route_builder_v2_service import (
+    apply_route_builder_v2_plan_to_intent,
+    attach_route_builder_v2_result,
+    build_route_builder_v2_plan_from_intent,
+)
 from services.user_profile_from_signals_service import build_user_profile_from_signals
 from services.user_route_context import to_request_context
 from services.user_route_mapper import final_route_to_state
@@ -16,12 +21,15 @@ class UserRouteBuildService:
 
     def build(self, db: Session, request: UserRouteBuildRequest) -> UserRouteState:
         resolved_request = self._resolve_start_context(db, request)
+        route_builder_plan = build_route_builder_v2_plan_from_intent(resolved_request)
+        execution_request = apply_route_builder_v2_plan_to_intent(resolved_request, route_builder_plan)
         final = RouteBuilderService().build_route(
             db=db,
-            request=to_request_context(resolved_request),
-            profile=build_user_profile_from_signals(db, resolved_request.user_id),
+            request=to_request_context(execution_request),
+            profile=build_user_profile_from_signals(db, execution_request.user_id),
         )
-        return final_route_to_state(final, resolved_request, revision=1, status="ready")
+        state = final_route_to_state(final, execution_request, revision=1, status="ready")
+        return attach_route_builder_v2_result(state, route_builder_plan)
 
     def _resolve_start_context(self, db: Session, request: UserRouteBuildRequest) -> UserRouteBuildRequest:
         # Если пользователь ввёл адрес, пробуем получить координаты через Geoapify.
