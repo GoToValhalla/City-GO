@@ -8,6 +8,8 @@ type Props = {
   onAdd: (placeId: string) => void
 }
 
+const MAX_VISIBLE_OPTIONS = 12
+
 const score = (point: RecommendationRoutePoint): number | null => {
   const value = point.scoring_breakdown?.interest ?? point.scoring_breakdown?.base_quality
   return typeof value === 'number' ? Math.round(value * 100) : null
@@ -15,6 +17,7 @@ const score = (point: RecommendationRoutePoint): number | null => {
 
 export const RouteCandidateOptions = ({ disabled = false, options = [], onAdd }: Props) => {
   if (options.length === 0) return null
+  const displayed = options.slice(0, MAX_VISIBLE_OPTIONS)
 
   return (
     <div className="route-result-tile">
@@ -23,11 +26,11 @@ export const RouteCandidateOptions = ({ disabled = false, options = [], onAdd }:
           <p className="route-eyebrow">Итеративный маршрут</p>
           <h2>Доступные точки</h2>
         </div>
-        <span className="route-status-chip">{options.length}</span>
+        <span className="route-status-chip">{displayed.length} из {options.length}</span>
       </div>
-      <p className="route-muted">Это пул подходящих точек, из которых можно добавить место в текущий маршрут.</p>
+      <p className="route-muted">Показываем короткий список подходящих точек, из которых можно добавить место в текущий маршрут.</p>
       <div className="route-candidate-grid">
-        {options.map((point) => (
+        {displayed.map((point) => (
           <article className="route-candidate-card" key={point.place_id}>
             {point.image_url ? (
               <img className="route-candidate-photo" src={point.image_url} alt={point.title ?? categoryLabel(point.category)} loading="lazy" />
