@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from services.admin_mobile_place_review import list_review_cities, next_review_place, publish_place
-from tests.allure_support import citygo_test
+from tests.allure_support import title
 
 
-@citygo_test("Telegram moderation не показывает draft и auto backlog как ручную очередь")
+@title("Telegram moderation не показывает draft и auto backlog как ручную очередь")
 def test_mobile_review_queue_ignores_draft_and_auto_backlog(
     db_session,
     city_factory,
@@ -23,7 +23,7 @@ def test_mobile_review_queue_ignores_draft_and_auto_backlog(
     assert next_item["place"] is None
 
 
-@citygo_test("Telegram moderation показывает только явные manual-review статусы")
+@title("Telegram moderation показывает только явные manual-review статусы")
 def test_mobile_review_queue_lists_only_manual_statuses(
     db_session,
     city_factory,
@@ -45,7 +45,7 @@ def test_mobile_review_queue_lists_only_manual_statuses(
     assert next_item["place"]["id"] == manual.id
 
 
-@citygo_test("Publish из moderation выставляет полный public state")
+@title("Publish из moderation выставляет полный public state")
 def test_moderation_publish_sets_complete_public_state(db_session, manual_review_place_factory) -> None:
     place = manual_review_place_factory(
         slug="manual-publishable",
