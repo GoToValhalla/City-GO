@@ -1,4 +1,4 @@
-name: Prod DB Repair
+name: 99 · CITY GO · EMERGENCY · Prod DB Repair
 
 on:
   workflow_dispatch:
