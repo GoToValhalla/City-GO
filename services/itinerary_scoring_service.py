@@ -1,3 +1,17 @@
+"""LEGACY ITINERARY SCORING SERVICE.
+
+Status: part of the old `/routes/generate` itinerary stack.
+
+Active scoring source of truth:
+- `services.scoring_service`
+- `services.route_quality_score`
+- `services.route_builder_flow`
+
+Rules:
+- Do not add new scoring behavior here.
+- Keep only for old itinerary endpoint compatibility until consumers migrate.
+"""
+
 from models.place import Place
 from services.itinerary_time_estimator import haversine_distance_km
 from services.itinerary_time_service import is_place_open_at
