@@ -1,0 +1,122 @@
+# City GO — Production Verification Suite v1
+
+Date: 2026-07-02
+Status: implementation contract
+Jira: CITYGO-157
+
+## Problem
+
+CI proves that the repository commit passes tests. It does not prove that production is alive after deploy.
+
+Before this suite, the deployment workflow checked only the deployed build metadata and backend readiness on the server. That is useful, but it does not cover public frontend load, authenticated admin endpoints, compact failed-check reporting, or route smoke checks.
+
+## Goal
+
+After every successful production deploy, run automatic smoke checks and send a short Telegram summary.
+
+The user should not have to open every admin tab manually to discover 400/500 errors.
+
+## Implementation
+
+Files:
+
+- `.github/workflows/production-smoke.yml`
+- `scripts/production_smoke.py`
+- `tests/test_production_smoke_script.py`
+
+## Workflow
+
+`Production Smoke` is triggered by:
+
+- `workflow_dispatch` for manual runs;
+- `workflow_run` after successful `Production Deploy`.
+
+Required secret:
+
+- `PRODUCTION_BASE_URL`
+
+Optional secret:
+
+- `ADMIN_API_TOKEN`
+
+Optional variables:
+
+- `CITY_GO_ROUTE_SMOKE_ENABLED`
+- `CITY_GO_ROUTE_SMOKE_CITY_ID`
+- `CITY_GO_ROUTE_SMOKE_LAT`
+- `CITY_GO_ROUTE_SMOKE_LNG`
+
+Telegram notification uses existing secrets:
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+
+## Checks
+
+### Public checks
+
+- `build` — GET `/build.json`, validates deployed commit prefix when expected SHA is provided.
+- `backend_ready` — GET `/ready`.
+- `frontend` — GET `/`.
+
+### Authenticated admin checks
+
+Enabled only when `ADMIN_API_TOKEN` is present.
+
+- `admin_system_health` — GET `/admin/system-health`.
+- `admin_quality` — GET `/admin/quality`.
+- `admin_taxonomy_categories` — GET `/admin/taxonomy/categories?limit=1`.
+
+Admin checks use `Authorization: Bearer <ADMIN_API_TOKEN>`.
+
+Smoke summary does not include authenticated response bodies.
+
+### Optional route smoke
+
+Enabled only when `CITY_GO_ROUTE_SMOKE_ENABLED=true`.
+
+- `route_quick` — POST `/v1/user-routes/build`.
+
+The request uses current API build mode `auto`, because Route Builder v2 currently provides the contract layer while the existing route executor remains the production path.
+
+## Telegram summary format
+
+Success example:
+
+```text
+✅ CITY GO · PRODUCTION SMOKE
+Commit: c56c844
+✅ build: ok · sha_c56c844
+✅ backend_ready: ok · http_200
+✅ frontend: ok · http_200
+✅ admin_system_health: ok · http_200
+```
+
+Failure example:
+
+```text
+❌ CITY GO · PRODUCTION SMOKE
+Commit: c56c844
+✅ build: ok · sha_c56c844
+❌ admin_quality: failed · http_500
+Failed checks:
+- admin_quality: http_500
+```
+
+## Invariants
+
+- Production deploy is not equivalent to production verification.
+- Admin smoke must be authenticated.
+- Failed checks must be named directly.
+- Telegram output must stay short.
+- Response bodies from admin endpoints must not be sent to Telegram.
+- Route smoke is optional until route test data is stable.
+
+## What still needs follow-up
+
+1. Add `PRODUCTION_BASE_URL` secret if it is not already configured.
+2. Decide whether route smoke should be enabled immediately.
+3. If enabled, configure route smoke city/coordinates variables.
+4. Add deeper API-level tests for Route Builder v2 endpoints.
+5. Add frontend Playwright smoke for user flows and admin screens.
+6. Promote smoke failures into deploy-blocking release policy after initial stabilization.
