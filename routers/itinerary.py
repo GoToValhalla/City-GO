@@ -1,3 +1,18 @@
+"""LEGACY ROUTER for old itinerary endpoints.
+
+Status: registered for backward compatibility, but `/routes/generate` is already
+deprecated and points clients to `POST /v1/user-routes/build`.
+
+Active source of truth for new route generation:
+- `routers.user_routes`
+- `services.route_builder_flow`
+- user route build/draft/session services.
+
+Rules:
+- Do not add new route features here.
+- Keep old endpoints only for compatibility until consumers migrate.
+"""
+
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
@@ -13,7 +28,6 @@ from services.route_generation_logging import (
 )
 from services.route_toggle_guard import assert_route_generation_allowed
 
-# Роутер для генерации и перестроения маршрута.
 router = APIRouter(prefix="/routes", tags=["itinerary"])
 
 
