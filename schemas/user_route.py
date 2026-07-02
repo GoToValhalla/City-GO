@@ -38,6 +38,14 @@ class UserRouteIntent(BaseModel):
     visit_city_id: str | None = None
     visit_days: int | None = Field(default=None, ge=1, le=30)
     user_id: str | None = Field(default=None, min_length=1, max_length=100)
+    selected_place_ids: list[str] = Field(
+        default_factory=list,
+        description="Route Builder v2 manual mode ordered place ids.",
+    )
+    route_slots: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Route Builder v2 constructor slots. Each slot may define type/category and min/max counts.",
+    )
 
 
 class UserRoutePoint(BaseModel):
