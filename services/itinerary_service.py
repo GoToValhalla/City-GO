@@ -1,5 +1,17 @@
-"""
-Генерация черновика itinerary: кандидаты, скоринг, сборка маршрута, пояснения (оркестрация шагов).
+"""LEGACY ITINERARY ORCHESTRATION STACK.
+
+Status: kept for backward compatibility with old `/routes/generate` and
+`/routes/replan` endpoints.
+
+Active source of truth for new route generation:
+- `services.route_builder_flow`
+- `services.user_route_build_service`
+- route draft/session services.
+
+Rules:
+- Do not add new route product features here.
+- Do not use this stack for new Telegram/Web route flows.
+- Keep only until old itinerary clients are migrated.
 """
 
 from sqlalchemy.orm import Session
@@ -70,7 +82,6 @@ def build_start_context_read(
     )
 
 
-# Строит краткое summary маршрута.
 def build_itinerary_summary(
     request: ItineraryGenerateRequest,
     merged_context: dict,
@@ -107,7 +118,6 @@ def build_itinerary_summary(
     return ", ".join(summary_parts)
 
 
-# Считает fit маршрута к requested duration.
 def build_duration_fit_score(
     requested_duration_minutes: int | None,
     estimated_duration_minutes: int | None,
@@ -128,7 +138,6 @@ def build_duration_fit_score(
     return round(max(0.0, raw_score), 2)
 
 
-# Собирает response points и добавляет warning по opening hours, если нужно.
 def build_candidate_points(
     ordered_places,
     ranked_places: list[dict],
@@ -167,7 +176,6 @@ def build_candidate_points(
     return points
 
 
-# Сохраняет current route context для последующего replan.
 def build_current_route_context(
     request: ItineraryGenerateRequest,
     ordered_places,
@@ -194,8 +202,6 @@ def build_current_route_context(
     )
 
 
-# Нормализует runtime context перед scoring/building.
-# Здесь фиксируем итоговые mode/timezone/time values в одном месте.
 def enrich_runtime_context(
     merged_context: dict,
     request: ItineraryGenerateRequest,
