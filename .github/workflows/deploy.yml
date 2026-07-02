@@ -228,6 +228,18 @@ jobs:
           docker pull "$FRONTEND_IMAGE:latest"
           docker save "$BACKEND_IMAGE:latest" "$FRONTEND_IMAGE:latest" | gzip -1 > /tmp/city-go-images.tar.gz
 
+      - name: Copy compose file to server
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          scp -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -P "$SSH_PORT" \
+            docker-compose.yml "$SSH_USER@$SSH_HOST:/tmp/city-go-docker-compose.yml"
+
       - name: Copy images archive to server
         shell: bash
         env:
@@ -253,6 +265,11 @@ jobs:
           set -euo pipefail
           cd /srv/app
 
+          echo "=== Refresh docker-compose.yml from deployed artifact ==="
+          install -m 0644 /tmp/city-go-docker-compose.yml /srv/app/docker-compose.yml
+          docker compose config --quiet
+          grep -n "WEB_CONCURRENCY\|uvicorn main:app" docker-compose.yml || true
+
           echo "=== Production disk before deploy cleanup ==="
           df -h /
           docker system df || true
@@ -276,7 +293,7 @@ jobs:
           echo "=== Docker compose status after deploy up ==="
           docker compose ps
 
-          rm -f /tmp/city-go-images.tar.gz || true
+          rm -f /tmp/city-go-images.tar.gz /tmp/city-go-docker-compose.yml || true
           docker image prune -f || true
 
           echo "=== Production disk after deploy ==="
@@ -319,24 +336,25 @@ jobs:
 
           echo "=== Waiting for backend /ready ==="
           ready=0
-          for attempt in $(seq 1 18); do
-            if curl -fsS --max-time 10 http://localhost:8000/ready; then
+          for attempt in $(seq 1 36); do
+            if curl -fsS --max-time 5 http://localhost:8000/ready; then
               echo
-              echo "Backend ready check passed on attempt ${attempt}/18."
+              echo "Backend ready check passed on attempt ${attempt}/36."
               ready=1
               break
             fi
-            echo "Backend is not ready yet attempt=${attempt}/18; retrying in 5 seconds..."
+            echo "Backend is not ready yet attempt=${attempt}/36; retrying in 5 seconds..."
             sleep 5
           done
 
           if [ "$ready" != "1" ]; then
-            echo "ERROR: backend /ready did not pass within 90 seconds." >&2
+            echo "ERROR: backend /ready did not pass within 180 seconds." >&2
             echo "=== docker compose ps ==="
             docker compose ps || true
-            show_logs backend 200
+            show_logs backend 250
             show_logs migrate 200
-            show_logs db 100
+            show_logs db 150
+            show_logs import-worker 150
             show_logs bot 100
             exit 1
           fi
