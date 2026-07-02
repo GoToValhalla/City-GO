@@ -1,3 +1,22 @@
+"""LEGACY ROUTER.
+
+This router is not included in `core/router_setup.py` and is kept only as a
+historical reference for the first admin UI contract.
+
+Old endpoints:
+- /admin/roles
+- /admin/cities/{city_id}/coverage
+- /admin/route-feedback
+
+Active replacements:
+- admin coverage: admin coverage/overview services and routers;
+- route feedback: active route feedback analytics flow;
+- admin permissions: current admin auth and future RBAC work.
+
+Do not register this router or add new endpoints here without a dedicated
+migration task.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
