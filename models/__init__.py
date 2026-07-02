@@ -42,6 +42,7 @@ import models.place_published_snapshot  # noqa: F401
 import models.place_source_presence  # noqa: F401
 import models.place_tag  # noqa: F401
 import models.place_verification_task  # noqa: F401
+import models.publication_admin_stage4  # noqa: F401
 import models.region  # noqa: F401
 import models.route  # noqa: F401
 import models.route_build_event  # noqa: F401
