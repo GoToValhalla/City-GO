@@ -19,6 +19,8 @@ PLACE_STATUS_ACTIVE = "active"
 PLACE_PUBLICATION_PUBLISHED = "published"
 PLACE_PUBLICATION_NEEDS_REVIEW = "needs_review"
 PLACE_PUBLICATION_UNPUBLISHED = "unpublished"
+NON_PUBLIC_CITY_PUBLICATION_CATEGORIES = {"health", "service", "transport", "utility"}
+NON_PUBLIC_CITY_PUBLICATION_LAYERS = {"service", "transport", "utility"}
 
 
 @dataclass(frozen=True)
@@ -137,6 +139,10 @@ def _place_can_be_public(place: Place) -> bool:
     if not place.is_active:
         return False
     if place.status not in {None, PLACE_STATUS_ACTIVE}:
+        return False
+    category = str(place.canonical_category or place.category or "").strip().lower()
+    layer = str(place.place_layer or "").strip().lower()
+    if category in NON_PUBLIC_CITY_PUBLICATION_CATEGORIES or layer in NON_PUBLIC_CITY_PUBLICATION_LAYERS:
         return False
     if is_public_hidden_category(place.category):
         return False
