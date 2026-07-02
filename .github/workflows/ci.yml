@@ -1,4 +1,4 @@
-name: Full Autotests
+name: 00 · CITY GO · CI
 
 on:
   push:
@@ -177,7 +177,7 @@ jobs:
           if-no-files-found: warn
 
   notify:
-    name: Notify full autotests result
+    name: Notify CI result
     runs-on: ubuntu-latest
     needs:
       - backend-tests
@@ -202,7 +202,7 @@ jobs:
           name: total-autotest-report
           path: artifacts/total-autotest-report.txt
           if-no-files-found: error
-      - name: Telegram full autotests notification
+      - name: Telegram CI notification
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
