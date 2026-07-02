@@ -153,16 +153,7 @@ services:
   bot:
     image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
-    command: >
-      sh -c "
-        EFFECTIVE_BOT_TOKEN="$${BOT_TOKEN:-$${TELEGRAM_BOT_TOKEN:-}}";
-        if [ -z "$$EFFECTIVE_BOT_TOKEN" ]; then
-          echo 'BOT_TOKEN/TELEGRAM_BOT_TOKEN не задан — бот не запущен. Добавь токен в .env и перезапусти.';
-          exit 0;
-        fi;
-        export BOT_TOKEN="$$EFFECTIVE_BOT_TOKEN";
-        python telegram_bot_main.py
-      "
+    command: python telegram_bot_main.py
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
@@ -174,12 +165,6 @@ services:
       backend:
         condition: service_healthy
     restart: on-failure
-    healthcheck:
-      test: ["CMD-SHELL", "EFFECTIVE_BOT_TOKEN="$${BOT_TOKEN:-$${TELEGRAM_BOT_TOKEN:-}}"; test -n "$$EFFECTIVE_BOT_TOKEN" && curl -sf https://api.telegram.org/bot$$EFFECTIVE_BOT_TOKEN/getMe | grep -q '\"ok\":true' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
 
   frontend:
     image: ghcr.io/gotovalhalla/city-go-frontend:latest
