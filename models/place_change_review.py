@@ -1,4 +1,31 @@
-"""Field-level change reviews for public catalog updates."""
+"""LEGACY MODEL: old field-level place change review table.
+
+Status: historical compatibility only, not the active review workflow.
+
+How it worked:
+- Early public catalog change review stored one row per proposed field change in
+  `place_change_reviews`.
+- Rows contained `city_id`, `place_id`, `field_name`, old/new value, reason,
+  confidence/trust metadata and pending/reviewed status.
+
+Why it is legacy:
+- Active admin endpoint `/admin/place-change-reviews/*` does NOT read this table.
+- Active service `services/place_change_review_service.py` reads
+  `models.review_queue_item.ReviewQueueItem` with:
+    - `field_name = "place_change"`
+    - `status = "open"`
+    - structured `payload` with changes and `before_public` snapshot.
+
+Replacement / source of truth:
+- `models.review_queue_item.ReviewQueueItem`
+- `services.place_change_review_service`
+
+Rules:
+- Do not use this model in new routers, services, tests or scripts.
+- Do not create new rows here for active moderation.
+- Keep the model registered only so historical migrations/schema and old data are
+  understandable and test metadata can still create the legacy table.
+"""
 
 from datetime import datetime
 
@@ -11,6 +38,8 @@ from db.base import Base
 
 
 class PlaceChangeReview(Base):
+    """Legacy row model for the pre-ReviewQueueItem place change review flow."""
+
     __tablename__ = "place_change_reviews"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
