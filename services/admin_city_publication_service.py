@@ -40,7 +40,8 @@ def publish_city(db: Session, city_id: int, *, actor: str, reason: str | None = 
 
     places = db.query(Place).filter(Place.city_id == city.id).order_by(Place.id.asc()).all()
     publishable_places = [place for place in places if _place_can_be_public(place)]
-    if not publishable_places:
+    already_published_places = [place for place in places if place.publication_status == PLACE_PUBLICATION_PUBLISHED or place.is_published]
+    if not publishable_places and not already_published_places:
         raise ValueError("Нельзя опубликовать город: нет ни одного места, прошедшего публичный quality gate.")
 
     now = datetime.utcnow()
@@ -50,11 +51,13 @@ def publish_city(db: Session, city_id: int, *, actor: str, reason: str | None = 
     hidden_count = 0
 
     for place in places:
-        if place.id in published_ids:
+        if place.id in published_ids or place.publication_status == PLACE_PUBLICATION_PUBLISHED or place.is_published:
             _publish_place_for_city(place, now=now, reason=reason)
             published_count += 1
         else:
-            _hide_place_for_city_publication(place, now=now, reason="city_publication_quality_gate")
+            # City publication must not turn import/quality backlog into manual review
+            # and must never unpublish a previously published place. Non-publishable
+            # backlog stays in its current publication state for policy/backfill.
             hidden_count += 1
 
     city.launch_status = CITY_STATUS_PUBLISHED
@@ -154,6 +157,7 @@ def _place_can_be_public(place: Place) -> bool:
 
 
 def _publish_place_for_city(place: Place, *, now: datetime, reason: str | None) -> None:
+    place.is_active = True
     place.is_published = True
     place.is_visible_in_catalog = True
     place.is_searchable = True
@@ -166,13 +170,13 @@ def _publish_place_for_city(place: Place, *, now: datetime, reason: str | None) 
 
 
 def _hide_place_for_city_publication(place: Place, *, now: datetime, reason: str) -> None:
+    if place.publication_status == PLACE_PUBLICATION_PUBLISHED or place.is_published:
+        return
     place.is_published = False
     place.is_visible_in_catalog = False
     place.is_searchable = False
     place.is_route_eligible = False
-    if place.publication_status == PLACE_PUBLICATION_PUBLISHED:
-        place.publication_status = PLACE_PUBLICATION_NEEDS_REVIEW
-    elif not place.publication_status:
+    if not place.publication_status:
         place.publication_status = PLACE_PUBLICATION_NEEDS_REVIEW
     place.publication_comment = reason
     place.unpublished_at = now
