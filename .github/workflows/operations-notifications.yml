@@ -7,12 +7,12 @@ on:
       - 81 · CITY GO · MON · Admin Edge
       - 82 · CITY GO · MON · Admin API
       - 83 · CITY GO · MON · Catalog Data
-      - Backend Error Diagnostics
+      - 84 · CITY GO · MON · Production Health
+      - 96 · CITY GO · DEBUG · Backend Error Diagnostics
+      - 99 · CITY GO · EMERGENCY · Prod DB Repair
       - City Import
       - Data Enrichment
-      - Prod DB Repair
       - Production Docker Cleanup
-      - Production Health
       - Recover Frontend
     types:
       - completed
@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           if [ "$RUN_CONCLUSION" = "success" ]; then
             case "$RUN_NAME" in
-              "80 · CITY GO · MON · API Errors"|"81 · CITY GO · MON · Admin Edge"|"82 · CITY GO · MON · Admin API"|"83 · CITY GO · MON · Catalog Data"|"Production Health"|"Backend Error Diagnostics")
+              "80 · CITY GO · MON · API Errors"|"81 · CITY GO · MON · Admin Edge"|"82 · CITY GO · MON · Admin API"|"83 · CITY GO · MON · Catalog Data"|"84 · CITY GO · MON · Production Health"|"96 · CITY GO · DEBUG · Backend Error Diagnostics")
                 echo "send=false" >> "$GITHUB_OUTPUT"
                 exit 0
                 ;;
