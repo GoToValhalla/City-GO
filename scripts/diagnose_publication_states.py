@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Any
 
 from sqlalchemy import func
@@ -29,22 +29,6 @@ def latest_jobs_by_city(db: Session, city_ids: list[int]) -> dict[int, CityAdmin
     result: dict[int, CityAdminImportJob] = {}
     for job in rows:
         result.setdefault(int(job.city_id), job)
-    return result
-
-
-def place_counts(db: Session, city_ids: list[int]) -> dict[int, dict[str, int]]:
-    result: dict[int, dict[str, int]] = defaultdict(dict)
-    rows = db.query(Place.city_id, Place.publication_status, func.count(Place.id)).filter(Place.city_id.in_(city_ids)).group_by(Place.city_id, Place.publication_status).all()
-    for city_id, status, count in rows:
-        result[int(city_id)][str(status or "unknown")] = int(count or 0)
-    metric_rows = db.query(
-        Place.city_id,
-        func.count(Place.id).label("total"),
-        func.sum((Place.is_published.is_(True)).cast(db.bind.dialect.type_descriptor(func.count().type))).label("published"),
-    ).filter(Place.city_id.in_(city_ids)).group_by(Place.city_id).all()
-    for row in metric_rows:
-        result[int(row.city_id)]["__total"] = int(row.total or 0)
-        result[int(row.city_id)]["__published"] = int(row.published or 0)
     return result
 
 
@@ -133,10 +117,7 @@ def main() -> None:
     parser.add_argument("--city-slug")
     args = parser.parse_args()
     payload = diagnose(city_slug=args.city_slug)
-    if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
-    else:
-        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
 
 if __name__ == "__main__":
