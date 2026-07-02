@@ -1,3 +1,17 @@
+"""LEGACY TELEGRAM ROUTE HANDLER.
+
+Status: not included in `telegram_bot.main.create_dispatcher()`.
+
+Active Telegram routers:
+- `telegram_bot.handlers.admin_moderation`
+- `telegram_bot.handlers.catalog`
+
+Rules:
+- Do not add new Telegram route actions here.
+- Do not re-register this router without a dedicated Telegram route migration task.
+- Keep only as historical implementation of the old `/route` bot flow.
+"""
+
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import Message
