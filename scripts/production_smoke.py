@@ -77,10 +77,19 @@ class ProductionSmokeConfig:
 def normalize_base_url(value: str) -> str:
     url = value.strip().rstrip("/")
     if not url:
-        raise ValueError("PRODUCTION_BASE_URL is required")
+        raise ValueError("PRODUCTION_BASE_URL or SSH_HOST is required")
     if not url.startswith(("http://", "https://")):
-        raise ValueError("PRODUCTION_BASE_URL must start with http:// or https://")
+        raise ValueError("production smoke base URL must start with http:// or https://")
     return url
+
+
+def resolve_base_url(candidate: str, ssh_host: str = "") -> str:
+    if candidate.strip():
+        return normalize_base_url(candidate)
+    host = ssh_host.strip()
+    if host:
+        return normalize_base_url(f"http://{host}")
+    return normalize_base_url("")
 
 
 def build_default_checks(config: ProductionSmokeConfig) -> list[SmokeCheck]:
@@ -220,7 +229,7 @@ def write_json_report(results: Sequence[SmokeResult], path: Path) -> None:
 
 def config_from_env(args: argparse.Namespace) -> ProductionSmokeConfig:
     return ProductionSmokeConfig(
-        base_url=normalize_base_url(args.base_url or os.getenv("PRODUCTION_BASE_URL", "")),
+        base_url=resolve_base_url(args.base_url or os.getenv("PRODUCTION_BASE_URL", ""), os.getenv("SSH_HOST", "")),
         expected_sha=args.expected_sha or os.getenv("EXPECTED_SHA", ""),
         admin_token=args.admin_token or os.getenv("ADMIN_API_TOKEN", ""),
         route_smoke_enabled=args.route_smoke or os.getenv("CITY_GO_ROUTE_SMOKE_ENABLED", "").lower() == "true",
@@ -236,6 +245,14 @@ def _optional_float(value: object) -> float | None:
     return float(value)
 
 
+def write_summary_and_report(results: Sequence[SmokeResult], args: argparse.Namespace, *, commit: str) -> None:
+    summary = build_summary(results, run_url=os.getenv("GITHUB_RUN_URL", ""), commit=commit)
+    args.summary_file.parent.mkdir(parents=True, exist_ok=True)
+    args.summary_file.write_text(summary, encoding="utf-8")
+    write_json_report(results, args.json_report)
+    print(summary, end="")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url")
@@ -249,17 +266,16 @@ def main() -> int:
     parser.add_argument("--json-report", type=Path, default=Path("/tmp/production-smoke-report.json"))
     args = parser.parse_args()
 
-    config = config_from_env(args)
+    commit = args.expected_sha or os.getenv("EXPECTED_SHA", "") or os.getenv("GITHUB_SHA", "")
+    try:
+        config = config_from_env(args)
+    except ValueError as exc:
+        results = [SmokeResult("production_base_url", "skipped", str(exc))]
+        write_summary_and_report(results, args, commit=commit)
+        return 0
+
     results = run_smoke(config)
-    summary = build_summary(
-        results,
-        run_url=os.getenv("GITHUB_RUN_URL", ""),
-        commit=config.expected_sha or os.getenv("GITHUB_SHA", ""),
-    )
-    args.summary_file.parent.mkdir(parents=True, exist_ok=True)
-    args.summary_file.write_text(summary, encoding="utf-8")
-    write_json_report(results, args.json_report)
-    print(summary, end="")
+    write_summary_and_report(results, args, commit=config.expected_sha or commit)
     return 0 if all(result.ok for result in results) else 1
 
 
