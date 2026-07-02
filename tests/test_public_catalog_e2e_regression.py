@@ -19,6 +19,12 @@ def _public_place(city_id: int, slug: str) -> Place:
         city_id=city_id,
         slug=slug,
         title=slug,
+        category="cafe",
+        canonical_category="cafe",
+        source="test",
+        status="active",
+        address="ул. Мира, 1",
+        short_description="Описание",
         lat=47.2,
         lng=39.7,
         is_active=True,
@@ -61,6 +67,7 @@ def test_admin_approve_publishes_changed_place_in_web_and_telegram(client, db_se
     assert BotFacade(db_session).place(place.id) is None
 
     review = PlaceChangeReview(
+        city_id=city.id,
         place_id=place.id,
         field_name="title",
         old_value="old",
@@ -82,6 +89,7 @@ def test_admin_reject_keeps_existing_public_place_visible(client, db_session, ci
     city = city_factory(slug="reject-city", name="Reject City", is_active=True, launch_status="published")
     place = _public_place(city.id, "reject-place")
     review = PlaceChangeReview(
+        city_id=city.id,
         place_id=place.id,
         field_name="title",
         old_value="old",
@@ -113,6 +121,12 @@ def test_reconciliation_is_non_destructive_by_default_and_destructive_mode_is_au
         city_id=draft_city.id,
         slug="draft-place",
         title="Черновик",
+        category="cafe",
+        canonical_category="cafe",
+        source="test",
+        status="active",
+        address="ул. Мира, 1",
+        short_description="Описание",
         lat=47.2,
         lng=39.7,
         is_active=True,
@@ -172,6 +186,7 @@ def test_admin_approve_publishes_changed_place_in_web_and_telegram_again(
     db_session.commit()
 
     review = PlaceChangeReview(
+        city_id=city.id,
         place_id=place.id,
         field_name="title",
         old_value="Старая версия",
