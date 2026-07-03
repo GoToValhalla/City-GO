@@ -10,7 +10,15 @@ from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
+from models.admin_operation import AdminOperation
 from schemas.admin_backlog_breakdown import AdminBacklogBreakdownResponse
+from schemas.admin_backlog_reduction import (
+    BacklogReductionApplyRequest,
+    BacklogReductionDryRunRequest,
+    BacklogReductionJob,
+    BacklogReductionPlan,
+    BacklogReductionResult,
+)
 from schemas.admin_coverage import AdminCoverageSummaryResponse, AdminCityCoverageRow
 from schemas.admin_ops import (
     AdminActionCard,
@@ -24,6 +32,8 @@ from schemas.admin_ops import (
 )
 from services.admin_coverage_metrics import build_coverage_summary
 from services.admin_backlog_breakdown_service import build_admin_backlog_breakdown
+from services.admin_backlog_reduction_service import apply as apply_backlog_reduction
+from services.admin_backlog_reduction_service import build_reduction_plan, dry_run as dry_run_backlog_reduction, get_job_result
 from services.admin_metrics_service import build_metrics_summary
 from services.admin_overview_service import build_admin_overview
 from services.feature_toggle_service import list_city_toggles, list_global_toggles, list_groups, update_toggle
@@ -50,11 +60,42 @@ def read_admin_overview(auth: AdminContext = Depends(admin_required), db: Sessio
 def read_admin_overview_backlog_breakdown(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminBacklogBreakdownResponse:
     try:
         _apply_admin_read_timeout(db)
-        return AdminBacklogBreakdownResponse(**build_admin_backlog_breakdown(db))
+        payload = build_admin_backlog_breakdown(db)
+        plan = build_reduction_plan(db)
+        payload["reduction_available"] = True
+        payload["reduction_plan_endpoint"] = "/admin/overview/backlog-reduction-plan"
+        payload["top_actions"] = plan["actions"][:4]
+        payload["last_reduction_result"] = _latest_reduction_result(db)
+        return AdminBacklogBreakdownResponse(**payload)
     except (SQLAlchemyError, TimeoutError) as exc:
         db.rollback()
         logger.exception("Admin backlog breakdown degraded", exc_info=exc)
         return _degraded_backlog_breakdown()
+
+
+@router.get("/overview/backlog-reduction-plan", response_model=BacklogReductionPlan)
+def read_admin_overview_backlog_reduction_plan(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> BacklogReductionPlan:
+    _apply_admin_read_timeout(db)
+    return BacklogReductionPlan(**build_reduction_plan(db))
+
+
+@router.post("/overview/backlog-reduction/dry-run", response_model=BacklogReductionResult)
+def preview_admin_overview_backlog_reduction(payload: BacklogReductionDryRunRequest, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> BacklogReductionResult:
+    _apply_admin_read_timeout(db)
+    return dry_run_backlog_reduction(db, payload)
+
+
+@router.post("/overview/backlog-reduction/apply", response_model=BacklogReductionResult)
+def apply_admin_overview_backlog_reduction(payload: BacklogReductionApplyRequest, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> BacklogReductionResult:
+    return apply_backlog_reduction(db, payload, actor=auth.actor_id)
+
+
+@router.get("/overview/backlog-reduction/jobs/{job_id}", response_model=BacklogReductionJob)
+def read_admin_overview_backlog_reduction_job(job_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> BacklogReductionJob:
+    result = get_job_result(db, job_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Результат действия не найден.")
+    return BacklogReductionJob(**result)
 
 
 @router.get("/metrics/summary", response_model=AdminMetricsSummary)
@@ -146,6 +187,26 @@ def _apply_admin_read_timeout(db: Session) -> None:
     bind = db.get_bind()
     if bind.dialect.name == "postgresql":
         db.execute(text(f"SET LOCAL statement_timeout = {ADMIN_READ_STATEMENT_TIMEOUT_MS}"))
+
+
+def _latest_reduction_result(db: Session) -> dict[str, object] | None:
+    operation = (
+        db.query(AdminOperation)
+        .filter(AdminOperation.operation_type == "backlog_reduction")
+        .order_by(AdminOperation.id.desc())
+        .first()
+    )
+    if operation is None:
+        return None
+    result = operation.result or {}
+    return {
+        "job_id": operation.id,
+        "status": operation.status,
+        "action_code": result.get("action_code"),
+        "changed_count": result.get("changed_count", 0),
+        "queued_count": result.get("queued_count", 0),
+        "failed_count": result.get("failed_count", 0),
+    }
 
 
 def _degraded_overview() -> AdminOverviewResponse:

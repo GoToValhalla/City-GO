@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class AdminBacklogSummary(BaseModel):
@@ -50,3 +50,7 @@ class AdminBacklogBreakdownResponse(BaseModel):
     summary: AdminBacklogSummary
     queues: list[AdminBacklogQueueBreakdown]
     overlaps: list[AdminBacklogOverlap]
+    reduction_available: bool = False
+    reduction_plan_endpoint: str | None = None
+    top_actions: list[dict[str, object]] = Field(default_factory=list)
+    last_reduction_result: dict[str, object] | None = None

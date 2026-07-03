@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { adminGet } from './adminApi'
+import { adminGet, adminPost } from './adminApi'
 import { AdminError, AdminLoading } from './shared/AdminStates'
 
 type ActionCard = {
@@ -45,6 +45,31 @@ type BacklogBreakdown = {
   queues: BacklogQueue[]
   overlaps: { left: string; right: string; count: number }[]
 }
+type ReductionAction = {
+  code: string
+  title: string
+  description: string
+  expected_effect: string
+  enabled: boolean
+  disabled_reason?: string | null
+  affected_count: number
+  max_batch_size: number
+}
+type ReductionPlan = {
+  summary: Record<string, number>
+  actions: ReductionAction[]
+}
+type ReductionResult = {
+  action_code: string
+  status: string
+  dry_run: boolean
+  affected_count: number
+  changed_count: number
+  skipped_count: number
+  failed_count: number
+  queued_count: number
+  message: string
+}
 
 const severityClass = (s: string) => `admin-severity admin-severity-${s}`
 const actionLabel = (card: ActionCard) => card.action_label || 'Открыть выборку'
@@ -52,6 +77,13 @@ const actionLabel = (card: ActionCard) => card.action_label || 'Открыть �
 export const AdminOverviewPage = () => {
   const [data, setData] = useState<Overview | null>(null)
   const [breakdown, setBreakdown] = useState<BacklogBreakdown | null>(null)
+  const [plan, setPlan] = useState<ReductionPlan | null>(null)
+  const [selectedAction, setSelectedAction] = useState<string>('')
+  const [limit, setLimit] = useState(100)
+  const [confirmation, setConfirmation] = useState('')
+  const [runningAction, setRunningAction] = useState<string | null>(null)
+  const [reductionResult, setReductionResult] = useState<ReductionResult | null>(null)
+  const [reductionError, setReductionError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,8 +91,19 @@ export const AdminOverviewPage = () => {
     Promise.all([
       adminGet<Overview>('/admin/overview'),
       adminGet<BacklogBreakdown>('/admin/overview/backlog-breakdown'),
+      adminGet<ReductionPlan>('/admin/overview/backlog-reduction-plan'),
     ])
-      .then(([overview, backlog]) => { setData(overview); setBreakdown(backlog) })
+      .then(([overview, backlog, reductionPlan]) => {
+        const safePlan = {
+          ...reductionPlan,
+          summary: reductionPlan.summary ?? {},
+          actions: Array.isArray(reductionPlan.actions) ? reductionPlan.actions : [],
+        }
+        setData(overview)
+        setBreakdown(backlog)
+        setPlan(safePlan)
+        setSelectedAction(safePlan.actions.find((action) => action.enabled)?.code ?? '')
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false))
   }, [])
@@ -137,6 +180,78 @@ export const AdminOverviewPage = () => {
       </section>
     )
   }
+  const selected = plan?.actions.find((action) => action.code === selectedAction)
+  const runReduction = async (mode: 'dry-run' | 'apply') => {
+    if (!selected) return
+    setRunningAction(mode)
+    setReductionError(null)
+    try {
+      const body = {
+        action_code: selected.code,
+        limit: Math.min(limit, selected.max_batch_size),
+        ...(mode === 'apply' ? { confirmation_text: confirmation } : {}),
+      }
+      const path = mode === 'apply' ? '/admin/overview/backlog-reduction/apply' : '/admin/overview/backlog-reduction/dry-run'
+      setReductionResult(await adminPost<ReductionResult>(path, body))
+    } catch (e) {
+      setReductionError(e instanceof Error ? e.message : 'Не удалось выполнить действие')
+    } finally {
+      setRunningAction(null)
+    }
+  }
+  const renderReduction = () => {
+    if (!plan) return null
+    return (
+      <section className="admin-section" data-testid="admin-backlog-reduction">
+        <h3 className="admin-section-title">План уменьшения очередей</h3>
+        <div className="admin-action-grid">
+          <div className="admin-action-card">
+            <div className="admin-action-count">{plan.summary.total_auto_fixable ?? 0}</div>
+            <div className="admin-action-title">Можно обработать автоматически</div>
+            <div className="admin-action-hint">Доступно через пробный запуск и подтверждение.</div>
+          </div>
+          <div className="admin-action-card">
+            <div className="admin-action-count">{plan.summary.manual_review_reclassifiable ?? 0}</div>
+            <div className="admin-action-title">Можно убрать из ручного разбора</div>
+            <div className="admin-action-hint">Только очевидные случаи без публикации.</div>
+          </div>
+          <div className="admin-action-card">
+            <div className="admin-action-count">{plan.summary.content_enrichment_queueable ?? 0}</div>
+            <div className="admin-action-title">Можно поставить в обработку</div>
+            <div className="admin-action-hint">Без выдуманных фото, адресов и описаний.</div>
+          </div>
+        </div>
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Действие</th><th>Кандидаты</th><th>Что изменится</th><th>Статус</th></tr></thead>
+            <tbody>
+              {plan.actions.map((action) => (
+                <tr key={action.code}>
+                  <td><label><input type="radio" checked={selectedAction === action.code} disabled={!action.enabled} onChange={() => setSelectedAction(action.code)} /> <strong>{action.title}</strong></label><br /><span>{action.description}</span></td>
+                  <td>{action.affected_count}</td>
+                  <td>{action.expected_effect}</td>
+                  <td>{action.enabled ? 'Готово к пробному запуску' : action.disabled_reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="admin-filter-card">
+          <label className="admin-field">Лимит за запуск<input type="number" min={1} max={selected?.max_batch_size ?? 100} value={limit} onChange={(e) => setLimit(Number(e.target.value) || 1)} /></label>
+          <button className="admin-btn admin-btn-secondary" type="button" disabled={!selected || runningAction !== null} onClick={() => void runReduction('dry-run')}>{runningAction === 'dry-run' ? 'Проверяем...' : 'Пробный запуск'}</button>
+          <label className="admin-field">Подтверждение<input value={confirmation} onChange={(e) => setConfirmation(e.target.value)} placeholder="Введите APPLY" /></label>
+          <button className="admin-btn admin-btn-primary" type="button" disabled={!selected || !reductionResult?.dry_run || confirmation !== 'APPLY' || runningAction !== null} onClick={() => void runReduction('apply')}>{runningAction === 'apply' ? 'Применяем...' : 'Применить безопасно'}</button>
+        </div>
+        {reductionError && <div className="admin-state admin-state-error">{reductionError}</div>}
+        {reductionResult && (
+          <div className="admin-help-panel" data-testid="reduction-result">
+            <strong>{reductionResult.message}</strong>
+            <div>Кандидатов: {reductionResult.affected_count}. Изменено: {reductionResult.changed_count}. Поставлено в обработку: {reductionResult.queued_count}. Пропущено: {reductionResult.skipped_count}. Ошибок: {reductionResult.failed_count}.</div>
+          </div>
+        )}
+      </section>
+    )
+  }
 
   return (
     <div>
@@ -145,6 +260,7 @@ export const AdminOverviewPage = () => {
       {renderSection('Критические задачи', data.critical)}
       {renderSection('Качество данных', data.data_quality)}
       {renderBacklog()}
+      {renderReduction()}
       {renderSection('Операции', data.operations)}
       <Link className="admin-btn admin-btn-sm" to="/admin/audit">Событий в журнале аудита: {data.recent_audit_count} →</Link>
     </div>

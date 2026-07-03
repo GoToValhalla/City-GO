@@ -128,9 +128,35 @@ Important product interpretation:
 - `no_description` must explain NULL, empty text, title copy, too-short text and
   placeholder descriptions separately.
 
-All v1 actions are read-only diagnostics. Real backlog reduction actions belong to the
-next stage: automatic address recovery, description generation, verification rechecks
-and category classification with audit logs.
+## Data Backlog Reduction · Admin Workflow
+
+`/api/admin/overview/backlog-reduction-plan` turns the breakdown into an operator
+plan. The plan lists only auditable actions with a clear title, expected effect,
+risk level, maximum batch size and dry-run/apply endpoints.
+
+The workflow contract is:
+
+- every action supports dry-run before apply;
+- apply requires exact confirmation text `APPLY`;
+- apply is limited by request `limit` and action `max_batch_size`;
+- apply writes `AdminOperation` result and `AdminAuditLog`;
+- unsupported actions are visible but disabled with an explanation;
+- no action deletes places, unpublishes places or writes fake photos, addresses,
+  descriptions or verification facts.
+
+Current safe actions:
+
+- recompute route readiness flags from the central route eligibility policy;
+- switch pharmacies, banks, transport stops and other service places out of routes
+  while keeping them published in the catalogue;
+- classify obvious unknown categories only when title/category evidence is strong;
+- move safe legacy review rows into automatic backlog without publishing them;
+- enqueue description, photo, address and verification work without fabricating
+  content or verification.
+
+The admin overview renders the plan as an operator section with candidate counts,
+dry-run result and guarded apply. Internal action codes remain API identifiers and
+must not be primary visible UI copy.
 
 ## 2026-07-03 follow-up
 

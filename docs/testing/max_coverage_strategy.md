@@ -115,6 +115,20 @@ tests:
 - overlap counts between manual review, verification, content gaps and route blockers;
 - Russian operator copy with no raw snake_case reason codes in the UI.
 
+### Admin Backlog Reduction
+
+Reduction workflow tests must cover both counters and mutation safety:
+
+- plan endpoint lists safe actions, disabled actions and readable explanations;
+- dry-run returns affected/changed/queued/skipped estimates without mutating places;
+- apply requires confirmation, respects batch limits and is idempotent after the
+  matching candidates are exhausted;
+- apply writes operation result and audit log;
+- service category reduction never deletes or unpublishes catalogue places;
+- enrichment queue actions do not fill fake photo, address, description or
+  verification values;
+- frontend blocks apply until a dry-run exists and confirmation is entered.
+
 ### Pairwise / Combinatorial Testing
 
 Для route request нужно покрывать не полный декартов взрыв, а pairwise-набор:

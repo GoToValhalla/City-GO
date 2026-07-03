@@ -1,5 +1,5 @@
 /* @vitest-environment jsdom */
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AdminOverviewPage } from './AdminOverviewPage'
@@ -81,16 +81,78 @@ const backlogResponse = {
   ],
   overlaps: [{ left: 'manual_review', right: 'needs_verification', count: 4 }],
 }
+const reductionPlanResponse = {
+  generated_at: '2026-07-04T00:00:00Z',
+  summary: {
+    total_auto_fixable: 8,
+    manual_review_reclassifiable: 4,
+    content_enrichment_queueable: 6,
+  },
+  queues: [],
+  actions: [
+    {
+      code: 'exclude_service_places_from_routes',
+      title: 'Убрать сервисные точки из маршрутов',
+      description: 'Оставляет места опубликованными, но выключает их из маршрутов.',
+      expected_effect: 'Сервисные места перестают попадать в прогулочные маршруты.',
+      enabled: true,
+      affected_count: 3,
+      max_batch_size: 500,
+      risk_level: 'safe',
+      disabled_reason: null,
+      dry_run_endpoint: '/admin/overview/backlog-reduction/dry-run',
+      apply_endpoint: '/admin/overview/backlog-reduction/apply',
+      requires_confirmation: true,
+      owner: 'data',
+      queue_code: 'route_excluded',
+      reason_codes: [],
+      visible: true,
+    },
+    {
+      code: 'recompute_low_confidence',
+      title: 'Пересчитать низкую уверенность',
+      description: 'Нет безопасного правила пересчёта для всех источников.',
+      expected_effect: 'Будет включено после появления правил пересчёта.',
+      enabled: false,
+      disabled_reason: 'Нет безопасного локального правила пересчёта без источников.',
+      affected_count: 0,
+      max_batch_size: 500,
+      risk_level: 'safe',
+      dry_run_endpoint: '/admin/overview/backlog-reduction/dry-run',
+      apply_endpoint: '/admin/overview/backlog-reduction/apply',
+      requires_confirmation: true,
+      owner: 'automation',
+      queue_code: 'low_confidence',
+      reason_codes: [],
+      visible: true,
+    },
+  ],
+}
+const reductionResult = {
+  action_code: 'exclude_service_places_from_routes',
+  status: 'planned',
+  dry_run: true,
+  affected_count: 3,
+  changed_count: 3,
+  skipped_count: 0,
+  failed_count: 0,
+  queued_count: 0,
+  message: 'Пробный запуск: Убрать сервисные точки из маршрутов.',
+}
 
 const response = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
 
 describe('AdminOverviewPage product contract', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
-    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.includes('/admin/overview/backlog-reduction-plan')) return response(reductionPlanResponse)
+      if (url.includes('/admin/overview/backlog-reduction/dry-run')) return response(reductionResult)
+      if (url.includes('/admin/overview/backlog-reduction/apply')) return response({ ...reductionResult, dry_run: false, status: 'applied' })
       if (url.includes('/admin/overview/backlog-breakdown')) return response(backlogResponse)
       if (url.includes('/admin/overview')) return response(apiResponse)
+      if (init?.method === 'POST') return response({})
       return response({})
     }))
   })
@@ -162,5 +224,40 @@ describe('AdminOverviewPage product contract', () => {
     expect(row.textContent).toContain('12')
     expect(row.textContent).toContain('8')
     expect(row.textContent).toContain('2')
+  })
+
+  it('renders backlog reduction plan without showing action codes_new', async () => {
+    render(<MemoryRouter><AdminOverviewPage /></MemoryRouter>)
+
+    await waitFor(() => expect(screen.getByTestId('admin-backlog-reduction')).toBeTruthy())
+
+    expect(screen.getByText('План уменьшения очередей')).toBeTruthy()
+    expect(screen.getByText('Убрать сервисные точки из маршрутов')).toBeTruthy()
+    expect(screen.getByText('Нет безопасного локального правила пересчёта без источников.')).toBeTruthy()
+    expect((document.body.textContent ?? '').includes('exclude_service_places_from_routes')).toBe(false)
+  })
+
+  it('runs dry run before enabling safe apply_new', async () => {
+    const fetchMock = vi.mocked(fetch)
+    render(<MemoryRouter><AdminOverviewPage /></MemoryRouter>)
+
+    await screen.findByText('Пробный запуск')
+    expect((screen.getByText('Применить безопасно') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByText('Пробный запуск'))
+
+    await screen.findByTestId('reduction-result')
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/admin/overview/backlog-reduction/dry-run'), expect.objectContaining({ method: 'POST' }))
+    expect(screen.getByText(/Изменено: 3/)).toBeTruthy()
+  })
+
+  it('requires confirmation before apply_new', async () => {
+    render(<MemoryRouter><AdminOverviewPage /></MemoryRouter>)
+
+    await screen.findByText('Пробный запуск')
+    fireEvent.click(screen.getByText('Пробный запуск'))
+    await screen.findByTestId('reduction-result')
+    fireEvent.change(screen.getByPlaceholderText('Введите APPLY'), { target: { value: 'APPLY' } })
+
+    expect((screen.getByText('Применить безопасно') as HTMLButtonElement).disabled).toBe(false)
   })
 })

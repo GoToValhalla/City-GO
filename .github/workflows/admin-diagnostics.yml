@@ -78,8 +78,25 @@ jobs:
                   raise RuntimeError(f"GET {path} returned non-object JSON")
               return payload
 
+          def post_json(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+              url = f"{BASE_URL}/{path.lstrip('/')}"
+              body = json.dumps(payload).encode("utf-8")
+              headers = {**HEADERS, "Content-Type": "application/json"}
+              request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310
+                      raw = response.read(2_000_000).decode("utf-8", errors="replace")
+              except urllib.error.HTTPError as exc:
+                  body_text = exc.read(4096).decode("utf-8", errors="replace")
+                  raise RuntimeError(f"POST {path} failed with HTTP {exc.code}: {body_text[:500]}") from exc
+              result = json.loads(raw or "{}")
+              if not isinstance(result, dict):
+                  raise RuntimeError(f"POST {path} returned non-object JSON")
+              return result
+
           overview = get_json("/api/admin/overview")
           backlog = get_json("/api/admin/overview/backlog-breakdown")
+          reduction_plan = get_json("/api/admin/overview/backlog-reduction-plan")
           cards = []
           for section in ("critical", "data_quality", "operations"):
               for card in overview.get(section, []) or []:
@@ -126,6 +143,29 @@ jobs:
                   "total": payload.get("total"),
               }
 
+          dry_run_smoke = []
+          for action in (reduction_plan.get("actions") or [])[:6]:
+              if not isinstance(action, dict) or not action.get("enabled"):
+                  continue
+              result = post_json(
+                  "/api/admin/overview/backlog-reduction/dry-run",
+                  {
+                      "action_code": action.get("code"),
+                      "limit": min(10, int(action.get("max_batch_size") or 10)),
+                      "include_samples": False,
+                  },
+              )
+              dry_run_smoke.append(
+                  {
+                      "title": action.get("title"),
+                      "affected_count": result.get("affected_count"),
+                      "changed_count": result.get("changed_count"),
+                      "queued_count": result.get("queued_count"),
+                      "skipped_count": result.get("skipped_count"),
+                      "failed_count": result.get("failed_count"),
+                  }
+              )
+
           card_by_code = {str(card.get("code")): card for card in cards}
           consistency = []
           for card_code, card in card_by_code.items():
@@ -167,6 +207,8 @@ jobs:
               "base_url_source": "PRODUCTION_BASE_URL" if os.getenv("PRODUCTION_BASE_URL", "").strip() else "SSH_HOST",
               "overview_cards": cards,
               "backlog_summary": backlog.get("summary"),
+              "backlog_reduction_summary": reduction_plan.get("summary"),
+              "backlog_reduction_dry_run_smoke": dry_run_smoke,
               "backlog_queues": [
                   {
                       "code": item.get("code"),
@@ -207,6 +249,20 @@ jobs:
           summary_lines.append("Backlog summary:")
           for key in ("unique_problem_places", "total_problem_signals", "auto_fixable_places", "manual_places", "route_blocker_places"):
               summary_lines.append(f"- {key}: {summary.get(key)}")
+          summary_lines.append("")
+          summary_lines.append("Backlog reduction plan:")
+          reduction_summary = reduction_plan.get("summary") or {}
+          for key in ("total_auto_fixable", "route_blockers_reducible", "unknown_categories_auto_classifiable", "manual_review_reclassifiable", "content_enrichment_queueable"):
+              summary_lines.append(f"- {key}: {reduction_summary.get(key)}")
+          summary_lines.append("")
+          summary_lines.append("Backlog reduction dry-run smoke:")
+          if dry_run_smoke:
+              for row in dry_run_smoke:
+                  summary_lines.append(
+                      f"- {row.get('title')}: affected={row.get('affected_count')} changed={row.get('changed_count')} queued={row.get('queued_count')} skipped={row.get('skipped_count')} failed={row.get('failed_count')}"
+                  )
+          else:
+              summary_lines.append("- no enabled actions")
           summary_lines.append("")
           summary_lines.append("Top queues:")
           for queue in (backlog.get("queues") or [])[:10]:
