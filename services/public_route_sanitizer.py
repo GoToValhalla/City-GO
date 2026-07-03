@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+import re
+from typing import Any, Mapping, Sequence
+
+from schemas.user_route import UserRouteState
+from services.route_user_warnings import route_warning_message
+
+RAW_TECHNICAL_CODE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+){1,}$")
+PUBLIC_WARNING_TYPES = {"route", "data", "budget", "walk", "interest"}
+PUBLIC_SEVERITIES = {"info", "warning", "error"}
+DEFAULT_ACTION_HINT = "Проверьте детали маршрута перед стартом."
+
+
+def sanitize_user_route_state(state: UserRouteState) -> UserRouteState:
+    """Final public API gate for user-facing route fields.
+
+    Route assembly services may still operate with internal warning codes. Public
+    endpoints must never expose those codes in fields rendered by the client.
+    """
+    warnings = [_public_text(item) for item in list(state.warnings or [])]
+    user_warnings = [_public_warning_item(item) for item in list(state.user_warnings or [])]
+    explanation = _sanitize_value(dict(state.explanation or {}))
+    return state.model_copy(
+        update={
+            "warnings": warnings,
+            "user_warnings": user_warnings,
+            "warning_count": len(warnings) if warnings else len(user_warnings),
+            "has_warnings": bool(warnings or user_warnings),
+            "explanation": explanation if isinstance(explanation, dict) else {},
+        }
+    )
+
+
+def _public_warning_item(value: Any) -> dict[str, object]:
+    data = _as_mapping(value)
+    kind = str(data.get("type") or "route").strip()
+    severity = str(data.get("severity") or "warning").strip()
+    message = _public_text(data.get("user_message") or data.get("message") or "")
+    hint = _public_text(data.get("action_hint") or DEFAULT_ACTION_HINT)
+    place_ids = data.get("affected_place_ids") or []
+    if _is_raw_code(kind) or kind not in PUBLIC_WARNING_TYPES:
+        kind = "route"
+    if severity not in PUBLIC_SEVERITIES:
+        severity = "warning"
+    return {
+        "type": kind,
+        "severity": severity,
+        "user_message": message or route_warning_message("unknown_internal_code"),
+        "affected_place_ids": [str(item) for item in place_ids] if isinstance(place_ids, Sequence) and not isinstance(place_ids, (str, bytes, bytearray)) else [],
+        "action_hint": hint or DEFAULT_ACTION_HINT,
+    }
+
+
+def _sanitize_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return _public_text(value)
+    if isinstance(value, Mapping):
+        return {str(key): _sanitize_value(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_sanitize_value(item) for item in value]
+    return value
+
+
+def _public_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return route_warning_message(text) if _is_raw_code(text) else text
+
+
+def _is_raw_code(value: str) -> bool:
+    return bool(RAW_TECHNICAL_CODE.fullmatch(str(value or "").strip()))
+
+
+def _as_mapping(value: Any) -> Mapping[str, Any]:
+    if isinstance(value, Mapping):
+        return value
+    if hasattr(value, "model_dump"):
+        dumped = value.model_dump()
+        return dumped if isinstance(dumped, Mapping) else {}
+    return {}
