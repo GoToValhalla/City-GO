@@ -100,7 +100,10 @@ def test_active_route_session_persists_transitions(db_session, city_factory, pub
 @title("Import job auto repair hook stores summary in job details")
 def test_import_job_auto_repair_hook_stores_summary(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="repair-city", name="Repair City")
-    place = place_factory(city_id=city.id, category="pharmacy", address="Main", opening_hours={"daily": "open"})
+    place = place_factory(city_id=city.id, category="pharmacy", address="Main")
+    place.opening_hours = {"daily": "open"}
+    db_session.commit()
+    db_session.refresh(place)
     job = CityAdminImportJob(city_id=city.id, status="running", source="test")
     db_session.add(job)
     db_session.commit()
