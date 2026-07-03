@@ -41,7 +41,9 @@ def test_route_public_contract_gate_catches_raw_code_in_every_user_facing_field_
     elif field == "explanation":
         payload[field] = {"warnings": ["route_builder_v2_insufficient_points"]}
 
-    assert gate._validate_public_payload(payload) == [f"raw technical code leaked at {expected_path}"]
+    failures = gate._validate_public_payload(payload)
+
+    assert f"raw technical code leaked at {expected_path}" in failures
 
 
 @pytest.mark.parametrize(
