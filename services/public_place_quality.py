@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from models.place import Place
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES, evaluate_place_route_eligibility
 
 NON_TOURIST_CATEGORIES = {
     "service", "services", "bank", "atm", "mvd", "police", "government",
@@ -11,6 +12,7 @@ NON_TOURIST_CATEGORIES = {
     "hospital", "health", "medical", "pharmacy", "military", "cemetery",
     "industrial", "waste_disposal", "fuel", "parking", "car_service",
 }
+NON_TOURIST_CATEGORIES = NON_TOURIST_CATEGORIES | HARD_EXCLUDED_CATEGORIES
 PUBLICATION_STATUSES = {"published", "auto_published", "limited_published"}
 _TECHNICAL_TITLE_PATTERNS = (
     re.compile(r"^(node|way|relation)[/:\s-]*\d+$", re.IGNORECASE),
@@ -21,7 +23,7 @@ _TECHNICAL_TITLE_PATTERNS = (
 
 
 def category_code(place: Place | Any) -> str | None:
-    return getattr(place, "canonical_category", None) or getattr(place, "category", None)
+    return getattr(place, "canonical_category", None) or getattr(getattr(place, "category_ref", None), "code", None)
 
 
 def is_non_tourist_category(category: str | None) -> bool:
@@ -48,4 +50,4 @@ def is_public_place_visible(place: Place) -> bool:
 
 
 def is_public_route_place_eligible(place: Place) -> bool:
-    return is_public_place_visible(place) and bool(place.is_route_eligible) and place.lat is not None and place.lng is not None
+    return evaluate_place_route_eligibility(place, require_stored_flag=True).eligible

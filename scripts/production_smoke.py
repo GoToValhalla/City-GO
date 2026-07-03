@@ -18,6 +18,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from services.place_quality_signals import is_placeholder_title
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
+
 
 DEFAULT_PUBLIC_CHECKS: tuple[tuple[str, str], ...] = (
     ("build", "/build.json"),
@@ -38,7 +41,7 @@ DEFAULT_ROUTE_SMOKE_LNG = 44.4991
 ROUTE_SMOKE_BUDGET_MINUTES = 120
 RAW_TECHNICAL_CODE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+){1,}$")
 TRACEBACK_MARKERS = ("Traceback (most recent call last)", "sqlalchemy.exc", "pydantic_core", "Internal Server Error")
-FORBIDDEN_ROUTE_JUNK = frozenset(
+FORBIDDEN_ROUTE_JUNK = HARD_EXCLUDED_CATEGORIES | frozenset(
     {
         "pharmacy",
         "apteka",
@@ -60,6 +63,7 @@ FORBIDDEN_ROUTE_JUNK = frozenset(
         "hospital",
     }
 )
+MAX_NORMAL_ROUTE_BUDGET_OVERFLOW_RATIO = 2.0
 USER_FACING_ROUTE_FIELDS = (
     "warnings",
     "user_warnings",
@@ -222,6 +226,8 @@ def validate_route_response(raw: str, http_status: int) -> SmokeResult:
         return SmokeResult("route_quick", "failed", "route_contains_forbidden_junk", http_status)
     if _public_payload_has_raw_technical_codes(payload):
         return SmokeResult("route_quick", "failed", "raw_technical_codes_in_public_payload", http_status)
+    if _has_large_budget_overflow(payload) and not _has_honest_weak_reason(status, quality_status, partial_reason, payload):
+        return SmokeResult("route_quick", "failed", "route_budget_overflow", http_status)
 
     minimum_points = minimum_points_for_budget(ROUTE_SMOKE_BUDGET_MINUTES)
     if total_places < minimum_points and not _has_honest_weak_reason(status, quality_status, partial_reason, payload):
@@ -248,10 +254,12 @@ def _contains_forbidden_route_junk(points: Sequence[Any]) -> bool:
         if not isinstance(point, dict):
             continue
         category = str(point.get("category") or "").strip().lower()
-        title = str(point.get("title") or "").strip().lower()
+        title = str(point.get("title") or "").strip()
         if category in FORBIDDEN_ROUTE_JUNK:
             return True
-        if any(token in title for token in ("аптек", "pharmacy", "остановк", "bus stop", "банкомат", "atm")):
+        if is_placeholder_title(title):
+            return True
+        if any(token in title.lower() for token in ("аптек", "pharmacy", "остановк", "bus stop", "банкомат", "atm", "институт хирургии")):
             return True
     return False
 
@@ -280,6 +288,28 @@ def _has_honest_weak_reason(status: str, quality_status: str, partial_reason: st
         return True
     warnings = payload.get("user_warnings") or payload.get("warnings") or []
     return bool(warnings)
+
+
+def _has_large_budget_overflow(payload: Mapping[str, Any]) -> bool:
+    total = _int_payload(payload, "total_estimated_minutes", "total_duration_minutes", "estimated_minutes")
+    budget = _int_payload(payload, "time_budget_minutes", "requested_budget_minutes", "budget_minutes")
+    if not total or not budget:
+        context = payload.get("context")
+        budget = _int_payload(context, "time_budget_minutes", "requested_budget_minutes") if isinstance(context, Mapping) else budget
+    return bool(total and budget and total >= int(budget * MAX_NORMAL_ROUTE_BUDGET_OVERFLOW_RATIO))
+
+
+def _int_payload(payload: Mapping[str, Any] | None, *keys: str) -> int:
+    if not isinstance(payload, Mapping):
+        return 0
+    for key in keys:
+        try:
+            value = int(payload.get(key) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            return value
+    return 0
 
 
 def _route_smoke_check(config: ProductionSmokeConfig) -> SmokeCheck:

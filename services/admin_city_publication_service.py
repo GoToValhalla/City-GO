@@ -9,6 +9,7 @@ from models.city import City
 from models.place import Place
 from services.admin_audit_service import write_admin_audit_log
 from services.place_public_visibility import is_public_hidden_category
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES, evaluate_place_route_eligibility
 
 CITY_STATUS_DRAFT = "draft"
 CITY_STATUS_PUBLISHED = "published"
@@ -19,7 +20,7 @@ PLACE_STATUS_ACTIVE = "active"
 PLACE_PUBLICATION_PUBLISHED = "published"
 PLACE_PUBLICATION_NEEDS_REVIEW = "needs_review"
 PLACE_PUBLICATION_UNPUBLISHED = "unpublished"
-NON_PUBLIC_CITY_PUBLICATION_CATEGORIES = {"health", "service", "transport", "utility"}
+NON_PUBLIC_CITY_PUBLICATION_CATEGORIES = HARD_EXCLUDED_CATEGORIES
 NON_PUBLIC_CITY_PUBLICATION_LAYERS = {"service", "transport", "utility"}
 
 
@@ -160,8 +161,10 @@ def _publish_place_for_city(place: Place, *, now: datetime, reason: str | None) 
     place.is_published = True
     place.is_visible_in_catalog = True
     place.is_searchable = True
-    place.is_route_eligible = True
     place.publication_status = PLACE_PUBLICATION_PUBLISHED
+    verdict = evaluate_place_route_eligibility(place)
+    place.is_route_eligible = verdict.eligible
+    place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons[:5])
     place.publication_comment = reason
     place.published_at = now
     place.unpublished_at = None

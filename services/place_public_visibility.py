@@ -7,6 +7,7 @@ from sqlalchemy.orm import Query
 
 from models.city import City
 from models.place import Place
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
 
 PUBLIC_ACTIVE_STATUS = "active"
 
@@ -23,6 +24,8 @@ PUBLIC_HIDDEN_CATEGORIES = {
     "pharmacy",
 }
 
+PUBLIC_HIDDEN_CATEGORIES = PUBLIC_HIDDEN_CATEGORIES | HARD_EXCLUDED_CATEGORIES
+
 
 def public_place_conditions() -> tuple[Any, ...]:
     return (
@@ -35,23 +38,23 @@ def admin_preview_place_conditions() -> tuple[Any, ...]:
     """Place gates for administrative previews; city publication is intentionally excluded."""
 
     return (
-        _true_or_null(Place.is_active),
+        Place.is_active.is_(True),
         or_(Place.status.is_(None), Place.status == PUBLIC_ACTIVE_STATUS),
-        _true_or_null(Place.is_published),
-        _true_or_null(Place.is_visible_in_catalog),
+        Place.is_published.is_(True),
+        Place.is_visible_in_catalog.is_(True),
         or_(
-            Place.category.is_(None),
-            Place.category.notin_(tuple(PUBLIC_HIDDEN_CATEGORIES)),
+            Place.canonical_category.is_(None),
+            Place.canonical_category.notin_(tuple(PUBLIC_HIDDEN_CATEGORIES)),
         ),
     )
 
 
 def public_route_place_conditions() -> tuple[Any, ...]:
-    return (*public_place_conditions(), _true_or_null(Place.is_route_eligible))
+    return (*public_place_conditions(), Place.is_route_eligible.is_(True))
 
 
 def admin_preview_route_place_conditions() -> tuple[Any, ...]:
-    return (*admin_preview_place_conditions(), _true_or_null(Place.is_route_eligible))
+    return (*admin_preview_place_conditions(), Place.is_route_eligible.is_(True))
 
 def apply_public_place_visibility(query: Query) -> Query:
     return query.filter(*public_place_conditions())

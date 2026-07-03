@@ -122,6 +122,15 @@ def category_from_osm_tags(tags: dict[str, Any]) -> str | None:
     boundary = tags.get("boundary")
     place = tags.get("place")
 
+    if _has_tag_match(tags, EXPLICIT_GARBAGE_TAGS):
+        return "health" if amenity in {"pharmacy", "clinic", "hospital"} or tags.get("healthcare") else "useful"
+
+    if _has_tag_match(tags, CRITICAL_SERVICE_TAGS) or tags.get("healthcare"):
+        return "health" if tags.get("healthcare") else "useful"
+
+    if _has_tag_match(tags, TRANSPORT_HUB_TAGS):
+        return "transport"
+
     if amenity in CAFE_AMENITIES or shop in COFFEE_SHOPS:
         return "cafe"
 
@@ -162,12 +171,6 @@ def category_from_osm_tags(tags: dict[str, Any]) -> str | None:
 
     if railway in TRANSPORT_ATTRACTIONS or aerialway in TRANSPORT_ATTRACTIONS or route in TRANSPORT_ATTRACTIONS:
         return "transport"
-
-    if _has_tag_match(tags, CRITICAL_SERVICE_TAGS):
-        return "useful"
-
-    if _has_tag_match(tags, EXPLICIT_GARBAGE_TAGS):
-        return "useful" if amenity not in {"pharmacy", "clinic", "hospital"} else "health"
 
     return None
 

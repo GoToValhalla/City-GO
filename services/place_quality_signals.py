@@ -9,9 +9,13 @@ from models.place import Place
 PLACEHOLDER_TITLE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*культурн(?:ое|ый|ая)\s+(?:место|объект)\s+osm\s+\d+\s*$", re.IGNORECASE),
     re.compile(r"^\s*место\s+для\s+прогулки\s+osm\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*place\s+for\s+walk\s+osm\s+\d+\s*$", re.IGNORECASE),
     re.compile(r"^\s*парк\s+osm\s+\d+\s*$", re.IGNORECASE),
     re.compile(r"^\s*пляж\s+osm\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*[a-zа-я ]+\s+osm\s+\d+\s*$", re.IGNORECASE),
     re.compile(r"^\s*osm\s+(node|way|relation)?\s*\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*(node|way|relation)\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*unnamed\s+(poi|place|point)\s*$", re.IGNORECASE),
     re.compile(r"^\s*(unnamed|unknown|без\s+названия|место\s+без\s+названия)\s*$", re.IGNORECASE),
 )
 
@@ -19,9 +23,14 @@ PLACEHOLDER_SQL_PATTERNS: tuple[str, ...] = (
     "Культурное место OSM %",
     "Культурный объект OSM %",
     "Место для прогулки OSM %",
+    "Place for walk OSM %",
     "Парк OSM %",
     "Пляж OSM %",
+    "% OSM %",
     "OSM %",
+    "Node %",
+    "Way %",
+    "Relation %",
     "Unnamed%",
     "Unknown%",
     "Без названия%",

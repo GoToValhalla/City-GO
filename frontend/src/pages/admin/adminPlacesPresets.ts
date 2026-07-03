@@ -11,10 +11,15 @@ export const PLACE_PRESETS: PlacePreset[] = [
   { id: 'needs_review', label: 'Требуют проверки' },
   { id: 'low_confidence', label: 'Низкая уверенность' },
   { id: 'suspicious_names', label: 'Подозрительные названия' },
+  { id: 'generic_osm_placeholders', label: 'OSM-заглушки' },
   { id: 'junk_categories', label: 'Неразобранные категории' },
   { id: 'service_places', label: 'Городская инфраструктура' },
   { id: 'in_routes', label: 'Участвуют в маршрутах' },
   { id: 'not_in_routes', label: 'Исключены из маршрутов' },
+  { id: 'route_unknown', label: 'Маршруты: нужно пересчитать' },
+  { id: 'published_not_route_eligible', label: 'Опубликовано, но не в маршрутах' },
+  { id: 'route_eligible_no_photo', label: 'Маршрутные без фото' },
+  { id: 'route_eligible_no_address', label: 'Маршрутные без адреса' },
 ]
 
 export const PUB_STATUS_OPTIONS = [

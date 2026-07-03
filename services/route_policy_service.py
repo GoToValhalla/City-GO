@@ -6,13 +6,14 @@ from dataclasses import dataclass
 
 from models.category import Category
 from services.route_diversity_policy import normalize_category
+from services.route_eligibility_policy import ALLOWED_ROUTE_CATEGORIES, HARD_EXCLUDED_CATEGORIES
 
 ROUTE_CONTEXTS = frozenset({"tourist_walk", "family", "food", "coffee", "practical", "emergency", "accessibility"})
 ROUTE_POLICIES = frozenset({"always_allowed", "allowed_by_context", "useful_only", "forbidden", "manual_review"})
-ALWAYS = frozenset({"museum", "walk", "park", "culture", "history", "landmark", "viewpoint"})
-CONTEXTUAL = frozenset({"cafe", "food", "restaurant", "bar", "shopping"})
-USEFUL = frozenset({"health", "service", "utility", "transport"})
-FORBIDDEN = frozenset({"hospital", "police", "shelter", "unknown"})
+ALWAYS = ALLOWED_ROUTE_CATEGORIES - frozenset({"cafe", "food", "restaurant", "bar", "market", "coffee"})
+CONTEXTUAL = frozenset({"cafe", "food", "restaurant", "bar", "market", "coffee"})
+USEFUL = frozenset()
+FORBIDDEN = HARD_EXCLUDED_CATEGORIES
 KNOWN = ALWAYS | CONTEXTUAL | USEFUL | FORBIDDEN
 
 

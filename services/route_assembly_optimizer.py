@@ -363,6 +363,8 @@ def _emergency_seed_backfill(route: list[object], scored: list[ScoredPlace], ctx
             continue
         tail_lat, tail_lng = _tail_location(current, ctx)
         walk = walk_minutes_between(tail_lat, tail_lng, float(item.place.lat), float(item.place.lng))
+        if current and _route_minutes(current) + walk + visit > budget:
+            continue
         point = route_point_from_scored(item, ctx, point_cls)
         point.estimated_walk_minutes = walk
         _mark_emergency_seed(point, walk)

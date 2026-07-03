@@ -51,6 +51,7 @@ def _row(city: City, metrics: dict[str, int], pending_photos: int) -> dict[str, 
     without_desc = max(published - with_desc, 0)
     route_ok = metrics["route_ok"]
     route_no = metrics["route_no"]
+    route_unknown = metrics["route_unknown"]
     score = _quality_score(total, published, with_photo, with_addr, verified)
     return {
         "city_id": city.id, "city_slug": city.slug, "city_name": city.name,
@@ -59,7 +60,7 @@ def _row(city: City, metrics: dict[str, int], pending_photos: int) -> dict[str, 
         "places_with_photo": with_photo, "places_without_photo": without_photo,
         "places_with_address": with_addr, "places_without_address": without_addr,
         "places_with_description": with_desc, "places_without_description": without_desc,
-        "places_route_eligible": route_ok, "places_not_route_eligible": route_no,
+        "places_route_eligible": route_ok, "places_not_route_eligible": route_no, "places_route_unknown": route_unknown,
         "pending_photos": pending_photos, "quality_score": score, "severity": _severity(score),
     }
 
@@ -90,7 +91,8 @@ def _place_metrics(db: Session, city_ids: list[int]) -> dict[int, dict[str, int]
         _sum(Place.verification_status == "verified").label("verified"),
         _sum(Place.verification_status.in_(("unverified", "needs_recheck"))).label("unverified"),
         _sum(Place.is_route_eligible.is_(True)).label("route_ok"),
-        _sum(Place.is_route_eligible.is_(False)).label("route_no"),
+        _sum(Place.is_route_eligible.is_not(True)).label("route_no"),
+        _sum(Place.is_route_eligible.is_(None)).label("route_unknown"),
     ).filter(Place.city_id.in_(city_ids)).group_by(Place.city_id).all()
     return {int(row.city_id): {key: int(getattr(row, key) or 0) for key in _PLACE_METRIC_KEYS} for row in rows}
 
@@ -132,8 +134,8 @@ def _and(*conditions):
     return and_(*conditions)
 
 
-_METRIC_KEYS = ("total", "published", "verified", "unverified", "with_photo", "with_addr", "with_desc", "route_ok", "route_no")
-_PLACE_METRIC_KEYS = ("total", "published", "verified", "unverified", "route_ok", "route_no")
+_METRIC_KEYS = ("total", "published", "verified", "unverified", "with_photo", "with_addr", "with_desc", "route_ok", "route_no", "route_unknown")
+_PLACE_METRIC_KEYS = ("total", "published", "verified", "unverified", "route_ok", "route_no", "route_unknown")
 
 
 def _empty_metrics() -> dict[str, int]:

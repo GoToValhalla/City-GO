@@ -114,6 +114,18 @@ describe('AdminPlacesPage', () => {
     })
   })
 
+  it('opens CITYGO-171 data quality presets_new', async () => {
+    render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
+    await waitFor(() => expect(screen.getByText(/Найдено:\s*51/)).toBeTruthy())
+
+    fireEvent.change(screen.getByLabelText('Быстрая выборка'), { target: { value: 'generic_osm_placeholders' } })
+
+    await waitFor(() => {
+      const calls = fetchMock.mock.calls.map(([url]) => String(url))
+      expect(calls.some((url) => url.includes('/admin/places/search?') && url.includes('preset=generic_osm_placeholders'))).toBe(true)
+    })
+  }, 20_000)
+
   it('bulk changes selected places category_new', async () => {
     render(<MemoryRouter><AdminPlacesPage /></MemoryRouter>)
     await waitFor(() => expect(screen.getByText(/Найдено:\s*51/)).toBeTruthy())

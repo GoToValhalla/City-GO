@@ -38,6 +38,19 @@ CI #2032 exposed a threshold conflict introduced during smoke hardening. The res
 
 CITYGO-171 is now the blocking prerequisite for further route UX expansion. See `docs/product/citygo_171_data_quality_gate.md`.
 
+CITYGO-171 implementation adds the semantic data quality gate:
+
+- route candidate SQL and Python validation share `services/route_eligibility_policy.py`;
+- tourist walking routes use canonical category only (`canonical_category` or `Category.code`);
+- raw/display category names are UI-only and cannot make a place route-safe;
+- medical/service/transport/utility/generic OSM placeholders are hard-excluded;
+- route retrieval may widen radius/geography but must not weaken the hard data-quality gate;
+- manual add/replace uses the same SQL gate;
+- emergency route backfill cannot add extra points when cumulative time would exceed the requested budget;
+- production smoke rejects junk route points and 2x+ budget overflow unless the response is explicitly weak/partial with a user-facing explanation.
+
+Photo and address remain quality/scoring/admin signals, not P0 hard blockers.
+
 ## Remaining
 
 - The full route assembly optimizer was not rewritten in this pass. The production-safe layer makes weak routes honest first; further optimizer tuning can improve point selection quality.

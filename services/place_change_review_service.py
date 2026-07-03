@@ -11,6 +11,7 @@ from models.city import City
 from models.place import Place
 from models.review_queue_item import ReviewQueueItem
 from services.admin_audit_service import write_admin_audit_log
+from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 OPEN_STATUS = "open"
 RESOLVED_STATUS = "resolved"
@@ -204,8 +205,10 @@ def _publish_place(place: Place, *, reason: str | None) -> None:
     place.is_published = True
     place.is_visible_in_catalog = True
     place.is_searchable = True
-    place.is_route_eligible = True
     place.publication_status = "published"
+    verdict = evaluate_place_route_eligibility(place)
+    place.is_route_eligible = verdict.eligible
+    place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons[:5])
     place.publication_comment = reason
     place.published_at = now
     place.unpublished_at = None

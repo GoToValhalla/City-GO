@@ -18,6 +18,7 @@ class AdminCityCoverageRow(BaseModel):
     places_without_description: int
     places_route_eligible: int
     places_not_route_eligible: int
+    places_route_unknown: int = 0
     pending_photos: int
     quality_score: int
     severity: str

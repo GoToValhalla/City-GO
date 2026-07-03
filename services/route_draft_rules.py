@@ -3,15 +3,14 @@ from __future__ import annotations
 import re
 from unicodedata import normalize as unicode_normalize
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Query
 
 from models.place import Place
-from services.public_place_quality import NON_TOURIST_CATEGORIES
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES, compile_route_eligible_sql_conditions
 
 WALK_SPEED_KMH = 4.5
 OUT_OF_CITY_MAX_METERS = 50_000
-ROUTE_DRAFT_BLOCKED_CATEGORIES = NON_TOURIST_CATEGORIES
+ROUTE_DRAFT_BLOCKED_CATEGORIES = HARD_EXCLUDED_CATEGORIES
 
 CATEGORY_ALIASES: dict[str, str] = {
     "кофе": "cafe",
@@ -47,15 +46,7 @@ def category_for_query(query: str | None) -> str | None:
 def eligible_place_query(query: Query, city_id: int) -> Query:
     return query.filter(
         Place.city_id == city_id,
-        Place.is_active.is_(True),
-        Place.is_published.is_(True),
-        Place.is_visible_in_catalog.is_(True),
-        Place.is_route_eligible.is_(True),
-        Place.publication_status == "published",
-        Place.lat.is_not(None),
-        Place.lng.is_not(None),
-        or_(Place.category.is_(None), ~Place.category.in_(ROUTE_DRAFT_BLOCKED_CATEGORIES)),
-        or_(Place.canonical_category.is_(None), ~Place.canonical_category.in_(ROUTE_DRAFT_BLOCKED_CATEGORIES)),
+        *compile_route_eligible_sql_conditions(context="tourist_walk"),
     )
 
 

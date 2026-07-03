@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Sequence
 
+from services.place_quality_signals import is_placeholder_title
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
+
 
 class RouteBuilderV2Error(ValueError):
     pass
@@ -27,25 +30,7 @@ BUILD_MODE_TO_ROUTE_BUILDER_MODE: Mapping[str, str] = {
     "constructor": SLOT_BUILDER,
 }
 
-ROUTE_BUILDER_V2_BLOCKED_CATEGORIES = frozenset(
-    {
-        "apteka",
-        "atm",
-        "bank",
-        "bench",
-        "bus_stop",
-        "fuel",
-        "mall",
-        "parking",
-        "pharmacy",
-        "service",
-        "shop",
-        "supermarket",
-        "toilet",
-        "transport",
-        "utility",
-    }
-)
+ROUTE_BUILDER_V2_BLOCKED_CATEGORIES = HARD_EXCLUDED_CATEGORIES
 ROUTE_BUILDER_V2_BLOCKED_TITLE_TOKENS = (
     "аптек",
     "pharmacy",
@@ -443,10 +428,12 @@ def _unique_strings(values: Sequence[object]) -> list[str]:
 
 def _is_route_junk(point: object) -> bool:
     category = str(getattr(point, "category", "") or "").strip().lower()
-    title = str(getattr(point, "title", "") or "").strip().lower()
+    title = str(getattr(point, "title", "") or "").strip()
     if category in ROUTE_BUILDER_V2_BLOCKED_CATEGORIES:
         return True
-    return any(token in title for token in ROUTE_BUILDER_V2_BLOCKED_TITLE_TOKENS)
+    if is_placeholder_title(title):
+        return True
+    return any(token in title.lower() for token in ROUTE_BUILDER_V2_BLOCKED_TITLE_TOKENS)
 
 
 def _category_distribution(points: Sequence[object]) -> dict[str, int]:

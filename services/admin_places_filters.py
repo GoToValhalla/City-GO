@@ -7,14 +7,13 @@ from sqlalchemy.orm import Query, Session
 
 from models.city import City
 from models.place import Place
+from services.place_quality_signals import PLACEHOLDER_SQL_PATTERNS
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
 
 # Реальные инфраструктурные категории не являются мусором. Здесь остаются только
 # неразобранные общие значения, требующие нормализации.
-JUNK_CATEGORIES = ("service", "services", "unknown", "other", "useful")
-SERVICE_CATEGORIES = (
-    "shopping_mall", "pharmacy", "clinic", "hospital", "healthcare", "bank", "atm",
-    "transport", "bus_stop", "parking", "police", "toilets", "shelter", "information", "service",
-)
+JUNK_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES | {"unknown", "other", "useful"}))
+SERVICE_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES))
 
 
 def _search_terms(value: str) -> tuple[str, ...]:
@@ -32,10 +31,15 @@ def apply_place_preset(query: Query, preset: str) -> Query:
         "no_hours": lambda q: q.filter(Place.opening_hours.is_(None)),
         "low_confidence": lambda q: q.filter(Place.existence_confidence_level.in_(("low", "unknown"))),
         "needs_review": lambda q: q.filter(Place.verification_status.in_(("needs_recheck", "unverified"))),
-        "not_in_routes": lambda q: q.filter(Place.is_route_eligible.is_(False)),
+        "not_in_routes": lambda q: q.filter(Place.is_route_eligible.is_not(True)),
+        "route_unknown": lambda q: q.filter(Place.is_route_eligible.is_(None)),
         "in_routes": lambda q: q.filter(Place.is_route_eligible.is_(True), Place.is_published.is_(True)),
-        "junk_categories": lambda q: q.filter(Place.category.in_(JUNK_CATEGORIES)),
-        "service_places": lambda q: q.filter(Place.category.in_(SERVICE_CATEGORIES)),
+        "published_not_route_eligible": lambda q: q.filter(Place.is_published.is_(True), Place.is_route_eligible.is_not(True)),
+        "route_eligible_no_photo": lambda q: q.filter(Place.is_route_eligible.is_(True), or_(Place.image_url.is_(None), Place.image_url == "")),
+        "route_eligible_no_address": lambda q: q.filter(Place.is_route_eligible.is_(True), or_(Place.address.is_(None), Place.address == "")),
+        "generic_osm_placeholders": lambda q: q.filter(_placeholder_clause()),
+        "junk_categories": lambda q: q.filter(_canonical_category_clause(JUNK_CATEGORIES)),
+        "service_places": lambda q: q.filter(_canonical_category_clause(SERVICE_CATEGORIES)),
         "problematic": lambda q: q.filter(or_(
             Place.image_url.is_(None),
             Place.address.is_(None),
@@ -82,7 +86,7 @@ def apply_place_filters(
     if verification_status:
         query = query.filter(Place.verification_status == verification_status)
     if category:
-        query = query.filter(Place.category == category)
+        query = query.filter(or_(Place.canonical_category == category, Place.category == category))
     if q:
         clauses = tuple(or_(Place.title.ilike(term), Place.slug.ilike(term), Place.address.ilike(term)) for term in _search_terms(q))
         query = query.filter(or_(*clauses))
@@ -118,3 +122,11 @@ def _presence_filter(query: Query, column, value: bool | None) -> Query:
     if value is False:
         return query.filter(or_(column.is_(None), column == ""))
     return query
+
+
+def _canonical_category_clause(values: tuple[str, ...]):
+    return or_(Place.canonical_category.in_(values), Place.category.in_(values))
+
+
+def _placeholder_clause():
+    return or_(*tuple(Place.title.ilike(pattern) for pattern in PLACEHOLDER_SQL_PATTERNS))

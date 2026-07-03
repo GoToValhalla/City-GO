@@ -13,6 +13,9 @@ type CoverageRow = {
   places_without_photo: number
   places_without_address: number
   places_without_description: number
+  places_route_eligible: number
+  places_not_route_eligible: number
+  places_route_unknown?: number
   quality_score: number
   severity: string
 }
@@ -58,7 +61,7 @@ export const AdminCoveragePage = () => {
           <td><Link to={`/admin/quality?city_slug=${city.city_slug}`}>{city.quality_score}% · {city.severity}</Link></td>
           <td>{city.places_total}</td>
           <td>{city.places_published}</td>
-          <td>Фото: {city.places_without_photo} · адреса: {city.places_without_address} · описания: {city.places_without_description}</td>
+          <td>Фото: {city.places_without_photo} · адреса: {city.places_without_address} · описания: {city.places_without_description} · исключены: {city.places_not_route_eligible} · пересчитать: {city.places_route_unknown ?? 0}</td>
           <td className="admin-actions-cell"><Link className="admin-btn admin-btn-sm" to={`/admin/coverage?tab=gaps&city_slug=${city.city_slug}`}>Must-have</Link><Link className="admin-btn admin-btn-sm" to={`/admin/places?city=${city.city_slug}`}>Места</Link><Link className="admin-btn admin-btn-sm" to={`/admin/photos?city=${city.city_slug}`}>Фото</Link></td>
         </tr>)}</tbody>
       </table>

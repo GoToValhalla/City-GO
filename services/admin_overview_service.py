@@ -50,6 +50,7 @@ def build_admin_overview(db: Session) -> dict[str, object]:
         _card("no_description", "Без описания", place_counts["no_description"], _sev(place_counts["no_description"], 40, 200), "/admin/places?preset=no_description"),
         _card("low_confidence", "Низкая уверенность", place_counts["low_confidence"], _sev(place_counts["low_confidence"], 15, 80), "/admin/places?preset=low_confidence", "Quality bucket, не задача ручной модерации."),
         _card("not_route_eligible", "Исключены из маршрутов", place_counts["not_route_eligible"], "yellow" if place_counts["not_route_eligible"] else "green", "/admin/places?preset=not_in_routes"),
+        _card("route_unknown", "Маршруты: нужно пересчитать", place_counts["route_unknown"], _sev(place_counts["route_unknown"], 10, 100), "/admin/places?preset=route_unknown"),
     ]
     operations = [_card("cities_total", "Активных городов", cities_weak, "green", "/admin/cities")]
     return {"critical": critical, "data_quality": data_quality, "operations": operations, "recent_audit_count": audit_recent, "generated_at": datetime.utcnow()}
@@ -66,7 +67,8 @@ def _place_overview_counts(db: Session) -> dict[str, int]:
         func.sum(case((Place.publication_status.in_(MANUAL_REVIEW_STATUSES), 1), else_=0)).label("manual_review"),
         func.sum(case((Place.publication_status.in_(AUTO_BACKLOG_STATUSES), 1), else_=0)).label("auto_backlog"),
         func.sum(case((Place.verification_status.in_(VERIFICATION_QUEUE_STATUSES), 1), else_=0)).label("needs_verification"),
-        func.sum(case((published & Place.is_route_eligible.is_(False), 1), else_=0)).label("not_route_eligible"),
+        func.sum(case((published & Place.is_route_eligible.is_not(True), 1), else_=0)).label("not_route_eligible"),
+        func.sum(case((published & Place.is_route_eligible.is_(None), 1), else_=0)).label("route_unknown"),
     ).one()
     return {
         "no_photo": int(row.no_photo or 0),
@@ -77,6 +79,7 @@ def _place_overview_counts(db: Session) -> dict[str, int]:
         "auto_backlog": int(row.auto_backlog or 0),
         "needs_verification": int(row.needs_verification or 0),
         "not_route_eligible": int(row.not_route_eligible or 0),
+        "route_unknown": int(row.route_unknown or 0),
     }
 
 

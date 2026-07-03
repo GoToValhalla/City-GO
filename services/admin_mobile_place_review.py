@@ -9,11 +9,12 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.place import Place
 from services.place_read_service import build_place_read
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES, evaluate_place_route_eligibility
 from services.system_log_service import write_system_log
 
 MANUAL_REVIEW_STATUSES = ("needs_review", "needs_manual_review", "deferred")
 AUTO_BACKLOG_STATUSES = ("draft", "auto_backlog", "low_confidence")
-NON_ROUTE_CATEGORIES = {"service", "transport", "utility", "pharmacy", "bank", "atm"}
+NON_ROUTE_CATEGORIES = HARD_EXCLUDED_CATEGORIES
 NON_ROUTE_LAYERS = {"service", "transport", "utility"}
 TRUSTED_ADDRESS_CONFIDENCE = 0.85
 TRUSTED_PLACE_QUALITY_SCORE = 65
@@ -141,9 +142,11 @@ def _publish_place(place: Place, actor: str, *, comment: str) -> None:
     place.is_active = True
     place.is_published = True
     place.is_visible_in_catalog = True
-    place.is_route_eligible = True
     place.is_searchable = True
     place.publication_status = "published"
+    verdict = evaluate_place_route_eligibility(place)
+    place.is_route_eligible = verdict.eligible
+    place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons[:5])
     place.publication_comment = comment
     place.published_at = now
     place.unpublished_at = None
