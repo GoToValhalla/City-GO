@@ -16,7 +16,7 @@ export type RecommendationRouteFormState = {
   paceMode: string
   isVisiting: boolean
   userId: string
-  routeSlots: RouteBuilderSlot[]
+  routeSlots?: RouteBuilderSlot[]
 }
 
 type BuildResult =
@@ -90,7 +90,7 @@ export const buildRecommendationRouteRequest = (form: RecommendationRouteFormSta
   }
 }
 
-export const normalizeRouteSlots = (slots: RouteBuilderSlot[]): RouteBuilderSlot[] => slots.flatMap((slot, index) => {
+export const normalizeRouteSlots = (slots: RouteBuilderSlot[] = []): RouteBuilderSlot[] => slots.flatMap((slot, index) => {
   const category = String(slot.category || slot.type || '').trim()
   if (!category) return []
   return [{
