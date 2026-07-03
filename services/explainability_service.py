@@ -1,6 +1,7 @@
 from services.explainability_text import point_phrase, warning_phrase
 from services.route_finalize_service import FinalRoute
 from services.route_explanation_reasons import data_notes, point_reason, score_components
+from services.route_user_warnings import route_warning_message
 
 
 class ExplainabilityService:
@@ -72,7 +73,7 @@ class ExplainabilityService:
         return None
 
     def build_route_explanation(self, route: FinalRoute) -> dict[str, object]:
-        warnings = list(getattr(route, "warnings", []) or [])
+        warning_messages = [route_warning_message(code) for code in list(getattr(route, "warnings", []) or [])]
         notes = data_notes(route)
         return {
             "route_id": route.route_id,
@@ -81,7 +82,7 @@ class ExplainabilityService:
             "warning_count": int(getattr(route, "warning_count", 0) or 0),
             "quality_score": float(getattr(route, "quality_score", 0.0) or 0.0),
             "quality_breakdown": dict(getattr(route, "quality_breakdown", {}) or {}),
-            "warnings": warnings,
+            "warnings": warning_messages,
             "data_limitations": notes,
             "data_notes": notes,
             "points": [self._point_payload(point) for point in route.points],
