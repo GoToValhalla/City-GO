@@ -85,5 +85,8 @@ def test_admin_analytics_shape_is_stable_new(client: TestClient) -> None:
 
     assert response.status_code == 200
     data = response.json()
-    assert isinstance(data, dict)
-    assert "summary" in data or "items" in data or "events" in data or "totals" in data
+    assert {"period_days", "metrics", "event_breakdown", "navigation", "availability"} <= set(data)
+    assert isinstance(data["metrics"], dict)
+    assert isinstance(data["event_breakdown"], list)
+    assert isinstance(data["navigation"], dict)
+    assert isinstance(data["availability"], dict)
