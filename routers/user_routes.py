@@ -13,6 +13,9 @@ from schemas.user_route import (
     UserRouteCorrectRequest,
     UserRoutePreviewRequest,
     UserRouteReplacePlaceRequest,
+    UserRouteSessionActionRequest,
+    UserRouteSessionStartRequest,
+    UserRouteSessionState,
     UserRouteState,
     UserRouteStructuredBuildRequest,
     UserRouteStructuredBuildResponse,
@@ -23,6 +26,7 @@ from services.route_builder_v2_service import RouteBuilderV2Error
 from services.user_route_build_service import UserRouteBuildService
 from services.user_route_correct_service import UserRouteCorrectService
 from services.user_route_edit_service import UserRouteEditService
+from services.user_route_session_service import UserRouteSessionError, UserRouteSessionService
 
 router = APIRouter(prefix="/user-routes", tags=["user-routes"])
 
@@ -142,8 +146,6 @@ def read_user_route_alternatives(
     current_route: str = Query(default=""),
     db: Session = Depends(get_db),
 ) -> UserRouteAlternativesResponse:
-    # GET endpoint keeps the public contract path, but current route state is not persisted yet.
-    # Until Active Route Session is implemented, return an empty deterministic response.
     return UserRouteAlternativesResponse(route_id=route_id, place_id=place_id, options=[])
 
 
@@ -167,6 +169,31 @@ def add_user_route_place(
     _ensure_current_route_matches(route_id, payload.current_route)
     route = UserRouteEditService().add_place(db, payload)
     return route.model_copy(update={"route_id": route_id})
+
+
+@router.post("/{route_id}/session/start", response_model=UserRouteSessionState)
+def start_user_route_session(
+    route_id: str,
+    payload: UserRouteSessionStartRequest,
+    db: Session = Depends(get_db),
+) -> UserRouteSessionState:
+    _ensure_current_route_matches(route_id, payload.current_route)
+    try:
+        return UserRouteSessionService().start(db, payload)
+    except UserRouteSessionError as exc:
+        raise HTTPException(status_code=422, detail={"code": "route_session_invalid_request", "message": str(exc)}) from exc
+
+
+@router.post("/sessions/{session_id}/action", response_model=UserRouteSessionState)
+def update_user_route_session(
+    session_id: int,
+    payload: UserRouteSessionActionRequest,
+    db: Session = Depends(get_db),
+) -> UserRouteSessionState:
+    try:
+        return UserRouteSessionService().apply_action(db, session_id, payload)
+    except UserRouteSessionError as exc:
+        raise HTTPException(status_code=422, detail={"code": "route_session_invalid_transition", "message": str(exc)}) from exc
 
 
 def _ensure_current_route_matches(route_id: str, current_route: UserRouteState) -> None:
