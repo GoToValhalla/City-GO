@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       expected_sha:
-        description: Expected production commit SHA. Defaults to current workflow SHA.
+        description: Expected production commit SHA. Leave empty for manual availability-only smoke.
         required: false
         type: string
   workflow_run:
@@ -30,11 +30,11 @@ jobs:
       PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
-      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha || github.sha }}
-      CITY_GO_ROUTE_SMOKE_ENABLED: ${{ vars.CITY_GO_ROUTE_SMOKE_ENABLED || 'false' }}
-      CITY_GO_ROUTE_SMOKE_CITY_ID: ${{ vars.CITY_GO_ROUTE_SMOKE_CITY_ID }}
-      CITY_GO_ROUTE_SMOKE_LAT: ${{ vars.CITY_GO_ROUTE_SMOKE_LAT }}
-      CITY_GO_ROUTE_SMOKE_LNG: ${{ vars.CITY_GO_ROUTE_SMOKE_LNG }}
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha || '' }}
+      CITY_GO_ROUTE_SMOKE_ENABLED: true
+      CITY_GO_ROUTE_SMOKE_CITY_ID: ${{ vars.CITY_GO_ROUTE_SMOKE_CITY_ID || 'yerevan' }}
+      CITY_GO_ROUTE_SMOKE_LAT: ${{ vars.CITY_GO_ROUTE_SMOKE_LAT || '40.1792' }}
+      CITY_GO_ROUTE_SMOKE_LNG: ${{ vars.CITY_GO_ROUTE_SMOKE_LNG || '44.4991' }}
       GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       PYTHONPATH: .
     steps:
