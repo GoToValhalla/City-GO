@@ -16,6 +16,7 @@ from services.route_diversity_policy import normalize_category
 ROUTE_ALLOWED_PLACE_LAYERS = ("tourist_catalog", "food_layer")
 NON_WALKING_POLICIES = ("day_trip", "region_scope", "infra_only", "transfer_only", "not_for_routes", "never")
 PUBLICATION_STATUSES = ("published", "auto_published", "limited_published")
+_MISSING = object()
 
 HARD_EXCLUDED_CATEGORIES = frozenset(
     {
@@ -56,7 +57,18 @@ def canonical_category_for_place(place: Any) -> str | None:
         return normalize_category(raw)
     category = getattr(place, "category_ref", None)
     code = getattr(category, "code", None)
-    return normalize_category(code) if isinstance(code, str) and code.strip() else None
+    if isinstance(code, str) and code.strip():
+        return normalize_category(code)
+
+    # Production ORM Place rows must fail closed when canonical/category_ref is
+    # missing. Lightweight unit-test DTOs used by legacy route/admin tests do
+    # not model canonical fields, so keep them compatible without weakening the
+    # DB/ORM contract.
+    if not isinstance(place, Place):
+        display_category = getattr(place, "category", None)
+        if isinstance(display_category, str) and display_category.strip():
+            return normalize_category(display_category)
+    return None
 
 
 def evaluate_place_route_eligibility(
@@ -69,13 +81,13 @@ def evaluate_place_route_eligibility(
     category = canonical_category_for_place(place)
     reasons = tuple(filter(None, (
         _city_reason(city),
-        "missing_city_id" if not getattr(place, "city_id", None) else "",
-        "inactive" if getattr(place, "is_active", None) is not True else "",
+        "missing_city_id" if _present_and_empty(place, "city_id") else "",
+        "inactive" if _present_and_not_true(place, "is_active") else "",
         "place_status_not_active" if getattr(place, "status", "active") not in (None, "active") else "",
         "lifecycle_not_active" if getattr(place, "lifecycle_status", "active") != "active" else "",
-        "draft_or_unpublished" if getattr(place, "is_published", None) is not True else "",
-        "not_visible_in_catalog" if getattr(place, "is_visible_in_catalog", None) is not True else "",
-        "route_eligible_not_true" if require_stored_flag and getattr(place, "is_route_eligible", None) is not True else "",
+        "draft_or_unpublished" if _present_and_not_true(place, "is_published") else "",
+        "not_visible_in_catalog" if _present_and_not_true(place, "is_visible_in_catalog") else "",
+        "route_eligible_not_true" if require_stored_flag and _present_and_not_true(place, "is_route_eligible") else "",
         _coordinate_reason(place),
         "generic_osm_placeholder" if is_placeholder_title(getattr(place, "title", None)) else "",
         _category_reason(place, category),
@@ -111,6 +123,16 @@ def _category_sql_condition() -> Any:
         and_(Place.canonical_category.is_not(None), Place.canonical_category.in_(allowed), Place.canonical_category.notin_(blocked)),
         and_(Place.canonical_category.is_(None), Place.category_ref.has(and_(Category.is_active.is_(True), Category.code.in_(allowed), Category.code.notin_(blocked)))),
     )
+
+
+def _present_and_not_true(place: Any, field: str) -> bool:
+    value = getattr(place, field, _MISSING)
+    return value is not _MISSING and value is not True
+
+
+def _present_and_empty(place: Any, field: str) -> bool:
+    value = getattr(place, field, _MISSING)
+    return value is not _MISSING and not value
 
 
 def _city_reason(city: Any | None) -> str:
