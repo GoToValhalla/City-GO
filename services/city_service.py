@@ -88,7 +88,7 @@ def _catalog_counter_place_conditions() -> tuple[object, ...]:
         or_(Place.status.is_(None), Place.status == PUBLIC_ACTIVE_STATUS),
         Place.is_published.is_(True),
         Place.is_visible_in_catalog.is_(True),
-        Place.publication_status.in_(PUBLICATION_STATUSES),
+        or_(Place.publication_status.is_(None), Place.publication_status.in_(PUBLICATION_STATUSES)),
     )
 
 
