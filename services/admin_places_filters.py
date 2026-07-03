@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Query, Session
 
 from models.city import City
@@ -17,6 +17,7 @@ SERVICE_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES))
 MANUAL_REVIEW_STATUSES = ("needs_review", "needs_manual_review", "deferred")
 AUTO_BACKLOG_STATUSES = ("draft", "auto_backlog", "low_confidence")
 VERIFICATION_QUEUE_STATUSES = ("needs_recheck", "unverified")
+MIN_DESCRIPTION_LENGTH = 40
 
 
 def _search_terms(value: str) -> tuple[str, ...]:
@@ -29,7 +30,7 @@ def apply_place_preset(query: Query, preset: str) -> Query:
     rules = {
         "no_photo": lambda q: q.filter(or_(Place.image_url.is_(None), Place.image_url == "")),
         "no_address": lambda q: q.filter(or_(Place.address.is_(None), Place.address == "")),
-        "no_description": lambda q: q.filter(or_(Place.short_description.is_(None), Place.short_description == "", Place.short_description == Place.title)),
+        "no_description": lambda q: q.filter(_description_missing_clause()),
         "no_contacts": lambda q: q.filter(or_(Place.phone.is_(None), Place.phone == ""), or_(Place.website.is_(None), Place.website == "")),
         "no_hours": lambda q: q.filter(Place.opening_hours.is_(None)),
         "low_confidence": lambda q: q.filter(Place.existence_confidence_level.in_(("low", "unknown"))),
@@ -49,7 +50,7 @@ def apply_place_preset(query: Query, preset: str) -> Query:
         "problematic": lambda q: q.filter(or_(
             Place.image_url.is_(None),
             Place.address.is_(None),
-            Place.short_description.is_(None),
+            _description_missing_clause(),
             Place.existence_confidence_level.in_(("low", "unknown")),
             Place.verification_status.in_(VERIFICATION_QUEUE_STATUSES),
             Place.is_duplicate_suspected.is_(True),
@@ -128,6 +129,15 @@ def _presence_filter(query: Query, column, value: bool | None) -> Query:
     if value is False:
         return query.filter(or_(column.is_(None), column == ""))
     return query
+
+
+def _description_missing_clause():
+    return or_(
+        Place.short_description.is_(None),
+        Place.short_description == "",
+        Place.short_description == Place.title,
+        func.length(func.trim(Place.short_description)) < MIN_DESCRIPTION_LENGTH,
+    )
 
 
 def _canonical_category_clause(values: tuple[str, ...]):
