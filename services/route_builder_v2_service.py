@@ -40,7 +40,6 @@ ROUTE_BUILDER_V2_BLOCKED_CATEGORIES = frozenset(
         "pharmacy",
         "service",
         "shop",
-        "stop",
         "supermarket",
         "toilet",
         "transport",
@@ -144,7 +143,7 @@ def apply_route_builder_v2_plan_to_intent(intent: object, plan: RouteBuilderV2Pl
     if plan.mode == CATEGORY_BUILDER:
         updates["interests"] = _merge_unique_strings(getattr(intent, "interests", []) or [], plan.categories)
     if plan.mode == SLOT_BUILDER:
-        slot_interests = [str(slot.get("type") or "") for slot in plan.slots]
+        slot_interests = [str(slot.get("type") or slot.get("category") or "") for slot in plan.slots]
         updates["interests"] = _merge_unique_strings(getattr(intent, "interests", []) or [], slot_interests)
     if not updates:
         return intent
@@ -337,7 +336,7 @@ def _build_manual_plan(request: RouteBuilderV2Request) -> RouteBuilderV2Plan:
 def _build_slot_plan(request: RouteBuilderV2Request) -> RouteBuilderV2Plan:
     if not request.slots:
         raise RouteBuilderV2Error("Slot Builder requires at least one slot")
-    normalized_slots = tuple(_normalize_slot(slot) for slot in request.slots)
+    normalized_slots = tuple(_normalize_slot(index, slot) for index, slot in enumerate(request.slots, 1))
     min_points = sum(int(slot["min_count"]) for slot in normalized_slots)
     max_points = sum(int(slot["max_count"]) for slot in normalized_slots)
     if min_points < 1:
@@ -346,7 +345,7 @@ def _build_slot_plan(request: RouteBuilderV2Request) -> RouteBuilderV2Plan:
         raise RouteBuilderV2Error("Slot Builder exceeds max route points")
     return RouteBuilderV2Plan(
         mode=SLOT_BUILDER,
-        executor_mode="instant",
+        executor_mode="slot_constructor",
         profile=request.profile,
         route_policy=request.route_policy,
         duration_minutes=request.duration_minutes,
@@ -356,7 +355,7 @@ def _build_slot_plan(request: RouteBuilderV2Request) -> RouteBuilderV2Plan:
     )
 
 
-def _normalize_slot(slot: Mapping[str, object]) -> dict[str, object]:
+def _normalize_slot(index: int, slot: Mapping[str, object]) -> dict[str, object]:
     slot_type = _optional_text(slot.get("type")) or _optional_text(slot.get("category"))
     if not slot_type:
         raise RouteBuilderV2Error("Slot requires type or category")
@@ -368,11 +367,16 @@ def _normalize_slot(slot: Mapping[str, object]) -> dict[str, object]:
         max_count = min_count
     if min_count < 0 or max_count < 1 or min_count > max_count:
         raise RouteBuilderV2Error("Invalid slot count bounds")
+    selected_place_id = _optional_text(slot.get("selected_place_id"))
     return {
+        "slot_id": _optional_text(slot.get("slot_id")) or f"slot-{index}",
         "type": slot_type,
+        "category": slot_type,
         "min_count": min_count,
         "max_count": max_count,
         "required": bool(slot.get("required", min_count > 0)),
+        "duration": _optional_int(slot.get("duration")),
+        "selected_place_id": selected_place_id,
     }
 
 
