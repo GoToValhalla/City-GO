@@ -66,6 +66,7 @@ def preview_user_route(
     except RouteBuilderV2Error as exc:
         raise HTTPException(status_code=422, detail={"code": "route_builder_v2_invalid_request", "message": str(exc)}) from exc
     except Exception as exc:
+        print(f"user_route_preview_failed: {exc.__class__.__name__}: {exc}")
         return UserRouteState(
             route_id="preview-unavailable",
             status="preview_failed",
@@ -79,13 +80,22 @@ def preview_user_route(
             warning_count=1,
             quality_score=0.0,
             quality_status="failed",
-            warnings=["route_preview_mapping_failed"],
+            warnings=["Маршрут не удалось предварительно собрать."],
+            user_warnings=[
+                {
+                    "type": "route",
+                    "severity": "warning",
+                    "user_message": "Маршрут не удалось предварительно собрать.",
+                    "affected_place_ids": [],
+                    "action_hint": "Попробуйте изменить время, интересы или стартовую точку.",
+                }
+            ],
             debug_trace=[
                 {
                     "stage": "preview_response_mapping",
                     "status": "failed",
                     "error": exc.__class__.__name__,
-                    "message": str(exc),
+                    "message": "Preview route build failed.",
                 }
             ],
         )
