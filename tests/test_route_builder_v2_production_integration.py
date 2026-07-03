@@ -106,10 +106,10 @@ def test_route_builder_v2_output_gate_removes_route_junk() -> None:
 
     assert [point.place_id for point in result.points] == ["1", "3"]
     assert result.total_places == 2
-    assert "route_builder_v2_removed_route_junk" in result.warnings
+    assert "Из маршрута убраны неподходящие сервисные точки." in result.warnings
     assert result.debug_trace[0]["stage"] == "route_builder_v2"
     assert result.debug_trace[0]["data_contract"] == "public_catalog_visible_route_eligible_only"
-    assert result.explanation["route_builder_v2"]["removed_junk_place_ids"] == ["2"]
+    assert result.explanation["route_builder_v2"]["removed_places_count"] == 1
 
 
 @title("Route Builder v2 marks partial route when too few usable points remain")
@@ -122,7 +122,7 @@ def test_route_builder_v2_marks_partial_when_too_few_points_remain() -> None:
 
     assert result.status == "partial_route"
     assert result.partial_reason == "route_builder_v2_insufficient_points"
-    assert "route_builder_v2_insufficient_points" in result.warnings
+    assert "После проверки осталось мало подходящих точек." in result.warnings
 
 
 @title("Route Builder v2 API contract rejects invalid manual payload")
