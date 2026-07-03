@@ -44,3 +44,32 @@ def test_user_route_mapper_accepts_fallback_metadata_new() -> None:
     assert state.points[0].image_url is None
     assert state.points[0].scoring_breakdown["route_assembly_fallback"] == "emergency_seed"
     assert state.points[0].scoring_breakdown["long_walk_segment"] is True
+
+
+def test_user_route_mapper_exposes_user_facing_warning_copy_new() -> None:
+    final = FinalRoute(
+        route_id="route-2",
+        status="partial_route",
+        points=[],
+        total_minutes=0,
+        total_places=0,
+        estimated_distance=0.0,
+        warnings=["route_builder_v2_insufficient_points", "unknown_internal_code"],
+        has_warnings=True,
+        warning_count=2,
+    )
+    intent = UserRouteBuildRequest(
+        lat=40.1792,
+        lng=44.4991,
+        city_id="yerevan",
+        time_budget_minutes=120,
+    )
+
+    state = final_route_to_state(final, intent)
+
+    assert "route_builder_v2_insufficient_points" not in state.warnings
+    assert "unknown_internal_code" not in state.warnings
+    assert "После проверки осталось мало подходящих точек." in state.warnings
+    assert "Маршрут собран с ограничениями по данным." in state.warnings
+    assert {warning.type for warning in state.user_warnings} <= {"route", "data", "budget", "walk", "interest"}
+    assert all("_" not in warning.type for warning in state.user_warnings)
