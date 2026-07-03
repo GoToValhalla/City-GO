@@ -5,6 +5,7 @@ from typing import Any, Mapping, Sequence
 
 from services.place_quality_signals import is_placeholder_title
 from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
+from services.route_user_warnings import route_warning_message
 
 
 class RouteBuilderV2Error(ValueError):
@@ -141,7 +142,7 @@ def attach_route_builder_v2_result(state: object, plan: RouteBuilderV2Plan) -> o
     """Attach v2 metadata and enforce post-build output gates on the public route state."""
 
     gate = route_builder_v2_output_gate(getattr(state, "points", []) or [])
-    warnings = _unique_strings(
+    raw_warnings = _unique_strings(
         [
             *list(getattr(state, "warnings", []) or []),
             *plan.warnings,
@@ -153,15 +154,18 @@ def attach_route_builder_v2_result(state: object, plan: RouteBuilderV2Plan) -> o
     if len(gate.points) < plan.expected_min_points and status not in {"failed", "no_route"}:
         status = "partial_route" if gate.points else "no_route"
         partial_reason = "route_builder_v2_insufficient_points"
-        warnings = _unique_strings([*warnings, "route_builder_v2_insufficient_points"])
+        raw_warnings = _unique_strings([*raw_warnings, "route_builder_v2_insufficient_points"])
 
+    public_warnings = [route_warning_message(code) for code in raw_warnings]
     explanation = dict(getattr(state, "explanation", {}) or {})
+    explanation["warnings"] = public_warnings
+    explanation["data_limitations"] = [route_warning_message(note) for note in list(explanation.get("data_limitations", []) or [])]
+    explanation["data_notes"] = [route_warning_message(note) for note in list(explanation.get("data_notes", []) or [])]
     explanation["route_builder_v2"] = {
-        "mode": plan.mode,
-        "executor_mode": plan.executor_mode,
-        "expected_min_points": plan.expected_min_points,
-        "expected_max_points": plan.expected_max_points,
-        "removed_junk_place_ids": list(gate.removed_junk_place_ids),
+        "mode": _public_mode_label(plan.mode),
+        "expected_points": f"от {plan.expected_min_points} до {plan.expected_max_points}",
+        "removed_places_count": len(gate.removed_junk_place_ids),
+        "message": "Маршрут проверен на неподходящие сервисные точки.",
     }
     debug_trace = [
         {
@@ -184,9 +188,9 @@ def attach_route_builder_v2_result(state: object, plan: RouteBuilderV2Plan) -> o
         "points": list(gate.points),
         "total_places": len(gate.points),
         "category_distribution": category_distribution,
-        "warnings": warnings,
-        "has_warnings": bool(warnings),
-        "warning_count": len(warnings),
+        "warnings": public_warnings,
+        "has_warnings": bool(public_warnings),
+        "warning_count": len(public_warnings),
         "explanation": explanation,
         "debug_trace": debug_trace,
     }
@@ -321,124 +325,82 @@ def _build_manual_plan(request: RouteBuilderV2Request) -> RouteBuilderV2Plan:
 def _build_slot_plan(request: RouteBuilderV2Request) -> RouteBuilderV2Plan:
     if not request.slots:
         raise RouteBuilderV2Error("Slot Builder requires at least one slot")
-    normalized_slots = tuple(_normalize_slot(index, slot) for index, slot in enumerate(request.slots, 1))
-    min_points = sum(int(slot["min_count"]) for slot in normalized_slots)
-    max_points = sum(int(slot["max_count"]) for slot in normalized_slots)
-    if min_points < 1:
-        raise RouteBuilderV2Error("Slot Builder requires at least one required point")
-    if max_points > MAX_ROUTE_POINTS:
-        raise RouteBuilderV2Error("Slot Builder exceeds max route points")
+    if len(request.slots) > MAX_ROUTE_POINTS:
+        raise RouteBuilderV2Error(f"Slot Builder supports up to {MAX_ROUTE_POINTS} slots")
     return RouteBuilderV2Plan(
         mode=SLOT_BUILDER,
-        executor_mode="slot_constructor",
+        executor_mode="slot",
         profile=request.profile,
         route_policy=request.route_policy,
         duration_minutes=request.duration_minutes,
-        slots=normalized_slots,
-        expected_min_points=min_points,
-        expected_max_points=max_points,
+        slots=request.slots,
+        expected_min_points=len(request.slots),
+        expected_max_points=len(request.slots),
     )
-
-
-def _normalize_slot(index: int, slot: Mapping[str, object]) -> dict[str, object]:
-    slot_type = _optional_text(slot.get("type")) or _optional_text(slot.get("category"))
-    if not slot_type:
-        raise RouteBuilderV2Error("Slot requires type or category")
-    min_count = _optional_int(slot.get("min_count"))
-    max_count = _optional_int(slot.get("max_count"))
-    if min_count is None:
-        min_count = 1
-    if max_count is None:
-        max_count = min_count
-    if min_count < 0 or max_count < 1 or min_count > max_count:
-        raise RouteBuilderV2Error("Invalid slot count bounds")
-    selected_place_id = _optional_text(slot.get("selected_place_id"))
-    return {
-        "slot_id": _optional_text(slot.get("slot_id")) or f"slot-{index}",
-        "type": slot_type,
-        "category": slot_type,
-        "min_count": min_count,
-        "max_count": max_count,
-        "required": bool(slot.get("required", min_count > 0)),
-        "duration": _optional_int(slot.get("duration")),
-        "selected_place_id": selected_place_id,
-    }
-
-
-def _normalize_text_list(value: object) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if isinstance(value, str):
-        raw_values = [value]
-    else:
-        raw_values = list(value)  # type: ignore[arg-type]
-    result: list[str] = []
-    seen: set[str] = set()
-    for item in raw_values:
-        text = _optional_text(item)
-        if text and text not in seen:
-            result.append(text)
-            seen.add(text)
-    return tuple(result)
-
-
-def _normalize_id_list(value: object) -> tuple[int, ...]:
-    if value is None:
-        return ()
-    result: list[int] = []
-    seen: set[int] = set()
-    for item in list(value):  # type: ignore[arg-type]
-        item_id = _optional_int(item)
-        if item_id is not None and item_id > 0 and item_id not in seen:
-            result.append(item_id)
-            seen.add(item_id)
-    return tuple(result)
-
-
-def _optional_text(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip().lower()
-    return text or None
-
-
-def _optional_int(value: object) -> int | None:
-    if value is None or value == "":
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
-        raise RouteBuilderV2Error(f"Expected integer value: {value}") from exc
-
-
-def _merge_unique_strings(left: Sequence[object], right: Sequence[object]) -> list[str]:
-    return _unique_strings([str(item).strip().lower() for item in [*left, *right] if str(item).strip()])
-
-
-def _unique_strings(values: Sequence[object]) -> list[str]:
-    result: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        text = str(value or "").strip()
-        if text and text not in seen:
-            result.append(text)
-            seen.add(text)
-    return result
 
 
 def _is_route_junk(point: object) -> bool:
     category = str(getattr(point, "category", "") or "").strip().lower()
-    title = str(getattr(point, "title", "") or "").strip()
+    title = str(getattr(point, "title", "") or "")
     if category in ROUTE_BUILDER_V2_BLOCKED_CATEGORIES:
         return True
-    if is_placeholder_title(title):
+    if any(token in title.lower() for token in ROUTE_BUILDER_V2_BLOCKED_TITLE_TOKENS):
         return True
-    return any(token in title.lower() for token in ROUTE_BUILDER_V2_BLOCKED_TITLE_TOKENS)
+    return is_placeholder_title(title)
+
+
+def _merge_unique_strings(first: Sequence[object], second: Sequence[object]) -> list[str]:
+    return list(dict.fromkeys([*_normalize_text_list(first), *_normalize_text_list(second)]))
+
+
+def _normalize_text_list(value: object) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return ()
+    return tuple(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+
+
+def _normalize_id_list(value: object) -> tuple[int, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return ()
+    result: list[int] = []
+    for item in value:
+        parsed = _optional_int(item)
+        if parsed is not None:
+            result.append(parsed)
+    return tuple(dict.fromkeys(result))
+
+
+def _optional_text(value: object) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _optional_int(value: object) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _unique_strings(values: Sequence[str]) -> list[str]:
+    return list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
 
 
 def _category_distribution(points: Sequence[object]) -> dict[str, int]:
-    result: dict[str, int] = {}
+    distribution: dict[str, int] = {}
     for point in points:
-        category = str(getattr(point, "category", "") or "unknown")
-        result[category] = result.get(category, 0) + 1
-    return result
+        key = str(getattr(point, "category", "") or "unknown")
+        distribution[key] = distribution.get(key, 0) + 1
+    return distribution
+
+
+def _public_mode_label(mode: str) -> str:
+    labels = {
+        QUICK_BUILD: "Быстрый маршрут",
+        CATEGORY_BUILDER: "Маршрут по категориям",
+        MANUAL_BUILDER: "Ручной маршрут",
+        SLOT_BUILDER: "Маршрут по сценарию",
+    }
+    return labels.get(mode, "Маршрут")
