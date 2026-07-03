@@ -10,6 +10,13 @@ class AdminActionCard(BaseModel):
     link_path: str
     hint: str | None = None
     action_label: str | None = None
+    queue_type: str = "open_queue"
+    primary_action: str = "open_queue"
+    short_hint: str | None = None
+    sample_endpoint: str | None = None
+    owner: str = "platform"
+    is_human_actionable: bool = True
+    mobile_priority: str = "medium"
 
 
 class AdminOverviewResponse(BaseModel):
