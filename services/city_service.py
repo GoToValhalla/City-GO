@@ -1,5 +1,7 @@
 """
 Чтение городов из БД для роутера /cities и связанной логики.
+
+City selector counters describe the published catalogue, not the stricter tourist-route candidate pool.
 """
 
 from sqlalchemy import and_, func, or_
@@ -21,7 +23,7 @@ def get_cities(db: Session) -> list[City]:
 
 
 def get_available_cities(db: Session, *, include_draft: bool = False) -> list[dict[str, object]]:
-    """Return the single public city catalogue shared by Web and Telegram."""
+    """Return the public city catalogue shared by Web and Telegram."""
     rows = (
         db.query(
             City.slug.label("slug"),
@@ -80,6 +82,7 @@ def city_is_published(city: City | None) -> bool:
 
 
 def _catalog_counter_place_conditions() -> tuple[object, ...]:
+    """Count published catalogue places without applying the route eligibility gate."""
     return (
         Place.is_active.is_(True),
         or_(Place.status.is_(None), Place.status == PUBLIC_ACTIVE_STATUS),
