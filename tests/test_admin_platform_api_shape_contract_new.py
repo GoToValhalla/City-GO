@@ -36,13 +36,16 @@ def test_admin_overview_cards_have_action_labels_and_operational_links_new(clien
 
     assert response.status_code == 200
     cards = {item["code"]: item for item in response.json()["data_quality"]}
-    assert cards["auto_backlog"]["action_label"] == "Открыть авто"
-    assert cards["auto_backlog"]["link_path"] == "/admin/places?publication=auto_backlog"
-    assert cards["manual_review"]["action_label"] == "Открыть ручную очередь"
-    assert cards["manual_review"]["link_path"] == "/admin/places?publication=needs_review"
-    assert cards["no_description"]["action_label"] == "Открыть описания"
-    assert cards["no_description"]["link_path"] == "/admin/places?preset=no_description"
-    assert cards["route_blockers"]["link_path"] == "/admin/places?preset=not_in_routes"
+    assert cards["auto_backlog"]["action_label"] == "Открыть автоочередь"
+    assert cards["auto_backlog"]["queue_type"] == "auto_fix"
+    assert cards["auto_backlog"]["sample_endpoint"] == "/admin/places/search?preset=auto_backlog"
+    assert cards["manual_review"]["action_label"] == "Проверить вручную"
+    assert cards["manual_review"]["queue_type"] == "manual_review"
+    assert cards["manual_review"]["sample_endpoint"] == "/admin/places/search?preset=manual_review"
+    assert cards["no_description"]["action_label"] == "Добавить описания"
+    assert cards["no_description"]["link_path"] == "/admin/places?preset=published_no_description"
+    assert cards["route_blockers"]["link_path"] == "/admin/places?preset=route_blockers"
+    assert cards["route_blockers"]["sample_endpoint"] == "/admin/places/search?preset=route_blockers"
 
 
 def test_admin_quality_shape_is_stable_for_city_with_places_new(client: TestClient, city_factory, place_factory) -> None:

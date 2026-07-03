@@ -18,8 +18,8 @@ describe('AdminOverviewPage CITYGO-171', () => {
           operations: [],
           recent_audit_count: 0,
           data_quality: [
-            { code: 'not_route_eligible', title: 'Исключены из маршрутов', count: 7, severity: 'yellow', link_path: '/admin/places?preset=not_in_routes' },
-            { code: 'route_unknown', title: 'Маршруты: нужно пересчитать', count: 3, severity: 'yellow', link_path: '/admin/places?preset=route_unknown' },
+            { code: 'not_route_eligible', title: 'Отключены вручную', count: 7, severity: 'yellow', link_path: '/admin/places?preset=published_not_route_eligible', action_label: 'Открыть отключённые', short_hint: 'Места, явно отключённые от маршрутов.' },
+            { code: 'route_unknown', title: 'Неизвестные категории', count: 3, severity: 'yellow', link_path: '/admin/places?preset=route_unknown', action_label: 'Разобрать категории', short_hint: 'Нужно назначить понятную категорию.' },
           ],
         })
       }
@@ -37,12 +37,12 @@ describe('AdminOverviewPage CITYGO-171', () => {
   it('shows excluded and route unknown metrics with drill-down links_new', async () => {
     render(<MemoryRouter><AdminOverviewPage /></MemoryRouter>)
 
-    await waitFor(() => expect(screen.getByText('Исключены из маршрутов')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Отключены вручную')).toBeTruthy())
 
     expect(screen.getByText('7')).toBeTruthy()
-    expect(screen.getByText('Маршруты: нужно пересчитать')).toBeTruthy()
+    expect(screen.getByText('Неизвестные категории')).toBeTruthy()
     expect(screen.getByText('3')).toBeTruthy()
-    expect(screen.getByLabelText('Исключены из маршрутов: 7. Открыть выборку').getAttribute('href')).toBe('/admin/places?preset=not_in_routes')
-    expect(screen.getByLabelText('Маршруты: нужно пересчитать: 3. Открыть выборку').getAttribute('href')).toBe('/admin/places?preset=route_unknown')
+    expect(screen.getByLabelText('Отключены вручную: 7. Открыть отключённые').getAttribute('href')).toBe('/admin/places?preset=published_not_route_eligible')
+    expect(screen.getByLabelText('Неизвестные категории: 3. Разобрать категории').getAttribute('href')).toBe('/admin/places?preset=route_unknown')
   })
 })

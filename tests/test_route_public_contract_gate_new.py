@@ -24,6 +24,7 @@ def test_route_public_contract_gate_user_facing_fields_match_production_smoke_ne
 @pytest.mark.parametrize(
     "field,expected_path",
     [
+        ("partial_reason", "partial_reason"),
         ("warnings", "warnings[0]"),
         ("user_warnings", "user_warnings[0].user_message"),
         ("user_explanation", "user_explanation.message"),
@@ -32,7 +33,9 @@ def test_route_public_contract_gate_user_facing_fields_match_production_smoke_ne
 )
 def test_route_public_contract_gate_catches_raw_code_in_every_user_facing_field_new(field: str, expected_path: str) -> None:
     payload = _public_payload()
-    if field == "warnings":
+    if field == "partial_reason":
+        payload[field] = "route_builder_v2_insufficient_points"
+    elif field == "warnings":
         payload[field] = ["route_builder_v2_insufficient_points"]
     elif field == "user_warnings":
         payload[field] = [{"type": "route", "user_message": "route_builder_v2_insufficient_points"}]

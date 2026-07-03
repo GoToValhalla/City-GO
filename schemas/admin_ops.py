@@ -1,5 +1,27 @@
 from datetime import datetime
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
+
+AdminQueueType = Literal[
+    "route_blocker",
+    "auto_fix",
+    "manual_review",
+    "content_gap",
+    "taxonomy_gap",
+    "verification_backlog",
+    "operation",
+]
+AdminPrimaryAction = Literal[
+    "open_queue",
+    "run_auto_fix",
+    "review_items",
+    "fix_taxonomy",
+    "enrich_content",
+    "open_report",
+]
+AdminOwner = Literal["content", "data", "taxonomy", "automation", "platform"]
+AdminMobilePriority = Literal["high", "medium", "low"]
 
 
 class AdminActionCard(BaseModel):
@@ -9,14 +31,14 @@ class AdminActionCard(BaseModel):
     severity: str
     link_path: str
     hint: str | None = None
-    action_label: str | None = None
-    queue_type: str = "open_queue"
-    primary_action: str = "open_queue"
-    short_hint: str | None = None
+    action_label: str = "Открыть"
+    queue_type: AdminQueueType = "operation"
+    primary_action: AdminPrimaryAction = "open_queue"
+    short_hint: str = "Откройте раздел для проверки."
     sample_endpoint: str | None = None
-    owner: str = "platform"
+    owner: AdminOwner = "platform"
     is_human_actionable: bool = True
-    mobile_priority: str = "medium"
+    mobile_priority: AdminMobilePriority = "medium"
 
 
 class AdminOverviewResponse(BaseModel):

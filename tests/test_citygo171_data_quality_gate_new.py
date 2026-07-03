@@ -62,14 +62,19 @@ def test_citygo171_admin_overview_exposes_excluded_and_unknown_route_buckets_new
     db_session,
     place_factory,
 ) -> None:
-    place_factory(slug="route-false", is_route_eligible=False, is_published=True)
+    disabled = place_factory(slug="route-false", is_route_eligible=False, is_published=True)
+    disabled.canonical_category = "park"
+    unknown = place_factory(slug="route-unknown", title="Unknown Category", category="unknown", is_published=True)
+    unknown.canonical_category = "unknown"
+    db_session.commit()
 
     overview = build_admin_overview(db_session)
     card = next(item for item in overview["data_quality"] if item.code == "not_route_eligible")
     unknown_card = next(item for item in overview["data_quality"] if item.code == "route_unknown")
 
     assert card.count >= 1
-    assert unknown_card.count >= 0
+    assert unknown_card.count == 1
+    assert unknown_card.queue_type == "taxonomy_gap"
 
 
 @pytest.mark.parametrize(

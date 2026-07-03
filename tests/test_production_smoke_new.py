@@ -123,7 +123,7 @@ def test_production_smoke_fails_public_raw_warning_codes_new() -> None:
     result = validate_route_response(json.dumps(payload), 200)
 
     assert result.failed
-    assert result.detail == "raw_technical_codes_in_public_payload"
+    assert result.detail == "raw_technical_code_at_warnings[0]"
 
 
 def test_production_smoke_fails_public_raw_explanation_codes_new() -> None:
@@ -145,7 +145,44 @@ def test_production_smoke_fails_public_raw_explanation_codes_new() -> None:
     result = validate_route_response(json.dumps(payload), 200)
 
     assert result.failed
-    assert result.detail == "raw_technical_codes_in_public_payload"
+    assert result.detail == "raw_technical_code_at_explanation.warnings[0]"
+
+
+def test_route_smoke_reports_exact_raw_code_json_path_new() -> None:
+    payload = {
+        "status": "partial_route",
+        "quality_status": "weak",
+        "total_places": 1,
+        "total_estimated_minutes": 80,
+        "time_budget_minutes": 120,
+        "warnings": ["Маршрут короткий."],
+        "user_warnings": [{"type": "unknown_internal_code", "user_message": "Маршрут короткий."}],
+        "points": [{"title": "Museum", "category": "museum"}],
+    }
+
+    result = validate_route_response(json.dumps(payload), 200)
+
+    assert result.failed
+    assert result.detail == "raw_technical_code_at_user_warnings[0].type"
+
+
+def test_public_route_response_has_no_raw_technical_codes_recursive_new() -> None:
+    payload = {
+        "status": "partial_route",
+        "quality_status": "weak",
+        "partial_reason": "route_builder_v2_insufficient_points",
+        "total_places": 1,
+        "total_estimated_minutes": 80,
+        "time_budget_minutes": 120,
+        "warnings": ["Маршрут короткий."],
+        "user_warnings": [{"type": "route", "user_message": "Маршрут короткий."}],
+        "points": [{"title": "Museum", "category": "museum"}],
+    }
+
+    result = validate_route_response(json.dumps(payload), 200)
+
+    assert result.failed
+    assert result.detail == "raw_technical_code_at_partial_reason"
 
 
 def test_production_smoke_accepts_honest_weak_short_route_new() -> None:

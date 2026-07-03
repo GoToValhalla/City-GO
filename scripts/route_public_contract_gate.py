@@ -9,15 +9,22 @@ CI catch route warning/explanation contract regressions before a slow deploy.
 from __future__ import annotations
 
 import re
+import sys
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from schemas.user_route import UserRouteBuildRequest, UserRoutePoint, UserRouteState
+from services.public_route_sanitizer import sanitize_user_route_state
 from services.route_builder_v2_service import attach_route_builder_v2_result, build_route_builder_v2_plan_from_intent
 from services.route_finalize_types import FinalRoute
 from services.user_route_mapper import final_route_to_state
 
 RAW_TECHNICAL_CODE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+){1,}$")
-USER_FACING_ROUTE_FIELDS = ("warnings", "user_warnings", "user_explanation", "explanation")
+USER_FACING_ROUTE_FIELDS = ("partial_reason", "warnings", "user_warnings", "user_explanation", "explanation")
 SENSITIVE_ROUTE_DIAGNOSTIC_FIELDS = ("debug_trace",)
 PUBLIC_WARNING_TYPES = {"route", "data", "budget", "walk", "interest"}
 FORBIDDEN_DIAGNOSTIC_MARKERS = (
@@ -103,7 +110,7 @@ def _route_builder_v2_payload() -> Mapping[str, Any]:
         explanation={"warnings": ["route_builder_v2_insufficient_points"]},
         debug_trace=[],
     )
-    return attach_route_builder_v2_result(state, plan).model_dump(mode="json")
+    return sanitize_user_route_state(attach_route_builder_v2_result(state, plan)).model_dump(mode="json")
 
 
 def _preview_failure_payload() -> Mapping[str, Any]:
@@ -111,7 +118,7 @@ def _preview_failure_payload() -> Mapping[str, Any]:
     return UserRouteState(
         route_id="preview-unavailable",
         status="preview_failed",
-        partial_reason="route_preview_mapping_failed",
+        partial_reason="Маршрут не удалось предварительно собрать.",
         context=request,
         total_places=0,
         total_minutes=0,

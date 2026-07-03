@@ -3,7 +3,22 @@ import { Link } from 'react-router-dom'
 import { adminGet } from './adminApi'
 import { AdminError, AdminLoading } from './shared/AdminStates'
 
-type ActionCard = { code: string; title: string; count: number; severity: string; link_path: string; hint?: string | null; action_label?: string | null }
+type ActionCard = {
+  code: string
+  title: string
+  count: number
+  severity: string
+  link_path: string
+  hint?: string | null
+  action_label?: string | null
+  short_hint?: string | null
+  queue_type?: string
+  primary_action?: string
+  sample_endpoint?: string | null
+  owner?: string
+  is_human_actionable?: boolean
+  mobile_priority?: string
+}
 type Overview = { critical: ActionCard[]; data_quality: ActionCard[]; operations: ActionCard[]; recent_audit_count: number }
 
 const severityClass = (s: string) => `admin-severity admin-severity-${s}`
@@ -33,8 +48,8 @@ export const AdminOverviewPage = () => {
           <Link key={c.code} to={c.link_path} className={`admin-action-card ${severityClass(c.severity)}`} aria-label={`${c.title}: ${c.count}. ${actionLabel(c)}`}>
             <div className="admin-action-count">{c.count}</div>
             <div className="admin-action-title">{c.title}</div>
-            {c.hint && <div className="admin-action-hint">{c.hint}</div>}
-            <div className="admin-action-hint">{actionLabel(c)} →</div>
+            {(c.short_hint || c.hint) && <div className="admin-action-hint" data-testid={`overview-card-hint-${c.code}`}>{c.short_hint || c.hint}</div>}
+            <div className="admin-action-hint admin-action-card-action">{actionLabel(c)} →</div>
           </Link>
         ))}
       </div>

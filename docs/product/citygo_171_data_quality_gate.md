@@ -41,13 +41,29 @@ P0 hard exclusions for tourist walking routes include medical/healthcare, pharma
 
 Photo and address are not P0 hard blockers. They remain admin/scoring/backlog signals. Technical or missing addresses must use user-facing fallbacks such as `адрес уточняется`.
 
-## Admin metrics
+## Admin operator overview
 
-- `route_eligible`: `is_route_eligible IS TRUE`.
-- `route_excluded`: `is_route_eligible IS NOT TRUE`.
-- `route_unknown`: `is_route_eligible IS NULL` where legacy data can still contain nulls.
-- Admin overview exposes both `Исключены из маршрутов` and `Маршруты: нужно пересчитать`.
-- Places drill-down presets include route unknown, generic OSM placeholders, service/junk categories, published-but-not-route-eligible, route-eligible-without-photo and route-eligible-without-address.
+`/api/admin/overview` is an operator workflow panel, not a technical counter dump.
+Every card must include:
+
+- `queue_type`;
+- `primary_action`;
+- `short_hint`;
+- `sample_endpoint`;
+- `owner`;
+- `is_human_actionable`;
+- `mobile_priority`.
+
+Card copy must be short Russian operator language. User-facing card fields must not expose internal words such as `published/catalog`, `route policy`, `canonical category`, `taxonomy`, `enrichment/policy`, `verification backlog`, `critical confidence`, `is_route_eligible`, `route_builder`, `backend`, `SQL`, `bucket`, `eligible` or `policy`.
+
+The route cards are intentionally separated:
+
+- `route_blockers` / `Проблемы маршрутов`: aggregate of published places that will not enter routes because of route flag, missing coordinates, service category or unknown category.
+- `not_route_eligible` / `Отключены вручную`: only published places explicitly disabled from routes.
+- `route_unknown` / `Неизвестные категории`: published places that need category assignment.
+- `route_excluded` / `Сервисные точки`: published service POI that should stay out of tourist routes.
+
+Each card with `sample_endpoint` must match `/admin/places/search` total exactly. The frontend renders `short_hint` and does not show legacy long `hint` when `short_hint` exists.
 
 ## Diagnostics and recompute
 
@@ -75,6 +91,8 @@ It does not mass-unpublish places.
 ## Smoke behavior
 
 Production smoke fails on hard-excluded route categories, generic OSM route titles, raw technical public warnings and 2x+ budget overflow without an honest weak/partial explanation.
+
+User-facing route fields include `partial_reason`, `warnings`, `user_warnings`, `user_explanation` and `explanation`. Raw snake_case values in those fields must fail with an exact JSON path, for example `raw_technical_code_at_user_warnings[0].type`.
 
 ## 2026-07-03 follow-up
 

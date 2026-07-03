@@ -93,73 +93,48 @@ jobs:
                           "hint": card.get("hint"),
                           "action_label": card.get("action_label"),
                           "link_path": card.get("link_path"),
+                          "queue_type": card.get("queue_type"),
+                          "primary_action": card.get("primary_action"),
+                          "short_hint": card.get("short_hint"),
+                          "sample_endpoint": card.get("sample_endpoint"),
+                          "owner": card.get("owner"),
+                          "mobile_priority": card.get("mobile_priority"),
                       }
                   )
 
-          drilldown_specs = {
-              "manual_review": "/api/admin/places/search?publication_status=needs_review&limit={limit}",
-              "auto_backlog": "/api/admin/places/search?publication_status=auto_backlog&limit={limit}",
-              "needs_verification": "/api/admin/places/search?verification_status=needs_recheck&limit={limit}",
-              "not_in_routes": "/api/admin/places/search?preset=not_in_routes&limit={limit}",
-              "route_unknown": "/api/admin/places/search?preset=route_unknown&limit={limit}",
-              "service_places": "/api/admin/places/search?preset=service_places&limit={limit}",
-              "no_photo": "/api/admin/places/search?preset=no_photo&limit={limit}",
-              "no_address": "/api/admin/places/search?preset=no_address&limit={limit}",
-              "no_description": "/api/admin/places/search?preset=no_description&limit={limit}",
-              "low_confidence": "/api/admin/places/search?low_confidence=true&limit={limit}",
-          }
+          def api_path(path: str) -> str:
+              clean = str(path or "").strip()
+              if clean.startswith("/api/"):
+                  return clean
+              return f"/api/{clean.lstrip('/')}"
+
+          def with_limit(path: str) -> str:
+              separator = "&" if "?" in path else "?"
+              return f"{path}{separator}limit={urllib.parse.quote(LIMIT)}"
+
           drilldowns: dict[str, Any] = {}
-          for code, template in drilldown_specs.items():
-              path = template.format(limit=urllib.parse.quote(LIMIT))
+          for card in cards:
+              endpoint = card.get("sample_endpoint")
+              if not endpoint:
+                  continue
+              code = str(card.get("code") or "")
+              path = with_limit(api_path(str(endpoint)))
               payload = get_json(path)
-              items = payload.get("items") or []
-              safe_items = []
-              if isinstance(items, list):
-                  for item in items[:3]:
-                      if isinstance(item, dict):
-                          safe_items.append(
-                              {
-                                  "id": item.get("id"),
-                                  "slug": item.get("slug"),
-                                  "title": item.get("title"),
-                                  "publication_status": item.get("publication_status"),
-                                  "verification_status": item.get("verification_status"),
-                                  "category": item.get("category"),
-                                  "canonical_category": item.get("canonical_category"),
-                                  "is_published": item.get("is_published"),
-                                  "is_route_eligible": item.get("is_route_eligible"),
-                              }
-                          )
               drilldowns[code] = {
                   "path": path,
                   "total": payload.get("total"),
-                  "sample": safe_items,
               }
 
           card_by_code = {str(card.get("code")): card for card in cards}
           consistency = []
-          mapping = {
-              "manual_review": "manual_review",
-              "auto_backlog": "auto_backlog",
-              "needs_verification": "needs_verification",
-              "route_blockers": "not_in_routes",
-              "not_route_eligible": "not_in_routes",
-              "route_unknown": "route_unknown",
-              "route_excluded": "service_places",
-              "no_photo": "no_photo",
-              "no_address": "no_address",
-              "no_description": "no_description",
-              "low_confidence": "low_confidence",
-          }
-          for card_code, drill_code in mapping.items():
-              if card_code in card_by_code and drill_code in drilldowns:
+          for card_code, card in card_by_code.items():
+              if card_code in drilldowns:
                   consistency.append(
                       {
                           "card_code": card_code,
-                          "card_count": card_by_code[card_code].get("count"),
-                          "drilldown_code": drill_code,
-                          "drilldown_total": drilldowns[drill_code].get("total"),
-                          "matches": card_by_code[card_code].get("count") == drilldowns[drill_code].get("total"),
+                          "card_count": card.get("count"),
+                          "drilldown_total": drilldowns[card_code].get("total"),
+                          "matches": card.get("count") == drilldowns[card_code].get("total"),
                       }
                   )
 
@@ -172,10 +147,17 @@ jobs:
               "verification backlog",
               "critical confidence",
               "is_route_eligible",
+              "route_builder",
+              "backend",
+              "sql",
+              "bucket",
+              "status_",
+              "eligible",
+              "policy",
           )
           technical_copy = []
           for card in cards:
-              text = " ".join(str(card.get(key) or "") for key in ("title", "hint", "action_label")).lower()
+              text = " ".join(str(card.get(key) or "") for key in ("title", "hint", "action_label", "short_hint")).lower()
               hits = [term for term in forbidden_terms if term in text]
               if hits:
                   technical_copy.append({"code": card.get("code"), "hits": hits})
@@ -196,7 +178,7 @@ jobs:
           summary_lines.append("Drilldown consistency:")
           for row in consistency:
               mark = "OK" if row["matches"] else "MISMATCH"
-              summary_lines.append(f"- {mark} {row['card_code']}: card={row['card_count']} drilldown={row['drilldown_total']} ({row['drilldown_code']})")
+              summary_lines.append(f"- {mark} {row['card_code']}: card={row['card_count']} drilldown={row['drilldown_total']}")
           summary_lines.append("")
           summary_lines.append("Technical copy hits:")
           if technical_copy:

@@ -92,6 +92,7 @@ FORBIDDEN_ROUTE_JUNK = HARD_EXCLUDED_CATEGORIES | frozenset(
 )
 MAX_NORMAL_ROUTE_BUDGET_OVERFLOW_RATIO = 2.0
 USER_FACING_ROUTE_FIELDS = (
+    "partial_reason",
     "warnings",
     "user_warnings",
     "user_explanation",
@@ -281,8 +282,9 @@ def validate_route_response(raw: str, http_status: int) -> SmokeResult:
         return SmokeResult("route_quick", "failed", f"status_{status}", http_status)
     if _contains_forbidden_route_junk(points):
         return SmokeResult("route_quick", "failed", "route_contains_forbidden_junk", http_status)
-    if _public_payload_has_raw_technical_codes(payload):
-        return SmokeResult("route_quick", "failed", "raw_technical_codes_in_public_payload", http_status)
+    raw_code_path = _public_payload_raw_technical_code_path(payload)
+    if raw_code_path:
+        return SmokeResult("route_quick", "failed", f"raw_technical_code_at_{raw_code_path}", http_status)
     if _has_large_budget_overflow(payload) and not has_honest_reason:
         return SmokeResult("route_quick", "failed", "route_budget_overflow", http_status)
 
@@ -321,23 +323,30 @@ def _contains_forbidden_route_junk(points: Sequence[Any]) -> bool:
     return False
 
 
-def _public_payload_has_raw_technical_codes(payload: Mapping[str, Any]) -> bool:
+def _public_payload_raw_technical_code_path(payload: Mapping[str, Any]) -> str:
     for field in USER_FACING_ROUTE_FIELDS:
-        if _contains_raw_code(payload.get(field)):
-            return True
-    return False
+        path = _raw_code_path(payload.get(field), field)
+        if path:
+            return path
+    return ""
 
 
-def _contains_raw_code(value: Any) -> bool:
+def _raw_code_path(value: Any, path: str) -> str:
     if value is None:
-        return False
+        return ""
     if isinstance(value, str):
-        return bool(RAW_TECHNICAL_CODE.fullmatch(value.strip()))
+        return path if RAW_TECHNICAL_CODE.fullmatch(value.strip()) else ""
     if isinstance(value, Mapping):
-        return any(_contains_raw_code(item) for item in value.values())
+        for key, item in value.items():
+            nested = _raw_code_path(item, f"{path}.{key}")
+            if nested:
+                return nested
     if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
-        return any(_contains_raw_code(item) for item in value)
-    return False
+        for index, item in enumerate(value):
+            nested = _raw_code_path(item, f"{path}[{index}]")
+            if nested:
+                return nested
+    return ""
 
 
 def _has_honest_weak_reason(status: str, quality_status: str, partial_reason: str, payload: Mapping[str, Any]) -> bool:

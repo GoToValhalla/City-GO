@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Sequence
 
-from schemas.user_route import UserRouteState
+from schemas.user_route import RouteUserWarning, UserRouteState
 from services.route_user_warnings import route_warning_message
 
 RAW_TECHNICAL_CODE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+){1,}$")
@@ -23,6 +23,7 @@ def sanitize_user_route_state(state: UserRouteState) -> UserRouteState:
     explanation = _sanitize_value(dict(state.explanation or {}))
     return state.model_copy(
         update={
+            "partial_reason": _public_text(state.partial_reason),
             "warnings": warnings,
             "user_warnings": user_warnings,
             "warning_count": len(warnings) if warnings else len(user_warnings),
@@ -32,7 +33,7 @@ def sanitize_user_route_state(state: UserRouteState) -> UserRouteState:
     )
 
 
-def _public_warning_item(value: Any) -> dict[str, object]:
+def _public_warning_item(value: Any) -> RouteUserWarning:
     data = _as_mapping(value)
     kind = str(data.get("type") or "route").strip()
     severity = str(data.get("severity") or "warning").strip()
@@ -43,13 +44,13 @@ def _public_warning_item(value: Any) -> dict[str, object]:
         kind = "route"
     if severity not in PUBLIC_SEVERITIES:
         severity = "warning"
-    return {
-        "type": kind,
-        "severity": severity,
-        "user_message": message or route_warning_message("unknown_internal_code"),
-        "affected_place_ids": [str(item) for item in place_ids] if isinstance(place_ids, Sequence) and not isinstance(place_ids, (str, bytes, bytearray)) else [],
-        "action_hint": hint or DEFAULT_ACTION_HINT,
-    }
+    return RouteUserWarning(
+        type=kind,
+        severity=severity,
+        user_message=message or route_warning_message("unknown_internal_code"),
+        affected_place_ids=[str(item) for item in place_ids] if isinstance(place_ids, Sequence) and not isinstance(place_ids, (str, bytes, bytearray)) else [],
+        action_hint=hint or DEFAULT_ACTION_HINT,
+    )
 
 
 def _sanitize_value(value: Any) -> Any:

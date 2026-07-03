@@ -95,7 +95,7 @@ def test_production_route_smoke_allows_honest_weak_route_but_blocks_junk() -> No
     weak_payload = {
         "status": "partial_route",
         "quality_status": "weak",
-        "partial_reason": "not_enough_route_points",
+        "partial_reason": "Маршрут короткий: в городе мало готовых данных.",
         "total_places": 2,
         "points": [_route_payload_point("1", "Museum", "museum"), _route_payload_point("2", "Park", "park")],
         "user_warnings": [{"user_message": "Маршрут короткий: в городе мало готовых данных."}],
@@ -132,7 +132,7 @@ def test_production_route_smoke_fails_raw_technical_user_facing_warning_codes() 
     result = validate_route_response(json.dumps(payload), 200)
 
     assert result.failed is True
-    assert result.detail == "raw_technical_codes_in_public_payload"
+    assert result.detail == "raw_technical_code_at_user_warnings[0].user_message"
 
 
 def _quality_point(category: str) -> SimpleNamespace:

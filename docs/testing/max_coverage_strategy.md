@@ -96,9 +96,12 @@ CI должен сообщать о сломанном продукте рань
 - user_warnings;
 - user_warnings.type;
 - user_warnings.user_message;
+- partial_reason;
 - user_explanation;
 - explanation;
 - route_builder_v2 public explanation.
+
+Production smoke and local contract tests must report the exact JSON path for raw code leaks, not only a generic payload failure.
 
 ### Pairwise / Combinatorial Testing
 

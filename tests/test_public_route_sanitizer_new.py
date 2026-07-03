@@ -40,9 +40,31 @@ def test_public_route_sanitizer_removes_nested_raw_codes_from_user_facing_fields
     sanitized = sanitize_user_route_state(state)
     payload = sanitized.model_dump()
 
+    assert payload["partial_reason"] == "После проверки осталось мало подходящих точек."
     assert payload["warnings"] == ["После проверки осталось мало подходящих точек."]
     assert payload["user_warnings"][0]["type"] == "route"
     assert payload["user_warnings"][0]["user_message"] == "После проверки осталось мало подходящих точек."
     assert payload["user_warnings"][0]["action_hint"] == "Из маршрута убраны неподходящие сервисные точки."
     assert payload["explanation"]["nested"]["reason"] == "Маршрут собран с ограничениями по данным."
     assert validate_route_response(json.dumps(payload, ensure_ascii=False), 200).ok
+
+
+def test_public_route_sanitizer_sanitizes_partial_reason_new() -> None:
+    state = UserRouteState(
+        route_id="route-partial",
+        status="partial_route",
+        partial_reason="unknown_internal_code",
+        context=UserRouteIntent(lat=40.0, lng=44.0, city_id="yerevan"),
+        total_places=1,
+        total_minutes=30,
+        total_estimated_minutes=30,
+        estimated_distance=500.0,
+        has_warnings=False,
+        warning_count=0,
+        quality_score=0.4,
+        quality_status="weak",
+    )
+
+    sanitized = sanitize_user_route_state(state)
+
+    assert sanitized.partial_reason == "Маршрут собран с ограничениями по данным."

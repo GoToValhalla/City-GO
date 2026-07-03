@@ -18,6 +18,7 @@ MANUAL_REVIEW_STATUSES = ("needs_review", "needs_manual_review", "deferred")
 AUTO_BACKLOG_STATUSES = ("draft", "auto_backlog", "low_confidence")
 VERIFICATION_QUEUE_STATUSES = ("needs_recheck", "unverified")
 MIN_DESCRIPTION_LENGTH = 40
+GENERIC_DESCRIPTION_MARKERS = ("описание будет добавлено", "нет описания", "description pending", "todo", "вставьте описание")
 
 
 def _search_terms(value: str) -> tuple[str, ...]:
@@ -38,15 +39,20 @@ def apply_place_preset(query: Query, preset: str) -> Query:
         "manual_review": lambda q: q.filter(Place.publication_status.in_(MANUAL_REVIEW_STATUSES)),
         "auto_backlog": lambda q: q.filter(Place.publication_status.in_(AUTO_BACKLOG_STATUSES)),
         "needs_verification": lambda q: q.filter(Place.verification_status.in_(VERIFICATION_QUEUE_STATUSES)),
+        "route_blockers": lambda q: q.filter(_route_blocker_clause()),
         "not_in_routes": lambda q: q.filter(Place.is_published.is_(True), Place.is_route_eligible.is_not(True)),
-        "route_unknown": lambda q: q.filter(or_(Place.canonical_category.is_(None), Place.canonical_category == "unknown", Place.category == "unknown")),
+        "route_unknown": lambda q: q.filter(_published_catalog_clause(), _unknown_category_clause()),
         "in_routes": lambda q: q.filter(Place.is_route_eligible.is_(True), Place.is_published.is_(True)),
-        "published_not_route_eligible": lambda q: q.filter(Place.is_published.is_(True), Place.is_route_eligible.is_not(True)),
+        "published_not_route_eligible": lambda q: q.filter(_published_catalog_clause(), Place.is_route_eligible.is_(False)),
+        "published_no_photo": lambda q: q.filter(_published_catalog_clause(), or_(Place.image_url.is_(None), Place.image_url == "")),
+        "published_no_address": lambda q: q.filter(_published_catalog_clause(), or_(Place.address.is_(None), Place.address == "")),
+        "published_no_description": lambda q: q.filter(_published_catalog_clause(), _description_missing_clause()),
+        "published_low_confidence": lambda q: q.filter(_published_catalog_clause(), Place.existence_confidence_level.in_(("low", "unknown"))),
         "route_eligible_no_photo": lambda q: q.filter(Place.is_route_eligible.is_(True), or_(Place.image_url.is_(None), Place.image_url == "")),
         "route_eligible_no_address": lambda q: q.filter(Place.is_route_eligible.is_(True), or_(Place.address.is_(None), Place.address == "")),
         "generic_osm_placeholders": lambda q: q.filter(_placeholder_clause()),
         "junk_categories": lambda q: q.filter(_canonical_category_clause(JUNK_CATEGORIES)),
-        "service_places": lambda q: q.filter(_canonical_category_clause(SERVICE_CATEGORIES)),
+        "service_places": lambda q: q.filter(_published_catalog_clause(), _canonical_category_clause(SERVICE_CATEGORIES)),
         "problematic": lambda q: q.filter(or_(
             Place.image_url.is_(None),
             Place.address.is_(None),
@@ -132,11 +138,13 @@ def _presence_filter(query: Query, column, value: bool | None) -> Query:
 
 
 def _description_missing_clause():
+    text = func.lower(func.trim(Place.short_description))
     return or_(
         Place.short_description.is_(None),
         Place.short_description == "",
         Place.short_description == Place.title,
         func.length(func.trim(Place.short_description)) < MIN_DESCRIPTION_LENGTH,
+        *[text.contains(marker) for marker in GENERIC_DESCRIPTION_MARKERS],
     )
 
 
@@ -146,3 +154,21 @@ def _canonical_category_clause(values: tuple[str, ...]):
 
 def _placeholder_clause():
     return or_(*tuple(Place.title.ilike(pattern) for pattern in PLACEHOLDER_SQL_PATTERNS))
+
+
+def _published_catalog_clause():
+    return Place.is_active.is_(True) & Place.is_published.is_(True) & Place.is_visible_in_catalog.is_(True) & or_(Place.status.is_(None), Place.status == "active")
+
+
+def _unknown_category_clause():
+    return or_(Place.canonical_category.is_(None), Place.canonical_category == "unknown", Place.category == "unknown")
+
+
+def _route_blocker_clause():
+    return _published_catalog_clause() & or_(
+        Place.is_route_eligible.is_not(True),
+        Place.lat.is_(None),
+        Place.lng.is_(None),
+        _canonical_category_clause(SERVICE_CATEGORIES),
+        _unknown_category_clause(),
+    )
