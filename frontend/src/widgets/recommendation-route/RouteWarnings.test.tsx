@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { cleanup, render, screen, within } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 import { RouteWarnings } from './RouteWarnings'
 import type { RecommendationRouteResponse, RouteUserWarning } from '../../api/recommendations/recommendationRoute.types'
 
@@ -26,6 +26,10 @@ const userWarning = (type: string, userMessage: string, actionHint?: string): Ro
   user_message: userMessage,
   affected_place_ids: [],
   ...(actionHint ? { action_hint: actionHint } : {}),
+})
+
+afterEach(() => {
+  cleanup()
 })
 
 describe('RouteWarnings', () => {
