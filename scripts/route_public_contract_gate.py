@@ -8,9 +8,7 @@ CI catch route warning/explanation contract regressions before a slow deploy.
 
 from __future__ import annotations
 
-import json
 import re
-from types import SimpleNamespace
 from typing import Any, Mapping, Sequence
 
 from schemas.user_route import UserRouteBuildRequest, UserRoutePoint, UserRouteState
@@ -19,8 +17,21 @@ from services.route_finalize_types import FinalRoute
 from services.user_route_mapper import final_route_to_state
 
 RAW_TECHNICAL_CODE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+){1,}$")
-USER_FACING_ROUTE_FIELDS = ("warnings", "user_warnings", "explanation")
+USER_FACING_ROUTE_FIELDS = ("warnings", "user_warnings", "user_explanation", "explanation")
+SENSITIVE_ROUTE_DIAGNOSTIC_FIELDS = ("debug_trace",)
 PUBLIC_WARNING_TYPES = {"route", "data", "budget", "walk", "interest"}
+FORBIDDEN_DIAGNOSTIC_MARKERS = (
+    "secret",
+    "token",
+    "password",
+    "passwd",
+    "bearer ",
+    "authorization",
+    "database_url",
+    "postgres://",
+    "sqlite:///",
+    "traceback",
+)
 
 
 def main() -> int:
@@ -40,6 +51,7 @@ def _sample_payloads() -> dict[str, Mapping[str, Any]]:
     return {
         "mapper_warning_sanitization": _mapper_warning_payload(),
         "route_builder_v2_output_gate": _route_builder_v2_payload(),
+        "preview_failure_diagnostics": _preview_failure_payload(),
     }
 
 
@@ -94,6 +106,26 @@ def _route_builder_v2_payload() -> Mapping[str, Any]:
     return attach_route_builder_v2_result(state, plan).model_dump(mode="json")
 
 
+def _preview_failure_payload() -> Mapping[str, Any]:
+    request = UserRouteBuildRequest(lat=43.238949, lng=76.889709, city_id="almaty", time_budget_minutes=120)
+    return UserRouteState(
+        route_id="preview-unavailable",
+        status="preview_failed",
+        partial_reason="route_preview_mapping_failed",
+        context=request,
+        total_places=0,
+        total_minutes=0,
+        total_estimated_minutes=0,
+        estimated_distance=0.0,
+        has_warnings=True,
+        warning_count=1,
+        quality_score=0.0,
+        quality_status="failed",
+        warnings=["Маршрут не удалось предварительно собрать."],
+        debug_trace=[{"stage": "preview_response_mapping", "status": "failed", "message": "Preview route build failed."}],
+    ).model_dump(mode="json")
+
+
 def _point(place_id: str, category: str, title: str) -> UserRoutePoint:
     return UserRoutePoint(
         place_id=place_id,
@@ -114,6 +146,10 @@ def _validate_public_payload(payload: Mapping[str, Any]) -> list[str]:
         raw_path = _first_raw_code_path(payload.get(field), field)
         if raw_path:
             failures.append(f"raw technical code leaked at {raw_path}")
+    for field in SENSITIVE_ROUTE_DIAGNOSTIC_FIELDS:
+        leak_path = _first_sensitive_diagnostic_path(payload.get(field), field)
+        if leak_path:
+            failures.append(f"sensitive diagnostic detail leaked at {leak_path}")
     for index, warning in enumerate(payload.get("user_warnings") or []):
         if not isinstance(warning, Mapping):
             failures.append(f"user_warnings[{index}] is not an object")
@@ -140,6 +176,25 @@ def _first_raw_code_path(value: Any, path: str) -> str:
     elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
         for index, item in enumerate(value):
             nested = _first_raw_code_path(item, f"{path}[{index}]")
+            if nested:
+                return nested
+    return ""
+
+
+def _first_sensitive_diagnostic_path(value: Any, path: str) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        lowered = value.casefold()
+        return path if any(marker in lowered for marker in FORBIDDEN_DIAGNOSTIC_MARKERS) else ""
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            nested = _first_sensitive_diagnostic_path(item, f"{path}.{key}")
+            if nested:
+                return nested
+    elif isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+        for index, item in enumerate(value):
+            nested = _first_sensitive_diagnostic_path(item, f"{path}[{index}]")
             if nested:
                 return nested
     return ""
