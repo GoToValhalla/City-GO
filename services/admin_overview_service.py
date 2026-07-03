@@ -13,7 +13,7 @@ from models.city_import_job import CityImportJob
 from models.place import Place
 from models.place_image import PLACE_IMAGE_STATUS_NEEDS_REVIEW, PlaceImage
 from schemas.admin_ops import AdminActionCard
-from services.route_eligibility_policy import evaluate_place_route_eligibility
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
 
 LOW_CONFIDENCE_LEVELS = ("low", "unknown")
 VERIFICATION_QUEUE_STATUSES = ("needs_recheck", "unverified")
@@ -22,6 +22,7 @@ AUTO_BACKLOG_STATUSES = ("draft", "auto_backlog", "low_confidence")
 ACTIVE_IMPORT_STATUSES = ("pending", "running")
 MIN_DESCRIPTION_LENGTH = 40
 GENERIC_DESCRIPTION_MARKERS = ("описание будет добавлено", "нет описания", "description pending", "todo")
+EXCLUDED_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES))
 
 
 def _card(code: str, title: str, count: int, severity: str, link_path: str, hint: str | None = None, action_label: str | None = None) -> AdminActionCard:
@@ -31,21 +32,19 @@ def _card(code: str, title: str, count: int, severity: str, link_path: str, hint
 def build_admin_overview(db: Session) -> dict[str, object]:
     place_counts = _place_overview_counts(db)
     policy_counts = _policy_counts(db)
-    pending_photos = _count_pending_photos(db)
-    stuck_imports = _count_active_imports(db)
-    cities_weak = _count_active_cities(db)
-    audit_recent = _count_audit_rows(db)
+    ops = _operational_counts(db)
 
     critical = [
         card
         for card in [
-            _card("pending_photos", "Фото на модерации", pending_photos, "red" if pending_photos else "green", "/admin/photos", action_label="Открыть фото"),
-            _card("stuck_imports", "Зависшие импорты", stuck_imports, "yellow" if stuck_imports else "green", "/admin/imports", action_label="Открыть импорты"),
+            _card("pending_photos", "Фото на модерации", ops["pending_photos"], "red" if ops["pending_photos"] else "green", "/admin/photos", action_label="Открыть фото"),
+            _card("stuck_imports", "Зависшие импорты", ops["stuck_imports"], "yellow" if ops["stuck_imports"] else "green", "/admin/imports", action_label="Открыть импорты"),
         ]
         if card.count > 0 or card.code == "pending_photos"
     ]
     data_quality = [
         _card("route_blockers", "Не попадут в маршруты", policy_counts["blocked"], _sev(policy_counts["blocked"], 10, 100), "/admin/places?preset=not_in_routes", "Published/catalog places, которые не проходят route policy.", "Открыть блокеры"),
+        _card("not_route_eligible", "Исключены из маршрутов", policy_counts["not_route_eligible"], _sev(policy_counts["not_route_eligible"], 10, 100), "/admin/places?preset=not_in_routes", "Опубликованные места с is_route_eligible=false.", "Открыть исключённые"),
         _card("route_unknown", "Маршруты: неизвестная категория", policy_counts["unknown"], _sev(policy_counts["unknown"], 10, 100), "/admin/places?preset=route_unknown", "Нужно исправить canonical category или пересчитать taxonomy.", "Открыть unknown"),
         _card("route_excluded", "Сервисные точки опубликованы", policy_counts["excluded"], _sev(policy_counts["excluded"], 1, 20), "/admin/places?preset=service_places", "Сервисные точки в published/catalog слое.", "Открыть сервисные"),
         _card("auto_backlog", "Автоочередь enrichment/policy", place_counts["auto_backlog"], _sev(place_counts["auto_backlog"], 500, 5000), "/admin/places?publication=auto_backlog", "Не ручная модерация: запускать автообогащение и пересчёт policy.", "Открыть авто"),
@@ -56,8 +55,8 @@ def build_admin_overview(db: Session) -> dict[str, object]:
         _card("no_description", "Без описания", place_counts["no_description"], _sev(place_counts["no_description"], 40, 200), "/admin/places?preset=no_description", "Пустое или слишком короткое описание.", "Открыть описания"),
         _card("low_confidence", "Низкая уверенность", place_counts["low_confidence"], _sev(place_counts["low_confidence"], 15, 80), "/admin/places?confidence=true", "Critical confidence bucket, не общая ручная очередь.", "Открыть confidence"),
     ]
-    operations = [_card("cities_total", "Активных городов", cities_weak, "green", "/admin/cities", action_label="Открыть города")]
-    return {"critical": critical, "data_quality": data_quality, "operations": operations, "recent_audit_count": audit_recent, "generated_at": datetime.utcnow()}
+    operations = [_card("cities_total", "Активных городов", ops["active_cities"], "green", "/admin/cities", action_label="Открыть города")]
+    return {"critical": critical, "data_quality": data_quality, "operations": operations, "recent_audit_count": ops["audit_recent"], "generated_at": datetime.utcnow()}
 
 
 def _place_overview_counts(db: Session) -> dict[str, int]:
@@ -75,23 +74,39 @@ def _place_overview_counts(db: Session) -> dict[str, int]:
 
 
 def _policy_counts(db: Session) -> dict[str, int]:
-    places = db.query(Place).filter(_published_catalog_condition()).all()
-    blocked = 0
-    unknown = 0
-    excluded = 0
-    for place in places:
-        verdict = evaluate_place_route_eligibility(place, require_stored_flag=False)
-        if not verdict.eligible:
-            blocked += 1
-        if verdict.admin_bucket == "route_unknown":
-            unknown += 1
-        if verdict.admin_bucket == "route_excluded":
-            excluded += 1
-    return {"blocked": blocked, "unknown": unknown, "excluded": excluded}
+    published = _published_catalog_condition()
+    excluded = _excluded_category_condition()
+    unknown = _unknown_category_condition()
+    blocked = published & or_(Place.is_route_eligible.is_not(True), Place.lat.is_(None), Place.lng.is_(None), excluded, unknown)
+    row = db.query(
+        func.sum(case((blocked, 1), else_=0)).label("blocked"),
+        func.sum(case((published & Place.is_route_eligible.is_not(True), 1), else_=0)).label("not_route_eligible"),
+        func.sum(case((published & unknown, 1), else_=0)).label("unknown"),
+        func.sum(case((published & excluded, 1), else_=0)).label("excluded"),
+    ).one()
+    return {key: int(getattr(row, key) or 0) for key in ("blocked", "not_route_eligible", "unknown", "excluded")}
+
+
+def _operational_counts(db: Session) -> dict[str, int]:
+    row = db.query(
+        db.query(func.count(PlaceImage.id)).filter(PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW).scalar_subquery().label("pending_photos"),
+        db.query(func.count(CityImportJob.id)).filter(CityImportJob.status.in_(ACTIVE_IMPORT_STATUSES)).scalar_subquery().label("stuck_imports"),
+        db.query(func.count(City.id)).filter(City.is_active.is_(True), City.launch_status == "published").scalar_subquery().label("active_cities"),
+        db.query(func.count(AdminAuditLog.id)).scalar_subquery().label("audit_recent"),
+    ).one()
+    return {key: int(getattr(row, key) or 0) for key in ("pending_photos", "stuck_imports", "active_cities", "audit_recent")}
 
 
 def _published_catalog_condition():
     return Place.is_active.is_(True) & Place.is_published.is_(True) & Place.is_visible_in_catalog.is_(True) & or_(Place.status.is_(None), Place.status == "active")
+
+
+def _excluded_category_condition():
+    return or_(Place.canonical_category.in_(EXCLUDED_CATEGORIES), Place.category.in_(EXCLUDED_CATEGORIES))
+
+
+def _unknown_category_condition():
+    return or_(Place.canonical_category.is_(None), Place.canonical_category == "unknown", Place.category == "unknown")
 
 
 def _missing_text(column):
@@ -101,22 +116,6 @@ def _missing_text(column):
 def _missing_description_condition():
     text = func.lower(func.trim(Place.short_description))
     return or_(Place.short_description.is_(None), func.length(func.trim(Place.short_description)) < MIN_DESCRIPTION_LENGTH, text == func.lower(func.trim(Place.title)), *[text.contains(marker) for marker in GENERIC_DESCRIPTION_MARKERS])
-
-
-def _count_pending_photos(db: Session) -> int:
-    return int(db.query(func.count(PlaceImage.id)).filter(PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW).scalar() or 0)
-
-
-def _count_active_imports(db: Session) -> int:
-    return int(db.query(func.count(CityImportJob.id)).filter(CityImportJob.status.in_(ACTIVE_IMPORT_STATUSES)).scalar() or 0)
-
-
-def _count_active_cities(db: Session) -> int:
-    return int(db.query(func.count(City.id)).filter(City.is_active.is_(True), City.launch_status == "published").scalar() or 0)
-
-
-def _count_audit_rows(db: Session) -> int:
-    return int(db.query(func.count(AdminAuditLog.id)).scalar() or 0)
 
 
 def _sev(count: int, yellow: int, red: int) -> str:
