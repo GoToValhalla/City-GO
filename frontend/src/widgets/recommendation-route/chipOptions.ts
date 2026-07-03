@@ -14,6 +14,8 @@ export const interestOptions: InterestOption[] = [
   { value: 'museum', label: 'Музеи' },
 ]
 
+// Public route controls must expose only categories that can become tourist route stops.
+// Catalogue counters may still include blocked categories, but route chips and add-place controls must not suggest them.
 const routeBlockedCategoryValues = new Set([
   'medical', 'medicine', 'health', 'healthcare', 'hospital', 'clinic', 'pharmacy', 'apteka', 'здоровье', 'медицина', 'аптека',
   'bank', 'atm', 'parking', 'fuel', 'toilet', 'toilets', 'public_toilet', 'банк', 'банкомат', 'парковка', 'туалет',
