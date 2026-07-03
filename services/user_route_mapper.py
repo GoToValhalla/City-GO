@@ -8,7 +8,7 @@ from services.explainability_service import ExplainabilityService
 from services.route_assembly_service import RoutePoint
 from services.route_finalize_service import FinalRoute
 from services.route_navigation_service import navigation_payload
-from services.route_user_warnings import user_warnings
+from services.route_user_warnings import route_warning_message, user_warnings
 
 UNKNOWN_ADDRESS = "Адрес уточняется"
 UNKNOWN_TITLE = "Место без названия"
@@ -23,6 +23,7 @@ def final_route_to_state(
 ) -> UserRouteState:
     explanation = ExplainabilityService().build_route_explanation(final)
     points = list(getattr(final, "points", []) or [])
+    raw_warnings = [str(item) for item in getattr(final, "warnings", []) or []]
     return UserRouteState(
         route_id=str(final.route_id),
         revision=revision,
@@ -43,7 +44,7 @@ def final_route_to_state(
         total_walk_distance_meters=int(getattr(final, "total_walk_distance_meters", 0) or 0),
         time_breakdown=dict(getattr(final, "time_breakdown", {}) or {}),
         category_distribution=dict(getattr(final, "category_distribution", {}) or {}),
-        warnings=list(getattr(final, "warnings", []) or []),
+        warnings=[route_warning_message(code) for code in raw_warnings],
         user_warnings=user_warnings(final),
         points=[_point_to_schema(index, point) for index, point in enumerate(points, 1)],
         candidate_options=[_point_to_schema(index, point) for index, point in enumerate(getattr(final, "candidate_options", []) or [], 1)],
