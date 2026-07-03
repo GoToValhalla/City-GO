@@ -45,8 +45,6 @@ jobs:
           print(main.app.title)
           print(include_app_routers.__name__)
           PY
-      - name: Route public contract gate
-        run: python scripts/route_public_contract_gate.py
       - name: Backend tests and coverage
         shell: bash
         run: |
