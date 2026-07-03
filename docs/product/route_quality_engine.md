@@ -34,6 +34,11 @@ CI #2032 exposed a threshold conflict introduced during smoke hardening. The res
 - 120+ minute sparse routes remain `weak` through the long-route quality guard.
 - Production smoke keeps a local 2-point minimum for post-deploy tolerance and accepts honest `partial_route`/`weak` responses when the payload explains the shortage.
 
+## CITYGO-171 note
+
+CITYGO-171 is now the blocking prerequisite for further route UX expansion. See `docs/product/citygo_171_data_quality_gate.md`.
+
 ## Remaining
 
 - The full route assembly optimizer was not rewritten in this pass. The production-safe layer makes weak routes honest first; further optimizer tuning can improve point selection quality.
+- Continue route UI/session/constructor work only after CITYGO-171 data quality gate is verified.
