@@ -20,6 +20,12 @@ Main files:
 - `services/place_auto_repair_service.py`
 - `tests/test_user_route_slot_session_and_import_repair.py`
 
+Stabilized after CI:
+
+- Auto-repair review backlog no longer changes successful job status to `success_with_warnings` by itself.
+- Photo enrichment can finish as `success` with zero created photos while still exposing details and auto-repair summary.
+- Full import status is tied to import/source warnings, not auto-repair `needs_review` count.
+
 ## CITYGO-166
 
 Completed now:
@@ -39,6 +45,12 @@ Main files:
 - `services/user_route_build_service.py`
 - `services/route_builder_v2_service.py`
 
+Stabilized after CI:
+
+- `routeSlots` is optional outside constructor mode.
+- Frontend consumers normalize missing slots to `[]`, so auto/category route forms do not crash when the user has not opened the constructor.
+- Slot plan test contract now includes explicit `slot_id`, `category`, `duration`, and `selected_place_id` fields.
+
 ## CITYGO-167
 
 Completed now:
@@ -55,6 +67,13 @@ Main files:
 - `routers/user_routes.py`
 - `frontend/src/widgets/recommendation-route/RouteResultPanel.tsx`
 - `tests/test_user_route_slot_session_and_import_repair.py`
+
+## Related stabilization outside 163/166/167
+
+- Route quality thresholds are documented in `docs/product/route_quality_engine.md`.
+- Production route smoke contract is documented in `docs/ops/production_route_smoke.md`.
+- Mobile route result UX is documented in `docs/product/mobile_route_ux.md`.
+- Auto-repair job status contract is documented in `docs/product/place_data_quality_auto_repair.md`.
 
 ## CI policy
 
