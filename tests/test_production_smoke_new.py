@@ -11,6 +11,17 @@ from scripts.production_smoke import (
 )
 
 
+def test_production_smoke_uses_frontend_api_proxy_for_backend_checks_new() -> None:
+    config = ProductionSmokeConfig(base_url="https://example.test")
+
+    paths = {check.name: check.path for check in build_default_checks(config)}
+
+    assert paths["build"] == "/build.json"
+    assert paths["frontend"] == "/"
+    assert paths["backend_ready"] == "/api/ready"
+    assert paths["admin_quality"] == "/api/admin/quality"
+
+
 def test_production_smoke_adds_route_check_when_enabled_new() -> None:
     config = ProductionSmokeConfig(
         base_url="https://example.test",
@@ -24,6 +35,7 @@ def test_production_smoke_adds_route_check_when_enabled_new() -> None:
 
     route_check = next(check for check in checks if check.name == "route_quick")
     assert route_check.method == "POST"
+    assert route_check.path == "/api/v1/user-routes/build"
     assert route_check.body is not None
     assert route_check.body["city_id"] == "yerevan"
     assert route_check.body["time_budget_minutes"] == 120
