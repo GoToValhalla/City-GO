@@ -166,16 +166,10 @@ def resolve_base_url(candidate: str, ssh_host: str = "") -> str:
 
 
 def config_from_env(args: argparse.Namespace) -> ProductionSmokeConfig:
-    """Build config from CLI-like args and environment variables.
-
-    Kept as a public helper because regression tests and workflow code import it
-    directly. CLI values win over environment values when provided.
-    """
     base_url = getattr(args, "base_url", None) or os.getenv("PRODUCTION_BASE_URL", "")
     expected_sha = getattr(args, "expected_sha", None) or os.getenv("EXPECTED_SHA", "")
     admin_token = getattr(args, "admin_token", None) or os.getenv("ADMIN_API_TOKEN", "")
-    route_smoke_arg = getattr(args, "route_smoke", None)
-    route_smoke_enabled = bool(route_smoke_arg) if route_smoke_arg is not None else _truthy(os.getenv("CITY_GO_ROUTE_SMOKE_ENABLED", "false"))
+    route_smoke_enabled = bool(getattr(args, "route_smoke", False)) or _truthy(os.getenv("CITY_GO_ROUTE_SMOKE_ENABLED", "false"))
     route_city_id = getattr(args, "route_city_id", None) or os.getenv("CITY_GO_ROUTE_SMOKE_CITY_ID", DEFAULT_ROUTE_SMOKE_CITY_ID)
     route_lat_raw = getattr(args, "route_lat", None)
     route_lng_raw = getattr(args, "route_lng", None)
