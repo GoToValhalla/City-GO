@@ -24,10 +24,11 @@ class UserRouteBuildService:
         resolved_request = self._resolve_start_context(db, request)
         route_builder_plan = build_route_builder_v2_plan_from_intent(resolved_request)
         if route_builder_plan.mode == "slot":
-            return attach_route_builder_v2_result(
-                UserRouteSlotBuildService().build(db, resolved_request),
-                route_builder_plan,
-            )
+            state = UserRouteSlotBuildService().build(db, resolved_request)
+            attached = attach_route_builder_v2_result(state, route_builder_plan)
+            if state.partial_reason and attached.partial_reason == "route_builder_v2_insufficient_points":
+                return attached.model_copy(update={"partial_reason": state.partial_reason})
+            return attached
         execution_request = apply_route_builder_v2_plan_to_intent(resolved_request, route_builder_plan)
         final = RouteBuilderService().build_route(
             db=db,
