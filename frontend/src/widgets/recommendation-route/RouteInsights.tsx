@@ -8,9 +8,11 @@ const minutes = (value: number | undefined): string => `${Math.round(value ?? 0)
 export const RouteInsights = ({ route }: Props) => {
   const breakdown = route.time_breakdown ?? {}
   const distribution = Object.entries(route.category_distribution ?? {})
+  const photoPoint = route.points.find((point) => point.image_url)
 
   return (
     <div className="route-insights">
+      {photoPoint?.image_url ? <img className="route-insight-photo" src={photoPoint.image_url} alt={photoPoint.title ?? ''} /> : null}
       <div>
         <span>В пути</span>
         <strong>{minutes(breakdown.walk_time_minutes)}</strong>
