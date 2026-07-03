@@ -1,6 +1,8 @@
 export type RouteBuildMode = 'auto' | 'by_categories' | 'manual' | 'constructor'
 export type RouteStartType = 'current_location' | 'place' | 'map_point' | 'address' | 'city_center'
 export type RouteQualityStatus = 'good' | 'acceptable' | 'weak' | 'failed'
+export type ActiveRouteStatus = 'planned' | 'active' | 'paused' | 'completed' | 'abandoned'
+export type ActiveRouteAction = 'complete_point' | 'skip_point' | 'pause' | 'resume' | 'finish' | 'abandon' | 'remove_point'
 
 export type RouteStart = {
   type: RouteStartType
@@ -76,6 +78,13 @@ export type RecommendationExplanation = {
   key_reasons?: string[]
   warnings?: string[]
   data_notes?: string[]
+  slot_matches?: Array<{
+    slot_id: string
+    requested_category: string
+    selected_place_id?: string | null
+    status: string
+    explanation: string
+  }>
   route_builder_v2?: {
     mode?: string
     executor_mode?: string
@@ -171,3 +180,50 @@ export type UserRouteCorrectionAction =
   | 'rebuild_from_here'
   | 'avoid_category'
   | 'extend_route'
+
+export type UserRouteSlotOption = {
+  place_id: string
+  title: string
+  address?: string | null
+  image_url?: string | null
+  category: string
+  score: number
+  walk_minutes?: number | null
+}
+
+export type UserRouteSlotOptions = {
+  slot_id: string
+  category: string
+  options: UserRouteSlotOption[]
+}
+
+export type UserRouteStructuredBuildResponse = {
+  city_id?: string | null
+  slots: UserRouteSlotOptions[]
+}
+
+export type ActiveRoutePointState = {
+  place_id: string
+  title?: string | null
+  position: number
+  is_current: boolean
+  is_visited: boolean
+  is_skipped: boolean
+  completed_at?: string | null
+  skipped_at?: string | null
+}
+
+export type ActiveRouteSession = {
+  session_id: number
+  route_id: string
+  status: ActiveRouteStatus
+  current_point_index: number
+  current_place_id?: string | null
+  next_place_id?: string | null
+  started_at?: string | null
+  paused_at?: string | null
+  completed_at?: string | null
+  point_completed_at: Record<string, string>
+  skipped_place_ids: string[]
+  points: ActiveRoutePointState[]
+}
