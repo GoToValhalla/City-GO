@@ -75,3 +75,10 @@ It does not mass-unpublish places.
 ## Smoke behavior
 
 Production smoke fails on hard-excluded route categories, generic OSM route titles, raw technical public warnings and 2x+ budget overflow without an honest weak/partial explanation.
+
+## 2026-07-03 follow-up
+
+- `/cities/available` city selector counters are catalogue counters, not route-eligible counters.
+- Public route controls must hide categories blocked by the route policy.
+- Production smoke now enables route product smoke by default for Yerevan, 120 minutes, city center start.
+- Manual smoke can leave `expected_sha` empty when checking only production availability.
