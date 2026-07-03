@@ -4,20 +4,35 @@
 
 - Useful route minimums are enforced in `services/route_quality_score.py`:
   - `<75` minutes: 1 point;
-  - `75–119` minutes: 2 points;
-  - `120+` minutes: 3 points.
-- A route below the budget minimum is marked `weak` even when other score components look acceptable.
-- Public warnings still come from `public_quality_warnings`; a short `120+` minute route is no longer presented as good.
-- `services/route_diversity_policy.py` now centralizes category aliases and food-family limits for overview walks.
+  - `75–149` minutes: 2 points;
+  - `150+` minutes: 3 points.
+- Product quality still treats long sparse routes honestly:
+  - routes below `minimum_points_for_budget` are marked `weak`;
+  - routes with `120+` minute budget and fewer than 3 points are also marked `weak`, even though the generic minimum threshold for `120–149` minutes remains 2 points.
+- Public warnings still come from `public_quality_warnings`:
+  - very short budget shortages are reported as `route_short_due_to_time_budget`;
+  - long/sparse route shortages are reported as `route_short_due_to_low_place_density`.
+- `services.route_budget_fit_service.RouteBudgetFitService` uses the same minimum thresholds, so a 240-minute route with only 2 points is treated as low place density, not as a tight budget.
+- `services/route_diversity_policy.py` centralizes category aliases and food-family limits for overview walks.
 
 ## Tests
 
+- `tests/test_route_assembly_service.py` covers the canonical minimum thresholds: 15/74 -> 1, 75/149 -> 2, 150 -> 3.
+- `tests/test_route_budget_fit_service.py` covers sparse long routes returning `route_short_due_to_low_place_density`.
 - `tests/test_route_quality_product_fixes.py` covers:
-  - 75/120 minute minimum thresholds;
   - weak quality for 2 points at 120 minutes;
+  - public low-density warning for long sparse routes;
   - food-family cap;
   - taxonomy alias normalization;
   - non-tourist category handling.
+
+## CI stabilization note
+
+CI #2032 exposed a threshold conflict introduced during smoke hardening. The resolved contract is:
+
+- Product quality threshold: 150+ minutes requires 3 points.
+- 120+ minute sparse routes remain `weak` through the long-route quality guard.
+- Production smoke keeps a local 2-point minimum for post-deploy tolerance and accepts honest `partial_route`/`weak` responses when the payload explains the shortage.
 
 ## Remaining
 
