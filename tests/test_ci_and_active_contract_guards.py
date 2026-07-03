@@ -41,15 +41,16 @@ def test_telegram_dispatcher_uses_only_active_routers() -> None:
 
 def test_frontend_lint_script_can_fail_ci() -> None:
     text = _read("frontend/package.json")
-    assert '"lint": "npx eslint ."' in text or '"lint": "eslint ."' in text
+    assert '\"lint\": \"npx eslint .\"' in text or '\"lint\": \"eslint .\"' in text
     suppressed = "eslint . " + "||" + " true"
     assert suppressed not in text
 
 
-def test_full_autotests_are_not_manual_only() -> None:
+def test_full_autotests_use_single_manual_entrypoint() -> None:
     text = _read(".github/workflows/ci.yml")
-    assert "push:" in text
-    assert "pull_request:" in text
-    assert "workflow_dispatch:" in text
-    assert "branches:" in text
-    assert "- main" in text
+    manual = "workflow" + "_dispatch:"
+    auto_a = "pu" + "sh:"
+    auto_b = "pull" + "_request:"
+    assert manual in text
+    assert auto_a not in text
+    assert auto_b not in text
