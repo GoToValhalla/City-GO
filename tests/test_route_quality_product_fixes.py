@@ -55,18 +55,18 @@ def test_explicit_beach_category_enables_sea_route_feature() -> None:
     assert route_features(places) == ["sea"]  # type: ignore[arg-type]
 
 
-@title("Route quality requires three points from 120 minutes")
-def test_route_quality_requires_three_points_from_120_minutes() -> None:
+@title("Route quality marks two point long routes as weak")
+def test_route_quality_marks_two_point_long_routes_as_weak() -> None:
     assert minimum_points_for_budget(74) == 1
     assert minimum_points_for_budget(75) == 2
-    assert minimum_points_for_budget(119) == 2
-    assert minimum_points_for_budget(120) == 3
+    assert minimum_points_for_budget(120) == 2
+    assert minimum_points_for_budget(149) == 2
 
     route = [_quality_point("museum"), _quality_point("park")]
 
     quality = build_route_quality_score(route, expected_stops=4, budget_minutes=120, warnings=[])
 
-    assert quality.minimum_points == 3
+    assert quality.minimum_points == 2
     assert quality.actual_points == 2
     assert quality.status == "weak"
 
@@ -116,7 +116,7 @@ def test_production_route_smoke_allows_honest_weak_route_but_blocks_junk() -> No
 
 
 @title("Production route smoke fails raw technical user-facing warning codes")
-def test_production_route_smoke_fails_raw_technical_user_warning_codes() -> None:
+def test_production_route_smoke_fails_raw_technical_user_facing_warning_codes() -> None:
     payload = {
         "status": "ready",
         "quality_status": "good",
