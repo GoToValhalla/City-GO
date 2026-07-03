@@ -61,3 +61,20 @@ data/raw.bak
 # Local backups
 .trash/
 app_backup_before_cleanup/
+
+# Local AI agent context / private project notes
+cotext.md
+context.md
+CLAUDE.md
+GEMINI.md
+GROK.md
+AGENTS.local.md
+AGENTS.private.md
+*.private.md
+*.local.md
+.private/
+private/
+local-context/
+agent-context/
+prompts/private/
+prompts/local/
