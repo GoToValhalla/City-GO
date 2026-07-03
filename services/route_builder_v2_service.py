@@ -5,7 +5,7 @@ from typing import Any, Mapping, Sequence
 
 from services.place_quality_signals import is_placeholder_title
 from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
-from services.route_user_warnings import route_warning_message
+from services.route_user_warnings import route_warning_copy, route_warning_message
 
 
 class RouteBuilderV2Error(ValueError):
@@ -186,6 +186,7 @@ def attach_route_builder_v2_result(state: object, plan: RouteBuilderV2Plan) -> o
         "total_places": len(gate.points),
         "category_distribution": category_distribution,
         "warnings": public_warnings,
+        "user_warnings": _public_user_warnings(raw_warnings, getattr(state, "places_with_warnings", []) or []),
         "has_warnings": bool(public_warnings),
         "warning_count": len(public_warnings),
         "explanation": explanation,
@@ -328,6 +329,8 @@ def _build_slot_plan(request: RouteBuilderV2Request) -> RouteBuilderV2Plan:
     max_points = sum(int(slot.get("max_count", slot.get("min_count", 1)) or 1) for slot in request.slots)
     if max_points > MAX_ROUTE_POINTS:
         raise RouteBuilderV2Error(f"Slot Builder supports up to {MAX_ROUTE_POINTS} points")
+    if max_points < min_points:
+        raise RouteBuilderV2Error("Slot Builder max_count cannot be lower than min_count")
     return RouteBuilderV2Plan(
         mode=SLOT_BUILDER,
         executor_mode="slot",
@@ -340,65 +343,23 @@ def _build_slot_plan(request: RouteBuilderV2Request) -> RouteBuilderV2Plan:
     )
 
 
-def _is_route_junk(point: object) -> bool:
-    category = str(getattr(point, "category", "") or "").strip().lower()
-    title = str(getattr(point, "title", "") or "")
-    if category in ROUTE_BUILDER_V2_BLOCKED_CATEGORIES:
-        return True
-    if any(token in title.lower() for token in ROUTE_BUILDER_V2_BLOCKED_TITLE_TOKENS):
-        return True
-    return is_placeholder_title(title)
+def _optional_positive_int(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
-def _merge_unique_strings(first: Sequence[object], second: Sequence[object]) -> list[str]:
-    return list(dict.fromkeys([*_normalize_text_list(first), *_normalize_text_list(second)]))
-
-
-def _normalize_text_list(value: object) -> tuple[str, ...]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
-        return ()
-    return tuple(dict.fromkeys(_normalized_label(item) for item in value if _normalized_label(item)))
-
-
-def _normalize_id_list(value: object) -> tuple[int, ...]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
-        return ()
-    result: list[int] = []
-    for item in value:
-        parsed = _optional_positive_int(item)
-        if parsed is not None:
-            result.append(parsed)
-    return tuple(dict.fromkeys(result))
-
-
-def _normalize_slots(value: object) -> tuple[Mapping[str, object], ...]:
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
-        return ()
-    slots: list[Mapping[str, object]] = []
-    for index, raw_slot in enumerate(value, 1):
-        if not isinstance(raw_slot, Mapping):
-            raise RouteBuilderV2Error("Slot Builder slot must be an object")
-        slot_type = _normalized_label(raw_slot.get("type") or raw_slot.get("category"))
-        if not slot_type:
-            raise RouteBuilderV2Error("Slot Builder slot requires type or category")
-        category = _normalized_label(raw_slot.get("category")) or slot_type
-        min_count = _optional_positive_int(raw_slot.get("min_count")) or 1
-        max_count = _optional_positive_int(raw_slot.get("max_count")) or min_count
-        if max_count < min_count:
-            raise RouteBuilderV2Error("Slot Builder slot max_count must be >= min_count")
-        slots.append(
-            {
-                "slot_id": _optional_text(raw_slot.get("slot_id")) or f"slot-{index}",
-                "type": slot_type,
-                "category": category,
-                "min_count": min_count,
-                "max_count": max_count,
-                "required": bool(raw_slot.get("required", True)),
-                "duration": _optional_positive_int(raw_slot.get("duration")),
-                "selected_place_id": _optional_positive_int(raw_slot.get("selected_place_id")),
-            }
-        )
-    return tuple(slots)
+def _optional_int(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _optional_text(value: object) -> str | None:
@@ -406,42 +367,114 @@ def _optional_text(value: object) -> str | None:
     return text or None
 
 
-def _normalized_label(value: object) -> str | None:
-    text = _optional_text(value)
-    return text.lower() if text else None
+def _normalize_text_list(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return ()
+    return tuple(_unique_strings(str(item).strip().lower() for item in value if str(item).strip()))
 
 
-def _optional_int(value: object) -> int | None:
-    try:
-        if value is None or value == "":
-            return None
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+def _normalize_id_list(value: object) -> tuple[int, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return ()
+    ids: list[int] = []
+    for item in value:
+        try:
+            number = int(item)
+        except (TypeError, ValueError):
+            continue
+        if number > 0 and number not in ids:
+            ids.append(number)
+    return tuple(ids)
 
 
-def _optional_positive_int(value: object) -> int | None:
-    parsed = _optional_int(value)
-    return parsed if parsed is not None and parsed > 0 else None
+def _normalize_slots(value: object) -> tuple[Mapping[str, object], ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return ()
+    slots: list[Mapping[str, object]] = []
+    for slot in value:
+        if isinstance(slot, Mapping):
+            slots.append(dict(slot))
+    return tuple(slots)
 
 
-def _unique_strings(values: Sequence[str]) -> list[str]:
-    return list(dict.fromkeys(str(value).strip() for value in values if str(value).strip()))
+def _merge_unique_strings(*values: Sequence[object]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        for item in value:
+            text = str(item or "").strip()
+            if text and text not in result:
+                result.append(text)
+    return result
+
+
+def _unique_strings(values: Sequence[object]) -> list[str]:
+    return _merge_unique_strings(values)
+
+
+def _is_route_junk(point: object) -> bool:
+    category = str(getattr(point, "category", "") or "").strip().lower()
+    if category in ROUTE_BUILDER_V2_BLOCKED_CATEGORIES:
+        return True
+    title = str(getattr(point, "title", "") or "")
+    if is_placeholder_title(title):
+        return True
+    title_lower = title.casefold()
+    return any(token in title_lower for token in ROUTE_BUILDER_V2_BLOCKED_TITLE_TOKENS)
 
 
 def _category_distribution(points: Sequence[object]) -> dict[str, int]:
     distribution: dict[str, int] = {}
     for point in points:
-        key = str(getattr(point, "category", "") or "unknown")
-        distribution[key] = distribution.get(key, 0) + 1
+        category = str(getattr(point, "category", "unknown") or "unknown")
+        distribution[category] = distribution.get(category, 0) + 1
     return distribution
+
+
+def _public_user_warnings(warnings: Sequence[str], places_with_time_warnings: Sequence[object]) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    for warning in warnings:
+        mapped = route_warning_copy(str(warning))
+        if mapped:
+            _, severity, message, hint = mapped
+            items.append(_warning_item("route", severity, message, (), hint))
+        else:
+            message = route_warning_message(str(warning))
+            if message.strip():
+                items.append(_warning_item("route", "warning", message, (), "Проверьте детали маршрута перед стартом."))
+    place_ids = tuple(str(item) for item in places_with_time_warnings if str(item))
+    if place_ids:
+        items.append(_warning_item("budget", "warning", "У части мест есть риск по времени работы.", place_ids, "Откройте карточку места и проверьте часы перед визитом."))
+    unique: list[dict[str, object]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in items:
+        key = (str(item.get("type") or ""), str(item.get("severity") or ""), str(item.get("user_message") or ""))
+        if key not in seen:
+            unique.append(item)
+            seen.add(key)
+    return unique
+
+
+def _warning_item(kind: str, severity: str, message: str, place_ids: Sequence[str], hint: str) -> dict[str, object]:
+    return {
+        "type": kind if kind in {"route", "data", "budget", "walk", "interest"} else "route",
+        "severity": severity,
+        "user_message": message,
+        "affected_place_ids": list(place_ids),
+        "action_hint": hint,
+    }
 
 
 def _public_mode_label(mode: str) -> str:
     labels = {
         QUICK_BUILD: "Быстрый маршрут",
-        CATEGORY_BUILDER: "Маршрут по категориям",
+        CATEGORY_BUILDER: "По категориям",
         MANUAL_BUILDER: "Ручной маршрут",
-        SLOT_BUILDER: "Маршрут по сценарию",
+        SLOT_BUILDER: "Конструктор маршрута",
     }
     return labels.get(mode, "Маршрут")
