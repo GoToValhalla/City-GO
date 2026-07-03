@@ -126,6 +126,28 @@ def test_production_smoke_fails_public_raw_warning_codes_new() -> None:
     assert result.detail == "raw_technical_codes_in_public_payload"
 
 
+def test_production_smoke_fails_public_raw_explanation_codes_new() -> None:
+    payload = {
+        "status": "partial_route",
+        "quality_status": "weak",
+        "total_places": 1,
+        "total_estimated_minutes": 80,
+        "time_budget_minutes": 120,
+        "warnings": ["После проверки осталось мало подходящих точек."],
+        "user_warnings": [{"type": "route", "user_message": "После проверки осталось мало подходящих точек."}],
+        "explanation": {
+            "warnings": ["route_builder_v2_insufficient_points"],
+            "route_builder_v2": {"data_contract": "public_catalog_visible_route_eligible_only"},
+        },
+        "points": [{"title": "Museum", "category": "museum"}],
+    }
+
+    result = validate_route_response(json.dumps(payload), 200)
+
+    assert result.failed
+    assert result.detail == "raw_technical_codes_in_public_payload"
+
+
 def test_production_smoke_accepts_honest_weak_short_route_new() -> None:
     payload = {
         "status": "partial_route",
@@ -135,6 +157,10 @@ def test_production_smoke_accepts_honest_weak_short_route_new() -> None:
         "time_budget_minutes": 120,
         "warnings": ["После проверки осталось мало подходящих точек."],
         "user_warnings": [{"type": "route", "user_message": "После проверки осталось мало подходящих точек."}],
+        "explanation": {
+            "warnings": ["После проверки осталось мало подходящих точек."],
+            "route_builder_v2": {"mode": "Быстрый маршрут", "message": "Маршрут проверен."},
+        },
         "points": [{"title": "Museum", "category": "museum"}],
     }
 
