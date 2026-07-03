@@ -15,26 +15,47 @@ Implemented production path:
 
 ## Slot / Constructor Builder
 
-Implemented contract layer:
+Implemented production path:
 
-- Frontend route slot type includes:
-  - `slot_id`;
-  - `type` / `category`;
-  - `required`;
-  - `duration`;
-  - `selected_place_id`.
-- Existing backend `RouteBuilderV2` already has slot mode and structured slot options endpoints; this pass keeps the production path instead of duplicating a new builder.
+- Frontend visible slot editor is implemented in `frontend/src/widgets/recommendation-route/RouteSlotBuilder.tsx`.
+- User can:
+  - add a slot;
+  - choose slot type/category;
+  - mark slot required/optional;
+  - set optional duration;
+  - request candidate options for every slot;
+  - select a concrete place for a slot;
+  - clear/replace selected place;
+  - build a route by scenario order.
+- Backend slot build path is implemented in `services/user_route_slot_build_service.py`.
+- `UserRouteBuildService` routes `build_mode=constructor` to the slot service instead of treating slots as generic interests.
+- Slot matching preserves order and uses selected places first; fallback is limited to related categories.
+- If a required slot cannot be filled, the route is returned as honest `partial_route` with slot match explanation.
 
 ## Active Route Session
 
-Implemented frontend-safe active walk layer in `RouteResultPanel.tsx`:
+Implemented persistent backend path:
 
-- statuses: `planned`, `active`, `paused`, `completed`, `abandoned` contract documented; current UI uses planned/active/paused/completed;
-- current point and next point are shown;
-- actions: `Начать маршрут`, `Я на месте`, `Пропустить`, `Пауза/Продолжить`, `Завершить маршрут`;
-- timestamps are stored in local component state.
+- Existing ORM tables are used:
+  - `models.route_session.RouteSession`;
+  - `models.route_session.RouteSessionPoint`.
+- Public endpoints:
+  - `POST /v1/user-routes/{route_id}/session/start`;
+  - `POST /v1/user-routes/sessions/{session_id}/action`.
+- Supported actions:
+  - `complete_point`;
+  - `skip_point`;
+  - `pause`;
+  - `resume`;
+  - `finish`;
+  - `abandon`;
+  - `remove_point`.
+- Frontend `RouteResultPanel.tsx` calls backend session APIs instead of storing active walk only in local component state.
+- UI shows current point, next point, session status, and action result.
 
-## Remaining
+## Tests
 
-- Backend persistence for active route sessions is not added in this pass. Current active session is local frontend state by design, because no existing persistent session table was identified in the route layer during this pass.
-- Slot builder needs a dedicated visible slot editor UI beyond the contract layer and existing structured backend endpoints.
+- `tests/test_user_route_slot_session_and_import_repair.py` covers:
+  - ordered slot route build;
+  - partial route when required slot cannot be filled;
+  - persistent active route session transitions.
