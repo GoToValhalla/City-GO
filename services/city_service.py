@@ -2,16 +2,17 @@
 Чтение городов из БД для роутера /cities и связанной логики.
 """
 
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session, object_session
 
 from models.city import City
 from models.place import Place
 from services.city_slug_resolver import resolve_city_by_slug
 from services.feature_toggle_service import is_toggle_enabled
-from services.place_public_visibility import public_place_conditions
 
 PUBLISHED = "published"
+PUBLIC_ACTIVE_STATUS = "active"
+PUBLICATION_STATUSES = ("published", "auto_published", "limited_published")
 
 
 # Возвращает список опубликованных городов из базы данных.
@@ -20,12 +21,7 @@ def get_cities(db: Session) -> list[City]:
 
 
 def get_available_cities(db: Session, *, include_draft: bool = False) -> list[dict[str, object]]:
-    """Return the single public city catalogue shared by Web and Telegram.
-
-    A city becomes user-visible only through the explicit admin publication
-    action. Channel-specific feature toggles must not make Web and Telegram
-    disagree about the available destinations.
-    """
+    """Return the single public city catalogue shared by Web and Telegram."""
     rows = (
         db.query(
             City.slug.label("slug"),
@@ -39,7 +35,7 @@ def get_available_cities(db: Session, *, include_draft: bool = False) -> list[di
             Place,
             and_(
                 Place.city_id == City.id,
-                *public_place_conditions(),
+                *_catalog_counter_place_conditions(),
             ),
         )
         .filter(City.is_active.is_(True))
@@ -81,6 +77,16 @@ def get_city_by_slug(db: Session, slug: str) -> City | None:
 
 def city_is_published(city: City | None) -> bool:
     return bool(city and city.is_active and city.launch_status == PUBLISHED and _city_visible_to_users_for_city(city))
+
+
+def _catalog_counter_place_conditions() -> tuple[object, ...]:
+    return (
+        Place.is_active.is_(True),
+        or_(Place.status.is_(None), Place.status == PUBLIC_ACTIVE_STATUS),
+        Place.is_published.is_(True),
+        Place.is_visible_in_catalog.is_(True),
+        Place.publication_status.in_(PUBLICATION_STATUSES),
+    )
 
 
 def _city_visible_to_users(db: Session, city_slug: str) -> bool:
