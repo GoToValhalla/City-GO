@@ -20,13 +20,14 @@ def test_ci_workflow_stays_manual_only_new() -> None:
     assert "schedule:" not in workflow
 
 
-def test_ci_runs_route_public_contract_gate_before_full_backend_regression_new() -> None:
+def test_ci_keeps_route_public_contract_gate_inside_backend_pytest_regression_new() -> None:
     workflow = _read(".github/workflows/ci.yml")
+    test_file = _read("tests/test_route_public_contract_gate_new.py")
 
-    gate_index = workflow.index("Route public contract gate")
-    regression_index = workflow.index("Backend tests and coverage")
-    assert gate_index < regression_index
-    assert "python scripts/route_public_contract_gate.py" in workflow
+    assert "Route public contract gate" not in workflow
+    assert "python scripts/route_public_contract_gate.py" not in workflow
+    assert "python -m pytest -q" in workflow
+    assert "test_route_public_contract_gate_sample_payloads_are_clean_new" in test_file
 
 
 def test_production_smoke_runs_after_successful_deploy_or_manual_dispatch_new() -> None:
