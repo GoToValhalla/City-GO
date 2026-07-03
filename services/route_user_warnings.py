@@ -146,8 +146,11 @@ def route_warning_copy(code: str) -> tuple[str, str, str, str] | None:
 
 
 def route_warning_message(code: str) -> str:
-    mapped = route_warning_copy(code)
-    return mapped[2] if mapped else _UNKNOWN_WARNING_MESSAGE
+    text = str(code or "").strip()
+    mapped = route_warning_copy(text)
+    if mapped:
+        return mapped[2]
+    return _UNKNOWN_WARNING_MESSAGE if _is_raw_code(text) else text
 
 
 def user_warnings(final: object) -> list[dict[str, object]]:
