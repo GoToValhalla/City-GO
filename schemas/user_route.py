@@ -8,6 +8,8 @@ CorrectionAction = Literal["remove_place", "shorten_route", "rebuild_from_here",
 BuildMode = Literal["auto", "by_categories", "manual", "constructor"]
 StartType = Literal["current_location", "place", "map_point", "address", "city_center"]
 QualityStatus = Literal["good", "acceptable", "weak", "failed"]
+RouteSessionStatus = Literal["planned", "active", "paused", "completed", "abandoned"]
+RouteSessionAction = Literal["complete_point", "skip_point", "pause", "resume", "finish", "abandon", "remove_point"]
 
 
 class UserRouteStart(BaseModel):
@@ -38,14 +40,8 @@ class UserRouteIntent(BaseModel):
     visit_city_id: str | None = None
     visit_days: int | None = Field(default=None, ge=1, le=30)
     user_id: str | None = Field(default=None, min_length=1, max_length=100)
-    selected_place_ids: list[str] = Field(
-        default_factory=list,
-        description="Route Builder v2 manual mode ordered place ids.",
-    )
-    route_slots: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Route Builder v2 constructor slots. Each slot may define type/category and min/max counts.",
-    )
+    selected_place_ids: list[str] = Field(default_factory=list, description="Route Builder v2 manual mode ordered place ids.")
+    route_slots: list[dict[str, Any]] = Field(default_factory=list, description="Route Builder v2 constructor slots. Each slot may define type/category and min/max counts.")
 
 
 class UserRoutePoint(BaseModel):
@@ -67,7 +63,6 @@ class UserRoutePoint(BaseModel):
     time_status: str | None = None
     time_warning: str | None = None
     scoring_breakdown: dict[str, Any] = Field(default_factory=dict)
-    # Navigation payload — вычисляется при сериализации
     display_location: str | None = None
     has_address: bool = False
     navigation_url_google: str | None = None
@@ -197,3 +192,41 @@ class UserRouteSlotOptions(BaseModel):
 class UserRouteStructuredBuildResponse(BaseModel):
     city_id: str | None = None
     slots: list[UserRouteSlotOptions]
+
+
+class UserRouteSessionStartRequest(BaseModel):
+    current_route: UserRouteState
+    user_id: str | None = Field(default=None, max_length=128)
+
+
+class UserRouteSessionActionRequest(BaseModel):
+    action: RouteSessionAction
+    place_id: str | None = None
+    current_lat: float | None = None
+    current_lng: float | None = None
+
+
+class UserRouteSessionPointState(BaseModel):
+    place_id: str
+    title: str | None = None
+    position: int
+    is_current: bool = False
+    is_visited: bool = False
+    is_skipped: bool = False
+    completed_at: str | None = None
+    skipped_at: str | None = None
+
+
+class UserRouteSessionState(BaseModel):
+    session_id: int
+    route_id: str
+    status: RouteSessionStatus
+    current_point_index: int
+    current_place_id: str | None = None
+    next_place_id: str | None = None
+    started_at: str | None = None
+    paused_at: str | None = None
+    completed_at: str | None = None
+    point_completed_at: dict[str, str] = Field(default_factory=dict)
+    skipped_place_ids: list[str] = Field(default_factory=list)
+    points: list[UserRouteSessionPointState] = Field(default_factory=list)
