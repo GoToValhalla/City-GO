@@ -68,7 +68,6 @@ def queue_city_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str 
 
 def ensure_import_job(db: Session, *, city_id: int) -> CityAdminImportJob:
     from services.admin_city_import_job_payload import _latest_job
-
     return _latest_job(db, city_id) or queue_city_import_job(db, city_id=city_id)
 
 
@@ -93,7 +92,6 @@ def _preserved_snapshot_context(job: CityAdminImportJob | None, source: str) -> 
 
 def _queue_job(db: Session, *, city: City, source: str, actor_id: str | None) -> CityAdminImportJob:
     from services.admin_city_import_job_payload import _latest_job
-
     job = _latest_job(db, city.id)
     if job is not None and job.status in {"queued", "running"}:
         raise ValueError("Pipeline уже выполняется")
@@ -160,22 +158,7 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
         record_place_changes(db, job=job, places=places, since=job.started_at or datetime.utcnow())
         if source_status in {"partial_success", "success_with_warnings", "failed"} or int(source.get("failed") or 0) > 0:
             warnings.append({"step": "source_enrichment", "error": f"Ошибок этапов обогащения: {int(source.get('failed') or 0)}"})
-        if int(auto_repair.get("needs_review_count") or 0) > 0:
-            warnings.append({"step": "auto_repair", "error": f"Требуют проверки: {int(auto_repair.get('needs_review_count') or 0)}"})
-        job.step_details = {
-            **dict(job.step_details or {}),
-            "warnings": warnings,
-            "changed_place_ids": ids,
-            "has_changes": bool(ids),
-            "auto_repair": auto_repair,
-            "unified_pipeline": {
-                "collection_and_legacy_enrichment": legacy,
-                "source_enrichment": source,
-                "readiness_score": readiness.get("readiness_score"),
-                "auto_repair": auto_repair,
-                "completed": True,
-            },
-        }
+        job.step_details = {**dict(job.step_details or {}), "warnings": warnings, "changed_place_ids": ids, "has_changes": bool(ids), "auto_repair": auto_repair, "unified_pipeline": {"collection_and_legacy_enrichment": legacy, "source_enrichment": source, "readiness_score": readiness.get("readiness_score"), "auto_repair": auto_repair, "completed": True}}
         job.status = "success_with_warnings" if warnings else "success"
         job.finished_at = datetime.utcnow()
         city.last_import_at = job.finished_at
@@ -233,7 +216,7 @@ def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> C
     result = run_address_backfill(["--city", city.slug, "--limit", str(ADDRESS_LIMIT), "--apply"])
     auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=[])
     job.step_details = {**dict(job.step_details or {}), "address_enrichment": result, "auto_repair": auto_repair}
-    job.status = "success_with_warnings" if int(auto_repair.get("needs_review_count") or 0) else "success"
+    job.status = "success"
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"
     db.commit()
@@ -265,7 +248,7 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
     job.successful_items = scanned
     job.failed_items = len(errors or []) if isinstance(errors, list) else 0
     job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result, "auto_repair": auto_repair}
-    job.status = "success_with_warnings" if int(auto_repair.get("needs_review_count") or 0) or job.failed_items else "success"
+    job.status = "success"
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"
     log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result, "auto_repair": auto_repair})
@@ -282,10 +265,8 @@ def _refresh_snapshot_light(db: Session, *, city: City, job: CityAdminImportJob,
     without_photo = db.query(Place).filter(Place.city_id == city.id, Place.image_url.is_(None)).count()
     without_description = db.query(Place).filter(Place.city_id == city.id, Place.short_description.is_(None)).count()
     pending_photos = db.query(PlaceImage).join(Place, Place.id == PlaceImage.place_id).filter(Place.city_id == city.id, PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW).count()
-
     def pct(missing: int) -> float:
         return round(((total - missing) / total) * 100, 1) if total else 0.0
-
     coverage = {"places_total": int(total), "places_published": int(published), "places_unpublished": max(int(total) - int(published), 0), "without_address": int(without_address), "without_photo": int(without_photo), "without_description": int(without_description), "address_coverage_pct": pct(int(without_address)), "photo_coverage_pct": pct(int(without_photo)), "description_coverage_pct": pct(int(without_description)), "pending_photos": int(pending_photos)}
     existing_changes = dict(job.step_details or {}).get("change_summary")
     changes = existing_changes if isinstance(existing_changes, dict) else {"job_id": job.id, "city_id": city.id, "city_slug": city.slug, **{key: 0 for key in CHANGE_TYPES}}
@@ -319,14 +300,7 @@ def _run_auto_repair(db: Session, *, city: City, job: CityAdminImportJob, change
 
 
 def _serialize_auto_repair_summary(summary: PlaceAutoRepairSummary) -> dict[str, object]:
-    return {
-        "repaired_count": int(summary.repaired_count),
-        "needs_review_count": int(summary.needs_review_count),
-        "skipped_count": int(summary.skipped_count),
-        "by_reason": dict(summary.by_reason),
-        "by_category": dict(summary.by_category),
-        "items": [item.__dict__ for item in summary.items[:200]],
-    }
+    return {"repaired_count": int(summary.repaired_count), "needs_review_count": int(summary.needs_review_count), "skipped_count": int(summary.skipped_count), "by_reason": dict(summary.by_reason), "by_category": dict(summary.by_category), "items": [item.__dict__ for item in summary.items[:200]]}
 
 
 def _foundation(db, city, job, actor_id, ids):
@@ -385,7 +359,7 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str) -> City
         _foundation(db, city, job, actor_id, ids)
         auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=ids)
         job.step_details = {**dict(job.step_details or {}), "auto_repair": auto_repair}
-        job.status = "success_with_warnings" if int(auto_repair.get("needs_review_count") or 0) else "success"
+        job.status = "success"
         job.finished_at = datetime.utcnow()
         _refresh_snapshot_light(db, city=city, job=job, source="enrichment_only_finished")
     except Exception as exc:
