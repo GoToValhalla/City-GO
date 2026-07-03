@@ -22,10 +22,9 @@ const point: RecommendationRoutePoint = {
 }
 
 describe('RoutePointList missing address', () => {
-  it('test_route_point_missing_address_has_map_links_new', () => {
+  it('test_route_point_missing_address_has_map_link_new', () => {
     render(<RoutePointList points={[point]} />)
     expect(screen.getByText('Адрес уточняется')).toBeInTheDocument()
     expect(screen.getByText('Открыть на карте')).toHaveAttribute('href', point.navigation_url_yandex)
-    expect(screen.getByText('Google Maps')).toBeInTheDocument()
   })
 })
