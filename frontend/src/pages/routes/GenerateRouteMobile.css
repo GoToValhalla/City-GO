@@ -118,8 +118,70 @@
   display: none;
 }
 
-.route-candidate-details .route-candidate-grid {
+.route-candidate-details .route-candidate-grid,
+.route-slot-list {
   margin-top: 12px;
+}
+
+.route-slot-builder {
+  border-style: dashed;
+}
+
+.route-slot-list {
+  display: grid;
+  gap: 12px;
+}
+
+.route-slot-card {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 18px;
+  padding: 12px;
+}
+
+.route-slot-head {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.route-slot-head button,
+.route-slot-options button {
+  align-items: center;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  padding: 8px 10px;
+}
+
+.route-slot-checkbox {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.route-slot-options {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.route-slot-options button {
+  justify-content: space-between;
+  text-align: left;
+}
+
+.route-slot-options button.is-selected {
+  border-color: rgba(34, 197, 94, 0.55);
+  font-weight: 800;
+}
+
+.route-slot-options small {
+  opacity: 0.7;
 }
 
 @media (max-width: 860px) {
