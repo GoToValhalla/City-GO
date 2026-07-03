@@ -19,16 +19,18 @@ def test_available_city_counts_catalog_places_not_route_eligible_places_new(db_s
 
 def test_available_city_counts_legacy_null_publication_status_new(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="legacy", name="Legacy City")
-    place_factory(
+    place = place_factory(
         city_id=city.id,
         slug="legacy-place",
         title="Legacy published place",
         category="museum",
-        publication_status=None,
         is_published=True,
         is_visible_in_catalog=True,
         is_active=True,
     )
+    place.publication_status = None
+    db_session.add(place)
+    db_session.commit()
 
     rows = _by_slug(get_available_cities(db_session))
 
