@@ -33,8 +33,10 @@ def test_user_route_recalc_preserves_existing_skeleton_new() -> None:
     assert state.total_places == 2
     assert [point.place_id for point in state.points] == ["1", "2"]
     assert state.status != "empty"
-    assert "route_skeleton_preserved_after_edit" in state.warnings
-    assert "place_replaced" in state.warnings
+    assert "route_skeleton_preserved_after_edit" not in state.warnings
+    assert "place_replaced" not in state.warnings
+    assert "Маршрут собран с ограничениями по данным." in state.warnings
+    assert all("_" not in warning for warning in state.warnings)
 
 
 def test_rebuild_from_here_uses_existing_skeleton_new(monkeypatch) -> None:
@@ -140,16 +142,9 @@ def _place(
         address="Test address",
         image_url="https://example.test/place.jpg",
         short_description="Test description",
-        source="test",
         lat=lat,
         lng=lng,
         category=category,
-        average_visit_duration_minutes=visit_minutes,
-        effective_visit_duration_minutes=None,
-        opening_hours=None,
-        effective_opening_hours={
-            day: {"open": "00:00", "close": "23:59"}
-            for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-        },
-        outdoor=False,
+        visit_minutes=visit_minutes,
+        score=0.8,
     )
