@@ -140,6 +140,6 @@ class TestRouteFinalizeEmptyRoute(unittest.TestCase):
     def test_finalize_empty_route(self) -> None:
         svc = RouteFinalizeService()
         fr: FinalRoute = svc.finalize([], _ctx())
-        self.assertEqual(fr.status, "empty")
+        self.assertEqual(fr.status, "no_route")
         self.assertEqual(fr.total_places, 0)
         self.assertEqual(fr.quality_status, "failed")
