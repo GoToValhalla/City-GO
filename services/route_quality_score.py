@@ -83,7 +83,9 @@ def build_route_quality_score(
 def minimum_points_for_budget(budget_minutes: int) -> int:
     if budget_minutes < 75:
         return 1
-    return 2
+    if budget_minutes < 150:
+        return 2
+    return 3
 
 
 def quality_status(score: float, route: list[Any], budget_minutes: int) -> QualityStatus:
