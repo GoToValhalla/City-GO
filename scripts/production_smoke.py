@@ -18,9 +18,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from services.place_quality_signals import is_placeholder_title
-from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
-
 
 DEFAULT_PUBLIC_CHECKS: tuple[tuple[str, str], ...] = (
     ("build", "/build.json"),
@@ -41,6 +38,31 @@ DEFAULT_ROUTE_SMOKE_LNG = 44.4991
 ROUTE_SMOKE_BUDGET_MINUTES = 120
 RAW_TECHNICAL_CODE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+){1,}$")
 TRACEBACK_MARKERS = ("Traceback (most recent call last)", "sqlalchemy.exc", "pydantic_core", "Internal Server Error")
+PLACEHOLDER_TITLE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^\s*культурн(?:ое|ый|ая)\s+(?:место|объект)\s+osm\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*место\s+для\s+прогулки\s+osm\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*place\s+for\s+walk\s+osm\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*парк\s+osm\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*пляж\s+osm\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*[a-zа-я ]+\s+osm\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*osm\s+(node|way|relation)?\s*\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*(node|way|relation)\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*unnamed\s+(poi|place|point)\s*$", re.IGNORECASE),
+    re.compile(r"^\s*(unnamed|unknown|без\s+названия|место\s+без\s+названия)\s*$", re.IGNORECASE),
+)
+HARD_EXCLUDED_CATEGORIES = frozenset(
+    {
+        "medical", "health", "healthcare", "hospital", "clinic", "pharmacy", "apteka",
+        "bank", "atm", "parking", "fuel", "toilet", "toilets", "public_toilet",
+        "police", "bus_stop", "stop", "transport", "public_transport", "service",
+        "services", "utility", "industrial", "shelter", "post_office",
+        "vending_machine", "bench", "waste_basket", "charging_station",
+        "car_service", "mvd", "government", "military", "cemetery", "waste_disposal",
+        "generic_service", "transport_stop", "tram_stop", "gas_station", "useful",
+        "unknown", "other", "office", "hotel", "shopping", "shop", "supermarket",
+        "shopping_mall", "mall",
+    }
+)
 FORBIDDEN_ROUTE_JUNK = HARD_EXCLUDED_CATEGORIES | frozenset(
     {
         "pharmacy",
@@ -111,6 +133,13 @@ class ProductionSmokeConfig:
     route_city_id: str = ""
     route_lat: float | None = None
     route_lng: float | None = None
+
+
+def is_placeholder_title(title: str | None) -> bool:
+    text = str(title or "").strip()
+    if not text:
+        return True
+    return any(pattern.match(text) for pattern in PLACEHOLDER_TITLE_PATTERNS)
 
 
 def normalize_base_url(value: str) -> str:
