@@ -31,6 +31,16 @@ def test_admin_system_health_shape_is_stable_new(client: TestClient) -> None:
     assert all({"name", "status", "description", "queue_depth"} <= set(service) for service in data["services"])
 
 
+def test_admin_overview_cards_have_action_labels_new(client: TestClient) -> None:
+    response = client.get("/admin/overview")
+
+    assert response.status_code == 200
+    cards = {item["code"]: item for item in response.json()["data_quality"]}
+    assert cards["auto_backlog"]["action_label"] == "Открыть авто"
+    assert cards["manual_review"]["action_label"] == "Открыть ручную очередь"
+    assert cards["no_description"]["action_label"] == "Открыть описания"
+
+
 def test_admin_quality_shape_is_stable_for_city_with_places_new(client: TestClient, city_factory, place_factory) -> None:
     city = city_factory(slug="quality-city", name="Quality City")
     place_factory(city_id=city.id, slug="quality-place", title="Quality Place", category="museum", address="Main", image_url="https://example.com/photo.jpg")
