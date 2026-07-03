@@ -79,6 +79,7 @@ jobs:
               return payload
 
           overview = get_json("/api/admin/overview")
+          backlog = get_json("/api/admin/overview/backlog-breakdown")
           cards = []
           for section in ("critical", "data_quality", "operations"):
               for card in overview.get(section, []) or []:
@@ -165,6 +166,28 @@ jobs:
           report = {
               "base_url_source": "PRODUCTION_BASE_URL" if os.getenv("PRODUCTION_BASE_URL", "").strip() else "SSH_HOST",
               "overview_cards": cards,
+              "backlog_summary": backlog.get("summary"),
+              "backlog_queues": [
+                  {
+                      "code": item.get("code"),
+                      "title": item.get("title"),
+                      "total_count": item.get("total_count"),
+                      "unique_places_count": item.get("unique_places_count"),
+                      "auto_fixable_count": item.get("auto_fixable_count"),
+                      "manual_count": item.get("manual_count"),
+                      "top_reasons": [
+                          {
+                              "code": reason.get("code"),
+                              "title": reason.get("title"),
+                              "count": reason.get("count"),
+                          }
+                          for reason in (item.get("reasons") or [])[:5]
+                          if isinstance(reason, dict)
+                      ],
+                  }
+                  for item in (backlog.get("queues") or [])
+                  if isinstance(item, dict)
+              ],
               "drilldowns": drilldowns,
               "consistency": consistency,
               "technical_copy": technical_copy,
@@ -179,6 +202,23 @@ jobs:
           for row in consistency:
               mark = "OK" if row["matches"] else "MISMATCH"
               summary_lines.append(f"- {mark} {row['card_code']}: card={row['card_count']} drilldown={row['drilldown_total']}")
+          summary = backlog.get("summary") or {}
+          summary_lines.append("")
+          summary_lines.append("Backlog summary:")
+          for key in ("unique_problem_places", "total_problem_signals", "auto_fixable_places", "manual_places", "route_blocker_places"):
+              summary_lines.append(f"- {key}: {summary.get(key)}")
+          summary_lines.append("")
+          summary_lines.append("Top queues:")
+          for queue in (backlog.get("queues") or [])[:10]:
+              if not isinstance(queue, dict):
+                  continue
+              reasons = []
+              for reason in (queue.get("reasons") or [])[:3]:
+                  if isinstance(reason, dict):
+                      reasons.append(f"{reason.get('title')}={reason.get('count')}")
+              summary_lines.append(
+                  f"- {queue.get('code')}: total={queue.get('total_count')} unique={queue.get('unique_places_count')} auto={queue.get('auto_fixable_count')} manual={queue.get('manual_count')} reasons={'; '.join(reasons)}"
+              )
           summary_lines.append("")
           summary_lines.append("Technical copy hits:")
           if technical_copy:

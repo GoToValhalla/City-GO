@@ -7,13 +7,15 @@ from sqlalchemy.orm import Query, Session
 
 from models.city import City
 from models.place import Place
+from services.admin_backlog_clauses import reason_clause
 from services.place_quality_signals import PLACEHOLDER_SQL_PATTERNS
 from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
 
 # Реальные инфраструктурные категории не являются мусором. Здесь остаются только
 # неразобранные общие значения, требующие нормализации.
-JUNK_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES | {"unknown", "other", "useful"}))
-SERVICE_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES))
+NON_SERVICE_ROUTE_CATEGORIES = {"unknown", "other", "useful"}
+JUNK_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES | NON_SERVICE_ROUTE_CATEGORIES))
+SERVICE_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES - NON_SERVICE_ROUTE_CATEGORIES))
 MANUAL_REVIEW_STATUSES = ("needs_review", "needs_manual_review", "deferred")
 AUTO_BACKLOG_STATUSES = ("draft", "auto_backlog", "low_confidence")
 VERIFICATION_QUEUE_STATUSES = ("needs_recheck", "unverified")
@@ -40,6 +42,7 @@ def apply_place_preset(query: Query, preset: str) -> Query:
         "auto_backlog": lambda q: q.filter(Place.publication_status.in_(AUTO_BACKLOG_STATUSES)),
         "needs_verification": lambda q: q.filter(Place.verification_status.in_(VERIFICATION_QUEUE_STATUSES)),
         "route_blockers": lambda q: q.filter(_route_blocker_clause()),
+        "route_excluded": lambda q: q.filter(_published_catalog_clause(), _canonical_category_clause(SERVICE_CATEGORIES)),
         "not_in_routes": lambda q: q.filter(Place.is_published.is_(True), Place.is_route_eligible.is_not(True)),
         "route_unknown": lambda q: q.filter(_published_catalog_clause(), _unknown_category_clause()),
         "in_routes": lambda q: q.filter(Place.is_route_eligible.is_(True), Place.is_published.is_(True)),
@@ -91,6 +94,7 @@ def apply_place_filters(
     low_confidence: bool | None = None,
     quality_tier: str | None = None,
     source: str | None = None,
+    reason: str | None = None,
 ) -> Query:
     if city_slug:
         query = query.join(City).filter(City.slug == city_slug)
@@ -126,6 +130,10 @@ def apply_place_filters(
         query = query.filter(Place.source == source)
     if preset:
         query = apply_place_preset(query, preset)
+    if reason:
+        clause = reason_clause(reason)
+        if clause is not None:
+            query = query.filter(clause)
     return query
 
 

@@ -22,7 +22,8 @@ AUTO_BACKLOG_STATUSES = ("draft", "auto_backlog", "low_confidence")
 ACTIVE_IMPORT_STATUSES = ("pending", "running")
 MIN_DESCRIPTION_LENGTH = 40
 GENERIC_DESCRIPTION_MARKERS = ("описание будет добавлено", "нет описания", "description pending", "todo", "вставьте описание")
-EXCLUDED_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES))
+NON_SERVICE_ROUTE_CATEGORIES = {"unknown", "other", "useful"}
+EXCLUDED_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES - NON_SERVICE_ROUTE_CATEGORIES))
 
 
 def _card(

@@ -39,6 +39,7 @@ def search_admin_places(
     low_confidence: bool | None = None,
     quality_tier: str | None = None,
     source: str | None = None,
+    reason: str | None = None,
     sort: str = "updated",
     direction: str = "desc",
     limit: int = 50,
@@ -65,6 +66,7 @@ def search_admin_places(
         low_confidence=low_confidence,
         quality_tier=quality_tier,
         source=source,
+        reason=reason,
     )
     total = query.count()
     column = _SORT_FIELDS.get(sort, Place.updated_at)

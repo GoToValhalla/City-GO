@@ -6,12 +6,29 @@ import { AdminOverviewPage } from './AdminOverviewPage'
 import { clearAdminSession } from './adminSession'
 
 const response = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+const backlogResponse = {
+  generated_at: '2026-07-04T00:00:00Z',
+  summary: {
+    unique_problem_places: 0,
+    total_problem_signals: 0,
+    route_blocker_places: 0,
+    auto_fixable_places: 0,
+    manual_places: 0,
+    verification_backlog_places: 0,
+    content_gap_places: 0,
+  },
+  queues: [],
+  overlaps: [],
+}
 
 describe('AdminOverviewPage CITYGO-171', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
+      if (url.includes('/admin/overview/backlog-breakdown')) {
+        return response(backlogResponse)
+      }
       if (url.includes('/admin/overview')) {
         return response({
           critical: [],

@@ -103,6 +103,18 @@ CI должен сообщать о сломанном продукте рань
 
 Production smoke and local contract tests must report the exact JSON path for raw code leaks, not only a generic payload failure.
 
+### Admin Backlog Breakdown
+
+Admin overview tests must not stop at card shape. Large queues require decomposition
+tests:
+
+- queue total vs unique place count;
+- total problem signals vs unique places;
+- reason-level counts and sample endpoint totals;
+- auto/manual split for review and verification queues;
+- overlap counts between manual review, verification, content gaps and route blockers;
+- Russian operator copy with no raw snake_case reason codes in the UI.
+
 ### Pairwise / Combinatorial Testing
 
 Для route request нужно покрывать не полный декартов взрыв, а pairwise-набор:

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
+from schemas.admin_backlog_breakdown import AdminBacklogBreakdownResponse
 from schemas.admin_coverage import AdminCoverageSummaryResponse, AdminCityCoverageRow
 from schemas.admin_ops import (
     AdminActionCard,
@@ -22,6 +23,7 @@ from schemas.admin_ops import (
     FeatureToggleUpdateRequest,
 )
 from services.admin_coverage_metrics import build_coverage_summary
+from services.admin_backlog_breakdown_service import build_admin_backlog_breakdown
 from services.admin_metrics_service import build_metrics_summary
 from services.admin_overview_service import build_admin_overview
 from services.feature_toggle_service import list_city_toggles, list_global_toggles, list_groups, update_toggle
@@ -42,6 +44,17 @@ def read_admin_overview(auth: AdminContext = Depends(admin_required), db: Sessio
         db.rollback()
         logger.exception("Admin overview degraded", exc_info=exc)
         return _degraded_overview()
+
+
+@router.get("/overview/backlog-breakdown", response_model=AdminBacklogBreakdownResponse)
+def read_admin_overview_backlog_breakdown(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminBacklogBreakdownResponse:
+    try:
+        _apply_admin_read_timeout(db)
+        return AdminBacklogBreakdownResponse(**build_admin_backlog_breakdown(db))
+    except (SQLAlchemyError, TimeoutError) as exc:
+        db.rollback()
+        logger.exception("Admin backlog breakdown degraded", exc_info=exc)
+        return _degraded_backlog_breakdown()
 
 
 @router.get("/metrics/summary", response_model=AdminMetricsSummary)
@@ -151,6 +164,23 @@ def _degraded_overview() -> AdminOverviewResponse:
         operations=[],
         recent_audit_count=0,
         generated_at=datetime.utcnow(),
+    )
+
+
+def _degraded_backlog_breakdown() -> AdminBacklogBreakdownResponse:
+    return AdminBacklogBreakdownResponse(
+        generated_at=datetime.utcnow(),
+        summary={
+            "unique_problem_places": 0,
+            "total_problem_signals": 0,
+            "route_blocker_places": 0,
+            "auto_fixable_places": 0,
+            "manual_places": 0,
+            "verification_backlog_places": 0,
+            "content_gap_places": 0,
+        },
+        queues=[],
+        overlaps=[],
     )
 
 

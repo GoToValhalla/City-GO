@@ -94,6 +94,44 @@ Production smoke fails on hard-excluded route categories, generic OSM route titl
 
 User-facing route fields include `partial_reason`, `warnings`, `user_warnings`, `user_explanation` and `explanation`. Raw snake_case values in those fields must fail with an exact JSON path, for example `raw_technical_code_at_user_warnings[0].type`.
 
+## Data Backlog Reduction v1
+
+`/api/admin/overview` keeps showing operator queue totals. Large totals are not enough
+to plan work, so `/api/admin/overview/backlog-breakdown` explains the composition of
+those queues without mutating data.
+
+The breakdown contract separates:
+
+- `unique_problem_places`: unique places affected by at least one tracked queue;
+- `total_problem_signals`: sum of queue memberships, where one place may contribute
+  several signals;
+- `auto_fixable_places`: places that can enter automatic enrichment, verification or
+  content-repair flows;
+- `manual_places`: places in the review queue that still need classification or an
+  operator decision;
+- `route_blocker_places`: places that block route readiness;
+- `verification_backlog_places`: places waiting for automatic verification;
+- `content_gap_places`: published places missing photo, address or useful description.
+
+Each queue has `reasons` with Russian titles, counts and `sample_endpoint`. The sample
+endpoint must return the same total as the reason count. Reason codes are internal and
+must not be rendered as primary UI copy.
+
+Important product interpretation:
+
+- `manual_review` is now displayed in breakdown as `Очередь разбора`; it must not be
+  interpreted as thousands of guaranteed manual tasks without reason decomposition.
+- `needs_verification` is an automatic verification backlog, not a manual queue.
+- `route_blockers` is an aggregate and must show whether the blocker is a manual route
+  disable, unknown category, service category, missing coordinates or another policy
+  reason.
+- `no_description` must explain NULL, empty text, title copy, too-short text and
+  placeholder descriptions separately.
+
+All v1 actions are read-only diagnostics. Real backlog reduction actions belong to the
+next stage: automatic address recovery, description generation, verification rechecks
+and category classification with audit logs.
+
 ## 2026-07-03 follow-up
 
 - `/cities/available` city selector counters are catalogue counters, not route-eligible counters.
