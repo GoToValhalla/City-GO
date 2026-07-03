@@ -17,9 +17,9 @@ def test_available_city_counts_catalog_places_not_route_eligible_places_new(db_s
     assert rows["almaty"]["places_count"] == 2
 
 
-def test_available_city_counts_legacy_null_publication_status_new(db_session, city_factory, place_factory) -> None:
+def test_available_city_counts_explicit_published_catalog_status_new(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="legacy", name="Legacy City")
-    place = place_factory(
+    place_factory(
         city_id=city.id,
         slug="legacy-place",
         title="Legacy published place",
@@ -27,10 +27,8 @@ def test_available_city_counts_legacy_null_publication_status_new(db_session, ci
         is_published=True,
         is_visible_in_catalog=True,
         is_active=True,
+        publication_status="published",
     )
-    place.publication_status = None
-    db_session.add(place)
-    db_session.commit()
 
     rows = _by_slug(get_available_cities(db_session))
 
