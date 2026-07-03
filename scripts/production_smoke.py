@@ -236,9 +236,7 @@ def validate_route_response(raw: str, http_status: int) -> SmokeResult:
 def minimum_points_for_budget(budget_minutes: int) -> int:
     if budget_minutes < 75:
         return 1
-    if budget_minutes < 120:
-        return 2
-    return 3
+    return 2
 
 
 def _contains_traceback(raw: str) -> bool:
@@ -285,7 +283,9 @@ def _has_honest_weak_reason(status: str, quality_status: str, partial_reason: st
 
 
 def _route_smoke_check(config: ProductionSmokeConfig) -> SmokeCheck:
-    route_city_id = config.route_city_id or DEFAULT_ROUTE_SMOKE_CITY_ID
+    route_city_id = config.route_city_id.strip()
+    if not route_city_id:
+        raise ValueError("CITY_GO_ROUTE_SMOKE_CITY_ID is required when route smoke is enabled")
     body: dict[str, Any] = {
         "build_mode": "auto",
         "start_source": "city_center",
