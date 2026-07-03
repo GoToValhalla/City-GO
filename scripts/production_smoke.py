@@ -165,6 +165,33 @@ def resolve_base_url(candidate: str, ssh_host: str = "") -> str:
     return normalize_base_url("")
 
 
+def config_from_env(args: argparse.Namespace) -> ProductionSmokeConfig:
+    """Build config from CLI-like args and environment variables.
+
+    Kept as a public helper because regression tests and workflow code import it
+    directly. CLI values win over environment values when provided.
+    """
+    base_url = getattr(args, "base_url", None) or os.getenv("PRODUCTION_BASE_URL", "")
+    expected_sha = getattr(args, "expected_sha", None) or os.getenv("EXPECTED_SHA", "")
+    admin_token = getattr(args, "admin_token", None) or os.getenv("ADMIN_API_TOKEN", "")
+    route_smoke_arg = getattr(args, "route_smoke", None)
+    route_smoke_enabled = bool(route_smoke_arg) if route_smoke_arg is not None else _truthy(os.getenv("CITY_GO_ROUTE_SMOKE_ENABLED", "false"))
+    route_city_id = getattr(args, "route_city_id", None) or os.getenv("CITY_GO_ROUTE_SMOKE_CITY_ID", DEFAULT_ROUTE_SMOKE_CITY_ID)
+    route_lat_raw = getattr(args, "route_lat", None)
+    route_lng_raw = getattr(args, "route_lng", None)
+    route_lat = _float_or_none(str(route_lat_raw if route_lat_raw is not None else os.getenv("CITY_GO_ROUTE_SMOKE_LAT", str(DEFAULT_ROUTE_SMOKE_LAT))))
+    route_lng = _float_or_none(str(route_lng_raw if route_lng_raw is not None else os.getenv("CITY_GO_ROUTE_SMOKE_LNG", str(DEFAULT_ROUTE_SMOKE_LNG))))
+    return ProductionSmokeConfig(
+        base_url=resolve_base_url(str(base_url or ""), os.getenv("SSH_HOST", "")),
+        expected_sha=str(expected_sha or "").strip(),
+        admin_token=str(admin_token or "").strip(),
+        route_smoke_enabled=route_smoke_enabled,
+        route_city_id=str(route_city_id or ""),
+        route_lat=route_lat,
+        route_lng=route_lng,
+    )
+
+
 def build_default_checks(config: ProductionSmokeConfig) -> list[SmokeCheck]:
     checks = [SmokeCheck(name=name, method="GET", path=path) for name, path in DEFAULT_PUBLIC_CHECKS]
     checks.extend(SmokeCheck(name=name, method="GET", path=path) for name, path in DEFAULT_BACKEND_CHECKS)
@@ -368,9 +395,9 @@ def _route_smoke_check(config: ProductionSmokeConfig) -> SmokeCheck:
 
 
 def build_summary(results: Sequence[SmokeResult], *, run_url: str = "", commit: str = "") -> str:
-    has_failed = any(result.failed for result in results)
-    has_skipped = any(result.skipped for result in results)
-    header_icon = "❌" if has_failed else "⚠️" if has_skipped else "✅"
+    failed = [result for result in results if result.failed]
+    skipped = [result for result in results if result.skipped]
+    header_icon = "❌" if failed else "⚠️" if skipped else "✅"
     lines = [
         f"{header_icon} CITY GO · PRODUCTION SMOKE",
         f"Commit: {commit[:7] if commit else 'unknown'}",
@@ -379,6 +406,14 @@ def build_summary(results: Sequence[SmokeResult], *, run_url: str = "", commit: 
         icon = "✅" if result.status == "ok" else "⚠️" if result.skipped else "❌"
         detail = f" · {result.detail}" if result.detail else ""
         lines.append(f"{icon} {result.name}: {result.status}{detail}")
+    if failed:
+        lines.append("")
+        lines.append("Failed checks:")
+        lines.extend(f"- {result.name}: {result.detail or result.status}" for result in failed)
+    if skipped:
+        lines.append("")
+        lines.append("Skipped checks:")
+        lines.extend(f"- {result.name}: {result.detail or result.status}" for result in skipped)
     if run_url:
         lines.append("")
         lines.append(f"GitHub Actions: {run_url}")
