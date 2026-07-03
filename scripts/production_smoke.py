@@ -254,6 +254,7 @@ def validate_route_response(raw: str, http_status: int) -> SmokeResult:
     total_places = int(payload.get("total_places") or len(points))
     quality_status = str(payload.get("quality_status") or payload.get("route_quality_status") or "")
     partial_reason = str(payload.get("partial_reason") or "")
+    has_honest_reason = _has_honest_weak_reason(status, quality_status, partial_reason, payload)
 
     if status in {"failed", "empty", "preview_failed"}:
         return SmokeResult("route_quick", "failed", f"status_{status}", http_status)
@@ -261,16 +262,16 @@ def validate_route_response(raw: str, http_status: int) -> SmokeResult:
         return SmokeResult("route_quick", "failed", "route_contains_forbidden_junk", http_status)
     if _public_payload_has_raw_technical_codes(payload):
         return SmokeResult("route_quick", "failed", "raw_technical_codes_in_public_payload", http_status)
-    if _has_large_budget_overflow(payload) and not _has_honest_weak_reason(status, quality_status, partial_reason, payload):
+    if _has_large_budget_overflow(payload) and not has_honest_reason:
         return SmokeResult("route_quick", "failed", "route_budget_overflow", http_status)
 
     minimum_points = minimum_points_for_budget(ROUTE_SMOKE_BUDGET_MINUTES)
-    if total_places < minimum_points and not _has_honest_weak_reason(status, quality_status, partial_reason, payload):
+    if total_places < minimum_points and not has_honest_reason:
         return SmokeResult("route_quick", "failed", f"expected_min_{minimum_points}_points_got_{total_places}", http_status)
 
     reason = f"points_{total_places}"
-    if status == "partial_route" or quality_status == "weak":
-        reason = f"honest_{status or quality_status}_{reason}"
+    if has_honest_reason and (status == "partial_route" or quality_status == "weak" or partial_reason or total_places < minimum_points or _has_large_budget_overflow(payload)):
+        reason = f"honest_{status or quality_status or 'limited'}_{reason}"
     return SmokeResult("route_quick", "ok", reason, http_status)
 
 
@@ -378,75 +379,66 @@ def build_summary(results: Sequence[SmokeResult], *, run_url: str = "", commit: 
         icon = "✅" if result.status == "ok" else "⚠️" if result.skipped else "❌"
         detail = f" · {result.detail}" if result.detail else ""
         lines.append(f"{icon} {result.name}: {result.status}{detail}")
-    failed = [result for result in results if result.failed]
-    skipped = [result for result in results if result.skipped]
-    if failed:
-        lines.append("Failed checks:")
-        lines.extend(f"- {result.name}: {result.detail or result.status}" for result in failed)
-    if skipped:
-        lines.append("Skipped checks:")
-        lines.extend(f"- {result.name}: {result.detail or result.status}" for result in skipped)
     if run_url:
-        lines.append(run_url)
-    return "\n".join(lines).strip() + "\n"
+        lines.append("")
+        lines.append(f"GitHub Actions: {run_url}")
+    return "\n".join(lines)
 
 
-def write_json_report(results: Sequence[SmokeResult], path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = [{"name": r.name, "status": r.status, "detail": r.detail, "http_status": r.http_status} for r in results]
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+def write_reports(results: Sequence[SmokeResult], summary_file: str, json_report: str, *, run_url: str = "", commit: str = "") -> None:
+    summary = build_summary(results, run_url=run_url, commit=commit)
+    Path(summary_file).parent.mkdir(parents=True, exist_ok=True)
+    Path(summary_file).write_text(summary + "\n", encoding="utf-8")
+    Path(json_report).parent.mkdir(parents=True, exist_ok=True)
+    Path(json_report).write_text(json.dumps([result.__dict__ for result in results], ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def config_from_env(args: argparse.Namespace) -> ProductionSmokeConfig:
-    return ProductionSmokeConfig(
-        base_url=resolve_base_url(args.base_url or os.getenv("PRODUCTION_BASE_URL", ""), os.getenv("SSH_HOST", "")),
-        expected_sha=args.expected_sha or os.getenv("EXPECTED_SHA", ""),
-        admin_token=args.admin_token or os.getenv("ADMIN_API_TOKEN", ""),
-        route_smoke_enabled=args.route_smoke or os.getenv("CITY_GO_ROUTE_SMOKE_ENABLED", "").lower() == "true",
-        route_city_id=args.route_city_id or os.getenv("CITY_GO_ROUTE_SMOKE_CITY_ID", "") or DEFAULT_ROUTE_SMOKE_CITY_ID,
-        route_lat=_optional_float(args.route_lat or os.getenv("CITY_GO_ROUTE_SMOKE_LAT", "")),
-        route_lng=_optional_float(args.route_lng or os.getenv("CITY_GO_ROUTE_SMOKE_LNG", "")),
-    )
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run production smoke checks")
+    parser.add_argument("--base-url", default=os.getenv("PRODUCTION_BASE_URL", ""))
+    parser.add_argument("--ssh-host", default=os.getenv("SSH_HOST", ""))
+    parser.add_argument("--expected-sha", default=os.getenv("EXPECTED_SHA", ""))
+    parser.add_argument("--admin-token", default=os.getenv("ADMIN_API_TOKEN", ""))
+    parser.add_argument("--summary-file", default="/tmp/production-smoke/summary.txt")
+    parser.add_argument("--json-report", default="/tmp/production-smoke/report.json")
+    parser.add_argument("--run-url", default=os.getenv("GITHUB_RUN_URL", ""))
+    parser.add_argument("--commit", default=os.getenv("GITHUB_SHA", ""))
+    parser.add_argument("--route-smoke-enabled", default=os.getenv("CITY_GO_ROUTE_SMOKE_ENABLED", "false"))
+    parser.add_argument("--route-city-id", default=os.getenv("CITY_GO_ROUTE_SMOKE_CITY_ID", DEFAULT_ROUTE_SMOKE_CITY_ID))
+    parser.add_argument("--route-lat", default=os.getenv("CITY_GO_ROUTE_SMOKE_LAT", str(DEFAULT_ROUTE_SMOKE_LAT)))
+    parser.add_argument("--route-lng", default=os.getenv("CITY_GO_ROUTE_SMOKE_LNG", str(DEFAULT_ROUTE_SMOKE_LNG)))
+    return parser.parse_args()
 
 
-def _optional_float(value: object) -> float | None:
-    if value is None or value == "":
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _float_or_none(value: str) -> float | None:
+    text = value.strip()
+    if not text:
         return None
-    return float(value)
-
-
-def write_summary_and_report(results: Sequence[SmokeResult], args: argparse.Namespace, *, commit: str) -> None:
-    summary = build_summary(results, run_url=os.getenv("GITHUB_RUN_URL", ""), commit=commit)
-    args.summary_file.parent.mkdir(parents=True, exist_ok=True)
-    args.summary_file.write_text(summary, encoding="utf-8")
-    write_json_report(results, args.json_report)
-    print(summary, end="")
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--base-url")
-    parser.add_argument("--expected-sha")
-    parser.add_argument("--admin-token")
-    parser.add_argument("--route-smoke", action="store_true")
-    parser.add_argument("--route-city-id")
-    parser.add_argument("--route-lat")
-    parser.add_argument("--route-lng")
-    parser.add_argument("--summary-file", type=Path, default=Path("/tmp/production-smoke-summary.txt"))
-    parser.add_argument("--json-report", type=Path, default=Path("/tmp/production-smoke-report.json"))
-    args = parser.parse_args()
-
-    commit = args.expected_sha or os.getenv("EXPECTED_SHA", "") or os.getenv("GITHUB_SHA", "")
-    try:
-        config = config_from_env(args)
-    except ValueError as exc:
-        results = [SmokeResult("production_base_url", "skipped", str(exc))]
-        write_summary_and_report(results, args, commit=commit)
-        return 0
-
+    args = parse_args()
+    config = ProductionSmokeConfig(
+        base_url=resolve_base_url(args.base_url, args.ssh_host),
+        expected_sha=args.expected_sha.strip(),
+        admin_token=args.admin_token.strip(),
+        route_smoke_enabled=_truthy(str(args.route_smoke_enabled)),
+        route_city_id=str(args.route_city_id or ""),
+        route_lat=_float_or_none(str(args.route_lat)),
+        route_lng=_float_or_none(str(args.route_lng)),
+    )
     results = run_smoke(config)
-    write_summary_and_report(results, args, commit=config.expected_sha or commit)
-    return 0 if all(result.ok for result in results) else 1
+    write_reports(results, args.summary_file, args.json_report, run_url=args.run_url, commit=args.commit)
+    print(build_summary(results, run_url=args.run_url, commit=args.commit))
+    return 1 if any(result.failed for result in results) else 0
 
 
 if __name__ == "__main__":
