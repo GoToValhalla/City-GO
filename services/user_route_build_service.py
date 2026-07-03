@@ -14,6 +14,7 @@ from services.route_builder_v2_service import (
 from services.user_profile_from_signals_service import build_user_profile_from_signals
 from services.user_route_context import to_request_context
 from services.user_route_mapper import final_route_to_state
+from services.user_route_slot_build_service import UserRouteSlotBuildService
 
 
 class UserRouteBuildService:
@@ -22,6 +23,11 @@ class UserRouteBuildService:
     def build(self, db: Session, request: UserRouteBuildRequest) -> UserRouteState:
         resolved_request = self._resolve_start_context(db, request)
         route_builder_plan = build_route_builder_v2_plan_from_intent(resolved_request)
+        if route_builder_plan.mode == "slot":
+            return attach_route_builder_v2_result(
+                UserRouteSlotBuildService().build(db, resolved_request),
+                route_builder_plan,
+            )
         execution_request = apply_route_builder_v2_plan_to_intent(resolved_request, route_builder_plan)
         final = RouteBuilderService().build_route(
             db=db,
