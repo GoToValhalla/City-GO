@@ -108,6 +108,24 @@ def test_production_smoke_fails_large_budget_overflow_without_weak_reason_new() 
     assert result.detail == "route_budget_overflow"
 
 
+def test_production_smoke_fails_public_raw_warning_codes_new() -> None:
+    payload = {
+        "status": "partial_route",
+        "quality_status": "weak",
+        "total_places": 1,
+        "total_estimated_minutes": 80,
+        "time_budget_minutes": 120,
+        "warnings": ["route_builder_v2_insufficient_points"],
+        "user_warnings": [{"type": "route_builder_v2_insufficient_points", "user_message": "После проверки осталось мало подходящих точек."}],
+        "points": [{"title": "Museum", "category": "museum"}],
+    }
+
+    result = validate_route_response(json.dumps(payload), 200)
+
+    assert result.failed
+    assert result.detail == "raw_technical_codes_in_public_payload"
+
+
 def test_production_smoke_accepts_honest_weak_short_route_new() -> None:
     payload = {
         "status": "partial_route",
@@ -115,7 +133,8 @@ def test_production_smoke_accepts_honest_weak_short_route_new() -> None:
         "total_places": 1,
         "total_estimated_minutes": 80,
         "time_budget_minutes": 120,
-        "user_warnings": [{"user_message": "Мало подходящих мест рядом со стартом."}],
+        "warnings": ["После проверки осталось мало подходящих точек."],
+        "user_warnings": [{"type": "route", "user_message": "После проверки осталось мало подходящих точек."}],
         "points": [{"title": "Museum", "category": "museum"}],
     }
 
