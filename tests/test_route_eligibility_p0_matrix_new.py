@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from services.route_diversity_policy import normalize_category
 from services.route_eligibility_policy import (
     ALLOWED_ROUTE_CATEGORIES,
     HARD_EXCLUDED_CATEGORIES,
@@ -43,19 +44,22 @@ def _place(**updates: object) -> SimpleNamespace:
 @pytest.mark.parametrize("category", sorted(HARD_EXCLUDED_CATEGORIES))
 def test_route_eligibility_rejects_every_hard_excluded_category_new(category: str) -> None:
     verdict = evaluate_place_route_eligibility(_place(canonical_category=category, category="museum"))
+    normalized = normalize_category(category)
 
     assert verdict.eligible is False
-    assert f"hard_excluded_category:{category}" in verdict.reasons
+    assert f"hard_excluded_category:{normalized}" in verdict.reasons
+    assert verdict.canonical_category == normalized
     assert verdict.admin_bucket == "route_excluded"
 
 
 @pytest.mark.parametrize("category", sorted(ALLOWED_ROUTE_CATEGORIES))
 def test_route_eligibility_accepts_allowed_categories_with_valid_quality_new(category: str) -> None:
-    verdict = evaluate_place_route_eligibility(_place(canonical_category=category, category="pharmacy"))
+    verdict = evaluate_place_route_eligibility(_place(canonical_category=category, category="display_noise"))
+    normalized = normalize_category(category)
 
     assert verdict.eligible is True
     assert verdict.reasons == ()
-    assert verdict.canonical_category == category
+    assert verdict.canonical_category == normalized
 
 
 @pytest.mark.parametrize(
@@ -94,7 +98,7 @@ def test_route_eligibility_rejects_generic_osm_placeholder_titles_new(title: str
         ("tourist_eligible", False, "not_tourist_eligible"),
         ("transport_required", True, "transport_required_scope"),
         ("route_policy", "transfer_only", "non_walking_route_policy"),
-        ("quality_tier", "bronze", "quality_tier_not_route_allowed:bronze"),
+        ("quality_tier", "bad", "quality_tier_not_route_allowed:bad"),
         ("is_spam_poi", True, "spam_poi"),
         ("is_duplicate_suspected", True, "duplicate_suspected"),
         ("critical_field_expired", True, "critical_field_expired"),
@@ -106,6 +110,13 @@ def test_route_eligibility_rejects_invalid_public_route_state_new(field: str, va
 
     assert verdict.eligible is False
     assert reason in verdict.reasons
+
+
+def test_route_eligibility_allows_bronze_quality_for_runtime_route_recall_new() -> None:
+    verdict = evaluate_place_route_eligibility(_place(quality_tier="bronze"))
+
+    assert verdict.eligible is True
+    assert verdict.reasons == ()
 
 
 def test_route_eligibility_requires_stored_flag_when_requested_new() -> None:
@@ -122,17 +133,17 @@ def test_route_eligibility_ignores_stored_flag_for_policy_preview_when_not_requi
 
 
 def test_route_eligibility_uses_canonical_category_over_display_category_new() -> None:
-    verdict = evaluate_place_route_eligibility(_place(canonical_category="museum", category="pharmacy"))
+    verdict = evaluate_place_route_eligibility(_place(canonical_category="museum", category="display_noise"))
 
     assert verdict.eligible is True
     assert verdict.canonical_category == "museum"
 
 
 def test_route_eligibility_blocks_canonical_category_even_when_display_category_is_allowed_new() -> None:
-    verdict = evaluate_place_route_eligibility(_place(canonical_category="pharmacy", category="museum"))
+    verdict = evaluate_place_route_eligibility(_place(canonical_category="health", category="museum"))
 
     assert verdict.eligible is False
-    assert "hard_excluded_category:pharmacy" in verdict.reasons
+    assert "hard_excluded_category:health" in verdict.reasons
 
 
 def test_route_eligibility_unknown_category_gets_route_unknown_bucket_new() -> None:
