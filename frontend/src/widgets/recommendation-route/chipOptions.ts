@@ -14,6 +14,16 @@ export const interestOptions: InterestOption[] = [
   { value: 'museum', label: 'Музеи' },
 ]
 
+const routeBlockedCategoryValues = new Set([
+  'medical', 'medicine', 'health', 'healthcare', 'hospital', 'clinic', 'pharmacy', 'apteka', 'здоровье', 'медицина', 'аптека',
+  'bank', 'atm', 'parking', 'fuel', 'toilet', 'toilets', 'public_toilet', 'банк', 'банкомат', 'парковка', 'туалет',
+  'police', 'bus_stop', 'stop', 'transport', 'public_transport', 'остановка', 'транспорт',
+  'service', 'services', 'utility', 'useful', 'generic_service', 'полезное', 'сервис', 'услуги',
+  'industrial', 'shelter', 'post_office', 'vending_machine', 'bench', 'waste_basket', 'charging_station',
+  'car_service', 'mvd', 'government', 'military', 'cemetery', 'waste_disposal',
+  'unknown', 'other', 'office', 'hotel', 'shopping', 'shop', 'supermarket', 'shopping_mall', 'mall',
+])
+
 const interestFeatureByValue: Record<string, RouteFeature | null> = {
   beach: 'sea',
   coast: 'sea',
@@ -26,6 +36,14 @@ const interestFeatureByValue: Record<string, RouteFeature | null> = {
   walk: null,
   quiet: null,
   museum: null,
+}
+
+const normalizeOptionValue = (value: unknown): string => String(value ?? '').trim().toLowerCase()
+
+export const isRouteBlockedCategoryOption = (category: { code?: string; name?: string }): boolean => {
+  const code = normalizeOptionValue(category.code)
+  const name = normalizeOptionValue(category.name)
+  return routeBlockedCategoryValues.has(code) || routeBlockedCategoryValues.has(name)
 }
 
 export const featuresSupportInterest = (routeFeatures: string[], interest: string): boolean => {
@@ -46,8 +64,8 @@ export const filterInterestsForFeatures = (interests: string[], routeFeatures: s
   return interests.filter((interest) => featuresSupportInterest(routeFeatures, interest))
 }
 
-export const filterCategoryOptionsForFeatures = <T extends { code: string }>(categories: T[], routeFeatures: string[]): T[] => {
-  return categories.filter((category) => featuresSupportInterest(routeFeatures, category.code))
+export const filterCategoryOptionsForFeatures = <T extends { code: string; name?: string }>(categories: T[], routeFeatures: string[]): T[] => {
+  return categories.filter((category) => !isRouteBlockedCategoryOption(category) && featuresSupportInterest(routeFeatures, category.code))
 }
 
 export const getUnsupportedInterestLabels = (interests: string[], routeFeatures: string[]): string[] => {
