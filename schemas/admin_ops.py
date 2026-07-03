@@ -9,6 +9,7 @@ class AdminActionCard(BaseModel):
     severity: str
     link_path: str
     hint: str | None = None
+    action_label: str | None = None
 
 
 class AdminOverviewResponse(BaseModel):
