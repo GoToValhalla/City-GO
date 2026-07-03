@@ -22,10 +22,15 @@ def test_admin_places_search_supports_overview_auto_and_manual_queues_new(client
     assert auto.title not in manual_titles
 
 
-def test_admin_places_search_no_description_preset_includes_short_or_title_copy_new(client: TestClient, place_factory) -> None:
-    short = place_factory(slug="short-description-place", title="Short Description Place", category="museum", short_description="short")
-    copy = place_factory(slug="copy-description-place", title="Copy Description Place", category="museum", short_description="Copy Description Place")
-    good = place_factory(slug="good-description-place", title="Good Description Place", category="museum", short_description="A useful traveller-facing description with enough detail.")
+def test_admin_places_search_no_description_preset_includes_short_or_title_copy_new(client: TestClient, db_session, place_factory) -> None:
+    short = place_factory(slug="short-description-place", title="Short Description Place", category="museum")
+    copy = place_factory(slug="copy-description-place", title="Copy Description Place", category="museum")
+    good = place_factory(slug="good-description-place", title="Good Description Place", category="museum")
+    short.short_description = "short"
+    copy.short_description = copy.title
+    good.short_description = "A useful traveller-facing description with enough detail."
+    db_session.add_all([short, copy, good])
+    db_session.commit()
 
     titles = _titles(client.get("/admin/places/search", params={"preset": "no_description"}))
 
@@ -34,9 +39,12 @@ def test_admin_places_search_no_description_preset_includes_short_or_title_copy_
     assert good.title not in titles
 
 
-def test_admin_places_search_route_queue_preset_new(client: TestClient, place_factory) -> None:
+def test_admin_places_search_route_queue_preset_new(client: TestClient, db_session, place_factory) -> None:
     hidden_route = place_factory(slug="hidden-route-place", title="Hidden Route Place", category="museum", is_published=True, is_route_eligible=False)
-    good = place_factory(slug="route-ready-place", title="Route Ready Place", category="museum", canonical_category="museum", is_published=True, is_route_eligible=True)
+    good = place_factory(slug="route-ready-place", title="Route Ready Place", category="museum", is_published=True, is_route_eligible=True)
+    good.canonical_category = "museum"
+    db_session.add(good)
+    db_session.commit()
 
     not_in_routes = _titles(client.get("/admin/places/search", params={"preset": "not_in_routes"}))
 
