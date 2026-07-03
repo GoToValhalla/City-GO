@@ -4,7 +4,11 @@ import re
 from typing import Any
 
 from models.place import Place
-from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES, evaluate_place_route_eligibility
+from services.route_eligibility_policy import (
+    HARD_EXCLUDED_CATEGORIES,
+    canonical_category_for_place,
+    evaluate_place_route_eligibility,
+)
 
 NON_TOURIST_CATEGORIES = {
     "service", "services", "bank", "atm", "mvd", "police", "government",
@@ -23,7 +27,7 @@ _TECHNICAL_TITLE_PATTERNS = (
 
 
 def category_code(place: Place | Any) -> str | None:
-    return getattr(place, "canonical_category", None) or getattr(getattr(place, "category_ref", None), "code", None)
+    return canonical_category_for_place(place)
 
 
 def is_non_tourist_category(category: str | None) -> bool:
