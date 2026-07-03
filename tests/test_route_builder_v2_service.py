@@ -129,8 +129,8 @@ def test_slot_builder_validates_slots_and_computes_point_bounds() -> None:
     assert plan.expected_min_points == 2
     assert plan.expected_max_points == 3
     assert plan.slots == (
-        {"type": "anchor", "min_count": 1, "max_count": 2, "required": True},
-        {"type": "coffee", "min_count": 1, "max_count": 1, "required": True},
+        {"slot_id": "slot-1", "type": "anchor", "category": "anchor", "min_count": 1, "max_count": 2, "required": True, "duration": None, "selected_place_id": None},
+        {"slot_id": "slot-2", "type": "coffee", "category": "coffee", "min_count": 1, "max_count": 1, "required": True, "duration": None, "selected_place_id": None},
     )
 
     with pytest.raises(RouteBuilderV2Error):
