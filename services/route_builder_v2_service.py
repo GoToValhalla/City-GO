@@ -98,7 +98,6 @@ def build_route_builder_v2_plan(request: RouteBuilderV2Request | Mapping[str, ob
 
 def build_route_builder_v2_plan_from_intent(intent: object) -> RouteBuilderV2Plan:
     """Build the Route Builder v2 execution plan from the public user route API payload."""
-
     return build_route_builder_v2_plan(route_builder_v2_payload_from_intent(intent))
 
 
@@ -122,7 +121,6 @@ def route_builder_v2_payload_from_intent(intent: object) -> dict[str, object]:
 
 def apply_route_builder_v2_plan_to_intent(intent: object, plan: RouteBuilderV2Plan) -> object:
     """Translate v2 modes into the existing route engine input without bypassing production route code."""
-
     updates: dict[str, object] = {}
     if plan.duration_minutes is not None:
         updates["time_budget_minutes"] = plan.duration_minutes
@@ -140,7 +138,6 @@ def apply_route_builder_v2_plan_to_intent(intent: object, plan: RouteBuilderV2Pl
 
 def attach_route_builder_v2_result(state: object, plan: RouteBuilderV2Plan) -> object:
     """Attach v2 metadata and enforce post-build output gates on the public route state."""
-
     gate = route_builder_v2_output_gate(getattr(state, "points", []) or [])
     raw_warnings = _unique_strings(
         [
@@ -229,7 +226,7 @@ def normalize_route_builder_request(request: RouteBuilderV2Request | Mapping[str
         raw = dict(request)
 
     mode = normalize_mode(raw.get("mode"))
-    city_id = _optional_int(raw.get("city_id"))
+    city_id = _optional_positive_int(raw.get("city_id"))
     city_slug = _optional_text(raw.get("city_slug"))
     if city_id is None and not city_slug:
         raise RouteBuilderV2Error("Route Builder v2 requires city_id or city_slug")
@@ -242,12 +239,12 @@ def normalize_route_builder_request(request: RouteBuilderV2Request | Mapping[str
         mode=mode,
         city_id=city_id,
         city_slug=city_slug,
-        profile=_optional_text(raw.get("profile")) or DEFAULT_PROFILE,
-        route_policy=_optional_text(raw.get("route_policy")) or DEFAULT_ROUTE_POLICY,
+        profile=_normalized_label(raw.get("profile")) or DEFAULT_PROFILE,
+        route_policy=_normalized_label(raw.get("route_policy")) or DEFAULT_ROUTE_POLICY,
         duration_minutes=duration,
         categories=_normalize_text_list(raw.get("categories")),
         selected_place_ids=_normalize_id_list(raw.get("selected_place_ids")),
-        slots=tuple(dict(slot) for slot in raw.get("slots") or ()),
+        slots=_normalize_slots(raw.get("slots")),
         interests=_normalize_text_list(raw.get("interests")),
     )
 
@@ -327,6 +324,10 @@ def _build_slot_plan(request: RouteBuilderV2Request) -> RouteBuilderV2Plan:
         raise RouteBuilderV2Error("Slot Builder requires at least one slot")
     if len(request.slots) > MAX_ROUTE_POINTS:
         raise RouteBuilderV2Error(f"Slot Builder supports up to {MAX_ROUTE_POINTS} slots")
+    min_points = sum(int(slot.get("min_count", 1) or 1) for slot in request.slots)
+    max_points = sum(int(slot.get("max_count", slot.get("min_count", 1)) or 1) for slot in request.slots)
+    if max_points > MAX_ROUTE_POINTS:
+        raise RouteBuilderV2Error(f"Slot Builder supports up to {MAX_ROUTE_POINTS} points")
     return RouteBuilderV2Plan(
         mode=SLOT_BUILDER,
         executor_mode="slot",
@@ -334,8 +335,8 @@ def _build_slot_plan(request: RouteBuilderV2Request) -> RouteBuilderV2Plan:
         route_policy=request.route_policy,
         duration_minutes=request.duration_minutes,
         slots=request.slots,
-        expected_min_points=len(request.slots),
-        expected_max_points=len(request.slots),
+        expected_min_points=min_points,
+        expected_max_points=max_points,
     )
 
 
@@ -356,7 +357,7 @@ def _merge_unique_strings(first: Sequence[object], second: Sequence[object]) -> 
 def _normalize_text_list(value: object) -> tuple[str, ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         return ()
-    return tuple(dict.fromkeys(str(item).strip() for item in value if str(item).strip()))
+    return tuple(dict.fromkeys(_normalized_label(item) for item in value if _normalized_label(item)))
 
 
 def _normalize_id_list(value: object) -> tuple[int, ...]:
@@ -364,15 +365,50 @@ def _normalize_id_list(value: object) -> tuple[int, ...]:
         return ()
     result: list[int] = []
     for item in value:
-        parsed = _optional_int(item)
+        parsed = _optional_positive_int(item)
         if parsed is not None:
             result.append(parsed)
     return tuple(dict.fromkeys(result))
 
 
+def _normalize_slots(value: object) -> tuple[Mapping[str, object], ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        return ()
+    slots: list[Mapping[str, object]] = []
+    for index, raw_slot in enumerate(value, 1):
+        if not isinstance(raw_slot, Mapping):
+            raise RouteBuilderV2Error("Slot Builder slot must be an object")
+        slot_type = _normalized_label(raw_slot.get("type") or raw_slot.get("category"))
+        if not slot_type:
+            raise RouteBuilderV2Error("Slot Builder slot requires type or category")
+        category = _normalized_label(raw_slot.get("category")) or slot_type
+        min_count = _optional_positive_int(raw_slot.get("min_count")) or 1
+        max_count = _optional_positive_int(raw_slot.get("max_count")) or min_count
+        if max_count < min_count:
+            raise RouteBuilderV2Error("Slot Builder slot max_count must be >= min_count")
+        slots.append(
+            {
+                "slot_id": _optional_text(raw_slot.get("slot_id")) or f"slot-{index}",
+                "type": slot_type,
+                "category": category,
+                "min_count": min_count,
+                "max_count": max_count,
+                "required": bool(raw_slot.get("required", True)),
+                "duration": _optional_positive_int(raw_slot.get("duration")),
+                "selected_place_id": _optional_positive_int(raw_slot.get("selected_place_id")),
+            }
+        )
+    return tuple(slots)
+
+
 def _optional_text(value: object) -> str | None:
     text = str(value or "").strip()
     return text or None
+
+
+def _normalized_label(value: object) -> str | None:
+    text = _optional_text(value)
+    return text.lower() if text else None
 
 
 def _optional_int(value: object) -> int | None:
@@ -382,6 +418,11 @@ def _optional_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _optional_positive_int(value: object) -> int | None:
+    parsed = _optional_int(value)
+    return parsed if parsed is not None and parsed > 0 else None
 
 
 def _unique_strings(values: Sequence[str]) -> list[str]:
