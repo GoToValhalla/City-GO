@@ -65,6 +65,14 @@ def _scored(idx: int, lat: float, lng: float, score: float = 0.9, category: str 
     )
 
 
+def _route_minutes(route: list[object]) -> int:
+    return sum(
+        int(getattr(point, "visit_minutes", 0) or 0)
+        + int(getattr(point, "estimated_walk_minutes", 0) or 0)
+        for point in route
+    )
+
+
 def test_assembly_first_point_walk_cap_amnesty_keeps_far_seed_new() -> None:
     route = assemble_route(
         [_scored(1, 0.04, 0.0)],
@@ -77,20 +85,18 @@ def test_assembly_first_point_walk_cap_amnesty_keeps_far_seed_new() -> None:
     assert route[0].estimated_walk_minutes > STRICT_MAX_WALK_MINUTES
 
 
-def test_assembly_emergency_seed_preserves_mvp_route_when_walk_graph_is_sparse_new() -> None:
+def test_assembly_sparse_graph_respects_budget_instead_of_forcing_mvp_new() -> None:
+    budget = 120
     route = assemble_route(
         [
             _scored(1, 0.04, 0.0, score=0.95, category="museum"),
             _scored(2, -0.04, 0.0, score=0.94, category="park"),
             _scored(3, 0.0, 0.06, score=0.93, category="viewpoint"),
         ],
-        _ctx(budget=120),
+        _ctx(budget=budget),
         RoutePoint,
     )
 
-    assert len(route) >= 2
-    assert {point.place_id for point in route[:2]} == {"1", "2"}
-    assert any(
-        getattr(point, "scoring_breakdown", {}).get("route_assembly_fallback") == "emergency_seed"
-        for point in route
-    )
+    assert len(route) == 1
+    assert route[0].place_id == "1"
+    assert _route_minutes(route) <= budget
