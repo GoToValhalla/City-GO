@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Production smoke checks for City GO post-deploy verification.
 
-The script intentionally prints a compact, safe summary. It does not include response bodies
-from authenticated admin endpoints.
+The public production base URL points at the frontend container. Backend API checks
+must therefore go through the same `/api` nginx proxy that the browser uses.
+The script intentionally prints a compact, safe summary and never includes response
+bodies from authenticated admin endpoints.
 """
 
 from __future__ import annotations
@@ -21,17 +23,20 @@ from typing import Any, Mapping, Sequence
 
 DEFAULT_PUBLIC_CHECKS: tuple[tuple[str, str], ...] = (
     ("build", "/build.json"),
-    ("backend_ready", "/ready"),
     ("frontend", "/"),
 )
 
-DEFAULT_ADMIN_CHECKS: tuple[tuple[str, str], ...] = (
-    ("admin_system_health", "/admin/system-health"),
-    ("admin_quality", "/admin/quality"),
-    ("admin_taxonomy_categories", "/admin/taxonomy/categories?limit=1"),
+DEFAULT_BACKEND_CHECKS: tuple[tuple[str, str], ...] = (
+    ("backend_ready", "/api/ready"),
 )
 
-ROUTE_SMOKE_PATH = "/v1/user-routes/build"
+DEFAULT_ADMIN_CHECKS: tuple[tuple[str, str], ...] = (
+    ("admin_system_health", "/api/admin/system-health"),
+    ("admin_quality", "/api/admin/quality"),
+    ("admin_taxonomy_categories", "/api/admin/taxonomy/categories?limit=1"),
+)
+
+ROUTE_SMOKE_PATH = "/api/v1/user-routes/build"
 DEFAULT_ROUTE_SMOKE_CITY_ID = "yerevan"
 DEFAULT_ROUTE_SMOKE_LAT = 40.1792
 DEFAULT_ROUTE_SMOKE_LNG = 44.4991
@@ -162,6 +167,7 @@ def resolve_base_url(candidate: str, ssh_host: str = "") -> str:
 
 def build_default_checks(config: ProductionSmokeConfig) -> list[SmokeCheck]:
     checks = [SmokeCheck(name=name, method="GET", path=path) for name, path in DEFAULT_PUBLIC_CHECKS]
+    checks.extend(SmokeCheck(name=name, method="GET", path=path) for name, path in DEFAULT_BACKEND_CHECKS)
     checks.extend(SmokeCheck(name=name, method="GET", path=path, admin=True) for name, path in DEFAULT_ADMIN_CHECKS)
     if config.route_smoke_enabled:
         checks.append(_route_smoke_check(config))
