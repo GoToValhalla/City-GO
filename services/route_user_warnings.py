@@ -138,6 +138,8 @@ _WARNING_CODE_MESSAGES: dict[str, tuple[str, str, str, str]] = {
     ),
 }
 
+_UNKNOWN_WARNING_MESSAGE = "Маршрут собран с ограничениями по данным."
+
 
 def route_warning_copy(code: str) -> tuple[str, str, str, str] | None:
     return _WARNING_CODE_MESSAGES.get(str(code or "").strip())
@@ -145,7 +147,7 @@ def route_warning_copy(code: str) -> tuple[str, str, str, str] | None:
 
 def route_warning_message(code: str) -> str:
     mapped = route_warning_copy(code)
-    return mapped[2] if mapped else str(code or "").strip()
+    return mapped[2] if mapped else _UNKNOWN_WARNING_MESSAGE
 
 
 def user_warnings(final: object) -> list[dict[str, object]]:
@@ -161,7 +163,7 @@ def _route_warning_items(warnings: tuple[str, ...]) -> list[dict[str, object]]:
 def _time_warning_items(place_ids: tuple[str, ...]) -> list[dict[str, object]]:
     if not place_ids:
         return []
-    return [_item("opening_hours_risk", "warning",
+    return [_item("time", "warning",
                   "У части мест есть риск по времени работы.",
                   place_ids, "Откройте карточку места и проверьте часы перед визитом.")]
 
@@ -175,14 +177,14 @@ def _warning_from_text(text: str) -> dict[str, object]:
 
     lowered = normalized.casefold()
     rules = (
-        (("час", "распис"), "unverified_hours", "info", "Уточните часы перед визитом."),
-        (("сокращ", "бюджет"), "budget_trim", "info", "Увеличьте время или нажмите «Добавить место»."),
-        (("однотип", "категор"), "low_diversity", "info", "Добавьте ограничения или пересоберите маршрут."),
+        (("час", "распис"), "time", "info", "Уточните часы перед визитом."),
+        (("сокращ", "бюджет"), "budget", "info", "Увеличьте время или нажмите «Добавить место»."),
+        (("однотип", "категор"), "diversity", "info", "Добавьте ограничения или пересоберите маршрут."),
     )
     match = next(filter(lambda rule: _contains_any(lowered, rule[0]), rules), None)
     kind, severity, hint = (match[1], match[2], match[3]) if match else (
-        "data_quality_low", "warning", "Проверьте детали мест перед прогулкой.")
-    return _item(kind, severity, normalized, (), hint)
+        "data", "warning", "Проверьте детали мест перед прогулкой.")
+    return _item(kind, severity, normalized if not _is_raw_code(normalized) else _UNKNOWN_WARNING_MESSAGE, (), hint)
 
 
 def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
@@ -191,12 +193,31 @@ def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
 
 def _item(kind: str, severity: str, message: str, place_ids: tuple[str, ...], hint: str) -> dict[str, object]:
     return {
-        "type": kind,
+        "type": _public_warning_type(kind),
         "severity": severity,
         "user_message": message,
         "affected_place_ids": list(place_ids),
         "action_hint": hint,
     }
+
+
+def _public_warning_type(kind: str) -> str:
+    text = str(kind or "").strip().casefold()
+    if not text:
+        return "data"
+    if any(token in text for token in ("budget", "time")):
+        return "budget"
+    if any(token in text for token in ("walk", "transfer")):
+        return "walk"
+    if "interest" in text:
+        return "interest"
+    if any(token in text for token in ("photo", "address", "description", "data")):
+        return "data"
+    return "route"
+
+
+def _is_raw_code(text: str) -> bool:
+    return bool(text and text.replace("_", "").replace("-", "").isalnum() and ("_" in text or "-" in text))
 
 
 def _unique(items: list[dict[str, object]]) -> list[dict[str, object]]:
