@@ -1,21 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import {
-  addPlaceToUserRoute,
-  ApiRequestError,
-  buildRecommendationRoute,
-  correctUserRoute,
-  replacePlaceInUserRoute,
-  updateUserRouteOrder,
-} from '../../api/recommendations/recommendationRoute.api'
-import type {
-  RecommendationRouteResponse,
-  UserRouteCorrectionAction,
-} from '../../api/recommendations/recommendationRoute.types'
-import {
-  buildRecommendationRouteRequest,
-  toggleListValue,
-  type RecommendationRouteFormState,
-} from '../../features/routes/model/recommendationRouteForm'
+import { addPlaceToUserRoute, ApiRequestError, buildRecommendationRoute, correctUserRoute, replacePlaceInUserRoute, updateUserRouteOrder } from '../../api/recommendations/recommendationRoute.api'
+import type { RecommendationRouteResponse, UserRouteCorrectionAction } from '../../api/recommendations/recommendationRoute.types'
+import { buildRecommendationRouteRequest, toggleListValue, type RecommendationRouteFormState } from '../../features/routes/model/recommendationRouteForm'
 import { routeMatchesCity } from '../../features/routes/model/routeCityGuard'
 import { AppHeader } from '../../components/ui/AppHeader'
 import { buildApiUrl } from '../../shared/api/http'
@@ -32,16 +18,7 @@ import './GenerateRouteControls.css'
 import './GenerateRouteMobile.css'
 import '../../styles/route-refinements.css'
 
-type RouteDebugInfo = {
-  title: string
-  timestamp: string
-  citySlug: string
-  api?: { method: string; url: string; status: number; responseBody: unknown }
-  requestPayload?: unknown
-  responseBody?: unknown
-  error?: string
-}
-
+type RouteDebugInfo = { title: string; timestamp: string; citySlug: string; api?: { method: string; url: string; status: number; responseBody: unknown }; requestPayload?: unknown; error?: string }
 type DebugInfoRow = { label: string; value: unknown }
 
 const loadFeatures = async (citySlug: string): Promise<string[]> => {
@@ -51,55 +28,32 @@ const loadFeatures = async (citySlug: string): Promise<string[]> => {
   return Array.isArray(data.route_features) ? data.route_features : []
 }
 
-const routeRenderKey = (route: RecommendationRouteResponse): string => [
-  route.route_id,
-  route.revision,
-  route.total_places,
-  route.total_estimated_minutes,
-  route.total_walk_distance_meters,
-  route.points.map((point) => point.place_id).join('-'),
-].join(':')
+const routeRenderKey = (route: RecommendationRouteResponse): string => [route.route_id, route.revision, route.total_places, route.total_estimated_minutes, route.total_walk_distance_meters, route.points.map((point) => point.place_id).join('-')].join(':')
 
 const buildDebugInfo = (err: unknown, citySlug: string, requestPayload?: unknown): RouteDebugInfo => {
-  if (err instanceof ApiRequestError) {
-    return {
-      title: 'Route API error',
-      timestamp: new Date().toISOString(),
-      citySlug,
-      api: { method: err.method, url: err.url, status: err.status, responseBody: err.responseBody },
-      requestPayload: err.requestBody ?? requestPayload,
-      error: err.message,
-    }
-  }
-  return {
-    title: 'Frontend route error',
-    timestamp: new Date().toISOString(),
-    citySlug,
-    requestPayload,
-    error: err instanceof Error ? `${err.name}: ${err.message}\n${err.stack ?? ''}` : String(err),
-  }
+  if (err instanceof ApiRequestError) return { title: 'Route API error', timestamp: new Date().toISOString(), citySlug, api: { method: err.method, url: err.url, status: err.status, responseBody: err.responseBody }, requestPayload: err.requestBody ?? requestPayload, error: err.message }
+  return { title: 'Frontend route error', timestamp: new Date().toISOString(), citySlug, requestPayload, error: err instanceof Error ? `${err.name}: ${err.message}` : String(err) }
 }
 
 const getNoRouteMessage = (reason?: string | null): string => {
   const messages: Record<string, string> = {
-    no_places_in_city: 'В этом городе пока нет мест. Скоро добавим.',
-    radius_too_small: 'Нет мест рядом со стартовой точкой. Попробуй другую точку старта.',
-    all_places_closed: 'Все подходящие места сейчас закрыты. Попробуй другое время.',
-    budget_too_strict: 'Не нашли мест в выбранный бюджет. Попробуй увеличить бюджет.',
-    time_budget_too_tight: 'Слишком мало времени. Попробуй выбрать от 60 минут.',
-    interests_not_matched: 'Нет точных мест по выбранным интересам. Попробуй другие категории.',
-    filters_too_strict: 'Слишком много ограничений. Попробуй сбросить часть фильтров.',
-    not_enough_route_points: 'Не хватило подходящих точек для маршрута. Попробуй увеличить время или изменить интересы.',
+    no_places_in_city: 'В этом городе пока нет мест.',
+    radius_too_small: 'Нет мест рядом со стартовой точкой.',
+    all_places_closed: 'Все подходящие места сейчас закрыты.',
+    budget_too_strict: 'Не нашли мест в выбранный бюджет.',
+    time_budget_too_tight: 'Слишком мало времени.',
+    interests_not_matched: 'Нет точных мест по выбранным интересам.',
+    filters_too_strict: 'Слишком много ограничений.',
+    not_enough_route_points: 'Не хватило подходящих точек для маршрута.',
+    slot_constructor_no_matches: 'Не удалось заполнить слоты сценария.',
   }
-  return messages[reason ?? ''] ?? 'Не удалось построить маршрут. Попробуй изменить параметры.'
+  return messages[reason ?? ''] ?? 'Не удалось построить маршрут.'
 }
 
 const getPartialRouteMessage = (route: RecommendationRouteResponse): string => {
   const firstWarning = route.user_warnings?.[0]?.user_message
   if (firstWarning) return firstWarning
-  if (route.partial_reason === 'not_enough_route_points') {
-    return 'Маршрут получился коротким. Показываем то, что удалось собрать.'
-  }
+  if (route.partial_reason === 'slot_constructor_missing_required_slot') return 'Маршрут собран частично: часть слотов сценария не найдена.'
   return 'Маршрут собран частично. Проверь предупреждения перед стартом.'
 }
 
@@ -112,9 +66,7 @@ const formatDebugValue = (value: unknown): string => {
 }
 
 const flattenDebugInfo = (payload: unknown, prefix = ''): DebugInfoRow[] => {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-    return [{ label: prefix || 'value', value: payload }]
-  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [{ label: prefix || 'value', value: payload }]
   return Object.entries(payload as Record<string, unknown>).flatMap(([key, value]) => {
     const label = prefix ? `${prefix}.${key}` : key
     if (value && typeof value === 'object' && !Array.isArray(value)) return flattenDebugInfo(value, label)
@@ -122,14 +74,7 @@ const flattenDebugInfo = (payload: unknown, prefix = ''): DebugInfoRow[] => {
   })
 }
 
-const renderDebugInfo = (debugInfo: RouteDebugInfo) => (
-  <section className="route-debug-tile route-debug-page">
-    <div className="route-debug-header"><strong>Route debug</strong><span>{debugInfo.timestamp}</span></div>
-    <div className="route-debug-summary-grid">
-      {flattenDebugInfo(debugInfo).map((row) => <div key={row.label}><span>{row.label}</span><strong>{formatDebugValue(row.value)}</strong></div>)}
-    </div>
-  </section>
-)
+const renderDebugInfo = (debugInfo: RouteDebugInfo) => <section className="route-debug-tile route-debug-page"><div className="route-debug-header"><strong>Route debug</strong><span>{debugInfo.timestamp}</span></div><div className="route-debug-summary-grid">{flattenDebugInfo(debugInfo).map((row) => <div key={row.label}><span>{row.label}</span><strong>{formatDebugValue(row.value)}</strong></div>)}</div></section>
 
 export const GenerateRoutePage = () => {
   const location = useLocationProvider()
@@ -153,7 +98,6 @@ export const GenerateRoutePage = () => {
       setDebugInfo(null)
       const nextFeatures = await loadFeatures(nextCity.slug)
       setFeatures(nextFeatures)
-
       try {
         const nextCoordinates = getCurrentCityCoordinates(nextCity.slug)
         setError(null)
@@ -162,11 +106,10 @@ export const GenerateRoutePage = () => {
         setGeoStatus('Старт маршрута установлен от центра города.')
       } catch (err) {
         console.error(err)
-        setError('У выбранного города нет координат центра. Выбери геолокацию или добавь координаты города в БД.')
+        setError('У города нет координат центра.')
         setForm((current) => ({ ...current, lat: '', lng: '', startSource: '', interests: filterInterestsForFeatures(current.interests, nextFeatures) }))
       }
     }
-
     void syncCity()
     window.addEventListener('citygo:city-changed', syncCity)
     return () => window.removeEventListener('citygo:city-changed', syncCity)
@@ -196,37 +139,7 @@ export const GenerateRoutePage = () => {
       return
     }
     patchForm({ lat: String(result.coordinates.latitude), lng: String(result.coordinates.longitude), startAddress: '', startSource: 'current_location' })
-    setGeoStatus('Геолокация получена. Маршрут стартует от текущего места.')
-  }
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const sanitizedForm = { ...form, interests: filterInterestsForFeatures(form.interests, features) }
-    const payload = buildRecommendationRouteRequest(sanitizedForm, city.slug)
-    if (!payload.ok) {
-      setError(payload.error)
-      setRouteWarning(null)
-      setRoute(null)
-      setDebugInfo({ title: 'Frontend validation error', timestamp: new Date().toISOString(), citySlug: city.slug, requestPayload: sanitizedForm, error: payload.error })
-      return
-    }
-
-    try {
-      setLoading(true)
-      setError(null)
-      setRouteWarning(null)
-      setDebugInfo(null)
-      const nextRoute = await buildRecommendationRoute(payload.value)
-      applyNextRoute(nextRoute, payload.value, 'Route city mismatch')
-    } catch (err) {
-      console.error(err)
-      setError('Технический сбой. Попробуй ещё раз.')
-      setRouteWarning(null)
-      setDebugInfo(buildDebugInfo(err, city.slug, payload.value))
-      setRoute(null)
-    } finally {
-      setLoading(false)
-    }
+    setGeoStatus('Геолокация получена.')
   }
 
   const applyNextRoute = (nextRoute: RecommendationRouteResponse, requestPayload: unknown, mismatchTitle: string): boolean => {
@@ -244,6 +157,35 @@ export const GenerateRoutePage = () => {
     setRouteWarning(nextRoute.status === 'partial_route' ? getPartialRouteMessage(nextRoute) : null)
     setRoute(nextRoute)
     return true
+  }
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const sanitizedForm = { ...form, interests: filterInterestsForFeatures(form.interests, features) }
+    const payload = buildRecommendationRouteRequest(sanitizedForm, city.slug)
+    if (!payload.ok) {
+      setError(payload.error)
+      setRouteWarning(null)
+      setRoute(null)
+      setDebugInfo({ title: 'Frontend validation error', timestamp: new Date().toISOString(), citySlug: city.slug, requestPayload: sanitizedForm, error: payload.error })
+      return
+    }
+    try {
+      setLoading(true)
+      setError(null)
+      setRouteWarning(null)
+      setDebugInfo(null)
+      const nextRoute = await buildRecommendationRoute(payload.value)
+      applyNextRoute(nextRoute, payload.value, 'Route city mismatch')
+    } catch (err) {
+      console.error(err)
+      setError('Технический сбой. Попробуй ещё раз.')
+      setRouteWarning(null)
+      setDebugInfo(buildDebugInfo(err, city.slug, payload.value))
+      setRoute(null)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const correct = async (action: UserRouteCorrectionAction, targetPlaceId?: string | null) => {
@@ -324,39 +266,8 @@ export const GenerateRoutePage = () => {
     }
   }
 
-  const routeForm = (
-    <RouteRequestForm
-      features={features}
-      form={form}
-      loading={loading}
-      geoStatus={geoStatus}
-      geoError={geoError}
-      onUseCurrentLocation={useCurrentLocation}
-      onUseCityCenter={useCityCenter}
-      onChange={patchForm}
-      onToggleInterest={(value) => patchForm({ interests: toggleListValue(form.interests, value) })}
-      onToggleAvoided={(value) => patchForm({ avoidedCategories: toggleListValue(form.avoidedCategories, value) })}
-      onSubmit={submit}
-    />
-  )
-  const compactFormSummary = `${city.name} · ${form.useTimeBudget ? `${form.timeBudgetMinutes} мин` : 'без лимита'} · ${form.interests.length ? form.interests.join(', ') : 'без интересов'}`
+  const routeForm = <RouteRequestForm citySlug={city.slug} features={features} form={form} loading={loading} geoStatus={geoStatus} geoError={geoError} onUseCurrentLocation={useCurrentLocation} onUseCityCenter={useCityCenter} onChange={patchForm} onToggleInterest={(value) => patchForm({ interests: toggleListValue(form.interests, value) })} onToggleAvoided={(value) => patchForm({ avoidedCategories: toggleListValue(form.avoidedCategories, value) })} onSubmit={submit} />
+  const compactFormSummary = `${city.name} · ${form.useTimeBudget ? `${form.timeBudgetMinutes} мин` : 'без лимита'} · ${form.routeSlots.length ? `${form.routeSlots.length} слотов` : form.interests.length ? form.interests.join(', ') : 'без интересов'}`
 
-  return (
-    <div className="app-screen">
-      <div className="app-container route-design">
-        <AppHeader />
-        <main className="route-page">
-          <section className="route-hero-tile"><div className="route-hero-copy"><p className="route-eyebrow">Маршрут · {city.name}</p><h1>Собери прогулку без лишних вопросов</h1><p>Выбери время, настроение и ограничения. City Go покажет точки, адреса, порядок остановок и примерную длительность.</p></div><RouteHeroPreview cityName={city.name} citySlug={city.slug} /></section>
-          <section className={`route-config-tile ${route ? 'route-config-compact' : ''}`}>
-            {route ? <details className="route-form-details"><summary>Настройки маршрута: {compactFormSummary}</summary>{routeForm}</details> : routeForm}
-          </section>
-          {!route ? <RandomRouteDraftEditor citySlug={city.slug} features={features} /> : null}
-          {error ? <section className="route-error-tile">{error}</section> : null}
-          {routeWarning ? <section className="route-error-tile">{routeWarning}</section> : null}
-          {debugInfo ? renderDebugInfo(debugInfo) : null}
-          {route ? <RouteResultPanel key={routeRenderKey(route)} route={route} loading={loading} onAddCandidate={addCandidate} onCorrect={correct} onMovePoint={movePoint} onRemovePoint={(placeId) => void correct('remove_place', placeId)} onReplacePoint={(placeId) => void replacePoint(placeId)} /> : null}
-        </main>
-      </div>
-    </div>
-  )
+  return <div className="app-screen"><div className="app-container route-design"><AppHeader /><main className="route-page"><section className="route-hero-tile"><div className="route-hero-copy"><p className="route-eyebrow">Маршрут · {city.name}</p><h1>Собери прогулку</h1><p>Выбери время, старт, интересы или сценарий из слотов.</p></div><RouteHeroPreview cityName={city.name} citySlug={city.slug} /></section><section className={`route-config-tile ${route ? 'route-config-compact' : ''}`}>{route ? <details className="route-form-details"><summary>Настройки маршрута: {compactFormSummary}</summary>{routeForm}</details> : routeForm}</section>{!route ? <RandomRouteDraftEditor citySlug={city.slug} features={features} /> : null}{error ? <section className="route-error-tile">{error}</section> : null}{routeWarning ? <section className="route-error-tile">{routeWarning}</section> : null}{debugInfo ? renderDebugInfo(debugInfo) : null}{route ? <RouteResultPanel key={routeRenderKey(route)} route={route} loading={loading} onAddCandidate={addCandidate} onCorrect={correct} onMovePoint={movePoint} onRemovePoint={(placeId) => void correct('remove_place', placeId)} onReplacePoint={(placeId) => void replacePoint(placeId)} /> : null}</main></div></div>
 }
