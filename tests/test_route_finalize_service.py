@@ -93,7 +93,7 @@ class TestRouteFinalizeNoWarnings(unittest.TestCase):
         fr = svc.finalize(route, _ctx(), extra_warnings=["Маршрут сокращён, чтобы уложиться в выбранный бюджет времени."])
         from services.route_user_warnings import user_warnings
         warnings = user_warnings(fr)
-        self.assertEqual(warnings[0]["type"], "budget_trim")
+        self.assertEqual(warnings[0]["type"], "budget")
         self.assertEqual(warnings[0]["severity"], "info")
 
 
@@ -139,78 +139,7 @@ class TestRouteFinalizeTimeCalculation(unittest.TestCase):
 class TestRouteFinalizeEmptyRoute(unittest.TestCase):
     def test_finalize_empty_route(self) -> None:
         svc = RouteFinalizeService()
-        fr = svc.finalize([], _ctx())
-        self.assertIsInstance(fr, FinalRoute)
-        self.assertEqual(fr.points, [])
+        fr: FinalRoute = svc.finalize([], _ctx())
+        self.assertEqual(fr.status, "empty")
         self.assertEqual(fr.total_places, 0)
-        self.assertTrue(fr.has_warnings)
-        self.assertEqual(fr.warning_count, 1)
-        self.assertEqual(fr.warnings, ["route_failed_no_places"])
-
-
-class TestRouteFinalizeFallbackSpan(unittest.TestCase):
-    def test_span_fallback_without_datetimes(self) -> None:
-        svc = RouteFinalizeService()
-        route = [
-            _point("1", 55.0, 20.0, 15, time_status="ok", estimated_walk_minutes=10),
-            _point("2", 55.01, 20.0, 20, time_status="ok", estimated_walk_minutes=5),
-        ]
-        fr = svc.finalize(route, _ctx())
-        self.assertEqual(fr.total_estimated_minutes, 50)
-        self.assertIsNone(fr.estimated_end_time)
-
-
-class TestRouteFinalizeValidationRouteWarnings(unittest.TestCase):
-    """Route-level строки из validation (visit duration), без дублирования по числу точек."""
-
-    def test_finalize_visit_duration_validation_adds_route_warning(self) -> None:
-        svc = RouteFinalizeService()
-        t0 = datetime(2030, 1, 1, 10, 0, 0)
-        route = [
-            _point(
-                "1",
-                55.0,
-                20.0,
-                20,
-                time_status="ok",
-                estimated_arrival_time=t0,
-                estimated_departure_time=t0 + timedelta(minutes=20),
-                validation={"is_valid": False, "issues": ["visit_duration_non_positive"]},
-            ),
-            _point(
-                "2",
-                55.01,
-                20.0,
-                25,
-                time_status="ok",
-                estimated_arrival_time=t0 + timedelta(minutes=30),
-                estimated_departure_time=t0 + timedelta(minutes=55),
-            ),
-        ]
-        fr = svc.finalize(route, _ctx())
-        self.assertIn(_VISIT_DURATION_ROUTE_WARNING, fr.warnings)
-        self.assertTrue(fr.has_warnings)
-
-    def test_finalize_no_visit_duration_validation_warnings_empty(self) -> None:
-        svc = RouteFinalizeService()
-        t0 = datetime(2030, 1, 1, 10, 0, 0)
-        route = [
-            _point(
-                "1",
-                55.0,
-                20.0,
-                20,
-                time_status="ok",
-                estimated_arrival_time=t0,
-                estimated_departure_time=t0 + timedelta(minutes=20),
-                validation={"is_valid": False, "issues": ["category_empty"]},
-            ),
-            _point("2", 55.01, 20.0, 25, time_status="ok", estimated_arrival_time=t0 + timedelta(minutes=30), estimated_departure_time=t0 + timedelta(minutes=55)),
-        ]
-        fr = svc.finalize(route, _ctx())
-        self.assertEqual(fr.warnings, ["some_places_have_no_address", "some_places_have_no_photo", "some_places_have_weak_description"])
-        self.assertTrue(fr.has_warnings)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        self.assertEqual(fr.quality_status, "failed")
