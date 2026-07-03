@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from services.route_user_warnings import route_warning_message
+
 
 TEXT = {
     "interest": "Хорошо совпадает с выбранными интересами.",
@@ -27,7 +29,8 @@ def score_components(point: object) -> dict[str, float]:
 
 def data_notes(route: object) -> list[str]:
     points = list(getattr(route, "points", []) or [])
-    return _unique([_point_data_note(point) for point in points] + list(getattr(route, "warnings", []) or []))
+    route_notes = [route_warning_message(code) for code in list(getattr(route, "warnings", []) or [])]
+    return _unique([_point_data_note(point) for point in points] + route_notes)
 
 
 def _point_data_note(point: object) -> str:
