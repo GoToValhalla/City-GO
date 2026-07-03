@@ -4,6 +4,7 @@ import json
 
 from schemas.user_route import UserRouteIntent, UserRoutePoint, UserRouteState
 from scripts.production_smoke import validate_route_response
+from services.public_route_sanitizer import sanitize_user_route_state
 from services.route_builder_v2_service import QUICK_BUILD, RouteBuilderV2Plan, attach_route_builder_v2_result
 
 
@@ -46,9 +47,11 @@ def test_route_builder_v2_sanitizes_public_user_warning_codes_new() -> None:
     )
 
     attached = attach_route_builder_v2_result(state, plan)
-    payload = attached.model_dump()
+    public_state = sanitize_user_route_state(attached)
+    payload = public_state.model_dump()
 
     assert payload["warnings"] == ["После проверки осталось мало подходящих точек."]
+    assert payload["partial_reason"] == "После проверки осталось мало подходящих точек."
     assert payload["user_warnings"][0]["type"] == "route"
     assert payload["user_warnings"][0]["user_message"] == "После проверки осталось мало подходящих точек."
     assert validate_route_response(json.dumps(payload, ensure_ascii=False), 200).ok
