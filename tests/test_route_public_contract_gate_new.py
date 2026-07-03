@@ -21,8 +21,16 @@ def test_route_public_contract_gate_user_facing_fields_match_production_smoke_ne
     assert gate.USER_FACING_ROUTE_FIELDS == production_smoke.USER_FACING_ROUTE_FIELDS
 
 
-@pytest.mark.parametrize("field", gate.USER_FACING_ROUTE_FIELDS)
-def test_route_public_contract_gate_catches_raw_code_in_every_user_facing_field_new(field: str) -> None:
+@pytest.mark.parametrize(
+    "field,expected_path",
+    [
+        ("warnings", "warnings[0]"),
+        ("user_warnings", "user_warnings[0].user_message"),
+        ("user_explanation", "user_explanation.message"),
+        ("explanation", "explanation.warnings[0]"),
+    ],
+)
+def test_route_public_contract_gate_catches_raw_code_in_every_user_facing_field_new(field: str, expected_path: str) -> None:
     payload = _public_payload()
     if field == "warnings":
         payload[field] = ["route_builder_v2_insufficient_points"]
@@ -33,7 +41,7 @@ def test_route_public_contract_gate_catches_raw_code_in_every_user_facing_field_
     elif field == "explanation":
         payload[field] = {"warnings": ["route_builder_v2_insufficient_points"]}
 
-    assert gate._validate_public_payload(payload) == [f"raw technical code leaked at {field if field != 'user_warnings' else 'user_warnings[0].user_message'}"]
+    assert gate._validate_public_payload(payload) == [f"raw technical code leaked at {expected_path}"]
 
 
 @pytest.mark.parametrize(
