@@ -13,10 +13,12 @@ export const initialRouteForm: RecommendationRouteFormState = {
   timeOfDay: '',
   routeTimeMode: 'flexible',
   useTimeBudget: true,
+  buildMode: 'auto',
   interests: [],
   avoidedCategories: [],
   budgetLevel: '',
   paceMode: '',
   isVisiting: false,
   userId: 'web-user',
+  routeSlots: [],
 }
