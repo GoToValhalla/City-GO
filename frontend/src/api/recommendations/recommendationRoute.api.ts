@@ -1,8 +1,11 @@
 import { buildApiUrl } from '../../shared/api/http'
 import type {
+  ActiveRouteAction,
+  ActiveRouteSession,
   RecommendationRouteRequest,
   RecommendationRouteResponse,
   UserRouteCorrectionAction,
+  UserRouteStructuredBuildResponse,
 } from './recommendationRoute.types'
 
 export class ApiRequestError extends Error {
@@ -12,13 +15,7 @@ export class ApiRequestError extends Error {
   responseBody: unknown
   requestBody?: unknown
 
-  constructor(params: {
-    status: number
-    url: string
-    method: string
-    responseBody: unknown
-    requestBody?: unknown
-  }) {
+  constructor(params: { status: number; url: string; method: string; responseBody: unknown; requestBody?: unknown }) {
     super(`HTTP ${params.status}`)
     this.name = 'ApiRequestError'
     this.status = params.status
@@ -32,57 +29,35 @@ export class ApiRequestError extends Error {
 const readResponseBody = async (response: Response): Promise<unknown> => {
   const contentType = response.headers.get('content-type') || ''
   try {
-    if (contentType.includes('application/json')) {
-      return await response.json()
-    }
+    if (contentType.includes('application/json')) return await response.json()
     return await response.text()
   } catch (err) {
     return `Не удалось прочитать тело ответа: ${String(err)}`
   }
 }
 
-const assertOk = async (
-  response: Response,
-  params: { url: string; method: string; requestBody?: unknown },
-) => {
+const assertOk = async (response: Response, params: { url: string; method: string; requestBody?: unknown }) => {
   if (response.ok) return
-  throw new ApiRequestError({
-    status: response.status,
-    url: params.url,
-    method: params.method,
-    responseBody: await readResponseBody(response),
-    requestBody: params.requestBody,
-  })
+  throw new ApiRequestError({ status: response.status, url: params.url, method: params.method, responseBody: await readResponseBody(response), requestBody: params.requestBody })
 }
 
-export const buildRecommendationRoute = async (
-  payload: RecommendationRouteRequest,
-): Promise<RecommendationRouteResponse> => {
+export const buildRecommendationRoute = async (payload: RecommendationRouteRequest): Promise<RecommendationRouteResponse> => {
   const url = buildApiUrl('/v1/user-routes/build')
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
   const body = await readResponseBody(response)
-  if (!response.ok) {
-    throw new ApiRequestError({
-      status: response.status,
-      url,
-      method: 'POST',
-      responseBody: body,
-      requestBody: payload,
-    })
-  }
+  if (!response.ok) throw new ApiRequestError({ status: response.status, url, method: 'POST', responseBody: body, requestBody: payload })
   return body as RecommendationRouteResponse
 }
 
-export const sendRouteFeedback = async (
-  route: RecommendationRouteResponse,
-  rating: number,
-  comment?: string,
-) => {
+export const buildStructuredRouteOptions = async (payload: RecommendationRouteRequest): Promise<UserRouteStructuredBuildResponse> => {
+  const url = buildApiUrl('/v1/user-routes/build-structured')
+  const requestBody = { ...payload, slots: payload.route_slots ?? [] }
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
+  await assertOk(response, { url, method: 'POST', requestBody })
+  return response.json()
+}
+
+export const sendRouteFeedback = async (route: RecommendationRouteResponse, rating: number, comment?: string) => {
   const url = buildApiUrl('/route-feedback/')
   const requestBody = {
     route_id: route.route_id,
@@ -92,94 +67,56 @@ export const sendRouteFeedback = async (
     source: 'web',
     problem_types: rating <= 2 ? ['bad_route'] : [],
   }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  })
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
   await assertOk(response, { url, method: 'POST', requestBody })
   return response.json()
 }
 
-export const correctUserRoute = async (
-  currentRoute: RecommendationRouteResponse,
-  action: UserRouteCorrectionAction,
-  targetPlaceId?: string | null,
-): Promise<RecommendationRouteResponse> => {
+export const correctUserRoute = async (currentRoute: RecommendationRouteResponse, action: UserRouteCorrectionAction, targetPlaceId?: string | null): Promise<RecommendationRouteResponse> => {
   const firstPlaceId = currentRoute.points[0]?.place_id ?? null
   const url = buildApiUrl('/v1/user-routes/correct')
-  const requestBody = {
-    current_route: currentRoute,
-    action,
-    target_place_id: targetPlaceId ?? (action === 'remove_place' ? firstPlaceId : null),
-  }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  })
-
+  const requestBody = { current_route: currentRoute, action, target_place_id: targetPlaceId ?? (action === 'remove_place' ? firstPlaceId : null) }
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
   await assertOk(response, { url, method: 'POST', requestBody })
   return response.json()
 }
 
-export const updateUserRouteOrder = async (
-  currentRoute: RecommendationRouteResponse,
-  orderedPlaceIds: string[],
-): Promise<RecommendationRouteResponse> => {
+export const updateUserRouteOrder = async (currentRoute: RecommendationRouteResponse, orderedPlaceIds: string[]): Promise<RecommendationRouteResponse> => {
   const url = buildApiUrl(`/v1/user-routes/${currentRoute.route_id}/update`)
-  const requestBody = {
-    current_route: currentRoute,
-    ordered_place_ids: orderedPlaceIds,
-  }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  })
-
+  const requestBody = { current_route: currentRoute, ordered_place_ids: orderedPlaceIds }
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
   await assertOk(response, { url, method: 'POST', requestBody })
   return response.json()
 }
 
-export const addPlaceToUserRoute = async (
-  currentRoute: RecommendationRouteResponse,
-  placeId: string,
-  insertAfterPlaceId?: string | null,
-): Promise<RecommendationRouteResponse> => {
+export const addPlaceToUserRoute = async (currentRoute: RecommendationRouteResponse, placeId: string, insertAfterPlaceId?: string | null): Promise<RecommendationRouteResponse> => {
   const url = buildApiUrl(`/v1/user-routes/${currentRoute.route_id}/add-place`)
-  const requestBody = {
-    current_route: currentRoute,
-    place_id: placeId,
-    insert_after_place_id: insertAfterPlaceId ?? currentRoute.points.at(-1)?.place_id ?? null,
-  }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  })
-
+  const requestBody = { current_route: currentRoute, place_id: placeId, insert_after_place_id: insertAfterPlaceId ?? currentRoute.points.at(-1)?.place_id ?? null }
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
   await assertOk(response, { url, method: 'POST', requestBody })
   return response.json()
 }
 
-export const replacePlaceInUserRoute = async (
-  currentRoute: RecommendationRouteResponse,
-  oldPlaceId: string,
-  newPlaceId: string,
-): Promise<RecommendationRouteResponse> => {
+export const replacePlaceInUserRoute = async (currentRoute: RecommendationRouteResponse, oldPlaceId: string, newPlaceId: string): Promise<RecommendationRouteResponse> => {
   const url = buildApiUrl(`/v1/user-routes/${currentRoute.route_id}/replace-place`)
-  const requestBody = {
-    current_route: currentRoute,
-    old_place_id: oldPlaceId,
-    new_place_id: newPlaceId,
-  }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  })
+  const requestBody = { current_route: currentRoute, old_place_id: oldPlaceId, new_place_id: newPlaceId }
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
+  await assertOk(response, { url, method: 'POST', requestBody })
+  return response.json()
+}
 
+export const startActiveRouteSession = async (currentRoute: RecommendationRouteResponse): Promise<ActiveRouteSession> => {
+  const url = buildApiUrl(`/v1/user-routes/${currentRoute.route_id}/session/start`)
+  const requestBody = { current_route: currentRoute, user_id: currentRoute.context?.user_id ?? null }
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
+  await assertOk(response, { url, method: 'POST', requestBody })
+  return response.json()
+}
+
+export const updateActiveRouteSession = async (sessionId: number, action: ActiveRouteAction, placeId?: string | null): Promise<ActiveRouteSession> => {
+  const url = buildApiUrl(`/v1/user-routes/sessions/${sessionId}/action`)
+  const requestBody = { action, place_id: placeId ?? null }
+  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
   await assertOk(response, { url, method: 'POST', requestBody })
   return response.json()
 }
