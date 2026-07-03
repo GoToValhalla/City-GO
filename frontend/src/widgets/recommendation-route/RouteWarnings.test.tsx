@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { RouteWarnings } from './RouteWarnings'
 import type { RecommendationRouteResponse, RouteUserWarning } from '../../api/recommendations/recommendationRoute.types'
@@ -15,7 +15,7 @@ const route = (warnings: string[], userWarnings?: RouteUserWarning[]): Recommend
   warning_count: userWarnings?.length ?? warnings.length,
   places_with_warnings: [],
   warnings,
-  user_warnings: userWarnings,
+  ...(userWarnings ? { user_warnings: userWarnings } : {}),
   points: [],
   explanation: {},
 })
@@ -25,7 +25,7 @@ const userWarning = (type: string, userMessage: string, actionHint?: string): Ro
   severity: 'warning',
   user_message: userMessage,
   affected_place_ids: [],
-  action_hint: actionHint,
+  ...(actionHint ? { action_hint: actionHint } : {}),
 })
 
 describe('RouteWarnings', () => {
@@ -63,7 +63,7 @@ describe('RouteWarnings', () => {
   })
 
   it('deduplicates repeated warning cards by message and hint', () => {
-    render(<RouteWarnings route={route(
+    const { container } = render(<RouteWarnings route={route(
       [],
       [
         userWarning('route', 'После проверки осталось мало подходящих точек.', 'Добавьте место вручную.'),
@@ -71,12 +71,13 @@ describe('RouteWarnings', () => {
       ],
     )} />)
 
-    expect(screen.getAllByText('После проверки осталось мало подходящих точек.')).toHaveLength(1)
-    expect(screen.getByText('1')).toBeTruthy()
+    const cards = container.querySelectorAll('.route-warning-card')
+    expect(cards).toHaveLength(1)
+    expect(within(cards[0] as HTMLElement).getByText('После проверки осталось мало подходящих точек.')).toBeTruthy()
   })
 
   it('limits warning cards to five items to keep mobile route UI readable', () => {
-    render(<RouteWarnings route={route(
+    const { container } = render(<RouteWarnings route={route(
       [],
       [
         userWarning('route', 'Предупреждение 1'),
@@ -88,7 +89,7 @@ describe('RouteWarnings', () => {
       ],
     )} />)
 
-    expect(screen.getByText('5')).toBeTruthy()
+    expect(container.querySelectorAll('.route-warning-card')).toHaveLength(5)
     expect(screen.getByText('Предупреждение 1')).toBeTruthy()
     expect(screen.getByText('Предупреждение 5')).toBeTruthy()
     expect(screen.queryByText('Предупреждение 6')).toBeNull()
