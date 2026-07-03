@@ -17,7 +17,19 @@
 - `frontend/src/widgets/recommendation-route/RouteCandidateOptions.test.tsx`
 - `frontend/src/widgets/recommendation-route/RouteWarnings.test.tsx`
 - `frontend/src/widgets/recommendation-route/RoutePointList_missing_address_new.test.tsx`
-- `frontend/src/widgets/recommendation-route/RouteResultPanel.test.tsx` сейчас smoke-only после стабилизации compact UI; полноценные assertions по CTA/active session нужно восстановить отдельным frontend-test hardening pass.
+- `frontend/src/widgets/recommendation-route/RouteResultPanel.test.tsx` сейчас smoke-only после стабилизации compact UI.
+
+## Зафиксированный тестовый долг
+
+Jira: `CITYGO-170` — Restore full RouteResultPanel frontend assertions after compact route UI stabilization.
+
+Нужно восстановить полноценные assertions для `RouteResultPanel.test.tsx` до следующего большого route/UI этапа:
+
+- ready route: summary, quality, points, map, compact photo, CTA;
+- `no_route` / empty state: корректное пустое состояние без ложной интерактивности;
+- active route session: `start`, `complete_point`, `skip_point`, `pause`, `resume`, `finish` через backend API;
+- public warnings: raw technical codes не видны пользователю;
+- тесты должны проверять текущий compact UI, а не старую верстку.
 
 ## Что проверить на телефоне
 
