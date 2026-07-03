@@ -7,6 +7,8 @@ from services.route_quality_caps import minimum_data_cap
 QualityStatus = Literal["good", "acceptable", "weak", "failed"]
 _LONG_INITIAL_WALK_MINUTES = 20
 _BUDGET_SWALLOWED_RATIO = 0.40
+_LONG_ROUTE_MINIMUM_FOR_STRONG_STATUS = 3
+_LONG_ROUTE_BUDGET_MINUTES = 120
 
 
 @dataclass(frozen=True)
@@ -81,9 +83,7 @@ def build_route_quality_score(
 def minimum_points_for_budget(budget_minutes: int) -> int:
     if budget_minutes < 75:
         return 1
-    if budget_minutes < 120:
-        return 2
-    return 3
+    return 2
 
 
 def quality_status(score: float, route: list[Any], budget_minutes: int) -> QualityStatus:
@@ -92,6 +92,8 @@ def quality_status(score: float, route: list[Any], budget_minutes: int) -> Quali
     if any(not _has_coordinates(point) for point in route):
         return "failed"
     if len(route) < minimum_points_for_budget(budget_minutes):
+        return "weak"
+    if budget_minutes >= _LONG_ROUTE_BUDGET_MINUTES and len(route) < _LONG_ROUTE_MINIMUM_FOR_STRONG_STATUS:
         return "weak"
     if score >= 0.75:
         return "good"
@@ -115,6 +117,8 @@ def public_quality_warnings(
 
     if len(route) < minimum_points_for_budget(budget_minutes):
         result.append("route_short_due_to_time_budget" if budget_minutes < 45 else "route_short_due_to_low_place_density")
+    elif budget_minutes >= _LONG_ROUTE_BUDGET_MINUTES and len(route) < _LONG_ROUTE_MINIMUM_FOR_STRONG_STATUS:
+        result.append("route_short_due_to_low_place_density")
 
     if _has_long_initial_transfer(route):
         result.append("long_initial_transfer")
