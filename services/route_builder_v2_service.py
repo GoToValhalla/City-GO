@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from services.place_quality_signals import is_placeholder_title
 from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
@@ -97,7 +97,6 @@ def build_route_builder_v2_plan(request: RouteBuilderV2Request | Mapping[str, ob
 
 
 def build_route_builder_v2_plan_from_intent(intent: object) -> RouteBuilderV2Plan:
-    """Build the Route Builder v2 execution plan from the public user route API payload."""
     return build_route_builder_v2_plan(route_builder_v2_payload_from_intent(intent))
 
 
@@ -120,7 +119,6 @@ def route_builder_v2_payload_from_intent(intent: object) -> dict[str, object]:
 
 
 def apply_route_builder_v2_plan_to_intent(intent: object, plan: RouteBuilderV2Plan) -> object:
-    """Translate v2 modes into the existing route engine input without bypassing production route code."""
     updates: dict[str, object] = {}
     if plan.duration_minutes is not None:
         updates["time_budget_minutes"] = plan.duration_minutes
@@ -137,7 +135,6 @@ def apply_route_builder_v2_plan_to_intent(intent: object, plan: RouteBuilderV2Pl
 
 
 def attach_route_builder_v2_result(state: object, plan: RouteBuilderV2Plan) -> object:
-    """Attach v2 metadata and enforce post-build output gates on the public route state."""
     gate = route_builder_v2_output_gate(getattr(state, "points", []) or [])
     raw_warnings = _unique_strings(
         [
@@ -210,21 +207,18 @@ def route_builder_v2_output_gate(points: Sequence[object]) -> RouteBuilderV2Gate
 
 
 def normalize_route_builder_request(request: RouteBuilderV2Request | Mapping[str, object]) -> RouteBuilderV2Request:
-    if isinstance(request, RouteBuilderV2Request):
-        raw = {
-            "mode": request.mode,
-            "city_id": request.city_id,
-            "city_slug": request.city_slug,
-            "profile": request.profile,
-            "route_policy": request.route_policy,
-            "duration_minutes": request.duration_minutes,
-            "categories": request.categories,
-            "selected_place_ids": request.selected_place_ids,
-            "slots": request.slots,
-            "interests": request.interests,
-        }
-    else:
-        raw = dict(request)
+    raw = {
+        "mode": request.mode,
+        "city_id": request.city_id,
+        "city_slug": request.city_slug,
+        "profile": request.profile,
+        "route_policy": request.route_policy,
+        "duration_minutes": request.duration_minutes,
+        "categories": request.categories,
+        "selected_place_ids": request.selected_place_ids,
+        "slots": request.slots,
+        "interests": request.interests,
+    } if isinstance(request, RouteBuilderV2Request) else dict(request)
 
     mode = normalize_mode(raw.get("mode"))
     city_id = _optional_positive_int(raw.get("city_id"))
@@ -367,12 +361,16 @@ def _optional_text(value: object) -> str | None:
     return text or None
 
 
+def _normalized_label(value: object) -> str:
+    return str(value or "").strip().lower().replace(" ", "_")
+
+
 def _normalize_text_list(value: object) -> tuple[str, ...]:
     if value is None:
         return ()
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         return ()
-    return tuple(_unique_strings(str(item).strip().lower() for item in value if str(item).strip()))
+    return tuple(_unique_strings(_normalized_label(item) for item in value if _normalized_label(item)))
 
 
 def _normalize_id_list(value: object) -> tuple[int, ...]:
@@ -397,10 +395,35 @@ def _normalize_slots(value: object) -> tuple[Mapping[str, object], ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
         return ()
     slots: list[Mapping[str, object]] = []
-    for slot in value:
-        if isinstance(slot, Mapping):
-            slots.append(dict(slot))
+    for index, slot in enumerate(value, 1):
+        if not isinstance(slot, Mapping):
+            continue
+        kind = _normalized_label(slot.get("type") or slot.get("category"))
+        if not kind:
+            raise RouteBuilderV2Error("Slot Builder slot requires type or category")
+        min_count = _slot_count(slot.get("min_count"), 1)
+        max_count = _slot_count(slot.get("max_count"), min_count)
+        slots.append(
+            {
+                "slot_id": str(slot.get("slot_id") or f"slot-{index}"),
+                "type": kind,
+                "category": _normalized_label(slot.get("category")) or kind,
+                "min_count": min_count,
+                "max_count": max_count,
+                "required": bool(slot.get("required", True)),
+                "duration": slot.get("duration"),
+                "selected_place_id": slot.get("selected_place_id") or slot.get("preferred_place_id"),
+            }
+        )
     return tuple(slots)
+
+
+def _slot_count(value: object, default: int) -> int:
+    try:
+        number = int(value if value is not None else default)
+    except (TypeError, ValueError):
+        number = default
+    return max(1, number)
 
 
 def _merge_unique_strings(*values: Sequence[object]) -> list[str]:
