@@ -31,6 +31,7 @@ Implemented production path:
 - `UserRouteBuildService` routes `build_mode=constructor` to the slot service instead of treating slots as generic interests.
 - Slot matching preserves order and uses selected places first; fallback is limited to related categories.
 - If a required slot cannot be filled, the route is returned as honest `partial_route` with slot match explanation.
+- Frontend request normalization treats `routeSlots` as optional for non-constructor modes. Empty/missing slots no longer crash auto/category route build forms.
 
 ## Active Route Session
 
@@ -59,3 +60,8 @@ Implemented persistent backend path:
   - ordered slot route build;
   - partial route when required slot cannot be filled;
   - persistent active route session transitions.
+- Frontend normalization is protected by recommendation route form tests and by optional slot handling in `RouteRequestForm`, `RouteSlotBuilder`, and `GenerateRoutePage`.
+
+## CI stabilization note
+
+CI #2031 exposed that non-constructor forms could still call route request normalization with missing `routeSlots`. The production contract is now: `routeSlots` is optional unless `build_mode=constructor`; all UI consumers must normalize missing slots to `[]` before counting or flattening.
