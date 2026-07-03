@@ -14,6 +14,9 @@ from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
 # неразобранные общие значения, требующие нормализации.
 JUNK_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES | {"unknown", "other", "useful"}))
 SERVICE_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES))
+MANUAL_REVIEW_STATUSES = ("needs_review", "needs_manual_review", "deferred")
+AUTO_BACKLOG_STATUSES = ("draft", "auto_backlog", "low_confidence")
+VERIFICATION_QUEUE_STATUSES = ("needs_recheck", "unverified")
 
 
 def _search_terms(value: str) -> tuple[str, ...]:
@@ -26,13 +29,16 @@ def apply_place_preset(query: Query, preset: str) -> Query:
     rules = {
         "no_photo": lambda q: q.filter(or_(Place.image_url.is_(None), Place.image_url == "")),
         "no_address": lambda q: q.filter(or_(Place.address.is_(None), Place.address == "")),
-        "no_description": lambda q: q.filter(or_(Place.short_description.is_(None), Place.short_description == "")),
+        "no_description": lambda q: q.filter(or_(Place.short_description.is_(None), Place.short_description == "", Place.short_description == Place.title)),
         "no_contacts": lambda q: q.filter(or_(Place.phone.is_(None), Place.phone == ""), or_(Place.website.is_(None), Place.website == "")),
         "no_hours": lambda q: q.filter(Place.opening_hours.is_(None)),
         "low_confidence": lambda q: q.filter(Place.existence_confidence_level.in_(("low", "unknown"))),
-        "needs_review": lambda q: q.filter(Place.verification_status.in_(("needs_recheck", "unverified"))),
-        "not_in_routes": lambda q: q.filter(Place.is_route_eligible.is_not(True)),
-        "route_unknown": lambda q: q.filter(Place.is_route_eligible.is_(None)),
+        "needs_review": lambda q: q.filter(Place.verification_status.in_(VERIFICATION_QUEUE_STATUSES)),
+        "manual_review": lambda q: q.filter(Place.publication_status.in_(MANUAL_REVIEW_STATUSES)),
+        "auto_backlog": lambda q: q.filter(Place.publication_status.in_(AUTO_BACKLOG_STATUSES)),
+        "needs_verification": lambda q: q.filter(Place.verification_status.in_(VERIFICATION_QUEUE_STATUSES)),
+        "not_in_routes": lambda q: q.filter(Place.is_published.is_(True), Place.is_route_eligible.is_not(True)),
+        "route_unknown": lambda q: q.filter(or_(Place.canonical_category.is_(None), Place.canonical_category == "unknown", Place.category == "unknown")),
         "in_routes": lambda q: q.filter(Place.is_route_eligible.is_(True), Place.is_published.is_(True)),
         "published_not_route_eligible": lambda q: q.filter(Place.is_published.is_(True), Place.is_route_eligible.is_not(True)),
         "route_eligible_no_photo": lambda q: q.filter(Place.is_route_eligible.is_(True), or_(Place.image_url.is_(None), Place.image_url == "")),
@@ -45,7 +51,7 @@ def apply_place_preset(query: Query, preset: str) -> Query:
             Place.address.is_(None),
             Place.short_description.is_(None),
             Place.existence_confidence_level.in_(("low", "unknown")),
-            Place.verification_status.in_(("needs_recheck", "unverified")),
+            Place.verification_status.in_(VERIFICATION_QUEUE_STATUSES),
             Place.is_duplicate_suspected.is_(True),
             Place.is_spam_poi.is_(True),
         )),
