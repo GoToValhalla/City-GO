@@ -22,6 +22,7 @@ from services.import_pipeline.enrichment_only import run_enrichment_only_pipelin
 from services.import_pipeline.runner import run_enrichment_pipeline
 from services.import_pipeline.steps import STEP_CANCELLED, STEP_ERROR, STEP_QUEUED
 from services.import_pipeline_foundation import run_foundation_pipeline
+from services.place_auto_repair_service import PlaceAutoRepairService, PlaceAutoRepairSummary
 
 SOURCE_FULL_IMPORT = "admin_city_import"
 SOURCE_ENRICHMENT_ONLY = "admin_city_enrichment"
@@ -30,6 +31,7 @@ SOURCE_ADDRESS_ENRICHMENT = "admin_address_enrichment"
 SOURCE_PHOTO_ENRICHMENT = "admin_photo_enrichment"
 ADDRESS_LIMIT = 5000
 IMAGE_LIMIT = 2000
+AUTO_REPAIR_CITY_SCAN_LIMIT = 1000
 
 
 def queue_city_import_job(db: Session, *, city_id: int, actor_id: str | None = None) -> CityAdminImportJob:
@@ -83,6 +85,9 @@ def _preserved_snapshot_context(job: CityAdminImportJob | None, source: str) -> 
     if isinstance(address_result, dict):
         preserved["latest_address_enrichment"] = address_result
         preserved["address_enrichment"] = address_result
+    auto_repair = previous.get("auto_repair")
+    if isinstance(auto_repair, dict):
+        preserved["auto_repair"] = auto_repair
     return preserved
 
 
@@ -109,10 +114,7 @@ def _queue_job(db: Session, *, city: City, source: str, actor_id: str | None) ->
     job.processed_items = 0
     job.successful_items = 0
     job.failed_items = 0
-    job.step_details = {
-        "city_state_before_import": {"launch_status": city.launch_status, "is_active": bool(city.is_active)},
-        **preserved,
-    }
+    job.step_details = {"city_state_before_import": {"launch_status": city.launch_status, "is_active": bool(city.is_active)}, **preserved}
     job.started_at = None
     job.finished_at = None
     job.last_error = None
@@ -152,17 +154,33 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
         source = _foundation(db, city, job, actor_id, ids)
         source_status = job.status
         job.places_found, job.places_saved, job.scopes_succeeded = saved
+        auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=ids)
         readiness = compute_city_readiness(db, city_slug=city.slug) or {}
         places = db.query(Place).filter(Place.id.in_(ids)).order_by(Place.id).all() if ids else []
         record_place_changes(db, job=job, places=places, since=job.started_at or datetime.utcnow())
         if source_status in {"partial_success", "success_with_warnings", "failed"} or int(source.get("failed") or 0) > 0:
             warnings.append({"step": "source_enrichment", "error": f"Ошибок этапов обогащения: {int(source.get('failed') or 0)}"})
-        job.step_details = {**dict(job.step_details or {}), "warnings": warnings, "changed_place_ids": ids, "has_changes": bool(ids), "unified_pipeline": {"collection_and_legacy_enrichment": legacy, "source_enrichment": source, "readiness_score": readiness.get("readiness_score"), "completed": True}}
+        if int(auto_repair.get("needs_review_count") or 0) > 0:
+            warnings.append({"step": "auto_repair", "error": f"Требуют проверки: {int(auto_repair.get('needs_review_count') or 0)}"})
+        job.step_details = {
+            **dict(job.step_details or {}),
+            "warnings": warnings,
+            "changed_place_ids": ids,
+            "has_changes": bool(ids),
+            "auto_repair": auto_repair,
+            "unified_pipeline": {
+                "collection_and_legacy_enrichment": legacy,
+                "source_enrichment": source,
+                "readiness_score": readiness.get("readiness_score"),
+                "auto_repair": auto_repair,
+                "completed": True,
+            },
+        }
         job.status = "success_with_warnings" if warnings else "success"
         job.finished_at = datetime.utcnow()
         city.last_import_at = job.finished_at
         _refresh_snapshot_light(db, city=city, job=job, source="import_worker_finished")
-        log_import_event(db, event="unified_import_pipeline_finished", city_slug=city.slug, actor_id=actor_id, message=f"Полный pipeline #{job.id}: {len(ids)} изменений; публикация города сохранена", details={"job_id": job.id, "changed_places": len(ids), "warnings": warnings, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active)})
+        log_import_event(db, event="unified_import_pipeline_finished", city_slug=city.slug, actor_id=actor_id, message=f"Полный pipeline #{job.id}: {len(ids)} изменений; auto-repair {auto_repair.get('repaired_count', 0)}; публикация города сохранена", details={"job_id": job.id, "changed_places": len(ids), "warnings": warnings, "auto_repair": auto_repair, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active)})
         db.commit()
         _alert(db, city, job, len(ids), readiness, warnings)
     except Exception as exc:
@@ -213,8 +231,9 @@ def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> C
     job.started_at = datetime.utcnow()
     db.commit()
     result = run_address_backfill(["--city", city.slug, "--limit", str(ADDRESS_LIMIT), "--apply"])
-    job.step_details = {**dict(job.step_details or {}), "address_enrichment": result}
-    job.status = "success"
+    auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=[])
+    job.step_details = {**dict(job.step_details or {}), "address_enrichment": result, "auto_repair": auto_repair}
+    job.status = "success_with_warnings" if int(auto_repair.get("needs_review_count") or 0) else "success"
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"
     db.commit()
@@ -238,17 +257,18 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
     created = int(result.get("created") or 0) if isinstance(result, dict) else 0
     errors = result.get("errors") if isinstance(result, dict) else []
     provider_status = result.get("provider_status") if isinstance(result, dict) else None
+    auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=[])
     job.places_found = scanned
     job.places_saved = created
     job.total_items = scanned
     job.processed_items = scanned
     job.successful_items = scanned
     job.failed_items = len(errors or []) if isinstance(errors, list) else 0
-    job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result}
-    job.status = "success"
+    job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result, "auto_repair": auto_repair}
+    job.status = "success_with_warnings" if int(auto_repair.get("needs_review_count") or 0) or job.failed_items else "success"
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"
-    log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result})
+    log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result, "auto_repair": auto_repair})
     db.commit()
     _refresh_snapshot_light(db, city=city, job=job, source="photo_enrichment_finished")
     db.refresh(job)
@@ -270,7 +290,8 @@ def _refresh_snapshot_light(db: Session, *, city: City, job: CityAdminImportJob,
     existing_changes = dict(job.step_details or {}).get("change_summary")
     changes = existing_changes if isinstance(existing_changes, dict) else {"job_id": job.id, "city_id": city.id, "city_slug": city.slug, **{key: 0 for key in CHANGE_TYPES}}
     changes = {**changes, "total_changes": sum(int(changes.get(key) or 0) for key in CHANGE_TYPES)}
-    snapshot = {"version": 1, "source": source, "taken_at": datetime.utcnow().isoformat(), "city_id": city.id, "city_slug": city.slug, "job_id": job.id, "data_coverage": coverage, "change_summary": changes}
+    auto_repair = dict(job.step_details or {}).get("auto_repair")
+    snapshot = {"version": 1, "source": source, "taken_at": datetime.utcnow().isoformat(), "city_id": city.id, "city_slug": city.slug, "job_id": job.id, "data_coverage": coverage, "change_summary": changes, "auto_repair": auto_repair if isinstance(auto_repair, dict) else None}
     details = dict(job.step_details or {})
     details[SNAPSHOT_KEY] = snapshot
     details["data_coverage"] = coverage
@@ -279,6 +300,33 @@ def _refresh_snapshot_light(db: Session, *, city: City, job: CityAdminImportJob,
     job.updated_at = datetime.utcnow()
     db.commit()
     return snapshot
+
+
+def _run_auto_repair(db: Session, *, city: City, job: CityAdminImportJob, changed_place_ids: list[int]) -> dict[str, object]:
+    query = db.query(Place).filter(Place.city_id == city.id)
+    if changed_place_ids:
+        query = query.filter(Place.id.in_(changed_place_ids))
+    else:
+        query = query.order_by(Place.id.desc()).limit(AUTO_REPAIR_CITY_SCAN_LIMIT)
+    places = query.all()
+    summary = PlaceAutoRepairService().repair_places(places)
+    payload = _serialize_auto_repair_summary(summary)
+    details = dict(job.step_details or {})
+    details["auto_repair"] = payload
+    job.step_details = details
+    log_import_event(db, event="place_auto_repair_finished", city_slug=city.slug, actor_id=None, message=f"Auto-repair #{job.id}: repaired={summary.repaired_count}, review={summary.needs_review_count}, skipped={summary.skipped_count}", details={"job_id": job.id, "auto_repair": payload})
+    return payload
+
+
+def _serialize_auto_repair_summary(summary: PlaceAutoRepairSummary) -> dict[str, object]:
+    return {
+        "repaired_count": int(summary.repaired_count),
+        "needs_review_count": int(summary.needs_review_count),
+        "skipped_count": int(summary.skipped_count),
+        "by_reason": dict(summary.by_reason),
+        "by_category": dict(summary.by_category),
+        "items": [item.__dict__ for item in summary.items[:200]],
+    }
 
 
 def _foundation(db, city, job, actor_id, ids):
@@ -290,7 +338,8 @@ def _foundation(db, city, job, actor_id, ids):
 
 def _alert(db, city, job, changed, readiness, warnings):
     total = db.query(Place).filter(Place.city_id == city.id).count()
-    send_admin_alert(title="Import completed with warnings" if warnings else "Import pipeline finished", message=f"{city.name}: {changed} мест обновлено. Публикация города сохранена." if changed else f"{city.name}: изменений нет, публикация сохранена.", level="warning" if warnings else "info", city_slug=city.slug, job_id=int(job.id), details={"status": job.status, "source": job.source, "places_total": total, "changed_places": changed, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active), "readiness": readiness, "warnings": warnings})
+    auto_repair = dict(job.step_details or {}).get("auto_repair")
+    send_admin_alert(title="Import completed with warnings" if warnings else "Import pipeline finished", message=f"{city.name}: {changed} мест обновлено. Публикация города сохранена." if changed else f"{city.name}: изменений нет, публикация сохранена.", level="warning" if warnings else "info", city_slug=city.slug, job_id=int(job.id), details={"status": job.status, "source": job.source, "places_total": total, "changed_places": changed, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active), "readiness": readiness, "auto_repair": auto_repair if isinstance(auto_repair, dict) else None, "warnings": warnings})
 
 
 def reset_import_job_to_queued(db: Session, *, city_id: int) -> CityAdminImportJob:
@@ -332,7 +381,12 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str) -> City
     try:
         run_enrichment_only_pipeline(db, job=job, city=city, actor_id=actor_id)
         db.refresh(job)
-        _foundation(db, city, job, actor_id, [int(v) for v in ((job.step_details or {}).get("changed_place_ids") or [])])
+        ids = [int(v) for v in ((job.step_details or {}).get("changed_place_ids") or [])]
+        _foundation(db, city, job, actor_id, ids)
+        auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=ids)
+        job.step_details = {**dict(job.step_details or {}), "auto_repair": auto_repair}
+        job.status = "success_with_warnings" if int(auto_repair.get("needs_review_count") or 0) else "success"
+        job.finished_at = datetime.utcnow()
         _refresh_snapshot_light(db, city=city, job=job, source="enrichment_only_finished")
     except Exception as exc:
         job.status = "failed"
