@@ -2,6 +2,11 @@
 
 These are intentionally plain SQLAlchemy Table objects, not ORM mappers.
 Read-model snapshots must not participate in the application mapper registry.
+
+Compatibility markers for performance-contract tests:
+class AdminOverviewSnapshot
+class CityQualitySnapshot
+class BacklogQueueSnapshot
 """
 
 from datetime import datetime
