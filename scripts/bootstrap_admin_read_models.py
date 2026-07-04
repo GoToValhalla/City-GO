@@ -6,15 +6,15 @@ from models.admin_read_snapshot import AdminOverviewSnapshot, BacklogQueueSnapsh
 
 
 def bootstrap_admin_read_models() -> dict[str, object]:
-    AdminOverviewSnapshot.__table__.create(bind=engine, checkfirst=True)
-    CityQualitySnapshot.__table__.create(bind=engine, checkfirst=True)
-    BacklogQueueSnapshot.__table__.create(bind=engine, checkfirst=True)
+    AdminOverviewSnapshot.create(bind=engine, checkfirst=True)
+    CityQualitySnapshot.create(bind=engine, checkfirst=True)
+    BacklogQueueSnapshot.create(bind=engine, checkfirst=True)
     return {
         "status": "ok",
         "tables": [
-            AdminOverviewSnapshot.__tablename__,
-            CityQualitySnapshot.__tablename__,
-            BacklogQueueSnapshot.__tablename__,
+            AdminOverviewSnapshot.name,
+            CityQualitySnapshot.name,
+            BacklogQueueSnapshot.name,
         ],
     }
 
