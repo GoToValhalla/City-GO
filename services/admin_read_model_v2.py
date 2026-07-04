@@ -25,33 +25,33 @@ def admin_overview(db: Session) -> dict[str, object]:
 
 
 def backlog_breakdown(db: Session) -> dict[str, object]:
-    from services.admin_backlog_breakdown_service import _build_admin_backlog_breakdown_live
+    from services.admin_backlog_breakdown_service import build_admin_backlog_breakdown
 
-    return _read_or_build(db, SLOT_BACKLOG, _build_admin_backlog_breakdown_live)
+    return _read_or_build(db, SLOT_BACKLOG, build_admin_backlog_breakdown)
 
 
 def reduction_plan(db: Session) -> dict[str, object]:
-    from services.admin_backlog_reduction_service import _build_reduction_plan_live
+    from services.admin_backlog_reduction_service import build_reduction_plan
 
-    return _read_or_build(db, SLOT_PLAN, _build_reduction_plan_live)
+    return _read_or_build(db, SLOT_PLAN, build_reduction_plan)
 
 
 def data_quality_summary(db: Session) -> dict[str, object]:
-    from services.data_quality.query import _build_data_quality_summary_live
+    from services.data_quality.query import build_data_quality_summary
 
-    return _read_or_build(db, SLOT_DATA_QUALITY, _build_data_quality_summary_live)
+    return _read_or_build(db, SLOT_DATA_QUALITY, build_data_quality_summary)
 
 
 def refresh_all(db: Session) -> dict[str, object]:
-    from services.admin_backlog_breakdown_service import _build_admin_backlog_breakdown_live
-    from services.admin_backlog_reduction_service import _build_reduction_plan_live
+    from services.admin_backlog_breakdown_service import build_admin_backlog_breakdown
+    from services.admin_backlog_reduction_service import build_reduction_plan
     from services.admin_overview_compact import build_admin_overview
-    from services.data_quality.query import _build_data_quality_summary_live
+    from services.data_quality.query import build_data_quality_summary
 
     overview = build_admin_overview(db)
-    backlog = _build_admin_backlog_breakdown_live(db)
-    plan = _build_reduction_plan_live(db)
-    quality = _build_data_quality_summary_live(db)
+    backlog = build_admin_backlog_breakdown(db)
+    plan = build_reduction_plan(db)
+    quality = build_data_quality_summary(db)
     _store(db, SLOT_OVERVIEW, "admin_overview", overview)
     _store(db, SLOT_BACKLOG, "backlog_breakdown", backlog)
     _store(db, SLOT_PLAN, "backlog_reduction_plan", plan)
