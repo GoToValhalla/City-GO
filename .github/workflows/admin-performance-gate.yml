@@ -1,0 +1,37 @@
+name: 05 · CITY GO · Admin Performance Gate
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: admin-performance-gate
+  cancel-in-progress: true
+
+jobs:
+  performance-gate:
+    name: Admin performance/read-model gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run static performance gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/admin-performance-gate
+          python scripts/admin_performance_gate.py | tee artifacts/admin-performance-gate/admin-performance-gate.json
+          python scripts/admin_backlog_reduction_gate.py | tee artifacts/admin-performance-gate/backlog-reduction-gate.json
+      - name: Upload performance gate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-performance-gate
+          path: artifacts/admin-performance-gate
+          if-no-files-found: error
+          retention-days: 7
