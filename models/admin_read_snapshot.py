@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
 from db.base import Base
@@ -42,8 +42,6 @@ class CityQualitySnapshot(Base):
     computed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     stale_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
     is_dirty: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
-
-    city = relationship("City", back_populates="quality_snapshots")
 
 
 class BacklogQueueSnapshot(Base):
