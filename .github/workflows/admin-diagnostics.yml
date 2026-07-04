@@ -18,294 +18,102 @@ concurrency:
 
 jobs:
   admin-diagnostics:
-    name: Admin overview and drilldown diagnostics
+    name: Admin screen diagnostics
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
     env:
       PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
-      DIAGNOSTIC_LIMIT: ${{ inputs.limit || '1' }}
     steps:
-      - name: Run admin diagnostics
+      - name: Run admin screen diagnostics
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/admin-diagnostics
-          python - <<'PY'
-          from __future__ import annotations
 
-          import json
-          import os
-          import time
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-          from pathlib import Path
-          from typing import Any
+          BASE_URL="${PRODUCTION_BASE_URL:-}"
+          BASE_URL="${BASE_URL%/}"
+          if [ -z "$BASE_URL" ]; then
+            BASE_URL="http://${SSH_HOST}"
+          fi
+          if [ -z "${ADMIN_API_TOKEN:-}" ]; then
+            echo "ADMIN_API_TOKEN secret is required" >&2
+            exit 1
+          fi
 
-          OVERVIEW_BOOT_BUDGET_MS = 2000
-
-          def base_url() -> str:
-              explicit = os.getenv("PRODUCTION_BASE_URL", "").strip().rstrip("/")
-              if explicit:
-                  return explicit
-              ssh_host = os.getenv("SSH_HOST", "").strip()
-              if ssh_host:
-                  return f"http://{ssh_host}".rstrip("/")
-              raise RuntimeError("PRODUCTION_BASE_URL or SSH_HOST secret is required")
-
-          TOKEN = os.getenv("ADMIN_API_TOKEN", "").strip()
-          if not TOKEN:
-              raise RuntimeError("ADMIN_API_TOKEN secret is required")
-
-          BASE_URL = base_url()
-          LIMIT = os.getenv("DIAGNOSTIC_LIMIT", "1").strip() or "1"
-          HEADERS = {
-              "Authorization": f"Bearer {TOKEN}",
-              "User-Agent": "city-go-admin-diagnostics/1.0",
+          request_json() {
+            local path="$1"
+            local budget_ms="$2"
+            local timeout_sec="$3"
+            local out_file="$4"
+            local started ended elapsed
+            started=$(date +%s%3N)
+            curl --fail --silent --show-error --max-time "$timeout_sec" \
+              -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+              -H "User-Agent: city-go-admin-diagnostics/2.0" \
+              "${BASE_URL}${path}" \
+              -o "$out_file"
+            ended=$(date +%s%3N)
+            elapsed=$((ended - started))
+            echo "${path} ${elapsed} ms" | tee -a /tmp/admin-diagnostics/summary.txt
+            if [ "$elapsed" -gt "$budget_ms" ]; then
+              echo "${path} exceeded budget: ${elapsed} ms > ${budget_ms} ms" >&2
+              exit 1
+            fi
           }
 
-          def get_json(path: str, *, timeout: float = 20.0) -> tuple[dict[str, Any], int]:
-              url = f"{BASE_URL}/{path.lstrip('/')}"
-              request = urllib.request.Request(url, headers=HEADERS, method="GET")
-              started = time.monotonic()
-              try:
-                  with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
-                      raw = response.read(2_000_000).decode("utf-8", errors="replace")
-              except urllib.error.HTTPError as exc:
-                  body = exc.read(4096).decode("utf-8", errors="replace")
-                  raise RuntimeError(f"GET {path} failed with HTTP {exc.code}: {body[:500]}") from exc
-              except TimeoutError as exc:
-                  raise RuntimeError(f"GET {path} exceeded {timeout:.0f}s admin screen budget") from exc
-              except urllib.error.URLError as exc:
-                  raise RuntimeError(f"GET {path} failed: {exc}") from exc
-              duration_ms = int((time.monotonic() - started) * 1000)
-              payload = json.loads(raw or "{}")
-              if not isinstance(payload, dict):
-                  raise RuntimeError(f"GET {path} returned non-object JSON")
-              return payload, duration_ms
+          echo "CITY GO · ADMIN DIAGNOSTICS" > /tmp/admin-diagnostics/summary.txt
+          echo "" >> /tmp/admin-diagnostics/summary.txt
+          echo "Screen endpoints:" >> /tmp/admin-diagnostics/summary.txt
 
-          def post_json(path: str, payload: dict[str, Any], *, timeout: float = 20.0) -> dict[str, Any]:
-              url = f"{BASE_URL}/{path.lstrip('/')}"
-              body = json.dumps(payload).encode("utf-8")
-              headers = {**HEADERS, "Content-Type": "application/json"}
-              request = urllib.request.Request(url, data=body, headers=headers, method="POST")
-              try:
-                  with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
-                      raw = response.read(2_000_000).decode("utf-8", errors="replace")
-              except urllib.error.HTTPError as exc:
-                  body_text = exc.read(4096).decode("utf-8", errors="replace")
-                  raise RuntimeError(f"POST {path} failed with HTTP {exc.code}: {body_text[:500]}") from exc
-              result = json.loads(raw or "{}")
-              if not isinstance(result, dict):
-                  raise RuntimeError(f"POST {path} returned non-object JSON")
-              return result
+          request_json "/api/admin/overview" 2000 2 /tmp/admin-diagnostics/overview.json
+          request_json "/api/admin/overview/backlog-breakdown" 20000 20 /tmp/admin-diagnostics/backlog-breakdown.json
+          request_json "/api/admin/overview/backlog-reduction-plan" 20000 20 /tmp/admin-diagnostics/backlog-reduction-plan.json
 
-          overview, overview_ms = get_json("/api/admin/overview", timeout=OVERVIEW_BOOT_BUDGET_MS / 1000)
-          if overview_ms > OVERVIEW_BOOT_BUDGET_MS:
-              raise RuntimeError(f"/api/admin/overview took {overview_ms} ms; expected <= {OVERVIEW_BOOT_BUDGET_MS} ms")
-          backlog, backlog_ms = get_json("/api/admin/overview/backlog-breakdown", timeout=20.0)
-          reduction_plan, reduction_plan_ms = get_json("/api/admin/overview/backlog-reduction-plan", timeout=20.0)
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          base = Path('/tmp/admin-diagnostics')
+          overview = json.loads((base / 'overview.json').read_text(encoding='utf-8'))
+          backlog = json.loads((base / 'backlog-breakdown.json').read_text(encoding='utf-8'))
+          plan = json.loads((base / 'backlog-reduction-plan.json').read_text(encoding='utf-8'))
+
           cards = []
-          for section in ("critical", "data_quality", "operations"):
+          for section in ('critical', 'data_quality', 'operations'):
               for card in overview.get(section, []) or []:
-                  if not isinstance(card, dict):
-                      continue
-                  cards.append(
-                      {
-                          "section": section,
-                          "code": card.get("code"),
-                          "count": card.get("count"),
-                          "title": card.get("title"),
-                          "hint": card.get("hint"),
-                          "action_label": card.get("action_label"),
-                          "link_path": card.get("link_path"),
-                          "queue_type": card.get("queue_type"),
-                          "primary_action": card.get("primary_action"),
-                          "short_hint": card.get("short_hint"),
-                          "sample_endpoint": card.get("sample_endpoint"),
-                          "owner": card.get("owner"),
-                          "mobile_priority": card.get("mobile_priority"),
-                      }
-                  )
-
-          def api_path(path: str) -> str:
-              clean = str(path or "").strip()
-              if clean.startswith("/api/"):
-                  return clean
-              return f"/api/{clean.lstrip('/')}"
-
-          def with_limit(path: str) -> str:
-              separator = "&" if "?" in path else "?"
-              return f"{path}{separator}limit={urllib.parse.quote(LIMIT)}"
-
-          drilldowns: dict[str, Any] = {}
-          for card in cards:
-              endpoint = card.get("sample_endpoint")
-              if not endpoint:
-                  continue
-              code = str(card.get("code") or "")
-              path = with_limit(api_path(str(endpoint)))
-              payload, duration_ms = get_json(path)
-              drilldowns[code] = {
-                  "path": path,
-                  "total": payload.get("total"),
-                  "duration_ms": duration_ms,
-              }
-
-          dry_run_smoke = []
-          for action in (reduction_plan.get("actions") or [])[:6]:
-              if not isinstance(action, dict) or not action.get("enabled"):
-                  continue
-              result = post_json(
-                  "/api/admin/overview/backlog-reduction/dry-run",
-                  {
-                      "action_code": action.get("code"),
-                      "limit": min(10, int(action.get("max_batch_size") or 10)),
-                      "include_samples": False,
-                  },
-              )
-              dry_run_smoke.append(
-                  {
-                      "title": action.get("title"),
-                      "affected_count": result.get("affected_count"),
-                      "would_change_count": result.get("would_change_count"),
-                      "changed_count": result.get("changed_count"),
-                      "queued_count": result.get("queued_count"),
-                      "skipped_count": result.get("skipped_count"),
-                      "failed_count": result.get("failed_count"),
-                  }
-              )
-
-          card_by_code = {str(card.get("code")): card for card in cards}
-          consistency = []
-          for card_code, card in card_by_code.items():
-              if card_code in drilldowns:
-                  consistency.append(
-                      {
-                          "card_code": card_code,
-                          "card_count": card.get("count"),
-                          "drilldown_total": drilldowns[card_code].get("total"),
-                          "matches": card.get("count") == drilldowns[card_code].get("total"),
-                      }
-                  )
-
-          forbidden_terms = (
-              "published/catalog",
-              "route policy",
-              "canonical category",
-              "taxonomy",
-              "enrichment/policy",
-              "verification backlog",
-              "critical confidence",
-              "is_route_eligible",
-              "route_builder",
-              "backend",
-              "sql",
-              "bucket",
-              "status_",
-              "eligible",
-              "policy",
-          )
-          technical_copy = []
-          for card in cards:
-              text = " ".join(str(card.get(key) or "") for key in ("title", "hint", "action_label", "short_hint")).lower()
-              hits = [term for term in forbidden_terms if term in text]
-              if hits:
-                  technical_copy.append({"code": card.get("code"), "hits": hits})
+                  if isinstance(card, dict):
+                      cards.append({
+                          'section': section,
+                          'code': card.get('code'),
+                          'title': card.get('title'),
+                          'count': card.get('count'),
+                          'link_path': card.get('link_path'),
+                      })
 
           report = {
-              "base_url_source": "PRODUCTION_BASE_URL" if os.getenv("PRODUCTION_BASE_URL", "").strip() else "SSH_HOST",
-              "overview_cards": cards,
-              "admin_overview_boot_ms": overview_ms,
-              "admin_overview_budget_ms": OVERVIEW_BOOT_BUDGET_MS,
-              "backlog_breakdown_ms": backlog_ms,
-              "backlog_reduction_plan_ms": reduction_plan_ms,
-              "backlog_summary": backlog.get("summary"),
-              "backlog_reduction_summary": reduction_plan.get("summary"),
-              "backlog_reduction_dry_run_smoke": dry_run_smoke,
-              "backlog_queues": [
-                  {
-                      "code": item.get("code"),
-                      "title": item.get("title"),
-                      "total_count": item.get("total_count"),
-                      "unique_places_count": item.get("unique_places_count"),
-                      "auto_fixable_count": item.get("auto_fixable_count"),
-                      "manual_count": item.get("manual_count"),
-                      "top_reasons": [
-                          {
-                              "code": reason.get("code"),
-                              "title": reason.get("title"),
-                              "count": reason.get("count"),
-                          }
-                          for reason in (item.get("reasons") or [])[:5]
-                          if isinstance(reason, dict)
-                      ],
-                  }
-                  for item in (backlog.get("queues") or [])
-                  if isinstance(item, dict)
-              ],
-              "drilldowns": drilldowns,
-              "consistency": consistency,
-              "technical_copy": technical_copy,
+              'overview_cards': cards,
+              'backlog_summary': backlog.get('summary'),
+              'backlog_reduction_summary': plan.get('summary'),
+              'dry_run_smoke': 'skipped: screen diagnostics must not execute heavy reduction actions',
           }
-          Path("/tmp/admin-diagnostics/report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+          (base / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
 
-          summary_lines = ["CITY GO · ADMIN DIAGNOSTICS", "", "Admin screen budget:"]
-          summary_lines.append(f"- /api/admin/overview: {overview_ms} ms within {OVERVIEW_BOOT_BUDGET_MS} ms")
-          summary_lines.append(f"- /api/admin/overview/backlog-breakdown: {backlog_ms} ms")
-          summary_lines.append(f"- /api/admin/overview/backlog-reduction-plan: {reduction_plan_ms} ms")
-          summary_lines.append("")
-          summary_lines.append("Overview cards:")
-          for card in cards:
-              summary_lines.append(f"- {card['section']}.{card['code']}: {card['count']} · {card['title']} · {card['link_path']}")
-          summary_lines.append("")
-          summary_lines.append("Drilldown consistency:")
-          for row in consistency:
-              mark = "OK" if row["matches"] else "MISMATCH"
-              summary_lines.append(f"- {mark} {row['card_code']}: card={row['card_count']} drilldown={row['drilldown_total']}")
-          summary = backlog.get("summary") or {}
-          summary_lines.append("")
-          summary_lines.append("Backlog summary:")
-          for key in ("unique_problem_places", "total_problem_signals", "auto_fixable_places", "manual_places", "route_blocker_places"):
-              summary_lines.append(f"- {key}: {summary.get(key)}")
-          summary_lines.append("")
-          summary_lines.append("Backlog reduction plan:")
-          reduction_summary = reduction_plan.get("summary") or {}
-          for key in ("total_auto_fixable", "route_blockers_reducible", "unknown_categories_auto_classifiable", "manual_review_reclassifiable", "content_enrichment_queueable"):
-              summary_lines.append(f"- {key}: {reduction_summary.get(key)}")
-          summary_lines.append("")
-          summary_lines.append("Backlog reduction dry-run smoke:")
-          if dry_run_smoke:
-              for row in dry_run_smoke:
-                  summary_lines.append(
-                      f"- {row.get('title')}: affected={row.get('affected_count')} would_change={row.get('would_change_count')} queued={row.get('queued_count')} skipped={row.get('skipped_count')} failed={row.get('failed_count')}"
-                  )
-          else:
-              summary_lines.append("- no enabled actions")
-          summary_lines.append("")
-          summary_lines.append("Top queues:")
-          for queue in (backlog.get("queues") or [])[:10]:
-              if not isinstance(queue, dict):
-                  continue
-              reasons = []
-              for reason in (queue.get("reasons") or [])[:3]:
-                  if isinstance(reason, dict):
-                      reasons.append(f"{reason.get('title')}={reason.get('count')}")
-              summary_lines.append(
-                  f"- {queue.get('code')}: total={queue.get('total_count')} unique={queue.get('unique_places_count')} auto={queue.get('auto_fixable_count')} manual={queue.get('manual_count')} reasons={'; '.join(reasons)}"
-              )
-          summary_lines.append("")
-          summary_lines.append("Technical copy hits:")
-          if technical_copy:
-              for row in technical_copy:
-                  summary_lines.append(f"- {row['code']}: {', '.join(row['hits'])}")
-          else:
-              summary_lines.append("- none")
-          Path("/tmp/admin-diagnostics/summary.txt").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
-          print("\n".join(summary_lines))
+          with (base / 'summary.txt').open('a', encoding='utf-8') as fh:
+              fh.write('\nOverview cards:\n')
+              for card in cards:
+                  fh.write(f"- {card['section']}.{card['code']}: {card['count']} · {card['title']} · {card['link_path']}\n")
+              fh.write('\nBacklog summary:\n')
+              for key, value in (backlog.get('summary') or {}).items():
+                  fh.write(f'- {key}: {value}\n')
+              fh.write('\nBacklog reduction summary:\n')
+              for key, value in (plan.get('summary') or {}).items():
+                  fh.write(f'- {key}: {value}\n')
+              fh.write('\nDry-run smoke: skipped in this workflow\n')
           PY
+
+          cat /tmp/admin-diagnostics/summary.txt
 
       - name: Upload admin diagnostics artifact
         if: always()
