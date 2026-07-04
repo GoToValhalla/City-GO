@@ -24,13 +24,25 @@ def _rm():
 @router.get(_PLAN_PATH)
 def read_reduction_plan(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
     _timeout(db)
-    return _rm().reduction_plan(db)
+    try:
+        return _rm().reduction_plan(db)
+    except Exception:
+        db.rollback()
+        from services.admin_backlog_reduction_service import build_reduction_plan
+
+        return build_reduction_plan(db)
 
 
 @router.get(_DQ_PATH)
 def read_quality_summary(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
     _timeout(db)
-    return getattr(_rm(), _DQ_READER)(db)
+    try:
+        return getattr(_rm(), _DQ_READER)(db)
+    except Exception:
+        db.rollback()
+        from services.data_quality.query import build_data_quality_summary
+
+        return build_data_quality_summary(db)
 
 
 @router.post("/read-models/refresh")
