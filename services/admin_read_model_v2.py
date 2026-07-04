@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Callable
 
+from sqlalchemy import and_, insert, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -70,12 +71,18 @@ def _read_or_build(db: Session, slot: int, builder: Builder) -> dict[str, object
 
 def _read(db: Session, slot: int) -> dict[str, object] | None:
     try:
-        row = db.query(AdminOverviewSnapshot).filter(AdminOverviewSnapshot.id == slot).first()
-        if row is None or row.is_dirty or not isinstance(row.payload, dict):
+        row = db.execute(
+            select(
+                AdminOverviewSnapshot.c.payload,
+                AdminOverviewSnapshot.c.stale_after,
+                AdminOverviewSnapshot.c.is_dirty,
+            ).where(AdminOverviewSnapshot.c.id == slot)
+        ).mappings().first()
+        if row is None or row["is_dirty"] or not isinstance(row["payload"], dict):
             return None
-        if row.stale_after is not None and row.stale_after < datetime.utcnow():
+        if row["stale_after"] is not None and row["stale_after"] < datetime.utcnow():
             return None
-        return dict(row.payload)
+        return dict(row["payload"])
     except SQLAlchemyError:
         db.rollback()
         return None
@@ -83,15 +90,18 @@ def _read(db: Session, slot: int) -> dict[str, object] | None:
 
 def _store(db: Session, slot: int, source: str, payload: dict[str, object]) -> None:
     now = datetime.utcnow()
-    row = db.query(AdminOverviewSnapshot).filter(AdminOverviewSnapshot.id == slot).first()
-    if row is None:
-        row = AdminOverviewSnapshot(id=slot)
-        db.add(row)
-    row.payload = _jsonable(payload)
-    row.computed_at = now
-    row.stale_after = now + timedelta(seconds=TTL_SECONDS)
-    row.is_dirty = False
-    row.source_version = source
+    values = {
+        "payload": _jsonable(payload),
+        "computed_at": now,
+        "stale_after": now + timedelta(seconds=TTL_SECONDS),
+        "is_dirty": False,
+        "source_version": source,
+    }
+    exists = db.execute(select(AdminOverviewSnapshot.c.id).where(AdminOverviewSnapshot.c.id == slot)).first()
+    if exists is None:
+        db.execute(insert(AdminOverviewSnapshot).values(id=slot, **values))
+    else:
+        db.execute(update(AdminOverviewSnapshot).where(AdminOverviewSnapshot.c.id == slot).values(**values))
 
 
 def _store_queue_rows(db: Session, backlog: dict[str, object]) -> None:
@@ -110,19 +120,31 @@ def _store_queue_rows(db: Session, backlog: dict[str, object]) -> None:
 
 
 def _queue_row(db: Session, queue_code: str, reason_code: str, count: int, now: datetime, stale_after: datetime) -> None:
-    row = db.query(BacklogQueueSnapshot).filter(
-        BacklogQueueSnapshot.scope_type == "global",
-        BacklogQueueSnapshot.scope_id == "global",
-        BacklogQueueSnapshot.queue_code == queue_code,
-        BacklogQueueSnapshot.reason_code == reason_code,
-    ).first()
-    if row is None:
-        row = BacklogQueueSnapshot(scope_type="global", scope_id="global", queue_code=queue_code, reason_code=reason_code)
-        db.add(row)
-    row.count = count
-    row.sample_place_ids = []
-    row.computed_at = now
-    row.stale_after = stale_after
+    clause = and_(
+        BacklogQueueSnapshot.c.scope_type == "global",
+        BacklogQueueSnapshot.c.scope_id == "global",
+        BacklogQueueSnapshot.c.queue_code == queue_code,
+        BacklogQueueSnapshot.c.reason_code == reason_code,
+    )
+    values = {
+        "count": count,
+        "sample_place_ids": [],
+        "computed_at": now,
+        "stale_after": stale_after,
+    }
+    exists = db.execute(select(BacklogQueueSnapshot.c.id).where(clause)).first()
+    if exists is None:
+        db.execute(
+            insert(BacklogQueueSnapshot).values(
+                scope_type="global",
+                scope_id="global",
+                queue_code=queue_code,
+                reason_code=reason_code,
+                **values,
+            )
+        )
+    else:
+        db.execute(update(BacklogQueueSnapshot).where(clause).values(**values))
 
 
 def _jsonable(payload: dict[str, object]) -> dict[str, object]:
