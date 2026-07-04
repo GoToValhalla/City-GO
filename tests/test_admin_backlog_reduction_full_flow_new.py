@@ -82,4 +82,3 @@ def test_backlog_breakdown_exposes_latest_apply_result_new(client: TestClient, d
     assert latest["job_id"] == apply_payload["job_id"]
     assert latest["action_code"] == "enqueue_photo_discovery"
     assert latest["queued_count"] == 1
-}
