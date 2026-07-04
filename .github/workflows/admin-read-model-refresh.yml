@@ -1,0 +1,55 @@
+name: 04 · CITY GO · Admin Read Models Refresh
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: admin-read-model-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Refresh admin read models
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh /tmp/admin-read-model-refresh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/tmp/admin-read-model-refresh/ssh-keyscan.log || true
+
+      - name: Refresh snapshots on server
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'REMOTE' | tee /tmp/admin-read-model-refresh/result.log
+          set -euo pipefail
+          cd /srv/app
+          docker compose run --rm migrate python scripts/refresh_admin_read_models.py
+          REMOTE
+
+      - name: Upload refresh artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-read-model-refresh
+          path: /tmp/admin-read-model-refresh
+          if-no-files-found: ignore
+          retention-days: 7
