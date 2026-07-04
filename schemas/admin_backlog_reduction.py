@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 RiskLevel = Literal["safe", "medium", "dangerous"]
 ReductionStatus = Literal["planned", "applied", "partial", "failed", "unsupported"]
@@ -33,6 +33,20 @@ class BacklogReductionPlan(BaseModel):
     summary: dict[str, int]
     actions: list[BacklogReductionAction]
     queues: list[dict[str, object]]
+
+    @model_validator(mode="after")
+    def normalize_summary_counts(self) -> "BacklogReductionPlan":
+        totals = _queue_totals(self.queues)
+        self.summary["route_blockers_reducible"] = _cap(self.summary.get("route_blockers_reducible"), totals.get("route_blockers", 0))
+        self.summary["unknown_categories_auto_classifiable"] = _cap(self.summary.get("unknown_categories_auto_classifiable"), totals.get("route_unknown", 0))
+        self.summary["manual_review_reclassifiable"] = _cap(self.summary.get("manual_review_reclassifiable"), totals.get("manual_review", 0))
+        self.summary["total_manual_after_classification"] = _cap(self.summary.get("total_manual_after_classification"), totals.get("manual_review", 0))
+        self.summary["verification_auto_recheckable"] = _cap(self.summary.get("verification_auto_recheckable"), totals.get("needs_verification", 0))
+        content_total = totals.get("no_photo", 0) + totals.get("no_address", 0) + totals.get("no_description", 0)
+        self.summary["content_enrichment_queueable"] = _cap(self.summary.get("content_enrichment_queueable"), content_total)
+        auto_total = totals.get("auto_backlog", 0) + totals.get("needs_verification", 0) + totals.get("no_photo", 0) + totals.get("no_address", 0) + totals.get("no_description", 0) + totals.get("low_confidence", 0)
+        self.summary["total_auto_fixable"] = _cap(self.summary.get("total_auto_fixable"), auto_total)
+        return self
 
 
 class BacklogReductionDryRunRequest(BaseModel):
@@ -70,6 +84,12 @@ class BacklogReductionResult(BaseModel):
     limit: int
     message: str
 
+    @model_validator(mode="after")
+    def normalize_dry_run_counts(self) -> "BacklogReductionResult":
+        if self.dry_run and not self.would_change_count:
+            self.would_change_count = int(self.changed_count or 0)
+        return self
+
 
 class BacklogReductionJob(BaseModel):
     id: int
@@ -85,3 +105,22 @@ class BacklogReductionJob(BaseModel):
     failed_count: int
     queued_count: int
     result_json: dict[str, object]
+
+
+def _queue_totals(queues: list[dict[str, object]]) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for queue in queues:
+        code = str(queue.get("code") or "")
+        totals[code] = _to_int(queue.get("unique_places_count") or queue.get("total_count"))
+    return totals
+
+
+def _cap(value: object, maximum: int) -> int:
+    return max(0, min(_to_int(value), max(0, int(maximum or 0))))
+
+
+def _to_int(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
