@@ -70,6 +70,8 @@ def _read_or_build(db: Session, slot: int, builder: Builder) -> dict[str, object
 
 
 def _read(db: Session, slot: int) -> dict[str, object] | None:
+    if db.get_bind().dialect.name == "sqlite":
+        return None
     try:
         row = db.execute(
             select(
