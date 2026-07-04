@@ -16,9 +16,17 @@ ADMIN_READ_MODEL_TIMEOUT_MS = 3000
 @router.get("/overview/" + "backlog-breakdown")
 def read_queue_breakdown(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
     _timeout(db)
-    module = import_module("services." + "admin_read_model_v2")
-    payload = module.backlog_breakdown(db)
-    plan = module.reduction_plan(db)
+    try:
+        module = import_module("services." + "admin_read_model_v2")
+        payload = module.backlog_breakdown(db)
+        plan = module.reduction_plan(db)
+    except Exception:
+        db.rollback()
+        from services.admin_backlog_breakdown_service import build_admin_backlog_breakdown
+        from services.admin_backlog_reduction_service import build_reduction_plan
+
+        payload = build_admin_backlog_breakdown(db)
+        plan = build_reduction_plan(db)
     payload["reduction_available"] = True
     payload["reduction_plan_endpoint"] = "/admin/overview/" + "backlog-" + "reduction-plan"
     payload["top_actions"] = list(plan.get("actions") or [])[:4]
