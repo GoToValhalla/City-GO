@@ -1,64 +1,65 @@
-"""Read-model snapshots for admin and platform performance gates."""
+"""Read-model snapshot tables for admin and platform performance gates.
+
+These are intentionally plain SQLAlchemy Table objects, not ORM mappers.
+Read-model snapshots must not participate in the application mapper registry.
+"""
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Index, Integer, String, Table, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
 from db.base import Base
 
 Json = JSONB().with_variant(JSON(), "sqlite")
 
+AdminOverviewSnapshot = Table(
+    "admin_overview_snapshots",
+    Base.metadata,
+    Column("id", Integer, primary_key=True, default=1),
+    Column("payload", Json, nullable=False, default=dict),
+    Column("computed_at", DateTime, default=datetime.utcnow, nullable=False, index=True),
+    Column("stale_after", DateTime, nullable=True, index=True),
+    Column("is_dirty", Boolean, default=True, nullable=False, index=True),
+    Column("source_version", String(64), nullable=True),
+    extend_existing=True,
+)
 
-class AdminOverviewSnapshot(Base):
-    __tablename__ = "admin_overview_snapshots"
-    __table_args__ = {"extend_existing": True}
+CityQualitySnapshot = Table(
+    "city_quality_snapshots",
+    Base.metadata,
+    Column("city_id", Integer, ForeignKey("cities.id"), primary_key=True),
+    Column("readiness_score", Integer, default=0, nullable=False),
+    Column("places_total", Integer, default=0, nullable=False),
+    Column("review_universe_total", Integer, default=0, nullable=False),
+    Column("manual_review_total", Integer, default=0, nullable=False),
+    Column("auto_excluded_total", Integer, default=0, nullable=False),
+    Column("route_candidate_total", Integer, default=0, nullable=False),
+    Column("route_ready_total", Integer, default=0, nullable=False),
+    Column("route_blockers_total", Integer, default=0, nullable=False),
+    Column("primary_blocker", String(64), nullable=True),
+    Column("blockers", Json, nullable=False, default=dict),
+    Column("computed_at", DateTime, nullable=True, index=True),
+    Column("stale_after", DateTime, nullable=True, index=True),
+    Column("is_dirty", Boolean, default=True, nullable=False, index=True),
+    extend_existing=True,
+)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    payload: Mapped[dict[str, object]] = mapped_column(Json, nullable=False, default=dict)
-    computed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    stale_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    is_dirty: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
-    source_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-
-
-class CityQualitySnapshot(Base):
-    __tablename__ = "city_quality_snapshots"
-    __table_args__ = {"extend_existing": True}
-
-    city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), primary_key=True)
-    readiness_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    places_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    review_universe_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    manual_review_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    auto_excluded_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    route_candidate_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    route_ready_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    route_blockers_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    primary_blocker: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    blockers: Mapped[dict[str, object]] = mapped_column(Json, nullable=False, default=dict)
-    computed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    stale_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    is_dirty: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
-
-
-class BacklogQueueSnapshot(Base):
-    __tablename__ = "backlog_queue_snapshots"
-    __table_args__ = (
-        UniqueConstraint("scope_type", "scope_id", "queue_code", "reason_code", name="uq_backlog_queue_snapshot_scope_queue_reason"),
-        Index("ix_backlog_queue_snapshot_scope", "scope_type", "scope_id"),
-        Index("ix_backlog_queue_snapshot_queue", "queue_code", "reason_code"),
-        {"extend_existing": True},
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    scope_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    queue_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    reason_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    sample_place_ids: Mapped[list[int]] = mapped_column(Json, nullable=False, default=list)
-    computed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    stale_after: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+BacklogQueueSnapshot = Table(
+    "backlog_queue_snapshots",
+    Base.metadata,
+    Column("id", Integer, primary_key=True),
+    Column("scope_type", String(32), nullable=False),
+    Column("scope_id", String(128), nullable=True),
+    Column("queue_code", String(64), nullable=False),
+    Column("reason_code", String(64), nullable=True),
+    Column("count", Integer, default=0, nullable=False),
+    Column("sample_place_ids", Json, nullable=False, default=list),
+    Column("computed_at", DateTime, default=datetime.utcnow, nullable=False, index=True),
+    Column("stale_after", DateTime, nullable=True, index=True),
+    UniqueConstraint("scope_type", "scope_id", "queue_code", "reason_code", name="uq_backlog_queue_snapshot_scope_queue_reason"),
+    Index("ix_backlog_queue_snapshot_scope", "scope_type", "scope_id"),
+    Index("ix_backlog_queue_snapshot_queue", "queue_code", "reason_code"),
+    extend_existing=True,
+)
