@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
-from services.admin_read_model_v2 import refresh_all
 
 router = APIRouter(prefix="/admin", tags=["admin-read-models"])
 ADMIN_READ_MODEL_TIMEOUT_MS = 3000
@@ -17,6 +16,8 @@ ADMIN_READ_MODEL_TIMEOUT_MS = 3000
 def refresh_read_models(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
     try:
         _timeout(db)
+        from services.admin_read_model_v2 import refresh_all
+
         return refresh_all(db)
     except SQLAlchemyError as exc:
         db.rollback()
