@@ -45,14 +45,17 @@ jobs:
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
 
       - name: Check production services and database
+        timeout-minutes: 4
         shell: bash
         run: |
           set -euo pipefail
           REMOTE_ADMIN_API_TOKEN=$(printf '%q' "$ADMIN_API_TOKEN")
-          ssh \
-            -o ConnectTimeout=30 \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=4 \
+          timeout --preserve-status 180s ssh \
+            -o BatchMode=yes \
+            -o RequestTTY=no \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=20 \
+            -o ServerAliveCountMax=3 \
             -i ~/.ssh/deploy_key \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
@@ -65,19 +68,19 @@ jobs:
               echo "=== failure diagnostics ==="
               echo "failed_exit_code=${exit_code}"
               echo "=== memory ==="
-              timeout 15s free -m || true
+              timeout 10s free -m || true
               echo "=== disk ==="
-              timeout 15s df -h || true
+              timeout 10s df -h || true
               echo "=== docker stats ==="
-              timeout 30s docker stats --no-stream || true
+              timeout 20s docker stats --no-stream || true
               echo "=== docker compose ps ==="
-              timeout 30s docker compose ps || true
+              timeout 20s docker compose ps || true
               echo "=== docker compose logs tail ==="
-              timeout 60s docker compose logs --tail=80 db backend frontend || true
+              timeout 45s docker compose logs --tail=80 db backend frontend || true
               echo "=== diagnostics PostgreSQL readiness ==="
-              timeout 20s docker compose exec -T db pg_isready -U postgres -d city_guide || true
+              timeout 15s docker compose exec -T db pg_isready -U postgres -d city_guide || true
               echo "=== diagnostics pg_stat_activity ==="
-              timeout 20s docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
+              timeout 15s docker compose exec -T db psql -U postgres -d city_guide -P pager=off -c \
                 "SELECT pid, state, wait_event_type, wait_event, age(clock_timestamp(), query_start) AS query_age, left(query, 180) AS query FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() ORDER BY query_start NULLS LAST LIMIT 20;" || true
               return "${exit_code}"
             }
@@ -86,17 +89,24 @@ jobs:
             check_container_up() {
               local service="$1"
               echo "=== container ${service} state ==="
-              docker compose ps "$service"
-              docker compose ps "$service" | grep -q "Up"
+              timeout 20s docker compose ps "$service"
+              timeout 20s docker compose ps "$service" | grep -q "Up"
               echo
             }
 
             check_url() {
               local label="$1"
-              local timeout="$2"
+              local timeout_seconds="$2"
               shift 2
               echo "=== ${label} ===" >&2
-              curl --fail --silent --show-error --max-time "$timeout" --connect-timeout 10 --retry 2 --retry-delay 2 "$@"
+              timeout "$((timeout_seconds + 10))s" \
+                curl --fail --silent --show-error \
+                  --connect-timeout 10 \
+                  --max-time "$timeout_seconds" \
+                  --retry 2 \
+                  --retry-delay 2 \
+                  --retry-max-time "$timeout_seconds" \
+                  "$@"
               echo >&2
             }
 
@@ -106,7 +116,7 @@ jobs:
             check_container_up frontend
 
             echo "=== PostgreSQL readiness ==="
-            docker compose exec -T db pg_isready -U postgres -d city_guide
+            timeout 20s docker compose exec -T db pg_isready -U postgres -d city_guide
             echo
 
             check_url "backend ready" 30 http://localhost:8000/ready
@@ -120,12 +130,12 @@ jobs:
             check_url "admin import jobs smoke" 30 "${auth[@]}" 'http://localhost:8000/admin/import-jobs?limit=1' >/dev/null
 
             echo "=== alembic current diagnostic (non-fatal) ==="
-            docker compose exec -T backend alembic current || echo "alembic current failed: non-fatal for API readiness"
+            timeout 30s docker compose exec -T backend alembic current || echo "alembic current failed: non-fatal for API readiness"
             echo
 
             echo "=== resources snapshot ==="
-            free -m
-            docker stats --no-stream
+            timeout 10s free -m || true
+            timeout 20s docker stats --no-stream || true
             echo "=== health check OK ==="
           EOF
 
