@@ -44,6 +44,8 @@ jobs:
           from pathlib import Path
           from typing import Any
 
+          OVERVIEW_BOOT_BUDGET_MS = 2000
+
           def base_url() -> str:
               explicit = os.getenv("PRODUCTION_BASE_URL", "").strip().rstrip("/")
               if explicit:
@@ -75,7 +77,7 @@ jobs:
                   body = exc.read(4096).decode("utf-8", errors="replace")
                   raise RuntimeError(f"GET {path} failed with HTTP {exc.code}: {body[:500]}") from exc
               except TimeoutError as exc:
-                  raise RuntimeError(f"GET {path} exceeded {timeout:.0f}s frontend budget") from exc
+                  raise RuntimeError(f"GET {path} exceeded {timeout:.0f}s admin screen budget") from exc
               except urllib.error.URLError as exc:
                   raise RuntimeError(f"GET {path} failed: {exc}") from exc
               duration_ms = int((time.monotonic() - started) * 1000)
@@ -100,7 +102,9 @@ jobs:
                   raise RuntimeError(f"POST {path} returned non-object JSON")
               return result
 
-          overview, overview_ms = get_json("/api/admin/overview", timeout=8.0)
+          overview, overview_ms = get_json("/api/admin/overview", timeout=OVERVIEW_BOOT_BUDGET_MS / 1000)
+          if overview_ms > OVERVIEW_BOOT_BUDGET_MS:
+              raise RuntimeError(f"/api/admin/overview took {overview_ms} ms; expected <= {OVERVIEW_BOOT_BUDGET_MS} ms")
           backlog, backlog_ms = get_json("/api/admin/overview/backlog-breakdown", timeout=20.0)
           reduction_plan, reduction_plan_ms = get_json("/api/admin/overview/backlog-reduction-plan", timeout=20.0)
           cards = []
@@ -215,6 +219,7 @@ jobs:
               "base_url_source": "PRODUCTION_BASE_URL" if os.getenv("PRODUCTION_BASE_URL", "").strip() else "SSH_HOST",
               "overview_cards": cards,
               "admin_overview_boot_ms": overview_ms,
+              "admin_overview_budget_ms": OVERVIEW_BOOT_BUDGET_MS,
               "backlog_breakdown_ms": backlog_ms,
               "backlog_reduction_plan_ms": reduction_plan_ms,
               "backlog_summary": backlog.get("summary"),
@@ -248,7 +253,7 @@ jobs:
           Path("/tmp/admin-diagnostics/report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
           summary_lines = ["CITY GO · ADMIN DIAGNOSTICS", "", "Admin screen budget:"]
-          summary_lines.append(f"- /api/admin/overview: {overview_ms} ms within 8000 ms")
+          summary_lines.append(f"- /api/admin/overview: {overview_ms} ms within {OVERVIEW_BOOT_BUDGET_MS} ms")
           summary_lines.append(f"- /api/admin/overview/backlog-breakdown: {backlog_ms} ms")
           summary_lines.append(f"- /api/admin/overview/backlog-reduction-plan: {reduction_plan_ms} ms")
           summary_lines.append("")
