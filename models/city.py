@@ -47,6 +47,7 @@ class City(Base):
     places = relationship("Place", back_populates="city")
     collections = relationship("Collection", back_populates="city")
     routes = relationship("Route", back_populates="city")
+    quality_snapshots = relationship("CityQualitySnapshot", back_populates="city")
     enrichment_runs = relationship("CityEnrichmentRun", back_populates="city")
 
 
