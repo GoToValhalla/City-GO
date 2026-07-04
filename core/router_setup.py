@@ -4,6 +4,7 @@ from routers.admin import router as admin_router
 from routers.admin_ai import router as admin_ai_router
 from routers.admin_background_operations import router as admin_background_operations_router
 from routers.admin_bot_analytics import router as admin_bot_analytics_router
+from routers.admin_br_model import router as admin_br_model_router
 from routers.admin_coverage_gaps import router as admin_coverage_gaps_router
 from routers.admin_data_quality import router as admin_data_quality_router
 from routers.admin_import_jobs import router as admin_import_jobs_router
@@ -73,6 +74,7 @@ _ROOT_ROUTERS = (
     admin_taxonomy_router,
     admin_router,
     admin_read_models_router,
+    admin_br_model_router,
     admin_ai_router,
     admin_background_operations_router,
     admin_bot_analytics_router,
