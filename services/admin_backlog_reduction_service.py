@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from models.admin_operation import AdminOperation
+from models.data_foundation import CityEnrichmentRun, EnrichmentTask
 from models.place import Place
 from schemas.admin_backlog_reduction import BacklogReductionApplyRequest, BacklogReductionDryRunRequest, BacklogReductionResult
 from services.admin_audit_service import write_admin_audit_log
@@ -18,6 +19,13 @@ from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 CONFIRMATION_TEXT = "APPLY"
 OPERATION_TYPE = "backlog_reduction"
+ACTIVE_TASK_STATUSES = ("queued", "running", "processing", "locked")
+QUEUE_TASK_TYPES = {
+    "enqueue_description_enrichment": "description_enrichment",
+    "enqueue_photo_discovery": "photo_discovery",
+    "enqueue_address_recovery": "address_recovery",
+    "auto_recheck_verification_backlog": "verification_recheck",
+}
 
 
 @dataclass(frozen=True)
@@ -83,7 +91,7 @@ def apply(db: Session, request: BacklogReductionApplyRequest, *, actor: str) -> 
         raise HTTPException(status_code=409, detail=spec.disabled_reason or "Для этого действия нет безопасного применения.")
     before = _summary(db)
     places = _candidates(db, spec, request)
-    outcome = _apply_action(db, spec, places)
+    outcome = _apply_action(db, spec, places, actor=actor or "admin")
     after = _summary(db)
     result = _result(spec, False, len(places), outcome["changed_count"], outcome["skipped_count"], outcome["failed_count"], outcome["queued_count"], request.limit, before, after, samples=_samples(places, request.include_samples), skipped_reasons=outcome["skipped_reasons"], errors=outcome["errors"], message=_message(spec, False, outcome), status="partial" if outcome["failed_count"] else "applied")
     op = _record_operation(db, spec, actor, request, result)
@@ -172,58 +180,118 @@ def _classifiable_unknowns(db: Session, limit: int, city_id: int | None = None) 
     return [place for place in query.limit(limit * 3).all() if _classify(place)[1] == "high"][:limit]
 
 
-def _apply_action(db: Session, spec: ActionSpec, places: list[Place]) -> dict[str, object]:
-    changed = skipped = queued = 0
+def _apply_action(db: Session, spec: ActionSpec, places: list[Place], *, actor: str) -> dict[str, object]:
+    if _task_type(spec):
+        return _queue_enrichment_tasks(db, spec, places, actor=actor)
+    changed = skipped = 0
     skipped_reasons: dict[str, int] = {}
     for place in places:
-        did_change, did_queue, reason = _apply_one(spec, place)
+        did_change, reason = _apply_place_change(spec, place)
         changed += int(did_change)
-        queued += int(did_queue)
         if reason:
             skipped += 1
             skipped_reasons[reason] = skipped_reasons.get(reason, 0) + 1
     db.flush()
-    return {"changed_count": changed, "skipped_count": skipped, "failed_count": 0, "queued_count": queued, "skipped_reasons": skipped_reasons, "errors": []}
+    return {"changed_count": changed, "skipped_count": skipped, "failed_count": 0, "queued_count": 0, "skipped_reasons": skipped_reasons, "errors": []}
 
 
-def _apply_one(spec: ActionSpec, place: Place) -> tuple[bool, bool, str | None]:
+def _apply_place_change(spec: ActionSpec, place: Place) -> tuple[bool, str | None]:
     if spec.code == "recompute_route_eligibility":
         verdict = evaluate_place_route_eligibility(place)
         place.is_route_eligible = verdict.eligible
         place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons)
-        return True, False, None
+        return True, None
     if spec.code == "exclude_service_places_from_routes":
         if place.is_route_eligible is not True:
-            return False, False, "already_excluded"
+            return False, "already_excluded"
         place.is_route_eligible = False
         place.route_exclusion_reason = "service_category"
-        return True, False, None
+        return True, None
     if spec.code == "classify_unknown_categories_deterministic":
         category, confidence = _classify(place)
         if confidence != "high" or not category:
-            return False, False, "ambiguous_category"
+            return False, "ambiguous_category"
         place.canonical_category = category
         verdict = evaluate_place_route_eligibility(place)
         place.is_route_eligible = verdict.eligible
         place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons)
-        return True, False, None
+        return True, None
     if spec.code == "normalize_manual_review_backlog":
         if place.publication_status != "needs_review":
-            return False, False, "explicit_manual_required"
+            return False, "explicit_manual_required"
         if _manual_safe_to_auto(place):
             place.publication_status = "auto_backlog"
-            return True, False, None
-        return False, False, "unknown_manual_reason"
-    if spec.code.startswith("enqueue_") or spec.code == "auto_recheck_verification_backlog":
-        return False, True, None
-    return False, False, "unsupported"
+            return True, None
+        return False, "unknown_manual_reason"
+    return False, "unsupported"
+
+
+def _queue_enrichment_tasks(db: Session, spec: ActionSpec, places: list[Place], *, actor: str) -> dict[str, object]:
+    task_type = _task_type(spec)
+    assert task_type is not None
+    run = CityEnrichmentRun(
+        run_type="backlog_reduction",
+        status="queued",
+        stage=spec.code,
+        progress_total=0,
+        progress_done=0,
+        summary={"action_code": spec.code, "task_type": task_type, "requested_by": actor, "place_ids": [place.id for place in places]},
+    )
+    db.add(run)
+    db.flush()
+    queued = skipped = 0
+    skipped_reasons: dict[str, int] = {}
+    for place in places:
+        created, reason = _enqueue_task(db, run, place, task_type, spec, actor)
+        if created:
+            queued += 1
+        else:
+            skipped += 1
+            skipped_reasons[reason or "not_queued"] = skipped_reasons.get(reason or "not_queued", 0) + 1
+    run.progress_total = queued
+    run.status = "queued" if queued else "skipped"
+    run.summary = {**(run.summary or {}), "queued_count": queued, "skipped_count": skipped, "skipped_reasons": skipped_reasons}
+    db.flush()
+    return {"changed_count": 0, "skipped_count": skipped, "failed_count": 0, "queued_count": queued, "skipped_reasons": skipped_reasons, "errors": []}
+
+
+def _enqueue_task(db: Session, run: CityEnrichmentRun, place: Place, task_type: str, spec: ActionSpec, actor: str) -> tuple[bool, str | None]:
+    existing = (
+        db.query(EnrichmentTask.id)
+        .filter(
+            EnrichmentTask.place_id == place.id,
+            EnrichmentTask.task_type == task_type,
+            EnrichmentTask.status.in_(ACTIVE_TASK_STATUSES),
+        )
+        .first()
+    )
+    if existing is not None:
+        return False, "already_queued"
+    db.add(
+        EnrichmentTask(
+            run_id=run.id,
+            city_id=place.city_id,
+            place_id=place.id,
+            task_type=task_type,
+            status="queued",
+            priority=_task_priority(spec),
+            payload={
+                "source": "backlog_reduction",
+                "action_code": spec.code,
+                "queue_code": spec.queue_code,
+                "reason_codes": list(spec.reason_codes),
+                "requested_by": actor,
+            },
+        )
+    )
+    return True, None
 
 
 def _simulate(spec: ActionSpec, places: list[Place]) -> dict[str, object]:
     would_change = queued = skipped = 0
     skipped_reasons: dict[str, int] = {}
     for place in places:
-        if spec.code.startswith("enqueue_") or spec.code == "auto_recheck_verification_backlog":
+        if _task_type(spec):
             queued += 1
         elif spec.code == "normalize_manual_review_backlog" and not _manual_safe_to_auto(place):
             skipped += 1
@@ -231,6 +299,20 @@ def _simulate(spec: ActionSpec, places: list[Place]) -> dict[str, object]:
         else:
             would_change += 1
     return {"would_change_count": would_change, "queued_count": queued, "skipped_count": skipped, "skipped_reasons": skipped_reasons}
+
+
+def _task_type(spec: ActionSpec) -> str | None:
+    return QUEUE_TASK_TYPES.get(spec.code)
+
+
+def _task_priority(spec: ActionSpec) -> int:
+    if spec.code == "auto_recheck_verification_backlog":
+        return 40
+    if spec.code == "enqueue_address_recovery":
+        return 50
+    if spec.code == "enqueue_photo_discovery":
+        return 70
+    return 80
 
 
 def _manual_safe_to_auto(place: Place) -> bool:
