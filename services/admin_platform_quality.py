@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from collections import Counter
 from typing import Any
 
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from models.city import City
@@ -14,14 +14,32 @@ NON_TOURIST_LAYERS = {"service_layer", "transport_layer", "admin_evidence_only"}
 
 
 def city_quality_row(db: Session, city: City, category: str | None = None) -> dict[str, Any]:
+    """Return city quality metrics without loading all city places into Python."""
     places_query = db.query(Place).filter(Place.city_id == city.id)
     if category:
         places_query = places_query.filter(Place.category == category)
-    places = places_query.all()
-    tourist_places = [place for place in places if _is_tourist_review_place(place)]
-    excluded_total = len(places) - len(tourist_places)
-    blockers = _blockers(tourist_places)
-    readiness = _readiness_score(tourist_places)
+
+    tourist = _tourist_review_condition()
+    no_photo = tourist & _missing_text(Place.image_url)
+    no_address = tourist & _missing_text(Place.address)
+    manual_review = no_photo | no_address
+
+    row = places_query.with_entities(
+        func.count(Place.id).label("places_total"),
+        func.sum(case((tourist, 1), else_=0)).label("review_universe_total"),
+        func.sum(case((no_photo, 1), else_=0)).label("no_photo"),
+        func.sum(case((no_address, 1), else_=0)).label("no_address"),
+        func.sum(case((manual_review, 1), else_=0)).label("manual_review_total"),
+    ).one()
+
+    places_total = int(row.places_total or 0)
+    review_universe_total = int(row.review_universe_total or 0)
+    no_photo_total = int(row.no_photo or 0)
+    no_address_total = int(row.no_address or 0)
+    manual_review_total = int(row.manual_review_total or 0)
+    excluded_total = max(0, places_total - review_universe_total)
+    blockers = {key: value for key, value in {"no_photo": no_photo_total, "no_address": no_address_total}.items() if value}
+    readiness = _readiness_score(review_universe_total, no_photo_total, no_address_total)
     primary_blocker = _primary_blocker(blockers, readiness)
 
     try:
@@ -34,9 +52,9 @@ def city_quality_row(db: Session, city: City, category: str | None = None) -> di
         "stored_readiness_score": int(getattr(city, "readiness_score", 0) or 0),
         "primary_blocker": primary_blocker,
         "blockers": {**blockers, "excluded_by_design": excluded_total},
-        "places_total": len(places),
-        "review_universe_total": len(tourist_places),
-        "manual_review_total": sum(1 for place in tourist_places if _needs_manual_review(place)),
+        "places_total": places_total,
+        "review_universe_total": review_universe_total,
+        "manual_review_total": manual_review_total,
         "auto_excluded_total": excluded_total,
         "critical_coverage": critical_coverage,
     }
@@ -88,28 +106,20 @@ def quality_summary(
     return {"items": rows, "total": len(rows), "todo": _todo(rows)}
 
 
-def _blockers(places: list[Place]) -> dict[str, int]:
-    counter: Counter[str] = Counter()
-    for place in places:
-        if not _has_photo(place):
-            counter["no_photo"] += 1
-        if not _has_address(place):
-            counter["no_address"] += 1
-    return dict(counter)
+def _tourist_review_condition():
+    category = func.lower(func.coalesce(Place.canonical_category, Place.category, ""))
+    return ~category.in_(tuple(STOPLIST_CATEGORIES)) & ~Place.place_layer.in_(tuple(NON_TOURIST_LAYERS)) & Place.tourist_eligible.is_not(False)
 
 
-def _readiness_score(places: list[Place]) -> int:
-    if not places:
+def _missing_text(column):
+    return or_(column.is_(None), column == "")
+
+
+def _readiness_score(review_universe_total: int, no_photo_total: int, no_address_total: int) -> int:
+    if review_universe_total <= 0:
         return 0
-    scores: list[int] = []
-    for place in places:
-        score = 100
-        if not _has_photo(place):
-            score -= 30
-        if not _has_address(place):
-            score -= 30
-        scores.append(max(score, 0))
-    return round(sum(scores) / len(scores))
+    penalty = 30 * (no_photo_total / review_universe_total) + 30 * (no_address_total / review_universe_total)
+    return max(0, min(100, round(100 - penalty)))
 
 
 def _primary_blocker(blockers: dict[str, int], readiness: int) -> str | None:
@@ -120,33 +130,6 @@ def _primary_blocker(blockers: dict[str, int], readiness: int) -> str | None:
     if blockers.get("no_address"):
         return "no_address"
     return None
-
-
-def _is_tourist_review_place(place: Place) -> bool:
-    category = _category(place)
-    if category in STOPLIST_CATEGORIES:
-        return False
-    if getattr(place, "place_layer", None) in NON_TOURIST_LAYERS:
-        return False
-    if getattr(place, "tourist_eligible", True) is False:
-        return False
-    return True
-
-
-def _needs_manual_review(place: Place) -> bool:
-    return not _has_photo(place) or not _has_address(place)
-
-
-def _has_photo(place: Place) -> bool:
-    return bool((getattr(place, "image_url", None) or "").strip())
-
-
-def _has_address(place: Place) -> bool:
-    return bool((getattr(place, "address", None) or "").strip())
-
-
-def _category(place: Place) -> str:
-    return str(getattr(place, "canonical_category", None) or getattr(place, "category", None) or "").strip().lower()
 
 
 def _severity(readiness: int, manual_review_total: int) -> str:
