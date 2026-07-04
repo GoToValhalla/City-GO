@@ -247,7 +247,7 @@ describe('AdminOverviewPage product contract', () => {
 
     await screen.findByTestId('reduction-result')
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/admin/overview/backlog-reduction/dry-run'), expect.objectContaining({ method: 'POST' }))
-    expect(screen.getByText(/Изменено: 3/)).toBeTruthy()
+    expect(screen.getByText(/Изменится: 3/)).toBeTruthy()
   })
 
   it('requires confirmation before apply_new', async () => {
