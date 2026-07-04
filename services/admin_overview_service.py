@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import copy
+import time
 from datetime import datetime
 
-from sqlalchemy import case, func, or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from models.admin_audit_log import AdminAuditLog
@@ -20,10 +22,12 @@ VERIFICATION_QUEUE_STATUSES = ("needs_recheck", "unverified")
 MANUAL_REVIEW_STATUSES = ("needs_review", "needs_manual_review", "deferred")
 AUTO_BACKLOG_STATUSES = ("draft", "auto_backlog", "low_confidence")
 ACTIVE_IMPORT_STATUSES = ("pending", "running")
-MIN_DESCRIPTION_LENGTH = 40
-GENERIC_DESCRIPTION_MARKERS = ("описание будет добавлено", "нет описания", "description pending", "todo", "вставьте описание")
 NON_SERVICE_ROUTE_CATEGORIES = {"unknown", "other", "useful"}
 EXCLUDED_CATEGORIES = tuple(sorted(HARD_EXCLUDED_CATEGORIES - NON_SERVICE_ROUTE_CATEGORIES))
+OVERVIEW_CACHE_TTL_SECONDS = 15.0
+
+_overview_cache: dict[str, object] | None = None
+_overview_cache_expires_at = 0.0
 
 
 def _card(
@@ -62,6 +66,19 @@ def _card(
 
 
 def build_admin_overview(db: Session) -> dict[str, object]:
+    global _overview_cache, _overview_cache_expires_at
+
+    now = time.monotonic()
+    if _overview_cache is not None and now < _overview_cache_expires_at:
+        return copy.deepcopy(_overview_cache)
+
+    payload = _build_admin_overview_uncached(db)
+    _overview_cache = copy.deepcopy(payload)
+    _overview_cache_expires_at = now + OVERVIEW_CACHE_TTL_SECONDS
+    return payload
+
+
+def _build_admin_overview_uncached(db: Session) -> dict[str, object]:
     place_counts = _place_overview_counts(db)
     policy_counts = _policy_counts(db)
     ops = _operational_counts(db)
@@ -93,40 +110,36 @@ def build_admin_overview(db: Session) -> dict[str, object]:
 
 def _place_overview_counts(db: Session) -> dict[str, int]:
     published = _published_catalog_condition()
-    row = db.query(
-        func.sum(case((published & _missing_text(Place.image_url), 1), else_=0)).label("no_photo"),
-        func.sum(case((published & _missing_text(Place.address), 1), else_=0)).label("no_address"),
-        func.sum(case((published & _missing_description_condition(), 1), else_=0)).label("no_description"),
-        func.sum(case((published & Place.existence_confidence_level.in_(LOW_CONFIDENCE_LEVELS), 1), else_=0)).label("low_confidence"),
-        func.sum(case((Place.publication_status.in_(MANUAL_REVIEW_STATUSES), 1), else_=0)).label("manual_review"),
-        func.sum(case((Place.publication_status.in_(AUTO_BACKLOG_STATUSES), 1), else_=0)).label("auto_backlog"),
-        func.sum(case((Place.verification_status.in_(VERIFICATION_QUEUE_STATUSES), 1), else_=0)).label("needs_verification"),
-    ).one()
-    return {key: int(getattr(row, key) or 0) for key in ("no_photo", "no_address", "no_description", "low_confidence", "manual_review", "auto_backlog", "needs_verification")}
+    return {
+        "no_photo": _count_places(db, published & _missing_text_fast(Place.image_url)),
+        "no_address": _count_places(db, published & _missing_text_fast(Place.address)),
+        "no_description": _count_places(db, published & _missing_description_condition()),
+        "low_confidence": _count_places(db, published & Place.existence_confidence_level.in_(LOW_CONFIDENCE_LEVELS)),
+        "manual_review": _count_places(db, Place.publication_status.in_(MANUAL_REVIEW_STATUSES)),
+        "auto_backlog": _count_places(db, Place.publication_status.in_(AUTO_BACKLOG_STATUSES)),
+        "needs_verification": _count_places(db, Place.verification_status.in_(VERIFICATION_QUEUE_STATUSES)),
+    }
 
 
 def _policy_counts(db: Session) -> dict[str, int]:
     published = _published_catalog_condition()
     excluded = _excluded_category_condition()
     unknown = _unknown_category_condition()
-    blocked = _route_blocker_condition()
-    row = db.query(
-        func.sum(case((blocked, 1), else_=0)).label("blocked"),
-        func.sum(case((published & Place.is_route_eligible.is_(False), 1), else_=0)).label("not_route_eligible"),
-        func.sum(case((published & unknown, 1), else_=0)).label("unknown"),
-        func.sum(case((published & excluded, 1), else_=0)).label("excluded"),
-    ).one()
-    return {key: int(getattr(row, key) or 0) for key in ("blocked", "not_route_eligible", "unknown", "excluded")}
+    return {
+        "blocked": _count_places(db, _route_blocker_condition()),
+        "not_route_eligible": _count_places(db, published & Place.is_route_eligible.is_(False)),
+        "unknown": _count_places(db, published & unknown),
+        "excluded": _count_places(db, published & excluded),
+    }
 
 
 def _operational_counts(db: Session) -> dict[str, int]:
-    row = db.query(
-        db.query(func.count(PlaceImage.id)).filter(PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW).scalar_subquery().label("pending_photos"),
-        db.query(func.count(CityImportJob.id)).filter(CityImportJob.status.in_(ACTIVE_IMPORT_STATUSES)).scalar_subquery().label("stuck_imports"),
-        db.query(func.count(City.id)).filter(City.is_active.is_(True), City.launch_status == "published").scalar_subquery().label("active_cities"),
-        db.query(func.count(AdminAuditLog.id)).scalar_subquery().label("audit_recent"),
-    ).one()
-    return {key: int(getattr(row, key) or 0) for key in ("pending_photos", "stuck_imports", "active_cities", "audit_recent")}
+    return {
+        "pending_photos": _count_query(db.query(func.count(PlaceImage.id)).filter(PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW)),
+        "stuck_imports": _count_query(db.query(func.count(CityImportJob.id)).filter(CityImportJob.status.in_(ACTIVE_IMPORT_STATUSES))),
+        "active_cities": _count_query(db.query(func.count(City.id)).filter(City.is_active.is_(True), City.launch_status == "published")),
+        "audit_recent": _count_query(db.query(func.count(AdminAuditLog.id))),
+    }
 
 
 def _published_catalog_condition():
@@ -152,13 +165,20 @@ def _route_blocker_condition():
     )
 
 
-def _missing_text(column):
-    return or_(column.is_(None), func.length(func.trim(column)) == 0)
+def _missing_text_fast(column):
+    return or_(column.is_(None), column == "")
 
 
 def _missing_description_condition():
-    text = func.lower(func.trim(Place.short_description))
-    return or_(Place.short_description.is_(None), func.length(func.trim(Place.short_description)) < MIN_DESCRIPTION_LENGTH, text == func.lower(func.trim(Place.title)), *[text.contains(marker) for marker in GENERIC_DESCRIPTION_MARKERS])
+    return or_(Place.short_description.is_(None), Place.short_description == "", Place.description_score <= 0)
+
+
+def _count_places(db: Session, clause) -> int:
+    return int(db.query(func.count(Place.id)).filter(clause).scalar() or 0)
+
+
+def _count_query(query) -> int:
+    return int(query.scalar() or 0)
 
 
 def _sev(count: int, yellow: int, red: int) -> str:
