@@ -25,6 +25,7 @@ def test_admin_performance_foundation_snapshot_models_exist_new() -> None:
 def test_admin_overview_diagnostics_has_latency_budget_new() -> None:
     source = Path(".github/workflows/admin-diagnostics.yml").read_text(encoding="utf-8")
 
-    assert "OVERVIEW_BOOT_BUDGET_MS = 2000" in source
-    assert "/api/admin/overview" in source
-    assert "expected <=" in source
+    assert 'request_json "/api/admin/overview" 2000 2' in source
+    assert "/api/admin/overview/backlog-breakdown" in source
+    assert "/api/admin/overview/backlog-reduction-plan" in source
+    assert "Dry-run smoke: skipped in this workflow" in source
