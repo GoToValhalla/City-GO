@@ -12,6 +12,7 @@ def main() -> None:
     quality = Path("services/admin_platform_quality.py").read_text(encoding="utf-8")
     read_model = Path("services/admin_read_model_v2.py").read_text(encoding="utf-8")
     router_setup = Path("core/router_setup.py").read_text(encoding="utf-8")
+    read_router = Path("routers/admin_read_models.py").read_text(encoding="utf-8")
 
     assert "db.query(*[_count_if" in overview
     checks.append("overview uses compact aggregate query")
@@ -25,8 +26,10 @@ def main() -> None:
     assert "def refresh_all" in read_model
     checks.append("read model service and refresh function exist")
 
-    assert "admin_read_models_router" not in router_setup
-    checks.append("read model router is not on startup path until import smoke is green")
+    assert "admin_read_models_router" in router_setup
+    assert "import_module" in read_router
+    assert "from services.admin_read_model_v2" not in read_router
+    checks.append("read model routes are wired with lazy service imports")
 
     synthetic_payload = [{"id": idx, "queue": "route_blockers" if idx % 7 == 0 else "ok"} for idx in range(SYNTHETIC_PLACE_FIXTURE_SIZE)]
     blockers = sum(1 for item in synthetic_payload if item["queue"] == "route_blockers")
