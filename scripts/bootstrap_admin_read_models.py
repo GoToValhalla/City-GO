@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import models.city  # noqa: F401
 from db.session import engine
 from models.admin_read_snapshot import AdminOverviewSnapshot, BacklogQueueSnapshot, CityQualitySnapshot
 
