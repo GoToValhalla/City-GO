@@ -30,6 +30,7 @@ def read_queue_breakdown(auth: AdminContext = Depends(admin_required), db: Sessi
     payload["reduction_available"] = True
     payload["reduction_plan_endpoint"] = "/admin/overview/" + "backlog-" + "reduction-plan"
     payload["top_actions"] = list(plan.get("actions") or [])[:4]
+    payload["last_reduction_result"] = None
     return payload
 
 
