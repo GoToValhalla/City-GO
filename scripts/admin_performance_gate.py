@@ -22,11 +22,11 @@ def main() -> None:
 
     assert "AdminOverviewSnapshot" in read_model
     assert "BacklogQueueSnapshot" in read_model
-    checks.append("read model snapshot classes are used")
+    assert "def refresh_all" in read_model
+    checks.append("read model service and refresh function exist")
 
-    assert router_setup.index("admin_read_models_router") < router_setup.index("admin_data_quality_router")
-    assert router_setup.index("admin_read_models_router") < router_setup.index("admin_ops_router")
-    checks.append("read model router is registered before live admin routers")
+    assert "admin_read_models_router" not in router_setup
+    checks.append("read model router is not on startup path until import smoke is green")
 
     synthetic_payload = [{"id": idx, "queue": "route_blockers" if idx % 7 == 0 else "ok"} for idx in range(SYNTHETIC_PLACE_FIXTURE_SIZE)]
     blockers = sum(1 for item in synthetic_payload if item["queue"] == "route_blockers")
