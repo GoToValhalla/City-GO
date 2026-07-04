@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
-import { AdminError, AdminLoading } from './shared/AdminStates'
+import { AdminError, AdminLoading, AdminSectionError } from './shared/AdminStates'
 
 type ActionCard = {
   code: string
@@ -64,6 +64,7 @@ type ReductionResult = {
   status: string
   dry_run: boolean
   affected_count: number
+  would_change_count?: number
   changed_count: number
   skipped_count: number
   failed_count: number
@@ -73,6 +74,7 @@ type ReductionResult = {
 
 const severityClass = (s: string) => `admin-severity admin-severity-${s}`
 const actionLabel = (card: ActionCard) => card.action_label || 'Открыть выборку'
+const errorMessage = (error: unknown) => (error instanceof Error ? error.message : 'Не удалось загрузить данные')
 
 export const AdminOverviewPage = () => {
   const [data, setData] = useState<Overview | null>(null)
@@ -86,26 +88,65 @@ export const AdminOverviewPage = () => {
   const [reductionError, setReductionError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [detailsError, setDetailsError] = useState<string | null>(null)
+  const [detailsLoading, setDetailsLoading] = useState(false)
 
   useEffect(() => {
-    Promise.all([
-      adminGet<Overview>('/admin/overview'),
-      adminGet<BacklogBreakdown>('/admin/overview/backlog-breakdown'),
-      adminGet<ReductionPlan>('/admin/overview/backlog-reduction-plan'),
-    ])
-      .then(([overview, backlog, reductionPlan]) => {
-        const safePlan = {
-          ...reductionPlan,
-          summary: reductionPlan.summary ?? {},
-          actions: Array.isArray(reductionPlan.actions) ? reductionPlan.actions : [],
-        }
+    let cancelled = false
+
+    const load = async () => {
+      setLoading(true)
+      setError(null)
+      setDetailsError(null)
+      setDetailsLoading(false)
+      setBreakdown(null)
+      setPlan(null)
+
+      try {
+        const overview = await adminGet<Overview>('/admin/overview')
+        if (cancelled) return
         setData(overview)
-        setBreakdown(backlog)
+        setLoading(false)
+      } catch (e) {
+        if (cancelled) return
+        setError(errorMessage(e))
+        setLoading(false)
+        return
+      }
+
+      if (cancelled) return
+      setDetailsLoading(true)
+      const [backlogResult, planResult] = await Promise.allSettled([
+        adminGet<BacklogBreakdown>('/admin/overview/backlog-breakdown', { timeoutMs: 20_000 }),
+        adminGet<ReductionPlan>('/admin/overview/backlog-reduction-plan', { timeoutMs: 20_000 }),
+      ])
+      if (cancelled) return
+
+      const detailErrors: string[] = []
+      if (backlogResult.status === 'fulfilled') {
+        setBreakdown(backlogResult.value)
+      } else {
+        detailErrors.push(errorMessage(backlogResult.reason))
+      }
+      if (planResult.status === 'fulfilled') {
+        const safePlan = {
+          ...planResult.value,
+          summary: planResult.value.summary ?? {},
+          actions: Array.isArray(planResult.value.actions) ? planResult.value.actions : [],
+        }
         setPlan(safePlan)
         setSelectedAction(safePlan.actions.find((action) => action.enabled)?.code ?? '')
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false))
+      } else {
+        detailErrors.push(errorMessage(planResult.reason))
+      }
+      setDetailsError(detailErrors.length ? detailErrors.join('\n') : null)
+      setDetailsLoading(false)
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   if (loading) return <AdminLoading />
@@ -246,7 +287,9 @@ export const AdminOverviewPage = () => {
         {reductionResult && (
           <div className="admin-help-panel" data-testid="reduction-result">
             <strong>{reductionResult.message}</strong>
-            <div>Кандидатов: {reductionResult.affected_count}. Изменено: {reductionResult.changed_count}. Поставлено в обработку: {reductionResult.queued_count}. Пропущено: {reductionResult.skipped_count}. Ошибок: {reductionResult.failed_count}.</div>
+            <div>
+              Кандидатов: {reductionResult.affected_count}. {reductionResult.dry_run ? `Изменится: ${reductionResult.would_change_count ?? reductionResult.changed_count}.` : `Изменено: ${reductionResult.changed_count}.`} Поставлено в обработку: {reductionResult.queued_count}. Пропущено: {reductionResult.skipped_count}. Ошибок: {reductionResult.failed_count}.
+            </div>
           </div>
         )}
       </section>
@@ -259,6 +302,8 @@ export const AdminOverviewPage = () => {
       <p className="admin-page-subtitle">Что сейчас требует внимания. Карточки разделяют автоочередь, ручную проверку и блокеры маршрутов.</p>
       {renderSection('Критические задачи', data.critical)}
       {renderSection('Качество данных', data.data_quality)}
+      {detailsLoading && <AdminLoading message="Загружаем разбор очередей…" />}
+      {detailsError && <AdminSectionError title="Часть данных обзора не загрузилась" message={detailsError} />}
       {renderBacklog()}
       {renderReduction()}
       {renderSection('Операции', data.operations)}
