@@ -14,6 +14,7 @@ Json = JSONB().with_variant(JSON(), "sqlite")
 
 class AdminOverviewSnapshot(Base):
     __tablename__ = "admin_overview_snapshots"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
     payload: Mapped[dict[str, object]] = mapped_column(Json, nullable=False, default=dict)
@@ -25,6 +26,7 @@ class AdminOverviewSnapshot(Base):
 
 class CityQualitySnapshot(Base):
     __tablename__ = "city_quality_snapshots"
+    __table_args__ = {"extend_existing": True}
 
     city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), primary_key=True)
     readiness_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -50,6 +52,7 @@ class BacklogQueueSnapshot(Base):
         UniqueConstraint("scope_type", "scope_id", "queue_code", "reason_code", name="uq_backlog_queue_snapshot_scope_queue_reason"),
         Index("ix_backlog_queue_snapshot_scope", "scope_type", "scope_id"),
         Index("ix_backlog_queue_snapshot_queue", "queue_code", "reason_code"),
+        {"extend_existing": True},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
