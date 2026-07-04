@@ -27,7 +27,7 @@ AdminOverviewSnapshot = Table(
 )
 
 CityQualitySnapshot = Table(
-    "city_quality_snapshots",
+    "admin_city_quality_snapshots",
     Base.metadata,
     Column("city_id", Integer, ForeignKey("cities.id"), primary_key=True),
     Column("readiness_score", Integer, default=0, nullable=False),
