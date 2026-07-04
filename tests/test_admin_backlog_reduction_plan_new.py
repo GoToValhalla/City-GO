@@ -22,6 +22,21 @@ def test_backlog_reduction_plan_returns_safe_operator_actions_new(client: TestCl
     assert all(action["risk_level"] == "safe" for action in payload["actions"])
 
 
+def test_reduction_plan_content_queueable_counts_unique_places_new(client: TestClient, db_session, place_factory) -> None:
+    _make_place(
+        db_session,
+        place_factory,
+        "one-content-place-many-gaps",
+        image_url=None,
+        address=None,
+        short_description=None,
+    )
+
+    payload = client.get("/admin/overview/backlog-reduction-plan").json()
+
+    assert payload["summary"]["content_enrichment_queueable"] == 1
+
+
 def test_backlog_breakdown_links_reduction_plan_new(client: TestClient, db_session, place_factory) -> None:
     _make_place(db_session, place_factory, "breakdown-action", image_url=None)
     response = client.get("/admin/overview/backlog-breakdown")

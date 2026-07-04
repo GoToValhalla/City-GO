@@ -104,6 +104,37 @@ def test_backlog_breakdown_counts_unique_places_once_new(client: TestClient, db_
     assert summary["total_problem_signals"] >= 3
 
 
+def test_queue_subcounts_count_unique_places_not_reason_signals_new(client: TestClient, db_session, place_factory) -> None:
+    _make_place(db_session, place_factory, "photo-overlap", image_url=None)
+    _make_place(
+        db_session,
+        place_factory,
+        "manual-overlap",
+        publication_status="needs_review",
+        verification_status="needs_recheck",
+        existence_confidence_level="low",
+        image_url=None,
+        is_published=False,
+        is_visible_in_catalog=False,
+        is_route_eligible=False,
+    )
+
+    payload = _payload(client)
+    photo = _queue(payload, "no_photo")
+    manual = _queue(payload, "manual_review")
+
+    assert photo["unique_places_count"] == 1
+    assert photo["total_problem_signals"] >= 2
+    assert photo["auto_fixable_count"] == 1
+    assert manual["unique_places_count"] == 1
+    assert manual["auto_fixable_count"] == 1
+    assert manual["overlap_count"] == 1
+    for queue in payload["queues"]:
+        assert queue["auto_fixable_count"] <= queue["unique_places_count"], queue["code"]
+        assert queue["manual_count"] <= queue["unique_places_count"], queue["code"]
+        assert queue["overlap_count"] <= queue["unique_places_count"], queue["code"]
+
+
 def test_route_blockers_breakdown_splits_reasons_new(client: TestClient, db_session, place_factory) -> None:
     _make_place(db_session, place_factory, "manual-disabled", is_route_eligible=False)
     _make_place(db_session, place_factory, "unknown-category", category="unknown", canonical_category="unknown")

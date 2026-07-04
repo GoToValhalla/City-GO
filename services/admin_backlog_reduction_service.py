@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
@@ -12,7 +13,7 @@ from models.place import Place
 from schemas.admin_backlog_reduction import BacklogReductionApplyRequest, BacklogReductionDryRunRequest, BacklogReductionResult
 from services.admin_audit_service import write_admin_audit_log
 from services.admin_backlog_breakdown_service import build_admin_backlog_breakdown
-from services.admin_backlog_clauses import queue_clause, reason_clause, service_category_clause
+from services.admin_backlog_clauses import content_gap_clause, queue_clause, reason_clause, service_category_clause
 from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 CONFIRMATION_TEXT = "APPLY"
@@ -58,7 +59,7 @@ def build_reduction_plan(db: Session) -> dict[str, object]:
         "unknown_categories_auto_classifiable": len(_classifiable_unknowns(db, 10000)),
         "manual_review_reclassifiable": _manual_reclassifiable_count(db),
         "verification_auto_recheckable": _candidate_count(db, _spec("auto_recheck_verification_backlog")),
-        "content_enrichment_queueable": sum(_candidate_count(db, _spec(code)) for code in ("enqueue_description_enrichment", "enqueue_photo_discovery", "enqueue_address_recovery")),
+        "content_enrichment_queueable": _count(db, content_gap_clause()),
     }
     return {"generated_at": datetime.utcnow(), "summary": summary, "actions": actions, "queues": queues}
 
@@ -283,6 +284,12 @@ def _manual_reclassifiable_count(db: Session) -> int:
 def _manual_after_classification(db: Session) -> int:
     total = int(db.query(Place).filter(queue_clause("manual_review")).count() or 0)
     return max(0, total - _manual_reclassifiable_count(db))
+
+
+def _count(db: Session, clause) -> int:
+    if clause is None:
+        return 0
+    return int(db.query(Place.id).filter(clause).distinct().count() or 0)
 
 
 def _spec(code: str) -> ActionSpec:

@@ -11,8 +11,26 @@ from sqlalchemy.orm import Session
 from models.place import Place
 from services.admin_backlog_clauses import content_gap_clause, queue_clause, reason_clause
 
-REQUIRED_QUEUES = ("route_blockers", "route_unknown", "route_excluded", "no_photo", "no_address", "no_description", "low_confidence", "auto_backlog", "manual_review", "needs_verification")
-AUTO_FIXABLE_QUEUES = ("auto_backlog", "needs_verification", "no_photo", "no_address", "no_description", "low_confidence")
+REQUIRED_QUEUES = (
+    "route_blockers",
+    "route_unknown",
+    "route_excluded",
+    "no_photo",
+    "no_address",
+    "no_description",
+    "low_confidence",
+    "auto_backlog",
+    "manual_review",
+    "needs_verification",
+)
+AUTO_FIXABLE_QUEUES = (
+    "auto_backlog",
+    "needs_verification",
+    "no_photo",
+    "no_address",
+    "no_description",
+    "low_confidence",
+)
 MANUAL_QUEUES = ("manual_review", "route_blockers", "route_unknown", "route_excluded")
 CONTENT_GAP_QUEUES = ("no_photo", "no_address", "no_description")
 
@@ -36,72 +54,142 @@ class QueueSpec:
 
 
 QUEUE_SPECS = (
-    QueueSpec("route_blockers", "Проблемы маршрутов", "Сначала разберите причины блокировки.", False, True, (
-        ReasonSpec("manual_disabled", "Отключены вручную", False, True),
-        ReasonSpec("missing_coordinates", "Нет координат", False, True),
-        ReasonSpec("unknown_category", "Неизвестная категория", False, True),
-        ReasonSpec("service_category", "Сервисная категория", False, True),
-        ReasonSpec("other_policy_blocker", "Другая причина блокировки", False, True),
-    )),
-    QueueSpec("route_unknown", "Неизвестные категории", "Назначить понятные категории.", False, True, (
-        ReasonSpec("unknown_category", "Категория не распознана", False, True),
-        ReasonSpec("empty_category", "Категория не заполнена", False, True),
-        ReasonSpec("unmapped_category", "Категория не сопоставлена", False, True),
-        ReasonSpec("placeholder_category", "Слишком общая категория", False, True),
-    )),
-    QueueSpec("route_excluded", "Сервисные точки", "Проверить, что сервисные POI скрыты из маршрутов.", False, True, (
-        ReasonSpec("pharmacy_medical", "Аптеки и медицина", False, True),
-        ReasonSpec("bank_atm", "Банки и банкоматы", False, True),
-        ReasonSpec("transport_bus_stop", "Остановки и транспорт", False, True),
-        ReasonSpec("parking_fuel", "Парковки и топливо", False, True),
-        ReasonSpec("other_service", "Другие сервисные точки", False, True),
-    )),
-    QueueSpec("no_photo", "Без фото", "Запустить подбор фото или добавить вручную.", True, False, (
-        ReasonSpec("published_without_any_photo", "Опубликовано без фото", True, False),
-        ReasonSpec("route_ready_without_photo", "Маршрутные места без фото", True, False),
-        ReasonSpec("catalog_without_photo", "Каталог без фото", True, False),
-    )),
-    QueueSpec("no_address", "Без адреса", "Запустить восстановление адресов.", True, False, (
-        ReasonSpec("address_null", "Адрес отсутствует", True, False),
-        ReasonSpec("address_empty", "Адрес пустой", True, False),
-        ReasonSpec("address_placeholder", "Адрес-заглушка", True, False),
-        ReasonSpec("coordinates_without_address", "Есть координаты, нет адреса", True, False),
-    )),
-    QueueSpec("no_description", "Без описания", "Сгенерировать или написать описания.", True, False, (
-        ReasonSpec("description_null", "Описание отсутствует", True, False),
-        ReasonSpec("description_empty", "Описание пустое", True, False),
-        ReasonSpec("description_equals_title", "Описание повторяет название", True, False),
-        ReasonSpec("description_too_short", "Описание слишком короткое", True, False),
-        ReasonSpec("placeholder_description", "Описание-заглушка", True, False),
-    )),
-    QueueSpec("low_confidence", "Низкая уверенность", "Запустить автоматическую перепроверку данных.", True, False, (
-        ReasonSpec("data_confidence_low", "Низкая уверенность в данных", True, False),
-        ReasonSpec("confidence_unknown", "Уверенность не определена", True, False),
-        ReasonSpec("category_confidence_low", "Слабая уверенность категории", True, False),
-        ReasonSpec("mixed_low_confidence", "Несколько слабых сигналов", True, False),
-    )),
-    QueueSpec("auto_backlog", "Автоисправление", "Запустить автоматическую обработку.", True, False, (
-        ReasonSpec("auto_draft", "Черновики для автообработки", True, False),
-        ReasonSpec("auto_backlog_status", "Очередь автообработки", True, False),
-        ReasonSpec("auto_low_confidence_status", "Автообработка низкой уверенности", True, False),
-    )),
-    QueueSpec("manual_review", "Очередь разбора", "Разобрать по причинам и отделить автоматическое.", False, True, (
-        ReasonSpec("explicit_manual_review", "Явная ручная проверка", False, True),
-        ReasonSpec("publication_review_backlog", "Очередь публикации", True, False),
-        ReasonSpec("legacy_needs_review", "Старые элементы проверки", True, False),
-        ReasonSpec("overlaps_with_auto_backlog", "Пересекается с автоочередью", True, False),
-        ReasonSpec("overlaps_with_verification", "Пересекается с автопроверкой", True, False),
-        ReasonSpec("overlaps_with_content_gaps", "Есть пробелы контента", True, False),
-        ReasonSpec("overlaps_with_low_confidence", "Есть низкая уверенность", True, False),
-    )),
-    QueueSpec("needs_verification", "Автоперепроверка", "Запустить автоматическую проверку данных.", True, False, (
-        ReasonSpec("needs_recheck", "Нужна повторная проверка", True, False),
-        ReasonSpec("unverified", "Ещё не проверено", True, False),
-        ReasonSpec("verification_overlaps_with_manual_review", "Пересекается с очередью разбора", True, False),
-        ReasonSpec("verification_overlaps_with_low_confidence", "Есть низкая уверенность", True, False),
-        ReasonSpec("verification_overlaps_with_content_gaps", "Есть пробелы контента", True, False),
-        ReasonSpec("route_relevant_verification", "Важны для маршрутов", True, False),
-    )),
+    QueueSpec(
+        "route_blockers",
+        "Проблемы маршрутов",
+        "Сначала разберите причины блокировки.",
+        False,
+        True,
+        (
+            ReasonSpec("manual_disabled", "Отключены вручную", False, True),
+            ReasonSpec("missing_coordinates", "Нет координат", False, True),
+            ReasonSpec("unknown_category", "Неизвестная категория", False, True),
+            ReasonSpec("service_category", "Сервисная категория", False, True),
+            ReasonSpec("other_policy_blocker", "Другая причина блокировки", False, True),
+        ),
+    ),
+    QueueSpec(
+        "route_unknown",
+        "Неизвестные категории",
+        "Назначить понятные категории.",
+        False,
+        True,
+        (
+            ReasonSpec("unknown_category", "Категория не распознана", False, True),
+            ReasonSpec("empty_category", "Категория не заполнена", False, True),
+            ReasonSpec("unmapped_category", "Категория не сопоставлена", False, True),
+            ReasonSpec("placeholder_category", "Слишком общая категория", False, True),
+        ),
+    ),
+    QueueSpec(
+        "route_excluded",
+        "Сервисные точки",
+        "Проверить, что сервисные POI скрыты из маршрутов.",
+        False,
+        True,
+        (
+            ReasonSpec("pharmacy_medical", "Аптеки и медицина", False, True),
+            ReasonSpec("bank_atm", "Банки и банкоматы", False, True),
+            ReasonSpec("transport_bus_stop", "Остановки и транспорт", False, True),
+            ReasonSpec("parking_fuel", "Парковки и топливо", False, True),
+            ReasonSpec("other_service", "Другие сервисные точки", False, True),
+        ),
+    ),
+    QueueSpec(
+        "no_photo",
+        "Без фото",
+        "Запустить подбор фото или добавить вручную.",
+        True,
+        False,
+        (
+            ReasonSpec("published_without_any_photo", "Опубликовано без фото", True, False),
+            ReasonSpec("route_ready_without_photo", "Маршрутные места без фото", True, False),
+            ReasonSpec("catalog_without_photo", "Каталог без фото", True, False),
+        ),
+    ),
+    QueueSpec(
+        "no_address",
+        "Без адреса",
+        "Запустить восстановление адресов.",
+        True,
+        False,
+        (
+            ReasonSpec("address_null", "Адрес отсутствует", True, False),
+            ReasonSpec("address_empty", "Адрес пустой", True, False),
+            ReasonSpec("address_placeholder", "Адрес-заглушка", True, False),
+            ReasonSpec("coordinates_without_address", "Есть координаты, нет адреса", True, False),
+        ),
+    ),
+    QueueSpec(
+        "no_description",
+        "Без описания",
+        "Сгенерировать или написать описания.",
+        True,
+        False,
+        (
+            ReasonSpec("description_null", "Описание отсутствует", True, False),
+            ReasonSpec("description_empty", "Описание пустое", True, False),
+            ReasonSpec("description_equals_title", "Описание повторяет название", True, False),
+            ReasonSpec("description_too_short", "Описание слишком короткое", True, False),
+            ReasonSpec("placeholder_description", "Описание-заглушка", True, False),
+        ),
+    ),
+    QueueSpec(
+        "low_confidence",
+        "Низкая уверенность",
+        "Запустить автоматическую перепроверку данных.",
+        True,
+        False,
+        (
+            ReasonSpec("data_confidence_low", "Низкая уверенность в данных", True, False),
+            ReasonSpec("confidence_unknown", "Уверенность не определена", True, False),
+            ReasonSpec("category_confidence_low", "Слабая уверенность категории", True, False),
+            ReasonSpec("mixed_low_confidence", "Несколько слабых сигналов", True, False),
+        ),
+    ),
+    QueueSpec(
+        "auto_backlog",
+        "Автоисправление",
+        "Запустить автоматическую обработку.",
+        True,
+        False,
+        (
+            ReasonSpec("auto_draft", "Черновики для автообработки", True, False),
+            ReasonSpec("auto_backlog_status", "Очередь автообработки", True, False),
+            ReasonSpec("auto_low_confidence_status", "Автообработка низкой уверенности", True, False),
+        ),
+    ),
+    QueueSpec(
+        "manual_review",
+        "Очередь разбора",
+        "Разобрать по причинам и отделить автоматическое.",
+        False,
+        True,
+        (
+            ReasonSpec("explicit_manual_review", "Явная ручная проверка", False, True),
+            ReasonSpec("publication_review_backlog", "Очередь публикации", True, False),
+            ReasonSpec("legacy_needs_review", "Старые элементы проверки", True, False),
+            ReasonSpec("overlaps_with_auto_backlog", "Пересекается с автоочередью", True, False),
+            ReasonSpec("overlaps_with_verification", "Пересекается с автопроверкой", True, False),
+            ReasonSpec("overlaps_with_content_gaps", "Есть пробелы контента", True, False),
+            ReasonSpec("overlaps_with_low_confidence", "Есть низкая уверенность", True, False),
+        ),
+    ),
+    QueueSpec(
+        "needs_verification",
+        "Автоперепроверка",
+        "Запустить автоматическую проверку данных.",
+        True,
+        False,
+        (
+            ReasonSpec("needs_recheck", "Нужна повторная проверка", True, False),
+            ReasonSpec("unverified", "Ещё не проверено", True, False),
+            ReasonSpec("verification_overlaps_with_manual_review", "Пересекается с очередью разбора", True, False),
+            ReasonSpec("verification_overlaps_with_low_confidence", "Есть низкая уверенность", True, False),
+            ReasonSpec("verification_overlaps_with_content_gaps", "Есть пробелы контента", True, False),
+            ReasonSpec("route_relevant_verification", "Важны для маршрутов", True, False),
+        ),
+    ),
 )
 
 
@@ -123,15 +211,18 @@ def build_admin_backlog_breakdown(db: Session) -> dict[str, object]:
 
 def _queue_payload(db: Session, spec: QueueSpec, total: int) -> dict[str, object]:
     reasons = [_reason_payload(db, spec.code, reason) for reason in spec.reasons]
+    auto_reason_codes = _reason_codes(spec, auto_fixable=True)
+    manual_reason_codes = _reason_codes(spec, manual_required=True)
+    overlap_reason_codes = tuple(reason.code for reason in spec.reasons if _is_overlap_reason(reason.code))
     return {
         "code": spec.code,
         "title": spec.title,
         "total_count": total,
         "unique_places_count": total,
         "total_problem_signals": sum(int(reason["count"]) for reason in reasons),
-        "auto_fixable_count": sum(int(reason["count"]) for reason in reasons if reason["auto_fixable"]),
-        "manual_count": sum(int(reason["count"]) for reason in reasons if reason["manual_required"]),
-        "overlap_count": sum(int(reason["count"]) for reason in reasons if str(reason["code"]).startswith("overlaps_with_")),
+        "auto_fixable_count": _queue_reason_count(db, spec.code, auto_reason_codes),
+        "manual_count": _queue_reason_count(db, spec.code, manual_reason_codes),
+        "overlap_count": _queue_reason_count(db, spec.code, overlap_reason_codes),
         "recommended_action": spec.recommended_action,
         "severity": _severity(total),
         "sample_endpoint": f"/admin/places/search?preset={spec.code}",
@@ -157,6 +248,35 @@ def _normalized_reason(queue_code: str, reason_code: str) -> str:
     return reason_code
 
 
+def _reason_codes(spec: QueueSpec, *, auto_fixable: bool = False, manual_required: bool = False) -> tuple[str, ...]:
+    return tuple(
+        reason.code
+        for reason in spec.reasons
+        if (auto_fixable and reason.auto_fixable) or (manual_required and reason.manual_required)
+    )
+
+
+def _queue_reason_count(db: Session, queue_code: str, reason_codes: tuple[str, ...]) -> int:
+    queue = queue_clause(queue_code)
+    reasons = _reason_union(queue_code, reason_codes)
+    return _count(db, queue & reasons if queue is not None and reasons is not None else None)
+
+
+def _reason_union(queue_code: str, reason_codes: tuple[str, ...]):
+    clauses = tuple(
+        clause
+        for clause in (reason_clause(_normalized_reason(queue_code, code)) for code in reason_codes)
+        if clause is not None
+    )
+    if not clauses:
+        return None
+    return or_(*clauses)
+
+
+def _is_overlap_reason(code: str) -> bool:
+    return "overlaps_with_" in code
+
+
 def _overlaps(db: Session) -> list[dict[str, object]]:
     pairs = (
         ("manual_review", "needs_verification"),
@@ -167,7 +287,10 @@ def _overlaps(db: Session) -> list[dict[str, object]]:
         ("needs_verification", "no_description"),
         ("route_blockers", "route_unknown"),
     )
-    return [{"left": left, "right": right, "count": _count(db, queue_clause(left) & queue_clause(right))} for left, right in pairs]
+    return [
+        {"left": left, "right": right, "count": _count(db, queue_clause(left) & queue_clause(right))}
+        for left, right in pairs
+    ]
 
 
 def _any_queue_clause(codes: tuple[str, ...]):

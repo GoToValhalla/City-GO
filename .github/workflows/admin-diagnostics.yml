@@ -159,6 +159,7 @@ jobs:
                   {
                       "title": action.get("title"),
                       "affected_count": result.get("affected_count"),
+                      "would_change_count": result.get("would_change_count"),
                       "changed_count": result.get("changed_count"),
                       "queued_count": result.get("queued_count"),
                       "skipped_count": result.get("skipped_count"),
@@ -259,7 +260,7 @@ jobs:
           if dry_run_smoke:
               for row in dry_run_smoke:
                   summary_lines.append(
-                      f"- {row.get('title')}: affected={row.get('affected_count')} changed={row.get('changed_count')} queued={row.get('queued_count')} skipped={row.get('skipped_count')} failed={row.get('failed_count')}"
+                      f"- {row.get('title')}: affected={row.get('affected_count')} would_change={row.get('would_change_count')} queued={row.get('queued_count')} skipped={row.get('skipped_count')} failed={row.get('failed_count')}"
                   )
           else:
               summary_lines.append("- no enabled actions")
