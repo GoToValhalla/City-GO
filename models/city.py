@@ -84,6 +84,3 @@ def protect_published_city_is_active(target: City, value: object, oldvalue: obje
     if oldvalue is True and value is False and getattr(target, "launch_status", None) == "published" and not _city_product_state_change_allowed(target):
         return oldvalue
     return value
-
-
-__import__("models." + "admin_read_snapshot")
