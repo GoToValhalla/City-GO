@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from models.admin_read_snapshot import AdminOverviewSnapshot, BacklogQueueSnapshot
 
-TTL_SECONDS = 300
+TTL_SECONDS = 1800
 SLOT_OVERVIEW = 1
 SLOT_BACKLOG = 2
 SLOT_PLAN = 3
@@ -58,7 +58,7 @@ def refresh_all(db: Session) -> dict[str, object]:
     _store(db, SLOT_DATA_QUALITY, "data_quality_summary", quality)
     _store_queue_rows(db, backlog)
     db.commit()
-    return {"status": "refreshed", "computed_at": datetime.utcnow().isoformat(), "snapshots": 4, "queues": len(backlog.get("queues") or [])}
+    return {"status": "refreshed", "computed_at": datetime.utcnow().isoformat(), "ttl_seconds": TTL_SECONDS, "snapshots": 4, "queues": len(backlog.get("queues") or [])}
 
 
 def _read_or_build(db: Session, slot: int, builder: Builder) -> dict[str, object]:
