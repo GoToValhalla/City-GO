@@ -27,10 +27,7 @@ def __getattr__(name: str):
     if name in {f"{_AP}_bulk_action", "preview_bulk_action"}:
         from services.data_quality import bulk
         return getattr(bulk, name)
-    if name == "build_data_quality_summary":
-        from services.data_quality import summary_fast
-        return getattr(summary_fast, name)
-    if name in {"list_data_quality_issues", "list_possible_duplicate_groups"}:
+    if name in {"build_data_quality_summary", "list_data_quality_issues", "list_possible_duplicate_groups"}:
         from services.data_quality import query
         return getattr(query, name)
     if name == "diagnostic_gates":
