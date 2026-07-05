@@ -70,6 +70,8 @@ type ReductionResult = {
   failed_count: number
   queued_count: number
   message: string
+  job_id?: number
+  audit_id?: number
 }
 type ReductionRun = {
   job_id: number
@@ -110,23 +112,46 @@ type ReductionReport = {
   task_stats: ReductionTaskStat[]
   recent_runs: ReductionRun[]
 }
-type FullSafeReductionAction = typeof FULL_SAFE_REDUCTION_ACTIONS[number]
-type FullSafeReductionRow = {
-  action_code: FullSafeReductionAction
-  candidates: number
-  queued: number
-  skipped: number
-  failed: number
+type FullSafeRunStep = {
+  action_code: string
+  title?: string | null
   status: string
-  message?: string
+  affected_count: number
+  changed_count: number
+  queued_count: number
+  skipped_count: number
+  failed_count: number
+  started_at?: string | null
+  finished_at?: string | null
+  message?: string | null
 }
-type FullSafeReductionResult = {
-  rows: FullSafeReductionRow[]
-  totalCandidates: number
-  totalQueued: number
-  totalSkipped: number
-  totalFailed: number
+type FullSafeRun = {
+  job_id: number
+  status: string
+  runtime_status: string
+  is_running: boolean
+  is_stale: boolean
+  created_at?: string | null
+  updated_at?: string | null
+  actor?: string | null
+  action_code?: string | null
+  status_label?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  last_heartbeat_at?: string | null
+  total_actions: number
+  processed_actions: number
+  remaining_actions: number
+  affected_count: number
+  changed_count: number
+  queued_count: number
+  skipped_count: number
+  failed_count: number
+  remaining_count: number
+  stop_requested: boolean
+  actions: FullSafeRunStep[]
 }
+type FullSafeReductionAction = typeof FULL_SAFE_REDUCTION_ACTIONS[number]
 
 const FULL_SAFE_REDUCTION_ACTIONS = [
   'enqueue_photo_discovery',
@@ -135,7 +160,35 @@ const FULL_SAFE_REDUCTION_ACTIONS = [
   'auto_recheck_verification_backlog',
 ] as const
 const BACKLOG_REDUCTION_APPLY_PATH = '/admin/overview/backlog-reduction/apply'
+const FULL_SAFE_RUN_PATH = '/admin/overview/backlog-reduction/full-safe-run'
+const FULL_SAFE_RUN_LATEST_PATH = `${FULL_SAFE_RUN_PATH}/latest`
 const FULL_SAFE_REDUCTION_LIMIT = 500
+const ACTION_TITLES: Record<string, string> = {
+  enqueue_photo_discovery: 'Фото',
+  enqueue_address_recovery: 'Адреса',
+  enqueue_description_enrichment: 'Описания',
+  auto_recheck_verification_backlog: 'Перепроверка данных',
+  recompute_route_eligibility: 'Проверка маршрутов',
+  exclude_service_places_from_routes: 'Служебные места',
+  classify_unknown_categories_deterministic: 'Категории',
+  normalize_manual_review_backlog: 'Ручной разбор',
+  recompute_low_confidence: 'Низкая уверенность',
+}
+const STATUS_TITLES: Record<string, string> = {
+  pending: 'Ожидает',
+  running: 'В работе',
+  queued: 'В очереди',
+  processing: 'Обрабатывается',
+  locked: 'Занято',
+  stop_requested: 'Остановка запрошена',
+  stopped: 'Остановлен',
+  stuck: 'Нет прогресса',
+  applied: 'Готово',
+  completed: 'Готово',
+  partial: 'Частично',
+  failed: 'Ошибка',
+  unsupported: 'Не поддержано',
+}
 
 const severityClass = (s: string) => `admin-severity admin-severity-${s}`
 const actionLabel = (card: ActionCard) => card.action_label || 'Открыть выборку'
@@ -145,13 +198,24 @@ const formatDate = (value?: string | null) => {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU')
 }
-const toFullSafeReductionResult = (rows: FullSafeReductionRow[]): FullSafeReductionResult => rows.reduce<FullSafeReductionResult>((acc, row) => ({
-  rows: acc.rows,
-  totalCandidates: acc.totalCandidates + row.candidates,
-  totalQueued: acc.totalQueued + row.queued,
-  totalSkipped: acc.totalSkipped + row.skipped,
-  totalFailed: acc.totalFailed + row.failed,
-}), { rows, totalCandidates: 0, totalQueued: 0, totalSkipped: 0, totalFailed: 0 })
+const statusTitle = (status?: string | null) => STATUS_TITLES[status ?? ''] ?? 'Неизвестно'
+const actionTitle = (code?: string | null, fallback?: string | null) => fallback || ACTION_TITLES[code ?? ''] || 'Действие'
+const normalizeFullSafeRun = (run: FullSafeRun | null): FullSafeRun | null => {
+  if (!run) return null
+  return {
+    ...run,
+    total_actions: Number(run.total_actions || 0),
+    processed_actions: Number(run.processed_actions || 0),
+    remaining_actions: Number(run.remaining_actions || 0),
+    affected_count: Number(run.affected_count || 0),
+    changed_count: Number(run.changed_count || 0),
+    queued_count: Number(run.queued_count || 0),
+    skipped_count: Number(run.skipped_count || 0),
+    failed_count: Number(run.failed_count || 0),
+    remaining_count: Number(run.remaining_count || 0),
+    actions: Array.isArray(run.actions) ? run.actions : [],
+  }
+}
 
 export const AdminOverviewPage = () => {
   const [data, setData] = useState<Overview | null>(null)
@@ -162,8 +226,10 @@ export const AdminOverviewPage = () => {
   const [limit, setLimit] = useState(100)
   const [confirmation, setConfirmation] = useState('')
   const [runningAction, setRunningAction] = useState<string | null>(null)
+  const [fullSafeRun, setFullSafeRun] = useState<FullSafeRun | null>(null)
   const [fullSafeRunRunning, setFullSafeRunRunning] = useState(false)
-  const [fullSafeRunResult, setFullSafeRunResult] = useState<FullSafeReductionResult | null>(null)
+  const [fullSafeRunRefreshing, setFullSafeRunRefreshing] = useState(false)
+  const [fullSafeRunStopping, setFullSafeRunStopping] = useState(false)
   const [fullSafeRunError, setFullSafeRunError] = useState<string | null>(null)
   const [reductionResult, setReductionResult] = useState<ReductionResult | null>(null)
   const [reductionError, setReductionError] = useState<string | null>(null)
@@ -183,10 +249,32 @@ export const AdminOverviewPage = () => {
     }
   }
 
+  const loadLatestFullSafeRun = async (cancelledRef?: { cancelled: boolean }) => {
+    try {
+      const value = await adminGet<FullSafeRun | null>(FULL_SAFE_RUN_LATEST_PATH, { timeoutMs: 8_000 })
+      if (cancelledRef?.cancelled) return null
+      const next = normalizeFullSafeRun(value)
+      setFullSafeRun(next)
+      return next
+    } catch (e) {
+      if (cancelledRef?.cancelled) return null
+      setFullSafeRunError(errorMessage(e))
+      return null
+    }
+  }
+
+  const loadFullSafeRun = async (jobId: number) => {
+    const value = await adminGet<FullSafeRun>(`${FULL_SAFE_RUN_PATH}/${jobId}`, { timeoutMs: 8_000 })
+    const next = normalizeFullSafeRun(value)
+    setFullSafeRun(next)
+    return next
+  }
+
   const loadDetails = async (cancelledRef?: { cancelled: boolean }) => {
     setDetailsLoading(true)
     setDetailsError(null)
     void loadReport(cancelledRef)
+    void loadLatestFullSafeRun(cancelledRef)
 
     const [backlogResult, planResult] = await Promise.allSettled([
       adminGet<BacklogBreakdown>('/admin/overview/backlog-breakdown', { timeoutMs: 8_000 }),
@@ -226,6 +314,7 @@ export const AdminOverviewPage = () => {
       setBreakdown(null)
       setPlan(null)
       setReport(null)
+      setFullSafeRun(null)
       setFullSafeRunError(null)
 
       try {
@@ -332,12 +421,12 @@ export const AdminOverviewPage = () => {
           <div className="admin-action-card">
             <div className="admin-action-count">{report.summary.queued_24h}</div>
             <div className="admin-action-title">Поставлено за 24 часа</div>
-            <div className="admin-action-hint">Реальные задачи, созданные apply-flow.</div>
+            <div className="admin-action-hint">Задачи, созданные для обработки данных.</div>
           </div>
           <div className="admin-action-card">
             <div className="admin-action-count">{report.summary.active_tasks}</div>
             <div className="admin-action-title">Активных задач</div>
-            <div className="admin-action-hint">Queued/running/processing/locked по backlog reduction.</div>
+            <div className="admin-action-hint">Задачи, которые ещё не завершены.</div>
           </div>
           <div className="admin-action-card">
             <div className="admin-action-count">{report.summary.skipped_24h}</div>
@@ -352,7 +441,7 @@ export const AdminOverviewPage = () => {
         </div>
         {last ? (
           <div className="admin-help-panel" data-testid="backlog-reduction-last-result">
-            <strong>Последний запуск: #{last.job_id} · {last.action_code || '—'} · {last.status}</strong>
+            <strong>Последний запуск: #{last.job_id} · {actionTitle(last.action_code)} · {statusTitle(last.status)}</strong>
             <div>Когда: {formatDate(last.started_at)}. Запустил: {last.actor || '—'}.</div>
             <div>Кандидатов: {last.affected_count}. Изменено: {last.changed_count}. Поставлено: {last.queued_count}. Пропущено: {last.skipped_count}. Ошибок: {last.failed_count}.</div>
             {last.message && <div>{last.message}</div>}
@@ -366,10 +455,10 @@ export const AdminOverviewPage = () => {
             <tbody>
               {report.task_stats.map((stat) => (
                 <tr key={stat.task_type} data-testid={`backlog-task-stat-${stat.task_type}`}>
-                  <td><strong>{stat.task_type}</strong></td>
+                  <td><strong>{actionTitle(stat.task_type)}</strong></td>
                   <td>{stat.total_count}</td>
                   <td>{stat.active_count}</td>
-                  <td>{Object.entries(stat.statuses).map(([status, count]) => `${status}: ${count}`).join(', ') || '—'}</td>
+                  <td>{Object.entries(stat.statuses).map(([status, count]) => `${statusTitle(status)}: ${count}`).join(', ') || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -377,12 +466,12 @@ export const AdminOverviewPage = () => {
         </div>
         <div className="admin-table-wrap">
           <table className="admin-table">
-            <thead><tr><th>Последние запуски</th><th>Action</th><th>Поставлено</th><th>Пропущено</th><th>Ошибки</th></tr></thead>
+            <thead><tr><th>Последние запуски</th><th>Действие</th><th>Поставлено</th><th>Пропущено</th><th>Ошибки</th></tr></thead>
             <tbody>
               {report.recent_runs.slice(0, 10).map((run) => (
                 <tr key={run.job_id} data-testid={`backlog-run-${run.job_id}`}>
                   <td>#{run.job_id}<br /><span>{formatDate(run.started_at)}</span></td>
-                  <td>{run.action_code || '—'}</td>
+                  <td>{actionTitle(run.action_code)}</td>
                   <td>{run.queued_count}</td>
                   <td>{run.skipped_count}</td>
                   <td>{run.failed_count}</td>
@@ -394,14 +483,51 @@ export const AdminOverviewPage = () => {
       </section>
     )
   }
+  const refreshFullSafeRun = async () => {
+    setFullSafeRunRefreshing(true)
+    setFullSafeRunError(null)
+    try {
+      if (fullSafeRun?.job_id) {
+        await loadFullSafeRun(fullSafeRun.job_id)
+      } else {
+        await loadLatestFullSafeRun()
+      }
+    } catch (e) {
+      setFullSafeRunError(errorMessage(e))
+    } finally {
+      setFullSafeRunRefreshing(false)
+    }
+  }
+  const stopFullSafeRun = async () => {
+    if (!fullSafeRun?.job_id) return
+    setFullSafeRunStopping(true)
+    setFullSafeRunError(null)
+    try {
+      const stopped = await adminPost<FullSafeRun>(`${FULL_SAFE_RUN_PATH}/${fullSafeRun.job_id}/stop`)
+      setFullSafeRun(normalizeFullSafeRun(stopped))
+    } catch (e) {
+      setFullSafeRunError(errorMessage(e))
+    } finally {
+      setFullSafeRunStopping(false)
+    }
+  }
   const runFullSafeReduction = async () => {
     setFullSafeRunRunning(true)
     setFullSafeRunError(null)
-    setFullSafeRunResult(null)
-    const rows: FullSafeReductionRow[] = []
 
     try {
+      const created = normalizeFullSafeRun(await adminPostLong<FullSafeRun>(FULL_SAFE_RUN_PATH))
+      if (!created) return
+      setFullSafeRun(created)
+      const jobId = created.job_id
+
       for (const actionCode of FULL_SAFE_REDUCTION_ACTIONS) {
+        const current = await loadFullSafeRun(jobId)
+        if (current?.stop_requested || current?.status === 'stopped') break
+
+        const running = await adminPostLong<FullSafeRun>(`${FULL_SAFE_RUN_PATH}/${jobId}/steps/${actionCode}/running`)
+        setFullSafeRun(normalizeFullSafeRun(running))
+
         try {
           const result = await adminPostLong<ReductionResult>(BACKLOG_REDUCTION_APPLY_PATH, {
             action_code: actionCode,
@@ -409,86 +535,105 @@ export const AdminOverviewPage = () => {
             limit: FULL_SAFE_REDUCTION_LIMIT,
             include_samples: true,
           })
-          rows.push({
-            action_code: actionCode,
-            candidates: result.affected_count,
-            queued: result.queued_count,
-            skipped: result.skipped_count,
-            failed: result.failed_count,
-            status: result.status,
-            message: result.message,
-          })
+          const recorded = await adminPostLong<FullSafeRun>(`${FULL_SAFE_RUN_PATH}/${jobId}/steps/${actionCode}/result`, result)
+          setFullSafeRun(normalizeFullSafeRun(recorded))
         } catch (e) {
-          rows.push({
-            action_code: actionCode,
-            candidates: 0,
-            queued: 0,
-            skipped: 0,
-            failed: 1,
-            status: 'failed',
-            message: errorMessage(e),
-          })
+          const recorded = await adminPostLong<FullSafeRun>(`${FULL_SAFE_RUN_PATH}/${jobId}/steps/${actionCode}/error`, { message: errorMessage(e) })
+          setFullSafeRun(normalizeFullSafeRun(recorded))
         }
       }
 
-      setFullSafeRunResult(toFullSafeReductionResult(rows))
+      const latestBeforeComplete = await loadFullSafeRun(jobId)
+      if (!latestBeforeComplete?.stop_requested && latestBeforeComplete?.status !== 'stopped') {
+        const completed = await adminPostLong<FullSafeRun>(`${FULL_SAFE_RUN_PATH}/${jobId}/complete`)
+        setFullSafeRun(normalizeFullSafeRun(completed))
+      }
       await loadReport()
+      await loadLatestFullSafeRun()
     } catch (e) {
       setFullSafeRunError(errorMessage(e))
+      await loadLatestFullSafeRun()
     } finally {
       setFullSafeRunRunning(false)
     }
   }
-  const renderFullSafeReduction = () => (
-    <section className="admin-section" data-testid="admin-full-safe-backlog-run">
-      <h3 className="admin-section-title">Полный безопасный прогон</h3>
-      <div className="admin-help-panel">
-        <div>Последовательно запускает только безопасные queue-actions без direct-mutation действий.</div>
-        <button className="admin-btn admin-btn-primary" type="button" disabled={fullSafeRunRunning} onClick={() => void runFullSafeReduction()}>
-          {fullSafeRunRunning ? 'Запускаем полный прогон…' : 'Запустить полный безопасный прогон'}
-        </button>
-      </div>
-      {fullSafeRunError && <div className="admin-state admin-state-error">{fullSafeRunError}</div>}
-      {fullSafeRunResult && (
-        <div data-testid="full-safe-backlog-run-result">
-          <div className="admin-action-grid">
-            <div className="admin-action-card">
-              <div className="admin-action-count">{fullSafeRunResult.totalCandidates}</div>
-              <div className="admin-action-title">Всего кандидатов</div>
-            </div>
-            <div className="admin-action-card">
-              <div className="admin-action-count">{fullSafeRunResult.totalQueued}</div>
-              <div className="admin-action-title">Всего поставлено в очередь</div>
-            </div>
-            <div className="admin-action-card">
-              <div className="admin-action-count">{fullSafeRunResult.totalSkipped}</div>
-              <div className="admin-action-title">Всего пропущено</div>
-            </div>
-            <div className="admin-action-card">
-              <div className="admin-action-count">{fullSafeRunResult.totalFailed}</div>
-              <div className="admin-action-title">Всего ошибок</div>
-            </div>
-          </div>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead><tr><th>action_code</th><th>candidates</th><th>queued</th><th>skipped</th><th>failed</th></tr></thead>
-              <tbody>
-                {fullSafeRunResult.rows.map((row) => (
-                  <tr key={row.action_code} data-testid={`full-safe-run-${row.action_code}`}>
-                    <td><strong>{row.action_code}</strong><br /><span>{row.status}</span>{row.message && <><br /><span>{row.message}</span></>}</td>
-                    <td>{row.candidates}</td>
-                    <td>{row.queued}</td>
-                    <td>{row.skipped}</td>
-                    <td>{row.failed}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+  const renderFullSafeReduction = () => {
+    const run = fullSafeRun
+    const canStop = Boolean(run?.job_id && run.is_running)
+    const canStart = !fullSafeRunRunning && !(run?.is_running && !run.is_stale)
+    return (
+      <section className="admin-section" data-testid="admin-full-safe-backlog-run">
+        <h3 className="admin-section-title">Полный безопасный прогон</h3>
+        <div className="admin-help-panel">
+          <div>Последовательно запускает безопасное пополнение очередей: фото, адреса, описания и перепроверку данных.</div>
+          <div className="admin-filter-card">
+            <button className="admin-btn admin-btn-primary" type="button" disabled={!canStart} onClick={() => void runFullSafeReduction()}>
+              {fullSafeRunRunning ? 'Запускаем полный прогон…' : 'Запустить полный безопасный прогон'}
+            </button>
+            <button className="admin-btn admin-btn-secondary" type="button" disabled={fullSafeRunRefreshing} onClick={() => void refreshFullSafeRun()}>
+              {fullSafeRunRefreshing ? 'Обновляем…' : 'Обновить статус'}
+            </button>
+            <button className="admin-btn admin-btn-secondary" type="button" disabled={!canStop || fullSafeRunStopping} onClick={() => void stopFullSafeRun()}>
+              {fullSafeRunStopping ? 'Останавливаем…' : 'Остановить процесс'}
+            </button>
           </div>
         </div>
-      )}
-    </section>
-  )
+        {fullSafeRunError && <div className="admin-state admin-state-error">{fullSafeRunError}</div>}
+        {run ? (
+          <div data-testid="full-safe-backlog-run-result">
+            {(run.runtime_status === 'stuck' || run.is_stale) && <div className="admin-state admin-state-error">Нет прогресса больше 10 минут</div>}
+            <div className="admin-help-panel" data-testid="full-safe-run-job">
+              <strong>Процесс #{run.job_id}</strong>
+              <div>Статус: {statusTitle(run.status)} / {statusTitle(run.runtime_status)}</div>
+              <div>Начат: {formatDate(run.started_at)}. Последний прогресс: {formatDate(run.last_heartbeat_at)}.</div>
+              <div>Кандидатов: {run.affected_count}. Изменено: {run.changed_count}. Поставлено: {run.queued_count}. Пропущено: {run.skipped_count}. Ошибок: {run.failed_count}. Осталось: {run.remaining_count}.</div>
+            </div>
+            <div className="admin-action-grid">
+              <div className="admin-action-card">
+                <div className="admin-action-count">{run.affected_count}</div>
+                <div className="admin-action-title">Всего кандидатов</div>
+              </div>
+              <div className="admin-action-card">
+                <div className="admin-action-count">{run.queued_count}</div>
+                <div className="admin-action-title">Всего поставлено в очередь</div>
+              </div>
+              <div className="admin-action-card">
+                <div className="admin-action-count">{run.skipped_count}</div>
+                <div className="admin-action-title">Всего пропущено</div>
+              </div>
+              <div className="admin-action-card">
+                <div className="admin-action-count">{run.failed_count}</div>
+                <div className="admin-action-title">Всего ошибок</div>
+              </div>
+              <div className="admin-action-card">
+                <div className="admin-action-count">{run.remaining_count}</div>
+                <div className="admin-action-title">Осталось шагов</div>
+              </div>
+            </div>
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead><tr><th>Действие</th><th>Статус</th><th>Кандидаты</th><th>Поставлено</th><th>Пропущено</th><th>Ошибки</th></tr></thead>
+                <tbody>
+                  {run.actions.map((step) => (
+                    <tr key={step.action_code} data-testid={`full-safe-run-${step.action_code}`}>
+                      <td><strong>{actionTitle(step.action_code, step.title)}</strong></td>
+                      <td>{statusTitle(step.status)}</td>
+                      <td>{step.affected_count}</td>
+                      <td>{step.queued_count}</td>
+                      <td>{step.skipped_count}</td>
+                      <td>{step.failed_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="admin-help-panel" data-testid="full-safe-backlog-run-empty">Полных прогонов пока не было.</div>
+        )}
+      </section>
+    )
+  }
   const selected = plan?.actions.find((action) => action.code === selectedAction)
   const runReduction = async (mode: 'dry-run' | 'apply') => {
     if (!selected) return
