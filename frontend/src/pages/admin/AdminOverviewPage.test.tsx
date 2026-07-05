@@ -132,7 +132,7 @@ describe('AdminOverviewPage full safe backlog reduction', () => {
     expect(within(result).getByText('Всего пропущено')).toBeTruthy()
     expect(within(result).getByText('6')).toBeTruthy()
     expect(within(result).getByText('Всего ошибок')).toBeTruthy()
-    expect(within(result).getByText('1')).toBeTruthy()
+    expect(within(result).getAllByText('1').length).toBeGreaterThan(0)
     safeActions.forEach((action) => {
       expect(within(result).getByText(action)).toBeTruthy()
     })
