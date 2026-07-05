@@ -151,7 +151,6 @@ type FullSafeRun = {
   stop_requested: boolean
   actions: FullSafeRunStep[]
 }
-type FullSafeReductionAction = typeof FULL_SAFE_REDUCTION_ACTIONS[number]
 
 const FULL_SAFE_REDUCTION_ACTIONS = [
   'enqueue_photo_discovery',
@@ -447,7 +446,7 @@ export const AdminOverviewPage = () => {
             {last.message && <div>{last.message}</div>}
           </div>
         ) : (
-          <div className="admin-help-panel" data-testid="backlog-reduction-no-result">Запусков backlog reduction ещё не было.</div>
+          <div className="admin-help-panel" data-testid="backlog-reduction-no-result">Запусков снижения очередей ещё не было.</div>
         )}
         <div className="admin-table-wrap">
           <table className="admin-table">
