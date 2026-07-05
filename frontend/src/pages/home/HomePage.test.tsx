@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HomePage } from './HomePage'
@@ -86,5 +86,32 @@ describe('HomePage', () => {
     await waitFor(() => {
       expect(screen.getByText('Не удалось загрузить места')).toBeInTheDocument()
     })
+  })
+
+  it('does not crash when typing letters into hero search', async () => {
+    mockedGetPlacesByCityResponse.mockResolvedValue({
+      total: 2,
+      limit: 20,
+      offset: 0,
+      items: [
+        { id: 1, slug: 'mesto-1', title: 'Кофейня у моря', short_description: 'Вкусный кофе', category: 'cafe', address: 'ул. 1' },
+        { id: 2, slug: 'mesto-2', title: 'Музей янтаря', short_description: null, category: 'museum', address: 'ул. 2' },
+      ],
+    })
+
+    render(
+      <MemoryRouter>
+        <HomePage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(screen.getByText('Кофейня у моря')).toBeInTheDocument())
+
+    const input = screen.getByPlaceholderText(/Кафе, музей/i)
+    fireEvent.change(input, { target: { value: 'м' } })
+    fireEvent.change(input, { target: { value: 'муз' } })
+
+    expect(screen.getByRole('heading', { name: /Найди куда сходить/ })).toBeInTheDocument()
+    expect(screen.getByText('Музей янтаря')).toBeInTheDocument()
   })
 })

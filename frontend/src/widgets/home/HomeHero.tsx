@@ -1,5 +1,7 @@
 import { Map, Route, Search, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { cityCatalogPath, cityRouteBuildPath } from '../../features/city-routing/cityPaths'
+import { getCurrentCity } from '../../shared/city/currentCity'
 import { LocationCarousel } from './LocationCarousel'
 
 type HomeHeroProps = {
@@ -9,6 +11,7 @@ type HomeHeroProps = {
 }
 
 export const HomeHero = ({ search, cityName = 'выбранном городе', onSearchChange }: HomeHeroProps) => {
+  const citySlug = getCurrentCity().slug
   return (
     <section className="hero-section">
       <div className="hero-copy">
@@ -35,11 +38,11 @@ export const HomeHero = ({ search, cityName = 'выбранном городе',
         </label>
 
         <div className="hero-actions">
-          <Link className="hero-cta-link" to="/routes/generate">
+          <Link className="hero-cta-link" to={cityRouteBuildPath(citySlug)}>
             <Route size={17} />
             Собрать маршрут
           </Link>
-          <Link className="hero-cta-link secondary" to="/places">
+          <Link className="hero-cta-link secondary" to={cityCatalogPath(citySlug)}>
             <Map size={17} />
             Смотреть места
           </Link>
@@ -54,7 +57,7 @@ export const HomeHero = ({ search, cityName = 'выбранном городе',
           <li>Интересное место рядом</li>
           <li>Финальная точка маршрута</li>
         </ol>
-        <Link className="preview-link" to="/routes/generate">Настроить маршрут</Link>
+        <Link className="preview-link" to={cityRouteBuildPath(citySlug)}>Настроить маршрут</Link>
       </div>
       <LocationCarousel />
     </section>

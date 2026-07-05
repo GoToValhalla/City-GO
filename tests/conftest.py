@@ -35,9 +35,11 @@ import models.route_generation_run  # noqa: F401
 import models.route_generation_candidate  # noqa: F401
 import models.category  # noqa: F401
 import models.city  # noqa: F401
+import models.city_admin_import_job  # noqa: F401
 import models.city_start_point  # noqa: F401
 import models.city_import_scope  # noqa: F401
 import models.data_quality  # noqa: F401
+import models.data_foundation  # noqa: F401
 import models.import_batch  # noqa: F401
 import models.import_job_step  # noqa: F401
 import models.place_scope_link  # noqa: F401

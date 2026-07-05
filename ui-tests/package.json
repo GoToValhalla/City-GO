@@ -1,15 +1,12 @@
 {
   "name": "ui-tests",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "PLAYWRIGHT_HTML_OPEN=never playwright test",
+    "test:ui": "PLAYWRIGHT_HTML_OPEN=never playwright test --ui",
+    "install:browsers": "playwright install chromium"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "devDependencies": {
     "@playwright/test": "^1.59.1"
   }

@@ -1,28 +1,51 @@
 :root {
-  --admin-bg: #f4f5f8;
-  --admin-panel: #ffffff;
-  --admin-panel-muted: #f8f9fc;
-  --admin-border: #e1e4ea;
-  --admin-text: #20232b;
-  --admin-muted: #697083;
-  --admin-primary: #6d4aff;
-  --admin-primary-hover: #5b38ea;
-  --admin-danger: #dc3f4f;
-  --admin-success: #249653;
-  --admin-warning: #b76a00;
-  --admin-radius: 10px;
-  --admin-shadow: 0 2px 10px rgba(25, 30, 45, .06);
+  --admin-bg: #F1F3F5;
+  --admin-panel: #FFFFFF;
+  --admin-panel-muted: #E9ECEF;
+  --admin-border: #CED4DA;
+  --admin-text: #212529;
+  --admin-muted: #868E96;
+  --admin-primary: #0B7285;
+  --admin-primary-hover: #0C8599;
+  --admin-danger: #C92A2A;
+  --admin-success: #0C8599;
+  --admin-warning: #F08C00;
+  --admin-radius: 4px;
+  --admin-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --bg-admin-main: #F1F3F5;
+  --bg-admin-surface: #FFFFFF;
+  --bg-admin-sidebar: #1A1D20;
+  --border-admin-layout: #CED4DA;
+  --text-admin-primary: #212529;
+  --text-admin-secondary: #495057;
+  --text-admin-muted: #868E96;
+  --action-safe-bg: #0B7285;
+  --action-safe-hover: #0C8599;
+  --action-destructive-bg: #C92A2A;
+  --read-only-indicator: #E9ECEF;
+  --status-admin-success-bg: #E6FCF5;
+  --status-admin-success-text: #0C8599;
+  --status-admin-warning-bg: #FFF9DB;
+  --status-admin-warning-text: #F08C00;
+  --status-admin-error-bg: #FFE3E3;
+  --status-admin-error-text: #C92A2A;
+  --spacing-admin-xs: 4px;
+  --spacing-admin-sm: 8px;
+  --spacing-admin-md: 16px;
+  --spacing-admin-lg: 24px;
+  --radius-admin-base: 4px;
+  --shadow-admin-flat: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 * { box-sizing: border-box; }
 .admin-shell { display: flex; height: 100vh; background: var(--admin-bg); color: var(--admin-text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-.admin-sidebar { width: 248px; flex: 0 0 248px; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 18px 0; color: #f7f7fa; background: #202127; }
+.admin-sidebar { width: 240px; flex: 0 0 240px; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 18px 0; color: #f7f7fa; background: var(--bg-admin-sidebar, #1A1D20); }
 .admin-sidebar-title { flex: 0 0 auto; padding: 0 20px 18px; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,.1); font-size: 17px; font-weight: 750; }
 .admin-nav { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0 24px; }
 .admin-nav-section { display: flex; flex-direction: column; }
 .admin-nav-section-title { padding: 14px 20px 5px; color: #9da1ae; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .admin-nav-link { display: block; min-height: 40px; padding: 10px 20px; color: #e2e3e8; text-decoration: none; border-left: 3px solid transparent; }
 .admin-nav-link:hover { color: #fff; background: rgba(255,255,255,.07); }
-.admin-nav-link.active { color: #fff; background: rgba(109,74,255,.2); border-left-color: #8b6cff; font-weight: 650; }
+.admin-nav-link.active { color: #fff; background: rgba(11, 114, 133, 0.22); border-left-color: #0C8599; font-weight: 650; }
 .admin-main { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .admin-topbar { position: relative; z-index: 20; min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 24px; background: var(--admin-panel); border-bottom: 1px solid var(--admin-border); }
 .admin-topbar-label { font-size: 16px; font-weight: 700; }

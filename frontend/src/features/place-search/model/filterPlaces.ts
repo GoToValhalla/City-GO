@@ -11,11 +11,12 @@ export const filterPlaces = (places: Place[], search: string): Place[] => {
   }
 
   return places.filter((place) => {
+    const category = place.category ?? ''
     return [
       place.title,
       place.name,
-      place.category,
-      categoryLabel(place.category),
+      category,
+      categoryLabel(category),
       place.address,
       place.short_description,
       place.description,

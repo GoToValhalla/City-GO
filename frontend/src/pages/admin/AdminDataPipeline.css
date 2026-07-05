@@ -1,0 +1,33 @@
+.admin-data-pipeline .admin-readonly-zone {
+  padding: var(--spacing-admin-md, 16px);
+  background: var(--read-only-indicator, #e9ecef);
+  border: 1px solid var(--border-admin-layout, #ced4da);
+  border-radius: var(--radius-admin-base, 4px);
+}
+
+.admin-btn-safe {
+  color: #fff;
+  background: var(--action-safe-bg, #0b7285);
+  border-color: var(--action-safe-bg, #0b7285);
+}
+
+.admin-btn-safe:hover:not(:disabled) {
+  background: var(--action-safe-hover, #0c8599);
+  border-color: var(--action-safe-hover, #0c8599);
+}
+
+.admin-state-warning {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  color: var(--status-admin-warning-text, #f08c00);
+  background: var(--status-admin-warning-bg, #fff9db);
+  border-radius: var(--radius-admin-base, 4px);
+}
+
+.admin-state-error {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  color: var(--status-admin-error-text, #c92a2a);
+  background: var(--status-admin-error-bg, #ffe3e3);
+  border-radius: var(--radius-admin-base, 4px);
+}

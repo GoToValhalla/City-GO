@@ -47,7 +47,8 @@ export const PlacesListPage = () => {
 
   const categoryOptions = useMemo<FilterChipOption[]>(() => {
     const counters = places.reduce<Record<string, number>>((acc, place) => {
-      acc[place.category] = (acc[place.category] ?? 0) + 1
+      const key = place.category ?? 'other'
+      acc[key] = (acc[key] ?? 0) + 1
       return acc
     }, {})
 
