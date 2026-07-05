@@ -4,6 +4,7 @@ from datetime import datetime
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -32,6 +33,16 @@ from schemas.admin_ops import (
 )
 from services.admin_coverage_metrics import build_coverage_summary
 from services.admin_backlog_breakdown_service import build_admin_backlog_breakdown
+from services.admin_backlog_full_run_state import (
+    complete_full_run,
+    create_full_run,
+    latest_full_run,
+    mark_step_running,
+    mark_stop_requested,
+    read_full_run,
+    record_step_error,
+    record_step_result,
+)
 from services.admin_backlog_reduction_report_service import build_backlog_reduction_report
 from services.admin_backlog_reduction_service import apply as apply_backlog_reduction
 from services.admin_backlog_reduction_service import build_reduction_plan, dry_run as dry_run_backlog_reduction, get_job_result
@@ -44,6 +55,22 @@ from services.verification_queue_summary import verification_queue_summary
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin-ops"])
 ADMIN_READ_STATEMENT_TIMEOUT_MS = 3000
+
+
+class FullRunStepResult(BaseModel):
+    status: str = "completed"
+    affected_count: int = 0
+    changed_count: int = 0
+    queued_count: int = 0
+    skipped_count: int = 0
+    failed_count: int = 0
+    message: str | None = None
+    job_id: int | None = None
+    audit_id: int | None = None
+
+
+class FullRunStepError(BaseModel):
+    message: str
 
 
 @router.get("/overview", response_model=AdminOverviewResponse)
@@ -84,6 +111,64 @@ def read_admin_overview_backlog_reduction_plan(auth: AdminContext = Depends(admi
 def read_admin_overview_backlog_reduction_report(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
     _apply_admin_read_timeout(db)
     return build_backlog_reduction_report(db)
+
+
+@router.post("/overview/backlog-reduction/full-safe-run")
+def create_admin_backlog_full_run(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    return create_full_run(db, actor=auth.actor_id)
+
+
+@router.get("/overview/backlog-reduction/full-safe-run/latest")
+def read_latest_admin_backlog_full_run(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object] | None:
+    return latest_full_run(db)
+
+
+@router.get("/overview/backlog-reduction/full-safe-run/{job_id}")
+def read_admin_backlog_full_run(job_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    payload = read_full_run(db, job_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Полный прогон не найден.")
+    return payload
+
+
+@router.post("/overview/backlog-reduction/full-safe-run/{job_id}/stop")
+def stop_admin_backlog_full_run(job_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    payload = mark_stop_requested(db, job_id, actor=auth.actor_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Полный прогон не найден.")
+    return payload
+
+
+@router.post("/overview/backlog-reduction/full-safe-run/{job_id}/steps/{action_code}/running")
+def mark_admin_backlog_full_run_step_running(job_id: int, action_code: str, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    payload = mark_step_running(db, job_id, action_code)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Полный прогон не найден.")
+    return payload
+
+
+@router.post("/overview/backlog-reduction/full-safe-run/{job_id}/steps/{action_code}/result")
+def record_admin_backlog_full_run_step_result(job_id: int, action_code: str, payload: FullRunStepResult, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    result = record_step_result(db, job_id, action_code, payload.model_dump())
+    if result is None:
+        raise HTTPException(status_code=404, detail="Полный прогон не найден.")
+    return result
+
+
+@router.post("/overview/backlog-reduction/full-safe-run/{job_id}/steps/{action_code}/error")
+def record_admin_backlog_full_run_step_error(job_id: int, action_code: str, payload: FullRunStepError, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    result = record_step_error(db, job_id, action_code, payload.message)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Полный прогон не найден.")
+    return result
+
+
+@router.post("/overview/backlog-reduction/full-safe-run/{job_id}/complete")
+def complete_admin_backlog_full_run(job_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    result = complete_full_run(db, job_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Полный прогон не найден.")
+    return result
 
 
 @router.post("/overview/backlog-reduction/dry-run", response_model=BacklogReductionResult)
