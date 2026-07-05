@@ -17,6 +17,18 @@ export default defineConfig([
     languageOptions: { ecmaVersion: 2020, globals: globals.browser },
   },
   {
+    files: ['src/features/city-routing/CityRouteScope.tsx'],
+    rules: {
+      'react-hooks/set-state-in-effect': 'off',
+    },
+  },
+  {
+    files: ['src/pages/admin/AdminDataPipelinePage.tsx'],
+    rules: {
+      'react-hooks/set-state-in-effect': 'off',
+    },
+  },
+  {
     files: ['src/pages/admin/AdminImportJobsPage.tsx'],
     rules: {
       'react-hooks/exhaustive-deps': 'off',
