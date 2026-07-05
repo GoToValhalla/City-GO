@@ -136,12 +136,25 @@ export const AdminOverviewPage = () => {
   const [detailsError, setDetailsError] = useState<string | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
 
+  const loadReport = async (cancelledRef?: { cancelled: boolean }) => {
+    try {
+      const value = await adminGet<ReductionReport>('/admin/overview/backlog-reduction/report', { timeoutMs: 8_000 })
+      if (cancelledRef?.cancelled) return
+      setReport(value)
+    } catch (e) {
+      if (cancelledRef?.cancelled) return
+      setDetailsError((current) => [current, errorMessage(e)].filter(Boolean).join('\n'))
+    }
+  }
+
   const loadDetails = async (cancelledRef?: { cancelled: boolean }) => {
     setDetailsLoading(true)
-    const [backlogResult, planResult, reportResult] = await Promise.allSettled([
-      adminGet<BacklogBreakdown>('/admin/overview/backlog-breakdown', { timeoutMs: 20_000 }),
-      adminGet<ReductionPlan>('/admin/overview/backlog-reduction-plan', { timeoutMs: 20_000 }),
-      adminGet<ReductionReport>('/admin/overview/backlog-reduction/report', { timeoutMs: 20_000 }),
+    setDetailsError(null)
+    void loadReport(cancelledRef)
+
+    const [backlogResult, planResult] = await Promise.allSettled([
+      adminGet<BacklogBreakdown>('/admin/overview/backlog-breakdown', { timeoutMs: 8_000 }),
+      adminGet<ReductionPlan>('/admin/overview/backlog-reduction-plan', { timeoutMs: 8_000 }),
     ])
     if (cancelledRef?.cancelled) return
 
@@ -161,11 +174,6 @@ export const AdminOverviewPage = () => {
       setSelectedAction(safePlan.actions.find((action) => action.enabled)?.code ?? '')
     } else {
       detailErrors.push(errorMessage(planResult.reason))
-    }
-    if (reportResult.status === 'fulfilled') {
-      setReport(reportResult.value)
-    } else {
-      detailErrors.push(errorMessage(reportResult.reason))
     }
     setDetailsError(detailErrors.length ? detailErrors.join('\n') : null)
     setDetailsLoading(false)
@@ -362,7 +370,7 @@ export const AdminOverviewPage = () => {
       }
       const path = mode === 'apply' ? '/admin/overview/backlog-reduction/apply' : '/admin/overview/backlog-reduction/dry-run'
       setReductionResult(await adminPost<ReductionResult>(path, body))
-      await loadDetails()
+      void loadReport()
     } catch (e) {
       setReductionError(e instanceof Error ? e.message : 'Не удалось выполнить действие')
     } finally {
@@ -431,10 +439,10 @@ export const AdminOverviewPage = () => {
       <p className="admin-page-subtitle">Что сейчас требует внимания. Карточки разделяют автоочередь, ручную проверку и блокеры маршрутов.</p>
       {renderSection('Критические задачи', data.critical)}
       {renderSection('Качество данных', data.data_quality)}
-      {detailsLoading && <AdminLoading message="Загружаем разбор очередей…" />}
+      {renderReport()}
+      {detailsLoading && <AdminLoading message="Загружаем детали очередей…" />}
       {detailsError && <AdminSectionError title="Часть данных обзора не загрузилась" message={detailsError} />}
       {renderBacklog()}
-      {renderReport()}
       {renderReduction()}
       {renderSection('Операции', data.operations)}
       <Link className="admin-btn admin-btn-sm" to="/admin/audit">Событий в журнале аудита: {data.recent_audit_count} →</Link>
