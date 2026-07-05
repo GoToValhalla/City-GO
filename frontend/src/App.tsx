@@ -46,6 +46,7 @@ import { AdminSystemLogsPage } from './pages/admin/AdminSystemLogsPage'
 import { AdminRouteEligibilityPage } from './pages/admin/AdminRouteEligibilityPage'
 import { AdminRouteDryRunPage } from './pages/admin/AdminRouteDryRunPage'
 import { AdminRouteDataQualityPage } from './pages/admin/AdminRouteDataQualityPage'
+import { AdminRouteHealthPage } from './pages/admin/AdminRouteHealthPage'
 import { AdminAnalyticsPage } from './pages/admin/AdminAnalyticsPage'
 import { AdminQualityPage } from './pages/admin/AdminQualityPage'
 import { AdminSystemHealthPage } from './pages/admin/AdminSystemHealthPage'
@@ -95,6 +96,7 @@ function App() {
     <Route path="/admin/routes/eligibility" element={<AdminPage><AdminRouteEligibilityPage /></AdminPage>} />
     <Route path="/admin/routes/dry-run" element={<AdminPage><AdminRouteDryRunPage /></AdminPage>} />
     <Route path="/admin/routes/data-quality" element={<AdminPage><AdminRouteDataQualityPage /></AdminPage>} />
+    <Route path="/admin/route-health" element={<AdminPage><AdminRouteHealthPage /></AdminPage>} />
     <Route path="/admin/enrichment" element={<AdminPage><AdminPlaceEnrichmentPage /></AdminPage>} />
     <Route path="/admin/place-enrichment" element={<Navigate to="/admin/enrichment" replace />} />
     <Route path="/admin/features" element={<AdminPage><AdminFeatureTogglesPage /></AdminPage>} />
