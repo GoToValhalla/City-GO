@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './styles/responsive.css'
 import './styles/home.css'
@@ -11,7 +12,6 @@ import './styles/place-ui-skeleton.css'
 import './styles/place-map.css'
 import './styles/telegram-mini-app.css'
 import './styles/place-refinements.css'
-import './styles/mobile-safari.css'
 import { HomePage } from './pages/home/HomePage'
 import { NearbyPage } from './pages/nearby/NearbyPage'
 import { OpenNowPage } from './pages/open-now/OpenNowPage'
@@ -54,8 +54,8 @@ import { AdminDataPipelinePage } from './pages/admin/AdminDataPipelinePage'
 import { CityRouteScope } from './features/city-routing/CityRouteScope'
 import { LegacyCityRedirect } from './features/city-routing/LegacyCityRedirect'
 
-function AdminPage({ children }: { children: React.ReactNode }) { return <AdminRouteGuard><AdminLayout>{children}</AdminLayout></AdminRouteGuard> }
-function CityPage({ children }: { children: React.ReactNode }) { return <CityRouteScope>{children}</CityRouteScope> }
+function AdminPage({ children }: { children: ReactNode }) { return <AdminRouteGuard><AdminLayout>{children}</AdminLayout></AdminRouteGuard> }
+function CityPage({ children }: { children: ReactNode }) { return <CityRouteScope>{children}</CityRouteScope> }
 
 function App() {
   return <BrowserRouter><Routes>
