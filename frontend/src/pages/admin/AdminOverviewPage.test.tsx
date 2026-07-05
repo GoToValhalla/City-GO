@@ -133,6 +133,7 @@ describe('AdminOverviewPage backend-owned full safe backlog run', () => {
 
     renderOverview()
 
+    await screen.findByText('Процесс #99')
     const section = await screen.findByTestId('admin-full-safe-backlog-run')
     fireEvent.click(await within(section).findByRole('button', { name: 'Остановить процесс' }))
 
