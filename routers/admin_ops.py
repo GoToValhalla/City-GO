@@ -32,6 +32,7 @@ from schemas.admin_ops import (
 )
 from services.admin_coverage_metrics import build_coverage_summary
 from services.admin_backlog_breakdown_service import build_admin_backlog_breakdown
+from services.admin_backlog_reduction_report_service import build_backlog_reduction_report
 from services.admin_backlog_reduction_service import apply as apply_backlog_reduction
 from services.admin_backlog_reduction_service import build_reduction_plan, dry_run as dry_run_backlog_reduction, get_job_result
 from services.admin_metrics_service import build_metrics_summary
@@ -77,6 +78,12 @@ def read_admin_overview_backlog_breakdown(auth: AdminContext = Depends(admin_req
 def read_admin_overview_backlog_reduction_plan(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> BacklogReductionPlan:
     _apply_admin_read_timeout(db)
     return BacklogReductionPlan(**build_reduction_plan(db))
+
+
+@router.get("/overview/backlog-reduction/report")
+def read_admin_overview_backlog_reduction_report(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    _apply_admin_read_timeout(db)
+    return build_backlog_reduction_report(db)
 
 
 @router.post("/overview/backlog-reduction/dry-run", response_model=BacklogReductionResult)
@@ -258,12 +265,14 @@ def _degraded_metrics() -> AdminMetricsSummary:
         route_success_rate=None,
         places_total=0,
         places_published=0,
-        places_no_photo=0,
-        places_no_address=0,
-        places_no_description=0,
-        imports_ok_week=0,
-        imports_fail_week=0,
-        enrichment_ok_week=0,
-        ai_requests_week=0,
-        data_collection_note="Admin metrics degraded: БД не ответила за быстрый лимит.",
+        places_unpublished=0,
+        published_with_photo_pct=0.0,
+        published_with_description_pct=0.0,
+        publication_ready_count=0,
+        import_jobs_running=0,
+        import_jobs_failed=0,
+        enrichment_pending=0,
+        enrichment_running=0,
+        enrichment_failed=0,
+        generated_at=datetime.utcnow(),
     )
