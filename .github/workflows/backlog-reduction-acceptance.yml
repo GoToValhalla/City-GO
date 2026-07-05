@@ -1,0 +1,376 @@
+name: 05 · CITY GO · Backlog Reduction Acceptance
+
+"on":
+  workflow_dispatch:
+    inputs:
+      action_code:
+        description: Queue action to acceptance-test in production
+        required: true
+        type: choice
+        default: enqueue_photo_discovery
+        options:
+          - enqueue_photo_discovery
+          - enqueue_address_recovery
+          - enqueue_description_enrichment
+          - auto_recheck_verification_backlog
+
+permissions:
+  contents: read
+
+jobs:
+  backlog-reduction-acceptance:
+    name: Backlog Reduction Acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ACTION_CODE: ${{ github.event.inputs.action_code }}
+      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+      REPORT_DIR: /tmp/backlog-reduction-acceptance
+    steps:
+      - name: Run production acceptance check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import datetime as _dt
+          import json
+          import os
+          import sys
+          import traceback
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          REPORT_DIR = Path(os.environ.get("REPORT_DIR", "/tmp/backlog-reduction-acceptance"))
+          REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+          ALLOWED_ACTIONS = {
+              "enqueue_photo_discovery",
+              "enqueue_address_recovery",
+              "enqueue_description_enrichment",
+              "auto_recheck_verification_backlog",
+          }
+          FORBIDDEN_ACTIONS = {
+              "exclude_service_places_from_routes",
+              "recompute_route_eligibility",
+              "classify_unknown_categories_deterministic",
+              "normalize_manual_review_backlog",
+              "recompute_low_confidence",
+          }
+
+          result = {
+              "workflow": "05 · CITY GO · Backlog Reduction Acceptance",
+              "status": "failed",
+              "started_at": _dt.datetime.now(_dt.UTC).isoformat(),
+              "action_code": os.environ.get("ACTION_CODE", ""),
+              "limit": 1,
+              "checks": [],
+          }
+          summary_lines = []
+
+          class AcceptanceError(Exception):
+              pass
+
+          def add_check(name, status, **details):
+              item = {"name": name, "status": status}
+              item.update(details)
+              result["checks"].append(item)
+
+          def write_json(filename, payload):
+              path = REPORT_DIR / filename
+              with path.open("w", encoding="utf-8") as f:
+                  json.dump(payload, f, ensure_ascii=False, indent=2, sort_keys=True)
+                  f.write("\n")
+
+          def fail(message):
+              result["error"] = message
+              raise AcceptanceError(message)
+
+          def as_int(payload, key):
+              value = payload.get(key, 0)
+              if value is None:
+                  return 0
+              try:
+                  return int(value)
+              except (TypeError, ValueError):
+                  fail(f"Response field {key} is not an integer: {value!r}")
+
+          def request_json(method, path, *, body=None, filename):
+              url = f"{base_url}{path}"
+              encoded_body = None
+              headers = {
+                  "Accept": "application/json",
+                  "Authorization": f"Bearer {admin_api_token}",
+                  "User-Agent": "city-go-backlog-acceptance/1.0",
+              }
+              if body is not None:
+                  encoded_body = json.dumps(body, ensure_ascii=False).encode("utf-8")
+                  headers["Content-Type"] = "application/json"
+
+              request = urllib.request.Request(url, data=encoded_body, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      raw = response.read().decode("utf-8")
+                      status_code = response.status
+              except urllib.error.HTTPError as exc:
+                  raw = exc.read().decode("utf-8", errors="replace")
+                  status_code = exc.code
+              except urllib.error.URLError as exc:
+                  fail(f"Request failed: {method} {path}: {exc}")
+
+              try:
+                  payload = json.loads(raw) if raw.strip() else {}
+              except json.JSONDecodeError:
+                  payload = {"_raw": raw}
+
+              write_json(filename, payload)
+
+              if status_code < 200 or status_code >= 300:
+                  fail(f"HTTP {status_code}: {method} {path}")
+
+              return payload
+
+          def normalize_actions(plan_payload):
+              actions_payload = plan_payload.get("actions")
+              normalized = []
+
+              if isinstance(actions_payload, list):
+                  normalized = [item for item in actions_payload if isinstance(item, dict)]
+              elif isinstance(actions_payload, dict):
+                  for key, value in actions_payload.items():
+                      if isinstance(value, dict):
+                          item = dict(value)
+                          item.setdefault("action_code", key)
+                          item.setdefault("code", key)
+                          normalized.append(item)
+
+              return normalized
+
+          def action_code_of(action_payload):
+              return action_payload.get("action_code") or action_payload.get("code")
+
+          try:
+              action_code = os.environ.get("ACTION_CODE", "").strip()
+              result["action_code"] = action_code
+              if action_code in FORBIDDEN_ACTIONS:
+                  fail(f"Forbidden direct mutation action is not allowed: {action_code}")
+              if action_code not in ALLOWED_ACTIONS:
+                  fail(f"Action is not in the safe queue-action allowlist: {action_code}")
+              add_check("safe_action_allowlist", "passed")
+
+              admin_api_token = os.environ.get("ADMIN_API_TOKEN", "").strip()
+              if not admin_api_token:
+                  fail("ADMIN_API_TOKEN secret is empty")
+              add_check("admin_api_token_present", "passed")
+
+              base_url = os.environ.get("PRODUCTION_BASE_URL", "").strip().rstrip("/")
+              ssh_host = os.environ.get("SSH_HOST", "").strip().rstrip("/")
+              if not base_url:
+                  if not ssh_host:
+                      fail("PRODUCTION_BASE_URL is empty and SSH_HOST is empty")
+                  base_url = f"http://{ssh_host}"
+              result["base_url"] = base_url
+              add_check("base_url_resolved", "passed", base_url=base_url)
+
+              plan = request_json(
+                  "GET",
+                  "/api/admin/overview/backlog-reduction-plan",
+                  filename="plan.json",
+              )
+              actions = normalize_actions(plan)
+              selected = next((item for item in actions if action_code_of(item) == action_code), None)
+              if selected is None:
+                  fail(f"Selected action is absent in plan.actions: {action_code}")
+              if selected.get("enabled") is not True:
+                  disabled_reason = selected.get("disabled_reason") or selected.get("reason") or "not provided"
+                  fail(f"Selected action is disabled: {action_code}; disabled_reason={disabled_reason}")
+              add_check("plan_action_enabled", "passed", action_code=action_code)
+
+              dry_run_body = {
+                  "action_code": action_code,
+                  "limit": 1,
+                  "include_samples": True,
+              }
+              result["dry_run_body"] = dry_run_body
+              dry_run = request_json(
+                  "POST",
+                  "/api/admin/overview/backlog-reduction/dry-run",
+                  body=dry_run_body,
+                  filename="dry-run.json",
+              )
+              dry_run_affected_count = as_int(dry_run, "affected_count")
+              dry_run_queued_count = as_int(dry_run, "queued_count")
+              result["dry_run"] = {
+                  "affected_count": dry_run_affected_count,
+                  "queued_count": dry_run_queued_count,
+              }
+              if dry_run_affected_count == 0 and dry_run_queued_count == 0:
+                  fail("No candidates for selected action. Try another queue action.")
+              add_check(
+                  "dry_run_has_candidate",
+                  "passed",
+                  affected_count=dry_run_affected_count,
+                  queued_count=dry_run_queued_count,
+              )
+
+              apply_body = {
+                  "action_code": action_code,
+                  "confirmation_text": "APPLY",
+                  "limit": 1,
+                  "include_samples": True,
+              }
+              result["apply_body"] = apply_body
+              apply = request_json(
+                  "POST",
+                  "/api/admin/overview/backlog-reduction/apply",
+                  body=apply_body,
+                  filename="apply.json",
+              )
+              apply_job_id = apply.get("job_id")
+              if not apply_job_id:
+                  fail("apply.job_id is empty")
+              apply_action_code = apply.get("action_code")
+              if not apply_action_code:
+                  fail("apply.action_code is empty")
+
+              apply_failed_count = as_int(apply, "failed_count")
+              apply_queued_count = as_int(apply, "queued_count")
+              apply_skipped_count = as_int(apply, "skipped_count")
+              result["apply"] = {
+                  "job_id": apply_job_id,
+                  "action_code": apply_action_code,
+                  "failed_count": apply_failed_count,
+                  "queued_count": apply_queued_count,
+                  "skipped_count": apply_skipped_count,
+              }
+              if apply_failed_count != 0:
+                  fail(f"apply.failed_count must be 0, got {apply_failed_count}")
+              if apply_queued_count < 1 and apply_skipped_count < 1:
+                  fail(
+                      "apply must queue or skip at least one item: "
+                      f"queued_count={apply_queued_count}, skipped_count={apply_skipped_count}"
+                  )
+              add_check(
+                  "apply_result_valid",
+                  "passed",
+                  job_id=apply_job_id,
+                  queued_count=apply_queued_count,
+                  skipped_count=apply_skipped_count,
+              )
+
+              backlog_breakdown = request_json(
+                  "GET",
+                  "/api/admin/overview/backlog-breakdown",
+                  filename="backlog-breakdown.json",
+              )
+              last_reduction_result = backlog_breakdown.get("last_reduction_result")
+              if not isinstance(last_reduction_result, dict):
+                  fail("backlog-breakdown.last_reduction_result is missing or null")
+              last_job_id = last_reduction_result.get("job_id")
+              last_action_code = last_reduction_result.get("action_code")
+              if str(last_job_id) != str(apply_job_id):
+                  fail(
+                      "last_reduction_result.job_id does not match apply.job_id: "
+                      f"last={last_job_id!r}, apply={apply_job_id!r}"
+                  )
+              if last_action_code != apply_action_code:
+                  fail(
+                      "last_reduction_result.action_code does not match apply.action_code: "
+                      f"last={last_action_code!r}, apply={apply_action_code!r}"
+                  )
+              result["last_reduction_result"] = {
+                  "job_id": last_job_id,
+                  "action_code": last_action_code,
+              }
+              add_check(
+                  "last_reduction_result_matches_apply",
+                  "passed",
+                  job_id=last_job_id,
+                  action_code=last_action_code,
+              )
+
+              result["status"] = "passed"
+
+          except AcceptanceError:
+              pass
+          except Exception as exc:
+              result["error"] = f"Unexpected error: {exc}"
+              result["traceback"] = traceback.format_exc()
+          finally:
+              result["finished_at"] = _dt.datetime.now(_dt.UTC).isoformat()
+
+              summary_lines.extend([
+                  "# 05 · CITY GO · Backlog Reduction Acceptance",
+                  "",
+                  f"Status: {result['status'].upper()}",
+                  f"Action: {result.get('action_code') or '-'}",
+                  "Limit: 1",
+                  f"Base URL: {result.get('base_url') or '-'}",
+                  "",
+                  "## Checks",
+              ])
+              for check in result.get("checks", []):
+                  summary_lines.append(f"- {check['status'].upper()} — {check['name']}")
+              if result.get("dry_run"):
+                  dry = result["dry_run"]
+                  summary_lines.extend([
+                      "",
+                      "## Dry-run",
+                      f"affected_count: {dry['affected_count']}",
+                      f"queued_count: {dry['queued_count']}",
+                  ])
+              if result.get("apply"):
+                  apply_result = result["apply"]
+                  summary_lines.extend([
+                      "",
+                      "## Apply",
+                      f"job_id: {apply_result['job_id']}",
+                      f"action_code: {apply_result['action_code']}",
+                      f"queued_count: {apply_result['queued_count']}",
+                      f"skipped_count: {apply_result['skipped_count']}",
+                      f"failed_count: {apply_result['failed_count']}",
+                  ])
+              if result.get("last_reduction_result"):
+                  last = result["last_reduction_result"]
+                  summary_lines.extend([
+                      "",
+                      "## Backlog breakdown",
+                      f"last_reduction_result.job_id: {last['job_id']}",
+                      f"last_reduction_result.action_code: {last['action_code']}",
+                  ])
+              if result.get("error"):
+                  summary_lines.extend(["", f"Error: {result['error']}"])
+              summary_lines.extend([
+                  "",
+                  "## Artifact files",
+                  "- plan.json",
+                  "- dry-run.json",
+                  "- apply.json",
+                  "- backlog-breakdown.json",
+                  "- report.json",
+                  "- summary.txt",
+              ])
+
+              write_json("report.json", result)
+              summary_text = "\n".join(summary_lines) + "\n"
+              (REPORT_DIR / "summary.txt").write_text(summary_text, encoding="utf-8")
+              print(summary_text)
+
+              github_step_summary = os.environ.get("GITHUB_STEP_SUMMARY")
+              if github_step_summary:
+                  with open(github_step_summary, "a", encoding="utf-8") as f:
+                      f.write(summary_text)
+
+              if result["status"] != "passed":
+                  sys.exit(1)
+          PY
+
+      - name: Upload acceptance artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backlog-reduction-acceptance-report
+          path: /tmp/backlog-reduction-acceptance
+          if-no-files-found: error
