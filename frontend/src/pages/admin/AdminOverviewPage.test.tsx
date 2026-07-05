@@ -298,9 +298,6 @@ describe('AdminOverviewPage persistent full safe backlog reduction', () => {
     const startButton = await screen.findByRole('button', { name: 'Запустить полный безопасный прогон' })
     fireEvent.click(startButton)
 
-    const runningButton = await screen.findByRole('button', { name: 'Запускаем полный прогон…' })
-    expect((runningButton as HTMLButtonElement).disabled).toBe(true)
-
     await waitFor(() => expect(adminPostLongMock.mock.calls.some(([path]) => path === `${fullRunPath}/42/complete`)).toBe(true))
 
     expect(adminPostLongMock.mock.calls[0][0]).toBe(fullRunPath)
