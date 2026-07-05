@@ -20,12 +20,42 @@ const backlogResponse = {
   queues: [],
   overlaps: [],
 }
+const reductionPlanResponse = {
+  generated_at: '2026-07-04T00:00:00Z',
+  summary: {},
+  queues: [],
+  actions: [],
+}
+const reductionReportResponse = {
+  summary: {
+    runs_24h: 0,
+    runs_7d: 0,
+    queued_24h: 0,
+    queued_7d: 0,
+    skipped_24h: 0,
+    skipped_7d: 0,
+    failed_24h: 0,
+    failed_7d: 0,
+    tasks_created_24h: 0,
+    tasks_created_7d: 0,
+    active_tasks: 0,
+  },
+  last_result: null,
+  task_stats: [],
+  recent_runs: [],
+}
 
 describe('AdminOverviewPage CITYGO-171', () => {
   beforeEach(() => {
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
+      if (url.includes('/admin/overview/backlog-reduction/report')) {
+        return response(reductionReportResponse)
+      }
+      if (url.includes('/admin/overview/backlog-reduction-plan')) {
+        return response(reductionPlanResponse)
+      }
       if (url.includes('/admin/overview/backlog-breakdown')) {
         return response(backlogResponse)
       }
