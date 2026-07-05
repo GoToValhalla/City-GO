@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { adminGet, adminPost } from './adminApi'
+import { adminGet, adminPost, adminPostLong } from './adminApi'
 import { AdminError, AdminLoading, AdminSectionError } from './shared/AdminStates'
 
 type ActionCard = {
@@ -110,6 +110,32 @@ type ReductionReport = {
   task_stats: ReductionTaskStat[]
   recent_runs: ReductionRun[]
 }
+type FullSafeReductionAction = typeof FULL_SAFE_REDUCTION_ACTIONS[number]
+type FullSafeReductionRow = {
+  action_code: FullSafeReductionAction
+  candidates: number
+  queued: number
+  skipped: number
+  failed: number
+  status: string
+  message?: string
+}
+type FullSafeReductionResult = {
+  rows: FullSafeReductionRow[]
+  totalCandidates: number
+  totalQueued: number
+  totalSkipped: number
+  totalFailed: number
+}
+
+const FULL_SAFE_REDUCTION_ACTIONS = [
+  'enqueue_photo_discovery',
+  'enqueue_address_recovery',
+  'enqueue_description_enrichment',
+  'auto_recheck_verification_backlog',
+] as const
+const BACKLOG_REDUCTION_APPLY_PATH = '/admin/overview/backlog-reduction/apply'
+const FULL_SAFE_REDUCTION_LIMIT = 500
 
 const severityClass = (s: string) => `admin-severity admin-severity-${s}`
 const actionLabel = (card: ActionCard) => card.action_label || 'Открыть выборку'
@@ -119,6 +145,13 @@ const formatDate = (value?: string | null) => {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU')
 }
+const toFullSafeReductionResult = (rows: FullSafeReductionRow[]): FullSafeReductionResult => rows.reduce<FullSafeReductionResult>((acc, row) => ({
+  rows: acc.rows,
+  totalCandidates: acc.totalCandidates + row.candidates,
+  totalQueued: acc.totalQueued + row.queued,
+  totalSkipped: acc.totalSkipped + row.skipped,
+  totalFailed: acc.totalFailed + row.failed,
+}), { rows, totalCandidates: 0, totalQueued: 0, totalSkipped: 0, totalFailed: 0 })
 
 export const AdminOverviewPage = () => {
   const [data, setData] = useState<Overview | null>(null)
@@ -129,6 +162,9 @@ export const AdminOverviewPage = () => {
   const [limit, setLimit] = useState(100)
   const [confirmation, setConfirmation] = useState('')
   const [runningAction, setRunningAction] = useState<string | null>(null)
+  const [fullSafeRunRunning, setFullSafeRunRunning] = useState(false)
+  const [fullSafeRunResult, setFullSafeRunResult] = useState<FullSafeReductionResult | null>(null)
+  const [fullSafeRunError, setFullSafeRunError] = useState<string | null>(null)
   const [reductionResult, setReductionResult] = useState<ReductionResult | null>(null)
   const [reductionError, setReductionError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -190,6 +226,7 @@ export const AdminOverviewPage = () => {
       setBreakdown(null)
       setPlan(null)
       setReport(null)
+      setFullSafeRunError(null)
 
       try {
         const overview = await adminGet<Overview>('/admin/overview')
@@ -357,6 +394,101 @@ export const AdminOverviewPage = () => {
       </section>
     )
   }
+  const runFullSafeReduction = async () => {
+    setFullSafeRunRunning(true)
+    setFullSafeRunError(null)
+    setFullSafeRunResult(null)
+    const rows: FullSafeReductionRow[] = []
+
+    try {
+      for (const actionCode of FULL_SAFE_REDUCTION_ACTIONS) {
+        try {
+          const result = await adminPostLong<ReductionResult>(BACKLOG_REDUCTION_APPLY_PATH, {
+            action_code: actionCode,
+            confirmation_text: 'APPLY',
+            limit: FULL_SAFE_REDUCTION_LIMIT,
+            include_samples: true,
+          })
+          rows.push({
+            action_code: actionCode,
+            candidates: result.affected_count,
+            queued: result.queued_count,
+            skipped: result.skipped_count,
+            failed: result.failed_count,
+            status: result.status,
+            message: result.message,
+          })
+        } catch (e) {
+          rows.push({
+            action_code: actionCode,
+            candidates: 0,
+            queued: 0,
+            skipped: 0,
+            failed: 1,
+            status: 'failed',
+            message: errorMessage(e),
+          })
+        }
+      }
+
+      setFullSafeRunResult(toFullSafeReductionResult(rows))
+      await loadReport()
+    } catch (e) {
+      setFullSafeRunError(errorMessage(e))
+    } finally {
+      setFullSafeRunRunning(false)
+    }
+  }
+  const renderFullSafeReduction = () => (
+    <section className="admin-section" data-testid="admin-full-safe-backlog-run">
+      <h3 className="admin-section-title">Полный безопасный прогон</h3>
+      <div className="admin-help-panel">
+        <div>Последовательно запускает только безопасные queue-actions без direct-mutation действий.</div>
+        <button className="admin-btn admin-btn-primary" type="button" disabled={fullSafeRunRunning} onClick={() => void runFullSafeReduction()}>
+          {fullSafeRunRunning ? 'Запускаем полный прогон…' : 'Запустить полный безопасный прогон'}
+        </button>
+      </div>
+      {fullSafeRunError && <div className="admin-state admin-state-error">{fullSafeRunError}</div>}
+      {fullSafeRunResult && (
+        <div data-testid="full-safe-backlog-run-result">
+          <div className="admin-action-grid">
+            <div className="admin-action-card">
+              <div className="admin-action-count">{fullSafeRunResult.totalCandidates}</div>
+              <div className="admin-action-title">Всего кандидатов</div>
+            </div>
+            <div className="admin-action-card">
+              <div className="admin-action-count">{fullSafeRunResult.totalQueued}</div>
+              <div className="admin-action-title">Всего поставлено в очередь</div>
+            </div>
+            <div className="admin-action-card">
+              <div className="admin-action-count">{fullSafeRunResult.totalSkipped}</div>
+              <div className="admin-action-title">Всего пропущено</div>
+            </div>
+            <div className="admin-action-card">
+              <div className="admin-action-count">{fullSafeRunResult.totalFailed}</div>
+              <div className="admin-action-title">Всего ошибок</div>
+            </div>
+          </div>
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead><tr><th>action_code</th><th>candidates</th><th>queued</th><th>skipped</th><th>failed</th></tr></thead>
+              <tbody>
+                {fullSafeRunResult.rows.map((row) => (
+                  <tr key={row.action_code} data-testid={`full-safe-run-${row.action_code}`}>
+                    <td><strong>{row.action_code}</strong><br /><span>{row.status}</span>{row.message && <><br /><span>{row.message}</span></>}</td>
+                    <td>{row.candidates}</td>
+                    <td>{row.queued}</td>
+                    <td>{row.skipped}</td>
+                    <td>{row.failed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  )
   const selected = plan?.actions.find((action) => action.code === selectedAction)
   const runReduction = async (mode: 'dry-run' | 'apply') => {
     if (!selected) return
@@ -368,7 +500,7 @@ export const AdminOverviewPage = () => {
         limit: Math.min(limit, selected.max_batch_size),
         ...(mode === 'apply' ? { confirmation_text: confirmation } : {}),
       }
-      const path = mode === 'apply' ? '/admin/overview/backlog-reduction/apply' : '/admin/overview/backlog-reduction/dry-run'
+      const path = mode === 'apply' ? BACKLOG_REDUCTION_APPLY_PATH : '/admin/overview/backlog-reduction/dry-run'
       setReductionResult(await adminPost<ReductionResult>(path, body))
       void loadReport()
     } catch (e) {
@@ -416,9 +548,9 @@ export const AdminOverviewPage = () => {
         </div>
         <div className="admin-filter-card">
           <label className="admin-field">Лимит за запуск<input type="number" min={1} max={selected?.max_batch_size ?? 100} value={limit} onChange={(e) => setLimit(Number(e.target.value) || 1)} /></label>
-          <button className="admin-btn admin-btn-secondary" type="button" disabled={!selected || runningAction !== null} onClick={() => void runReduction('dry-run')}>{runningAction === 'dry-run' ? 'Проверяем...' : 'Пробный запуск'}</button>
+          <button className="admin-btn admin-btn-secondary" type="button" disabled={!selected || runningAction !== null || fullSafeRunRunning} onClick={() => void runReduction('dry-run')}>{runningAction === 'dry-run' ? 'Проверяем...' : 'Пробный запуск'}</button>
           <label className="admin-field">Подтверждение<input value={confirmation} onChange={(e) => setConfirmation(e.target.value)} placeholder="Введите APPLY" /></label>
-          <button className="admin-btn admin-btn-primary" type="button" disabled={!selected || !reductionResult?.dry_run || confirmation !== 'APPLY' || runningAction !== null} onClick={() => void runReduction('apply')}>{runningAction === 'apply' ? 'Применяем...' : 'Применить безопасно'}</button>
+          <button className="admin-btn admin-btn-primary" type="button" disabled={!selected || !reductionResult?.dry_run || confirmation !== 'APPLY' || runningAction !== null || fullSafeRunRunning} onClick={() => void runReduction('apply')}>{runningAction === 'apply' ? 'Применяем...' : 'Применить безопасно'}</button>
         </div>
         {reductionError && <div className="admin-state admin-state-error">{reductionError}</div>}
         {reductionResult && (
@@ -439,6 +571,7 @@ export const AdminOverviewPage = () => {
       <p className="admin-page-subtitle">Что сейчас требует внимания. Карточки разделяют автоочередь, ручную проверку и блокеры маршрутов.</p>
       {renderSection('Критические задачи', data.critical)}
       {renderSection('Качество данных', data.data_quality)}
+      {renderFullSafeReduction()}
       {renderReport()}
       {detailsLoading && <AdminLoading message="Загружаем детали очередей…" />}
       {detailsError && <AdminSectionError title="Часть данных обзора не загрузилась" message={detailsError} />}
