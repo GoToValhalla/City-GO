@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 import '@testing-library/jest-dom/vitest'
+import type { ReactNode } from 'react'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -9,7 +10,7 @@ vi.mock('./pages/home/HomePage', () => ({ HomePage: () => <div>Home</div> }))
 vi.mock('./pages/places/PlacesListPage', () => ({ PlacesListPage: () => <div>CatalogPage</div> }))
 vi.mock('./pages/routes/GenerateRoutePage', () => ({ GenerateRoutePage: () => <div>RouteBuildPage</div> }))
 vi.mock('./features/city-routing/CityRouteScope', () => ({
-  CityRouteScope: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  CityRouteScope: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 vi.mock('./shared/city/currentCity', async () => {
   const actual = await vi.importActual<typeof import('./shared/city/currentCity')>('./shared/city/currentCity')
