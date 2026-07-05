@@ -12,6 +12,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { path: '/admin/routes/eligibility', label: 'Маршруты: готовность мест', section: 'routes' },
   { path: '/admin/routes/dry-run', label: 'Маршруты: проверка сборки', section: 'routes' },
   { path: '/admin/routes/data-quality', label: 'Маршруты: качество данных', section: 'routes' },
+  { path: '/admin/route-health', label: 'Маршруты: диагностика', section: 'routes' },
   { path: '/admin/photos', label: 'Фото', section: 'moderation' },
   { path: '/admin/verification', label: 'Проверка мест', section: 'moderation' },
   { path: '/admin/place-changes', label: 'Изменения мест', section: 'moderation' },
