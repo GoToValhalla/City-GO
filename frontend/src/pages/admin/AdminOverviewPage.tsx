@@ -71,15 +71,60 @@ type ReductionResult = {
   queued_count: number
   message: string
 }
+type ReductionRun = {
+  job_id: number
+  status: string
+  action_code?: string | null
+  actor?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  limit?: number
+  affected_count: number
+  changed_count: number
+  queued_count: number
+  skipped_count: number
+  failed_count: number
+  message?: string | null
+}
+type ReductionTaskStat = {
+  task_type: string
+  total_count: number
+  active_count: number
+  statuses: Record<string, number>
+}
+type ReductionReport = {
+  summary: {
+    runs_24h: number
+    runs_7d: number
+    queued_24h: number
+    queued_7d: number
+    skipped_24h: number
+    skipped_7d: number
+    failed_24h: number
+    failed_7d: number
+    tasks_created_24h: number
+    tasks_created_7d: number
+    active_tasks: number
+  }
+  last_result: ReductionRun | null
+  task_stats: ReductionTaskStat[]
+  recent_runs: ReductionRun[]
+}
 
 const severityClass = (s: string) => `admin-severity admin-severity-${s}`
 const actionLabel = (card: ActionCard) => card.action_label || 'Открыть выборку'
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : 'Не удалось загрузить данные')
+const formatDate = (value?: string | null) => {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU')
+}
 
 export const AdminOverviewPage = () => {
   const [data, setData] = useState<Overview | null>(null)
   const [breakdown, setBreakdown] = useState<BacklogBreakdown | null>(null)
   const [plan, setPlan] = useState<ReductionPlan | null>(null)
+  const [report, setReport] = useState<ReductionReport | null>(null)
   const [selectedAction, setSelectedAction] = useState<string>('')
   const [limit, setLimit] = useState(100)
   const [confirmation, setConfirmation] = useState('')
@@ -91,8 +136,43 @@ export const AdminOverviewPage = () => {
   const [detailsError, setDetailsError] = useState<string | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
 
+  const loadDetails = async (cancelledRef?: { cancelled: boolean }) => {
+    setDetailsLoading(true)
+    const [backlogResult, planResult, reportResult] = await Promise.allSettled([
+      adminGet<BacklogBreakdown>('/admin/overview/backlog-breakdown', { timeoutMs: 20_000 }),
+      adminGet<ReductionPlan>('/admin/overview/backlog-reduction-plan', { timeoutMs: 20_000 }),
+      adminGet<ReductionReport>('/admin/overview/backlog-reduction/report', { timeoutMs: 20_000 }),
+    ])
+    if (cancelledRef?.cancelled) return
+
+    const detailErrors: string[] = []
+    if (backlogResult.status === 'fulfilled') {
+      setBreakdown(backlogResult.value)
+    } else {
+      detailErrors.push(errorMessage(backlogResult.reason))
+    }
+    if (planResult.status === 'fulfilled') {
+      const safePlan = {
+        ...planResult.value,
+        summary: planResult.value.summary ?? {},
+        actions: Array.isArray(planResult.value.actions) ? planResult.value.actions : [],
+      }
+      setPlan(safePlan)
+      setSelectedAction(safePlan.actions.find((action) => action.enabled)?.code ?? '')
+    } else {
+      detailErrors.push(errorMessage(planResult.reason))
+    }
+    if (reportResult.status === 'fulfilled') {
+      setReport(reportResult.value)
+    } else {
+      detailErrors.push(errorMessage(reportResult.reason))
+    }
+    setDetailsError(detailErrors.length ? detailErrors.join('\n') : null)
+    setDetailsLoading(false)
+  }
+
   useEffect(() => {
-    let cancelled = false
+    const cancelledRef = { cancelled: false }
 
     const load = async () => {
       setLoading(true)
@@ -101,51 +181,27 @@ export const AdminOverviewPage = () => {
       setDetailsLoading(false)
       setBreakdown(null)
       setPlan(null)
+      setReport(null)
 
       try {
         const overview = await adminGet<Overview>('/admin/overview')
-        if (cancelled) return
+        if (cancelledRef.cancelled) return
         setData(overview)
         setLoading(false)
       } catch (e) {
-        if (cancelled) return
+        if (cancelledRef.cancelled) return
         setError(errorMessage(e))
         setLoading(false)
         return
       }
 
-      if (cancelled) return
-      setDetailsLoading(true)
-      const [backlogResult, planResult] = await Promise.allSettled([
-        adminGet<BacklogBreakdown>('/admin/overview/backlog-breakdown', { timeoutMs: 20_000 }),
-        adminGet<ReductionPlan>('/admin/overview/backlog-reduction-plan', { timeoutMs: 20_000 }),
-      ])
-      if (cancelled) return
-
-      const detailErrors: string[] = []
-      if (backlogResult.status === 'fulfilled') {
-        setBreakdown(backlogResult.value)
-      } else {
-        detailErrors.push(errorMessage(backlogResult.reason))
-      }
-      if (planResult.status === 'fulfilled') {
-        const safePlan = {
-          ...planResult.value,
-          summary: planResult.value.summary ?? {},
-          actions: Array.isArray(planResult.value.actions) ? planResult.value.actions : [],
-        }
-        setPlan(safePlan)
-        setSelectedAction(safePlan.actions.find((action) => action.enabled)?.code ?? '')
-      } else {
-        detailErrors.push(errorMessage(planResult.reason))
-      }
-      setDetailsError(detailErrors.length ? detailErrors.join('\n') : null)
-      setDetailsLoading(false)
+      if (cancelledRef.cancelled) return
+      await loadDetails(cancelledRef)
     }
 
     void load()
     return () => {
-      cancelled = true
+      cancelledRef.cancelled = true
     }
   }, [])
 
@@ -221,6 +277,78 @@ export const AdminOverviewPage = () => {
       </section>
     )
   }
+  const renderReport = () => {
+    if (!report) return null
+    const last = report.last_result
+    return (
+      <section className="admin-section" data-testid="admin-backlog-reduction-report">
+        <h3 className="admin-section-title">Отчёт по снижению очередей</h3>
+        <div className="admin-action-grid">
+          <div className="admin-action-card">
+            <div className="admin-action-count">{report.summary.queued_24h}</div>
+            <div className="admin-action-title">Поставлено за 24 часа</div>
+            <div className="admin-action-hint">Реальные задачи, созданные apply-flow.</div>
+          </div>
+          <div className="admin-action-card">
+            <div className="admin-action-count">{report.summary.active_tasks}</div>
+            <div className="admin-action-title">Активных задач</div>
+            <div className="admin-action-hint">Queued/running/processing/locked по backlog reduction.</div>
+          </div>
+          <div className="admin-action-card">
+            <div className="admin-action-count">{report.summary.skipped_24h}</div>
+            <div className="admin-action-title">Пропущено за 24 часа</div>
+            <div className="admin-action-hint">Обычно это уже поставленные задачи без дублей.</div>
+          </div>
+          <div className="admin-action-card">
+            <div className="admin-action-count">{report.summary.failed_24h}</div>
+            <div className="admin-action-title">Ошибок за 24 часа</div>
+            <div className="admin-action-hint">Должно быть 0.</div>
+          </div>
+        </div>
+        {last ? (
+          <div className="admin-help-panel" data-testid="backlog-reduction-last-result">
+            <strong>Последний запуск: #{last.job_id} · {last.action_code || '—'} · {last.status}</strong>
+            <div>Когда: {formatDate(last.started_at)}. Запустил: {last.actor || '—'}.</div>
+            <div>Кандидатов: {last.affected_count}. Изменено: {last.changed_count}. Поставлено: {last.queued_count}. Пропущено: {last.skipped_count}. Ошибок: {last.failed_count}.</div>
+            {last.message && <div>{last.message}</div>}
+          </div>
+        ) : (
+          <div className="admin-help-panel" data-testid="backlog-reduction-no-result">Запусков backlog reduction ещё не было.</div>
+        )}
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Тип задачи</th><th>Всего создано</th><th>Активно</th><th>Статусы</th></tr></thead>
+            <tbody>
+              {report.task_stats.map((stat) => (
+                <tr key={stat.task_type} data-testid={`backlog-task-stat-${stat.task_type}`}>
+                  <td><strong>{stat.task_type}</strong></td>
+                  <td>{stat.total_count}</td>
+                  <td>{stat.active_count}</td>
+                  <td>{Object.entries(stat.statuses).map(([status, count]) => `${status}: ${count}`).join(', ') || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="admin-table-wrap">
+          <table className="admin-table">
+            <thead><tr><th>Последние запуски</th><th>Action</th><th>Поставлено</th><th>Пропущено</th><th>Ошибки</th></tr></thead>
+            <tbody>
+              {report.recent_runs.slice(0, 10).map((run) => (
+                <tr key={run.job_id} data-testid={`backlog-run-${run.job_id}`}>
+                  <td>#{run.job_id}<br /><span>{formatDate(run.started_at)}</span></td>
+                  <td>{run.action_code || '—'}</td>
+                  <td>{run.queued_count}</td>
+                  <td>{run.skipped_count}</td>
+                  <td>{run.failed_count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )
+  }
   const selected = plan?.actions.find((action) => action.code === selectedAction)
   const runReduction = async (mode: 'dry-run' | 'apply') => {
     if (!selected) return
@@ -234,6 +362,7 @@ export const AdminOverviewPage = () => {
       }
       const path = mode === 'apply' ? '/admin/overview/backlog-reduction/apply' : '/admin/overview/backlog-reduction/dry-run'
       setReductionResult(await adminPost<ReductionResult>(path, body))
+      await loadDetails()
     } catch (e) {
       setReductionError(e instanceof Error ? e.message : 'Не удалось выполнить действие')
     } finally {
@@ -305,6 +434,7 @@ export const AdminOverviewPage = () => {
       {detailsLoading && <AdminLoading message="Загружаем разбор очередей…" />}
       {detailsError && <AdminSectionError title="Часть данных обзора не загрузилась" message={detailsError} />}
       {renderBacklog()}
+      {renderReport()}
       {renderReduction()}
       {renderSection('Операции', data.operations)}
       <Link className="admin-btn admin-btn-sm" to="/admin/audit">Событий в журнале аудита: {data.recent_audit_count} →</Link>
