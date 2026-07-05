@@ -128,6 +128,24 @@ const reductionPlanResponse = {
     },
   ],
 }
+const reductionReportResponse = {
+  summary: {
+    runs_24h: 0,
+    runs_7d: 0,
+    queued_24h: 0,
+    queued_7d: 0,
+    skipped_24h: 0,
+    skipped_7d: 0,
+    failed_24h: 0,
+    failed_7d: 0,
+    tasks_created_24h: 0,
+    tasks_created_7d: 0,
+    active_tasks: 0,
+  },
+  last_result: null,
+  task_stats: [],
+  recent_runs: [],
+}
 const reductionResult = {
   action_code: 'exclude_service_places_from_routes',
   status: 'planned',
@@ -147,6 +165,7 @@ describe('AdminOverviewPage product contract', () => {
     vi.stubEnv('VITE_ADMIN_API_TOKEN', 'test-admin-token')
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
+      if (url.includes('/admin/overview/backlog-reduction/report')) return response(reductionReportResponse)
       if (url.includes('/admin/overview/backlog-reduction-plan')) return response(reductionPlanResponse)
       if (url.includes('/admin/overview/backlog-reduction/dry-run')) return response(reductionResult)
       if (url.includes('/admin/overview/backlog-reduction/apply')) return response({ ...reductionResult, dry_run: false, status: 'applied' })
