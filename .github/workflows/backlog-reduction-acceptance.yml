@@ -151,6 +151,14 @@ jobs:
           def action_code_of(action_payload):
               return action_payload.get("action_code") or action_payload.get("code")
 
+          for expected_response_file in (
+              "plan.json",
+              "dry-run.json",
+              "apply.json",
+              "backlog-breakdown.json",
+          ):
+              write_json(expected_response_file, {"status": "not_executed"})
+
           try:
               action_code = os.environ.get("ACTION_CODE", "").strip()
               result["action_code"] = action_code
