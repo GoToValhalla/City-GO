@@ -39,6 +39,10 @@ export default defineConfig([
     rules: legacySyncRules,
   },
   {
+    files: ['src/pages/admin/AdminRouteHealthPage.tsx'],
+    rules: legacySyncRules,
+  },
+  {
     files: ['src/pages/places/PlacesListPage.tsx'],
     rules: legacySyncRules,
   },
