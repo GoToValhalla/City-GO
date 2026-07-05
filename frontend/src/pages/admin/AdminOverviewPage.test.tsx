@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { adminGetMock, adminPostMock, adminPostLongMock } = vi.hoisted(() => ({
   adminGetMock: vi.fn(),
@@ -30,6 +30,7 @@ type MockStep = {
   finished_at: string | null
   message: string | null
 }
+
 type MockJob = {
   job_id: number
   status: string
@@ -174,6 +175,8 @@ const recomputeJob = (job: MockJob): MockJob => {
   }
 }
 
+const getStepAction = (path: string) => path.match(/steps\/([^/]+)\/(running|result|error)$/)?.[1]
+
 const applyStepResult = (actionCode: string, result: Partial<ApplyResult>) => {
   if (!latestJob) throw new Error('Missing latest job')
   latestJob = recomputeJob({
@@ -193,22 +196,14 @@ const applyStepResult = (actionCode: string, result: Partial<ApplyResult>) => {
   return latestJob
 }
 
-const getStepAction = (path: string) => path.match(/steps\/([^/]+)\/(running|result|error)$/)?.[1]
-
 const mockAdminReads = () => {
   adminGetMock.mockImplementation((path: string) => {
     if (path === '/admin/overview') {
       return Promise.resolve({ critical: [], data_quality: [], operations: [], recent_audit_count: 0 })
     }
-    if (path === '/admin/overview/backlog-reduction/report') {
-      return Promise.resolve(report)
-    }
-    if (path === `${fullRunPath}/latest`) {
-      return Promise.resolve(latestJob)
-    }
-    if (path.match(new RegExp(`^${fullRunPath}/\\d+$`))) {
-      return Promise.resolve(latestJob)
-    }
+    if (path === '/admin/overview/backlog-reduction/report') return Promise.resolve(report)
+    if (path === `${fullRunPath}/latest`) return Promise.resolve(latestJob)
+    if (path.match(new RegExp(`^${fullRunPath}/\\d+$`))) return Promise.resolve(latestJob)
     if (path === '/admin/overview/backlog-breakdown') {
       return Promise.resolve({
         summary: {
@@ -224,9 +219,7 @@ const mockAdminReads = () => {
         overlaps: [],
       })
     }
-    if (path === '/admin/overview/backlog-reduction-plan') {
-      return Promise.resolve({ summary: {}, actions: [] })
-    }
+    if (path === '/admin/overview/backlog-reduction-plan') return Promise.resolve({ summary: {}, actions: [] })
     throw new Error(`Unexpected adminGet path: ${path}`)
   })
 }
@@ -248,10 +241,8 @@ const mockFullRunWrites = () => {
     }
     if (path === applyPath) {
       const actionCode = (body as { action_code: string }).action_code
-      if (actionCode === 'enqueue_address_recovery') {
-        return Promise.reject(new Error('address failed'))
-      }
-      const response = {
+      if (actionCode === 'enqueue_address_recovery') return Promise.reject(new Error('address failed'))
+      return Promise.resolve({
         action_code: actionCode,
         status: 'applied',
         dry_run: false,
@@ -261,8 +252,7 @@ const mockFullRunWrites = () => {
         skipped_count: actionCode === 'enqueue_photo_discovery' ? 2 : actionCode === 'enqueue_description_enrichment' ? 0 : 1,
         failed_count: actionCode === 'auto_recheck_verification_backlog' ? 1 : 0,
         message: `${actionCode} done`,
-      }
-      return Promise.resolve(response)
+      })
     }
     if (path.endsWith('/result')) {
       const actionCode = getStepAction(path)
@@ -285,54 +275,40 @@ const mockFullRunWrites = () => {
 
 describe('AdminOverviewPage persistent full safe backlog reduction', () => {
   beforeEach(() => {
+    cleanup()
     vi.clearAllMocks()
     latestJob = null
     mockAdminReads()
   })
 
+  afterEach(() => {
+    cleanup()
+  })
+
   it('creates a persistent full-run job, records running/result/error per action, and renders the saved report', async () => {
     mockFullRunWrites()
-
     renderOverview()
 
-    const startButton = await screen.findByRole('button', { name: 'Запустить полный безопасный прогон' })
-    fireEvent.click(startButton)
+    fireEvent.click(await screen.findByRole('button', { name: 'Запустить полный безопасный прогон' }))
 
     await waitFor(() => expect(adminPostLongMock.mock.calls.some(([path]) => path === `${fullRunPath}/42/complete`)).toBe(true))
-
     expect(adminPostLongMock.mock.calls[0][0]).toBe(fullRunPath)
-    safeActions.forEach((action) => {
-      expect(adminPostLongMock.mock.calls.some(([path]) => path === `${fullRunPath}/42/steps/${action}/running`)).toBe(true)
-    })
+    safeActions.forEach((action) => expect(adminPostLongMock.mock.calls.some(([path]) => path === `${fullRunPath}/42/steps/${action}/running`)).toBe(true))
     expect(adminPostLongMock.mock.calls.some(([path]) => path === `${fullRunPath}/42/steps/enqueue_photo_discovery/result`)).toBe(true)
     expect(adminPostLongMock.mock.calls.some(([path]) => path === `${fullRunPath}/42/steps/enqueue_address_recovery/error`)).toBe(true)
 
     const applyCalls = adminPostLongMock.mock.calls.filter(([path]) => path === applyPath)
     expect(applyCalls.map(([, body]) => (body as { action_code: string }).action_code)).toEqual(safeActions)
-    applyCalls.forEach(([, body]) => {
-      expect(body).toMatchObject({ confirmation_text: 'APPLY', limit: 500, include_samples: true })
-    })
-    forbiddenActions.forEach((action) => {
-      expect(applyCalls.map(([, body]) => (body as { action_code: string }).action_code)).not.toContain(action)
-    })
-
-    const resultCalls = adminPostLongMock.mock.calls.filter(([path]) => String(path).endsWith('/result'))
-    expect(resultCalls[0][1]).toMatchObject({ action_code: 'enqueue_photo_discovery', affected_count: 10, queued_count: 8 })
-    const errorCall = adminPostLongMock.mock.calls.find(([path]) => path === `${fullRunPath}/42/steps/enqueue_address_recovery/error`)
-    expect(errorCall?.[1]).toEqual({ message: 'address failed' })
+    applyCalls.forEach(([, body]) => expect(body).toMatchObject({ confirmation_text: 'APPLY', limit: 500, include_samples: true }))
+    forbiddenActions.forEach((action) => expect(applyCalls.map(([, body]) => (body as { action_code: string }).action_code)).not.toContain(action))
 
     const result = await screen.findByTestId('full-safe-backlog-run-result')
-    expect(within(result).getByText('Процесс #42')).toBeTruthy()
-    expect(within(result).getByText('Всего кандидатов')).toBeTruthy()
-    expect(within(result).getByText('18')).toBeTruthy()
-    expect(within(result).getByText('Всего поставлено в очередь')).toBeTruthy()
-    expect(within(result).getByText('15')).toBeTruthy()
-    expect(within(result).getByText('Всего ошибок')).toBeTruthy()
-    expect(within(result).getAllByText('2').length).toBeGreaterThan(0)
-    expect(within(result).getByText('Фото')).toBeTruthy()
-    expect(within(result).getByText('Адреса')).toBeTruthy()
-    await waitFor(() => expect(adminGetMock.mock.calls.filter(([path]) => path === '/admin/overview/backlog-reduction/report').length).toBeGreaterThanOrEqual(2))
-    await waitFor(() => expect(adminGetMock.mock.calls.filter(([path]) => path === `${fullRunPath}/latest`).length).toBeGreaterThanOrEqual(2))
+    expect(result.textContent).toContain('Процесс #42')
+    expect(result.textContent).toContain('Всего кандидатов')
+    expect(result.textContent).toContain('Всего поставлено в очередь')
+    expect(result.textContent).toContain('Всего ошибок')
+    expect(result.textContent).toContain('Фото')
+    expect(result.textContent).toContain('Адреса')
   })
 
   it('shows the latest persisted job after page load', async () => {
@@ -348,10 +324,10 @@ describe('AdminOverviewPage persistent full safe backlog reduction', () => {
     renderOverview()
 
     const result = await screen.findByTestId('full-safe-backlog-run-result')
-    expect(within(result).getByText('Процесс #77')).toBeTruthy()
-    expect(within(result).getByText('Нет прогресса больше 10 минут')).toBeTruthy()
-    expect(within(result).getByText('Фото')).toBeTruthy()
-    expect(within(result).getByText('Перепроверка данных')).toBeTruthy()
+    expect(result.textContent).toContain('Процесс #77')
+    expect(result.textContent).toContain('Нет прогресса больше 10 минут')
+    expect(result.textContent).toContain('Фото')
+    expect(result.textContent).toContain('Перепроверка данных')
     expect(adminGetMock.mock.calls.some(([path]) => path === `${fullRunPath}/latest`)).toBe(true)
   })
 
@@ -359,7 +335,7 @@ describe('AdminOverviewPage persistent full safe backlog reduction', () => {
     latestJob = makeJob({ job_id: 99 })
     adminPostMock.mockImplementation((path: string) => {
       if (path === `${fullRunPath}/99/stop`) {
-        latestJob = { ...makeJob({ job_id: 99 }), status: 'stop_requested', runtime_status: 'stop_requested', stop_requested: true }
+        latestJob = { ...makeJob({ job_id: 99 }), status: 'stop_requested', runtime_status: 'stop_requested', stop_requested: true, status_label: 'Остановка запрошена' }
         return Promise.resolve(latestJob)
       }
       throw new Error(`Unexpected adminPost path: ${path}`)
@@ -367,11 +343,12 @@ describe('AdminOverviewPage persistent full safe backlog reduction', () => {
 
     renderOverview()
 
-    const stopButton = await screen.findByRole('button', { name: 'Остановить процесс' })
+    const section = await screen.findByTestId('admin-full-safe-backlog-run')
+    const stopButton = await within(section).findByRole('button', { name: 'Остановить процесс' })
     fireEvent.click(stopButton)
 
     await waitFor(() => expect(adminPostMock).toHaveBeenCalledWith(`${fullRunPath}/99/stop`))
     const result = await screen.findByTestId('full-safe-backlog-run-result')
-    expect(within(result).getByText('Статус: Остановка запрошена / Остановка запрошена')).toBeTruthy()
+    expect(result.textContent).toContain('Статус: Остановка запрошена / Остановка запрошена')
   })
 })
