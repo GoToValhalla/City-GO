@@ -23,7 +23,7 @@ router = APIRouter(prefix="/places", tags=["places"])
 
 
 # Возвращает список мест из базы с учетом фильтров.
-@router.get("/", response_model=PublicPlaceSearchResponse, response_model_exclude_none=True)
+@router.get("/", response_model=PublicPlaceSearchResponse)
 def read_places(
     city_id: int | None = Query(default=None),
     city_slug: str | None = Query(default=None),
