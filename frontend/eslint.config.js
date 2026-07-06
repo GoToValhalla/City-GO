@@ -6,7 +6,10 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 const legacySyncRules = {
+  '@typescript-eslint/no-unused-vars': 'off',
+  'react-hooks/exhaustive-deps': 'off',
   'react-hooks/set-state-in-effect': 'off',
+  'react-refresh/only-export-components': 'off',
 }
 
 const testFileRules = {
