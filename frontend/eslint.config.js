@@ -35,7 +35,11 @@ export default defineConfig([
     rules: legacySyncRules,
   },
   {
-    files: ['src/pages/admin/AdminDataPipelinePage.tsx'],
+    files: [
+      'src/pages/admin/AdminDataPipelinePage.tsx',
+      'src/pages/admin/AdminDestinationDetailPage.tsx',
+      'src/pages/admin/AdminDestinationsPage.tsx',
+    ],
     rules: legacySyncRules,
   },
   {
