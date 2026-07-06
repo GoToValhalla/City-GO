@@ -2,6 +2,15 @@
 
 ## 2026-07-06
 
+### Destination Data Pipeline + Operational Workspace v1
+
+- Добавлен `DestinationDataPipelineRun` и Alembic migration `a1b2c3d4e5f6`.
+- Добавлены admin endpoints `/admin/destinations/{slug}/data-pipeline/*`, `/memberships/recalculate`, `/readiness`, `/review-items`.
+- Реализован backend-owned bbox pipeline: deterministic scope candidates, idempotent place upsert, materialized memberships, service-only hiding, enrichment through `PlaceDataMergeService`, `ReviewItem` for protected/conflicting data, readiness metrics.
+- Расширена admin Destination detail page: readiness cards, coverage, run actions, latest run, run history, pending reviews, public destination catalog link.
+- Добавлены backend regression tests for run/import/enrichment/recalc/readiness/public catalog/route candidates and frontend workspace tests.
+- Документация: `docs/architecture/destination_data_pipeline_v1.md`.
+
 ### Destination-first foundation v1
 - Добавлены модели `Destination`, `DestinationScope`, `DestinationPlaceMembership`, миграция и backfill городов.
 - Feature flags для phased rollout catalog/route/import reads.

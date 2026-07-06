@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from routers.destinations import router as destinations_router
 from routers.admin_destinations import router as admin_destinations_router
+from routers.admin_destination_pipeline import router as admin_destination_pipeline_router
 from routers.admin import router as admin_router
 from routers.admin_ai import router as admin_ai_router
 from routers.admin_background_operations import router as admin_background_operations_router
@@ -89,6 +90,7 @@ _ROOT_ROUTERS = (
     admin_coverage_gaps_router,
     admin_data_pipeline_router,
     admin_destinations_router,
+    admin_destination_pipeline_router,
     admin_data_quality_router,
     admin_emergency_hide_router,
     admin_import_queue_router,

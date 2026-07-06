@@ -47,6 +47,10 @@
 | `destination_places_query.py` | catalog JOIN без ST_Contains |
 | `destination_route_guard.py` | walking guard для region/remote |
 | `destination_route_resolution.py` | resolve build request |
+| `destination_data_pipeline_service.py` | destination-owned pipeline orchestration |
+| `destination_import_service.py` | bbox scope candidate import and membership upsert |
+| `destination_enrichment_pipeline.py` | deterministic enrichment through MergeService |
+| `destination_readiness_service.py` | admin readiness metrics |
 
 ## Public API
 
@@ -73,6 +77,10 @@ Walking guard: region/natural без `is_walkable_cluster` → `422 walking_not_
 - assign-place / hide-place
 - orphans/places
 - conflicts/list
+- data-pipeline run/latest/history/details/stop
+- memberships/recalculate
+- readiness
+- review-items
 
 UI: `AdminDestinationsPage`, `AdminDestinationDetailPage`.
 
@@ -88,8 +96,10 @@ UI: `AdminDestinationsPage`, `AdminDestinationDetailPage`.
 
 - Геометрия: bbox JSON, без PostGIS на hot path
 - `places.city_id` обязателен при записи
-- Import по `destination_slug` — shadow write в `create_place`; полный scope-import — частично
+- Import по `destination_slug` — shadow write в `create_place`; полный scope-import реализован в Destination Data Pipeline v1 через bbox JSON adapter
 - Production rollout: включать флаги поэтапно
+
+См. также: [`destination_data_pipeline_v1.md`](destination_data_pipeline_v1.md).
 
 ## Тесты
 

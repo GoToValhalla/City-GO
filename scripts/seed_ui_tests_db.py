@@ -15,6 +15,7 @@ from db.session import engine
 from db.session import SessionLocal
 from models.category import Category
 from models.city import City
+from models.destination import Destination, DestinationPlaceMembership, DestinationScope
 from models.place import Place
 from models.place_merge_review import ReviewItem
 
@@ -99,6 +100,7 @@ def main() -> None:
         city = _upsert_city(db)
         categories = {code: _upsert_category(db, code, name) for code, name in CATEGORIES}
         [_upsert_place(db, city, categories, row) for row in PLACES]
+        db.flush()
         _seed_review(db, city)
         db.commit()
     finally:
