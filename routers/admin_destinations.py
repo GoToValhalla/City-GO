@@ -21,6 +21,11 @@ from schemas.destination import (
     DestinationListResponse,
     DestinationMembershipRead,
 )
+from schemas.destination_geo import (
+    AdminDestinationFromGeoCandidateRequest,
+    AdminScopeFromGeoCandidateRequest,
+    DestinationGeoSearchResponse,
+)
 from services.admin_audit_service import write_admin_audit_log
 from services.city_destination_compatibility import get_destination_by_slug
 from services.destination_admin_validation import (
@@ -33,6 +38,13 @@ from services.destination_admin_validation import (
 )
 from services.destination_data_pipeline_service import active_destination_run
 from services.destination_membership_service import hide_membership, upsert_membership
+from services.destination_geo_candidate_service import (
+    build_destination_payload,
+    candidate_from_input,
+    recover_or_create_scope,
+    search_destination_geo_candidates,
+    to_read_model,
+)
 from services.destination_service import create_destination, list_scopes
 
 router = APIRouter(prefix="/admin/destinations", tags=["admin-destinations"])
@@ -72,6 +84,48 @@ def admin_membership_conflicts(
         }
         for row in rows
     ]
+
+
+@router.get("/geo-search", response_model=DestinationGeoSearchResponse)
+def admin_destination_geo_search(
+    auth: AdminContext = Depends(admin_required),
+    q: str = Query(min_length=2, max_length=200),
+    limit: int = Query(default=5, ge=1, le=20),
+) -> DestinationGeoSearchResponse:
+    items = [to_read_model(row) for row in search_destination_geo_candidates(q, limit=limit)]
+    return DestinationGeoSearchResponse(query=q.strip(), items=items)
+
+
+@router.post("/from-geo-candidate", response_model=DestinationDetail)
+def admin_create_destination_from_geo_candidate(
+    payload: AdminDestinationFromGeoCandidateRequest,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> DestinationDetail:
+    candidate = candidate_from_input(payload.candidate)
+    try:
+        data = build_destination_payload(
+            candidate,
+            slug=payload.slug,
+            name=payload.name,
+            destination_type=payload.destination_type,
+        )
+    except ValidationIssue as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+    if db.query(Destination).filter(Destination.slug == data["slug"]).first():
+        raise HTTPException(status_code=409, detail="Destination slug already exists")
+    row = create_destination(db, data)
+    write_admin_audit_log(
+        db,
+        actor=auth.actor_id,
+        action="destination_created_from_geo",
+        entity_type="destination",
+        entity_id=row.id,
+        new_value=data | {"candidate_key": candidate.candidate_key},
+    )
+    db.commit()
+    db.refresh(row)
+    return read_destination(row.slug, db=db)
 
 
 @router.get("", response_model=DestinationListResponse)
@@ -169,6 +223,43 @@ def admin_create_scope(
     db.commit()
     db.refresh(scope)
     return scope
+
+
+@router.post("/{slug}/scopes/from-geo-candidate")
+def admin_scope_from_geo_candidate(
+    slug: str,
+    payload: AdminScopeFromGeoCandidateRequest,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    dest = _destination_or_404(db, slug)
+    candidate = candidate_from_input(payload.candidate)
+    try:
+        scope, action = recover_or_create_scope(
+            db,
+            dest,
+            candidate,
+            code=payload.code,
+            name=payload.name,
+            import_profile=payload.import_profile,
+            enabled=payload.enabled,
+            recover=payload.recover,
+        )
+    except ValidationIssue as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    write_admin_audit_log(
+        db,
+        actor=auth.actor_id,
+        action=f"destination_scope_{action}_from_geo",
+        entity_type="destination_scope",
+        entity_id=scope.id,
+        new_value=_scope_snapshot(scope) | {"candidate_key": candidate.candidate_key},
+    )
+    db.commit()
+    db.refresh(scope)
+    return {"scope": scope, "action": action}
 
 
 @router.patch("/{slug}/scopes/{scope_id}")
