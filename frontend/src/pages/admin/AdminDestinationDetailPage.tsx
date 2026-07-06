@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { adminDelete, adminGet, adminPatch, adminPost, adminPostLong } from './adminApi'
+import { AdminDestinationGeoSearchPanel } from './AdminDestinationGeoSearchPanel'
 import { AdminLoading, AdminSectionError } from './shared/AdminStates'
 import './AdminDataPipeline.css'
 
@@ -307,6 +308,11 @@ export const AdminDestinationDetailPage = () => {
             </tbody>
           </table>
         </div>
+        <AdminDestinationGeoSearchPanel
+          mode="create-scope"
+          destinationSlug={slug}
+          onScopeApplied={() => { void load() }}
+        />
         <form className="admin-form-grid" onSubmit={(e) => void onCreateScope(e)}>
           <label className="admin-field"><span>Код</span><input value={scopeCode} onChange={(e) => setScopeCode(e.target.value)} required /></label>
           <label className="admin-field"><span>Название</span><input value={scopeName} onChange={(e) => setScopeName(e.target.value)} required /></label>

@@ -90,3 +90,30 @@
 .admin-empty-state {
   color: var(--text-admin-secondary, #5c6773);
 }
+
+.admin-form-inline {
+  align-items: end;
+}
+
+.admin-field-grow {
+  flex: 1 1 240px;
+}
+
+.admin-geo-candidate-list {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+
+.admin-geo-candidate-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-admin-layout, #ced4da);
+  border-radius: var(--radius-admin-base, 4px);
+}

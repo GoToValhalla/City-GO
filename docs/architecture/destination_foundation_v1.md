@@ -81,8 +81,9 @@ Walking guard: region/natural без `is_walkable_cluster` → `422 walking_not_
 - memberships/recalculate
 - readiness
 - review-items
+- geo-search / from-geo-candidate / scopes/from-geo-candidate (геокандидат из Nominatim; snapshot передаётся клиентом в POST)
 
-UI: `AdminDestinationsPage`, `AdminDestinationDetailPage`.
+UI: `AdminDestinationsPage`, `AdminDestinationDetailPage`, `AdminDestinationGeoSearchPanel` (поиск по названию, создание направления и контуров из кандидата; recover только по явному включению в UI, иначе `recover: false`).
 
 ## Backfill
 

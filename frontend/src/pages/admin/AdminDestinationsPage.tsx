@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { adminGet, adminPost } from './adminApi'
+import { AdminDestinationGeoSearchPanel } from './AdminDestinationGeoSearchPanel'
 import { AdminLoading, AdminSectionError } from './shared/AdminStates'
 import './AdminDataPipeline.css'
 
@@ -87,6 +88,14 @@ export const AdminDestinationsPage = () => {
           {showCreate ? 'Скрыть форму' : 'Создать направление'}
         </button>
       </header>
+
+      <AdminDestinationGeoSearchPanel
+        mode="create-destination"
+        onDestinationCreated={(createdSlug) => {
+          void load()
+          navigate(`/admin/destinations/${createdSlug}`)
+        }}
+      />
 
       {(showCreate || items.length === 0) ? (
         <section className="admin-section" data-testid="destination-create-form">
