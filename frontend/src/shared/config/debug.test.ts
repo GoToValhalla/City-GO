@@ -11,7 +11,7 @@ describe('Debug в production', () => {
   it('остаётся выключенным после сохранения пользовательского выбора', () => {
     setDebugEnabled(false)
     expect(isDebugEnabled()).toBe(false)
-    expect(window.localStorage.getItem('city-go-debug-enabled')).toBe('0')
+    expect(window.localStorage.getItem('citygo.debug')).toBe('false')
   })
 
   it('включается и выключается только явным query-параметром', () => {

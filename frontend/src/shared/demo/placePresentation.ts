@@ -31,7 +31,7 @@ export const photoStateLabel = (place: Place): string => {
   if (place.image?.match_status === 'area_photo') return 'Фото района рядом'
   if (place.image_source_type && place.image_url) return 'Фото места'
   if (place.image_url) return 'Фото требует проверки'
-  return 'Нет проверенного фото'
+  return 'Фото добавим'
 }
 
 export const placeFeatureLabels = (place: Place): string[] => {

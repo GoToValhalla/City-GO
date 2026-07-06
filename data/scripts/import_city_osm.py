@@ -106,6 +106,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--city", required=True)
     parser.add_argument("--scope", required=True)
     parser.add_argument("--profile", required=True)
+    parser.add_argument("--city-admin-import-job-id", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--apply", action="store_true")
     return parser.parse_args(argv)
@@ -146,7 +147,7 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
         if args.dry_run:
             return _dry_run_summary(city.slug, scope.code, args.profile, raw_objects, normalized)
 
-        return _apply_import(db, city, scope, args.profile, raw_objects, normalized)
+        return _apply_import(db, city, scope, args.profile, raw_objects, normalized, args.city_admin_import_job_id)
 
 
 def _dry_run_summary(
@@ -461,6 +462,7 @@ def _apply_import(
     profile: str,
     raw_objects: list[dict[str, Any]],
     normalized: list[dict[str, Any]],
+    city_admin_import_job_id: int | None = None,
 ) -> dict[str, object]:
     batch = create_batch(db, scope, mode="apply")
     batch.source_type = "osm"
@@ -492,6 +494,7 @@ def _apply_import(
                         db,
                         city=city,
                         batch=batch,
+                        city_admin_import_job_id=city_admin_import_job_id,
                         place=hidden_place,
                         decision=decision,
                         item=item,
@@ -558,6 +561,7 @@ def _apply_import(
                         db,
                         city=city,
                         batch=batch,
+                        city_admin_import_job_id=city_admin_import_job_id,
                         place=place,
                         decision=decision,
                         item=item,
@@ -572,6 +576,7 @@ def _apply_import(
                         db,
                         city=city,
                         batch=batch,
+                        city_admin_import_job_id=city_admin_import_job_id,
                         place=place,
                         decision=decision,
                         item=item,
@@ -607,7 +612,7 @@ def _apply_import(
             )
 
         deactivated_bad_places = _hide_bad_existing_places(db, city.id, scope.id)
-        missing_stats = _mark_missing_sources(db, scope.id, batch.id, normalized)
+        missing_stats = _mark_missing_sources(db, scope.id, batch.id, normalized, city_admin_import_job_id)
         needs_review += missing_stats["needs_review"]
 
         batch.normalized_count = created + updated + unchanged + needs_review
@@ -688,6 +693,7 @@ def _enqueue_place_change_review(
     *,
     city: City,
     batch: ImportBatch,
+    city_admin_import_job_id: int | None,
     place: Place | None,
     decision,
     item: dict[str, Any],
@@ -718,13 +724,15 @@ def _enqueue_place_change_review(
         db,
         city_id=city.id,
         place_id=place.id,
-        job_id=batch.id,
+        job_id=city_admin_import_job_id,
         field_name="place_change",
         reason=reason,
         severity=severity,
         payload={
             "kind": "place_change",
             "source": "osm",
+            "import_batch_id": batch.id,
+            "city_admin_import_job_id": city_admin_import_job_id,
             "source_url": item.get("source_url"),
             "decision": decision.action,
             "place_title": place.title,
@@ -937,6 +945,7 @@ def _mark_missing_sources(
     scope_id: int,
     batch_id: int,
     normalized: list[dict[str, Any]],
+    city_admin_import_job_id: int | None,
 ) -> dict[str, int]:
     # Важно: seen должен учитывать все пришедшие из OSM объекты,
     # даже если они были отклонены нормализацией.
@@ -983,6 +992,7 @@ def _mark_missing_sources(
                     db,
                     city=city,
                     batch=db.query(ImportBatch).filter(ImportBatch.id == batch_id).one(),
+                    city_admin_import_job_id=city_admin_import_job_id,
                     place=place,
                     decision=decision,
                     item={"source_url": None},

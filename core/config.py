@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
     telegram_admin_user_ids: str = ""
 
+    # Mobile debug reports: stored in DB; Telegram is opt-in and best-effort.
+    citygo_debug_reports_telegram_enabled: bool = False
+    citygo_debug_reports_telegram_chat_id: str = ""
+    citygo_debug_reports_admin_base_url: str = ""
+
     # Backend URL for Telegram bot — базовый URL этого FastAPI для запросов из бота.
     backend_base_url: str = "http://127.0.0.1:8000"
 

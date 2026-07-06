@@ -130,6 +130,8 @@ export type RouteDebugSummary = {
 
 export type RecommendationRouteResponse = {
   route_id: string
+  request_id?: string | null
+  city_slug?: string | null
   revision?: number
   status?: string
   partial_reason?: string | null

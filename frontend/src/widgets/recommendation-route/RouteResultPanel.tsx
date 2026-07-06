@@ -18,6 +18,7 @@ import { RoutePointList } from './RoutePointList'
 import { RouteWarnings } from './RouteWarnings'
 import { emptyCopy, emptyTitle, statusLabel } from './routeResultStatusText'
 import { isDebugEnabled } from '../../shared/config/debug'
+import { DiagnosticsPanel } from '../../shared/debug/DiagnosticsPanel'
 
 const QUALITY_LABELS: Record<RouteQualityStatus, string> = {
   good: 'Хороший маршрут',
@@ -98,8 +99,10 @@ export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect, on
   const quality = route.quality_score ?? 0
   const qualityStatus = normalizeQualityStatus(route)
   const hasPoints = route.total_places > 0
+  const meaningfulRoute = route.points.length >= 2
   const isPartial = route.status === 'partial_route'
   const isEmpty = route.status === 'no_route' || !hasPoints || qualityStatus === 'failed'
+  const debug = isDebugEnabled()
   const walkKm = Math.round((route.total_walk_distance_meters ?? route.estimated_distance * 1000) / 100) / 10
   const reasons = Object.fromEntries((route.explanation?.points ?? []).map((point) => [point.place_id, point.reason]))
   const currentPlaceId = session?.current_place_id ?? route.points[0]?.place_id ?? null
@@ -150,12 +153,12 @@ export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect, on
 
   return <section className="route-result-grid route-result-grid-mobile-first">
     <div className="route-result-tile route-result-summary">
-      <div className="route-result-top"><div><p className="route-eyebrow">{statusLabel(route.status ?? 'ready')} · {QUALITY_LABELS[qualityStatus]}</p><h2>{isEmpty ? emptyTitle(route.partial_reason) : summary}</h2></div><strong className={`route-grade route-grade-${qualityStatus}`}><ShieldCheck size={18} />{Math.round(quality * 100)}%</strong></div>
-      <p className={`route-quality-banner route-quality-${qualityStatus}`}>{QUALITY_COPY[qualityStatus]}</p>
+      <div className="route-result-top"><div><p className="route-eyebrow">{statusLabel(route.status ?? 'ready')} · {meaningfulRoute ? QUALITY_LABELS[qualityStatus] : 'Одна точка для старта'}</p><h2>{!meaningfulRoute && hasPoints ? 'Пока мало данных для прогулки' : isEmpty ? emptyTitle(route.partial_reason) : summary}</h2></div>{debug ? <strong className={`route-grade route-grade-${qualityStatus}`}><ShieldCheck size={18} />{Math.round(quality * 100)}%</strong> : null}</div>
+      <p className={`route-quality-banner route-quality-${qualityStatus}`}>{!meaningfulRoute && hasPoints ? 'Нашли одну полезную точку. Для полноценной прогулки нужно больше подходящих мест рядом.' : QUALITY_COPY[qualityStatus]}</p>
       {isEmpty ? <p className="route-empty-copy">{emptyCopy(route.partial_reason)}</p> : null}
       {isPartial ? <p className="route-empty-copy">Маршрут слабый: нашли мало точек, но честно показываем результат и действия для улучшения.</p> : null}
-      <div className="route-metrics route-metrics-primary"><span><Map size={16} /> {route.total_places} мест</span><span><Clock size={16} /> {route.total_estimated_minutes} мин</span><span>{walkKm} км пешком</span><span>Качество {Math.round(quality * 100)}%</span></div>
-      <div className="route-main-actions"><button type="button" disabled={loading} onClick={() => onCorrect('rebuild_from_here')}><RefreshCw size={16} /> Пересобрать</button><button type="button" disabled={loading} onClick={() => onCorrect('extend_route')}><Plus size={16} /> Добавить место</button><button type="button" disabled={loading || !route.points[0]} onClick={() => route.points[0] && onReplacePoint?.(route.points[0].place_id)}><Wand2 size={16} /> Заменить точку</button>{hasPoints ? <button type="button" disabled={loading || session?.status === 'active'} onClick={() => void startSession()}><Play size={16} /> Начать маршрут</button> : null}</div>
+      <div className="route-metrics route-metrics-primary"><span><Map size={16} /> {route.total_places} мест</span><span><Clock size={16} /> {route.total_estimated_minutes} мин</span><span>{walkKm} км пешком</span>{debug ? <span>Качество {Math.round(quality * 100)}%</span> : null}</div>
+      <div className="route-main-actions"><button type="button" disabled={loading} onClick={() => onCorrect('rebuild_from_here')}><RefreshCw size={16} /> Пересобрать</button><button type="button" disabled={loading} onClick={() => onCorrect('extend_route')}><Plus size={16} /> Добавить место</button><button type="button" disabled={loading || !route.points[0]} onClick={() => route.points[0] && onReplacePoint?.(route.points[0].place_id)}><Wand2 size={16} /> Заменить точку</button>{hasPoints ? <button type="button" disabled={loading || !meaningfulRoute || session?.status === 'active'} onClick={() => void startSession()}><Play size={16} /> Начать маршрут</button> : null}</div>
       <RouteInsights route={route} />
       <div className="route-correction-bar" aria-label="Оценка маршрута">{[1, 2, 3, 4, 5].map((rating) => <button key={rating} type="button" disabled={loading} onClick={() => void rateRoute(rating)}><Star size={16} /> {rating}</button>)}</div>
       {ratingStatus ? <p className="route-feedback-status">{ratingStatus}</p> : null}<RouteDataNotes route={route} />
@@ -163,7 +166,8 @@ export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect, on
     <RouteWarnings route={route} />
     {hasPoints ? <div className="route-result-tile route-active-session"><h2>Активная прогулка</h2><p>{sessionCopy}</p>{nextPoint ? <p className="route-muted">Дальше: {nextPoint.title ?? 'следующая точка'}</p> : null}{sessionStatus ? <p className="route-start-note">{sessionStatus}</p> : null}<div className="route-main-actions"><button type="button" disabled={!hasPoints || sessionTerminal} onClick={() => void applySessionAction('complete_point')}><CheckCircle2 size={16} /> Я на месте</button><button type="button" disabled={!hasPoints || sessionTerminal} onClick={() => void applySessionAction('skip_point')}><SkipForward size={16} /> Пропустить</button><button type="button" disabled={!hasPoints || sessionTerminal} onClick={() => void applySessionAction(session?.status === 'paused' ? 'resume' : 'pause')}><Pause size={16} /> {session?.status === 'paused' ? 'Продолжить' : 'Пауза'}</button><button type="button" disabled={!hasPoints || sessionTerminal} onClick={() => void applySessionAction('finish')}><StopCircle size={16} /> Завершить маршрут</button></div></div> : null}
     {hasPoints ? <div className="route-result-tile route-map-tile"><h2>Карта</h2><RouteMapPreview points={route.points} /></div> : null}
-    {isDebugEnabled() ? <RouteDebugTrace route={route} /> : null}
+    <DiagnosticsPanel compact={!debug} payload={{ screen: 'route', category: 'route', severity: route.user_warnings?.length ? 'warning' : 'info', city_slug: route.city_slug, request_id: route.request_id, route_id: route.route_id, title: 'Route diagnostics', summary: `${route.points.length} точек · ${route.user_warnings?.length ?? 0} предупреждений`, warnings: route.user_warnings ?? [], debug_trace: route.debug_trace, response_summary: { quality_score: route.quality_score, total_places: route.total_places, status: route.status } }} details={route} />
+    {debug ? <RouteDebugTrace route={route} /> : null}
     {hasPoints ? <div className="route-result-tile"><h2>Куда идти</h2><RoutePointList disabled={loading} points={route.points} reasons={reasons} activePlaceId={currentPlaceId} onMove={onMovePoint} onRemove={onRemovePoint} onReplace={onReplacePoint} /></div> : null}
     {hasPoints ? <details className="route-result-tile route-leg-list"><summary>Переходы между точками</summary>{route.points.slice(0, -1).map((point, index) => <div key={`${point.place_id}-leg`} className="route-leg-row"><span>{index + 1} → {index + 2}</span><strong>{nextLegText(point)}</strong></div>)}</details> : null}
     <RouteCandidateOptions disabled={loading} options={route.candidate_options} onAdd={onAddCandidate} />

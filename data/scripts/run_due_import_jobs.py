@@ -45,6 +45,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--address-backfill-limit", type=int, default=DEFAULT_ADDRESS_BACKFILL_LIMIT)
     parser.add_argument("--address-backfill-sleep", type=float, default=DEFAULT_ADDRESS_BACKFILL_SLEEP_SECONDS)
     parser.add_argument("--image-enrichment-limit", type=int, default=DEFAULT_IMAGE_ENRICHMENT_LIMIT)
+    parser.add_argument("--city-admin-import-job-id", type=int, default=None)
     return parser.parse_args(argv)
 
 
@@ -56,6 +57,8 @@ def run(argv: list[str] | None = None, now: datetime | None = None) -> dict[str,
         raise SystemExit("Choose exactly one of --dry-run or --apply")
 
     targets = _targets(args)
+    if args.city_admin_import_job_id is not None:
+        targets = [{**target, "city_admin_import_job_id": args.city_admin_import_job_id} for target in targets]
     results = [_run_target(target, args, current) for target in targets]
 
     return {
@@ -155,7 +158,7 @@ def _run_target(target: dict[str, Any], args: argparse.Namespace, now: datetime)
 
 
 def _import_args(target: dict[str, Any], apply: bool) -> list[str]:
-    return [
+    args = [
         "--city",
         target["city"],
         "--scope",
@@ -164,6 +167,10 @@ def _import_args(target: dict[str, Any], apply: bool) -> list[str]:
         target["profile"],
         "--apply" if apply else "--dry-run",
     ]
+    job_id = target.get("city_admin_import_job_id")
+    if job_id is not None:
+        args.extend(["--city-admin-import-job-id", str(job_id)])
+    return args
 
 
 def _address_backfill_args(city_slug: str, apply: bool, limit: int, sleep_seconds: float) -> list[str]:

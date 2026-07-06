@@ -65,7 +65,7 @@ export const PlaceCard = ({ active = false, className, onActivate, place }: Plac
           <DistanceBadge distance={distance} />
         </div>
 
-        <h3 className="place-ui-card__title cg-clamp-2">{title}</h3>
+        <h3 className="place-ui-card__title cg-clamp-1">{title}</h3>
 
         {description ? (
           <p className="place-ui-card__description cg-clamp-2">{description}</p>

@@ -40,6 +40,7 @@ import models.city  # noqa: F401
 import models.destination  # noqa: F401
 import models.destination_discovery  # noqa: F401
 import models.destination_data_pipeline  # noqa: F401
+import models.debug_report  # noqa: F401
 import models.city_admin_import_job  # noqa: F401
 import models.city_start_point  # noqa: F401
 import models.city_import_scope  # noqa: F401

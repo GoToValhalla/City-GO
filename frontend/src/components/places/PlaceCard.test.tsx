@@ -33,6 +33,7 @@ describe('PlaceCard', () => {
     render(<MemoryRouter><PlaceCard place={place} /></MemoryRouter>)
     expect(screen.getByText('Фото требует проверки')).toBeInTheDocument()
     expect(screen.queryByText('Фото места')).not.toBeInTheDocument()
+    expect(screen.queryByText('Нет проверенного фото')).not.toBeInTheDocument()
   })
 
   it('hides raw import prefixes in descriptions', () => {
@@ -44,5 +45,6 @@ describe('PlaceCard', () => {
     }} /></MemoryRouter>)
     expect(screen.getAllByText('Кофейная остановка для короткой паузы по пути.').length).toBeGreaterThan(0)
     expect(screen.queryByText('coffee: Тестовое место')).not.toBeInTheDocument()
+    expect(screen.getByText('Фото добавим')).toBeInTheDocument()
   })
 })

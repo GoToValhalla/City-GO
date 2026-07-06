@@ -27,7 +27,7 @@ def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_
  job.status="running";job.started_at=job.started_at or started;set_step(job,STEP_RUNNING);db.commit()
  try:
   set_step(job,STEP_COLLECTING_PLACES);_log(db,job,city.slug,actor_id,STEP_COLLECTING_PLACES,"started");db.commit()
-  summary=summarize_import_results(run_osm_import_only(city.slug,force=force));results["import"]=summary;job.scopes_succeeded=int(summary.get("scopes_succeeded") or 0);job.places_found=int(summary.get("places_found") or 0);job.places_saved=int(summary.get("places_saved") or 0)
+  summary=summarize_import_results(run_osm_import_only(city.slug,force=force,city_admin_import_job_id=int(job.id)));results["import"]=summary;job.scopes_succeeded=int(summary.get("scopes_succeeded") or 0);job.places_found=int(summary.get("places_found") or 0);job.places_saved=int(summary.get("places_saved") or 0)
   total=db.query(Place).filter(Place.city_id==city_id).count();set_step(job,STEP_COLLECTING_PLACES,total=total,processed=total,successful=job.places_saved,detail={"import_diff":summary});db.commit()
   if summary.get("status")!="success" and total<=0:raise RuntimeError(str(summary.get("last_error") or "Ошибка импорта OSM"))
   if summary.get("status")!="success":warning={"step":STEP_COLLECTING_PLACES,"error":str(summary.get("last_error") or "partial import")};warnings.append(warning);append_step_warning(job,STEP_COLLECTING_PLACES,warning["error"])

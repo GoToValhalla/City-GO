@@ -10,12 +10,20 @@ from models.city_admin_import_job import CityAdminImportJob
 from models.review_queue_item import ReviewQueueItem
 
 
-def _safe_job_id(db: Session, job_id: int | None) -> int | None:
+class ReviewQueueJobLinkError(ValueError):
+    """Raised before DB flush when review queue job_id points to the wrong table."""
+
+
+def _valid_city_admin_import_job_id(db: Session, job_id: int | None) -> int | None:
     if job_id is None:
         return None
     if db.get(CityAdminImportJob, job_id) is not None:
         return job_id
-    return None
+    raise ReviewQueueJobLinkError(
+        "Invalid review_queue_items.job_id: "
+        f"city_admin_import_jobs.id={job_id} does not exist. "
+        "Pass city_admin_import_job_id, not import_batch_id/enrichment_task_id/run_id."
+    )
 
 
 def ensure_review_item(
@@ -37,10 +45,9 @@ def ensure_review_item(
     concrete reason. Always prefer the exact open item before mutating any other
     row; otherwise changing ``reason`` can collide with an already existing row.
 
-    ``job_id`` is optional context only. It must never break the import pipeline:
-    older collectors may pass a scope/internal job id instead of a
-    ``city_admin_import_jobs.id``. In that case keep the review item and drop the
-    invalid FK value, preserving it in payload for diagnostics.
+    ``job_id`` is optional context only, but when provided it must reference
+    ``city_admin_import_jobs.id``. This fails before flush so production gets a
+    precise application error instead of a database FK crash.
     """
     item = _pending_item(db, place_id=place_id, field_name=field_name, reason=reason)
     item = item or _open_item(db, place_id=place_id, field_name=field_name, reason=reason)
@@ -54,10 +61,8 @@ def ensure_review_item(
             reason=reason,
             status="open",
         )
-    safe_job_id = _safe_job_id(db, job_id)
+    safe_job_id = _valid_city_admin_import_job_id(db, job_id)
     next_payload = dict(payload or {})
-    if job_id is not None and safe_job_id is None:
-        next_payload["dropped_invalid_job_id"] = job_id
     item.city_id = city_id
     item.reason = reason
     item.job_id = safe_job_id

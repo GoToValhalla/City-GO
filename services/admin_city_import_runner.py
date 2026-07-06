@@ -7,12 +7,17 @@ from typing import Any
 from data.scripts.run_due_import_jobs import run as run_due_import_jobs
 
 
-def run_city_import_targets(city_slug: str, *, force: bool = True) -> dict[str, Any]:
+def run_city_import_targets(city_slug: str, *, force: bool = True, city_admin_import_job_id: int | None = None) -> dict[str, Any]:
     """Импортирует все scopes города (apply)."""
-    return run_due_import_jobs(["--apply", "--city", city_slug, "--force"] if force else ["--apply", "--city", city_slug])
+    base = ["--apply", "--city", city_slug]
+    if force:
+        base.append("--force")
+    if city_admin_import_job_id is not None:
+        base.extend(["--city-admin-import-job-id", str(city_admin_import_job_id)])
+    return run_due_import_jobs(base)
 
 
-def run_osm_import_only(city_slug: str, *, force: bool = True) -> dict[str, Any]:
+def run_osm_import_only(city_slug: str, *, force: bool = True, city_admin_import_job_id: int | None = None) -> dict[str, Any]:
     """Только OSM-импорт без адресов и quality cleanup (для пошагового pipeline)."""
     base = [
         "--apply",
@@ -22,7 +27,11 @@ def run_osm_import_only(city_slug: str, *, force: bool = True) -> dict[str, Any]
         "--skip-image-enrichment",
         "--skip-quality-cleanup",
     ]
-    return run_due_import_jobs(base + ["--force"] if force else base)
+    if force:
+        base.append("--force")
+    if city_admin_import_job_id is not None:
+        base.extend(["--city-admin-import-job-id", str(city_admin_import_job_id)])
+    return run_due_import_jobs(base)
 
 
 def summarize_import_results(payload: dict[str, Any]) -> dict[str, int | str | None]:

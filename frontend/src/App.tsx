@@ -12,6 +12,7 @@ import './styles/place-ui-skeleton.css'
 import './styles/place-map.css'
 import './styles/telegram-mini-app.css'
 import './styles/place-refinements.css'
+import './styles/debug.css'
 import { HomePage } from './pages/home/HomePage'
 import { NearbyPage } from './pages/nearby/NearbyPage'
 import { OpenNowPage } from './pages/open-now/OpenNowPage'
@@ -56,14 +57,16 @@ import { AdminDataPipelinePage } from './pages/admin/AdminDataPipelinePage'
 import { AdminDestinationsPage } from './pages/admin/AdminDestinationsPage'
 import { AdminDiscoveryPage } from './pages/admin/AdminDiscoveryPage'
 import { AdminDestinationDetailPage } from './pages/admin/AdminDestinationDetailPage'
+import { AdminDebugReportsPage } from './pages/admin/AdminDebugReportsPage'
 import { CityRouteScope } from './features/city-routing/CityRouteScope'
 import { LegacyCityRedirect } from './features/city-routing/LegacyCityRedirect'
+import { GlobalDebugToolbar } from './shared/debug/GlobalDebugToolbar'
 
 function AdminPage({ children }: { children: ReactNode }) { return <AdminRouteGuard><AdminLayout>{children}</AdminLayout></AdminRouteGuard> }
 function CityPage({ children }: { children: ReactNode }) { return <CityRouteScope>{children}</CityRouteScope> }
 
 function App() {
-  return <BrowserRouter><Routes>
+  return <BrowserRouter><GlobalDebugToolbar /><Routes>
     <Route path="/" element={<HomePage />} />
     <Route path="/open-now" element={<OpenNowPage />} />
     <Route path="/nearby" element={<NearbyPage />} />
@@ -95,6 +98,7 @@ function App() {
     <Route path="/admin/imports" element={<AdminPage><AdminImportJobsPage /></AdminPage>} />
     <Route path="/admin/data-pipeline" element={<AdminPage><AdminDataPipelinePage /></AdminPage>} />
     <Route path="/admin/discovery" element={<AdminPage><AdminDiscoveryPage /></AdminPage>} />
+    <Route path="/admin/debug-reports" element={<AdminPage><AdminDebugReportsPage /></AdminPage>} />
     <Route path="/admin/destinations" element={<AdminPage><AdminDestinationsPage /></AdminPage>} />
     <Route path="/admin/destinations/:slug" element={<AdminPage><AdminDestinationDetailPage /></AdminPage>} />
     <Route path="/admin/imports/:citySlug/jobs/:jobId/changes" element={<AdminPage><AdminImportJobChangesPage /></AdminPage>} />

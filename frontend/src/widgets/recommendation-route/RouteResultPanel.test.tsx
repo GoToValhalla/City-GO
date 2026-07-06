@@ -1,4 +1,5 @@
 /* @vitest-environment jsdom */
+import '@testing-library/jest-dom/vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RecommendationRouteResponse } from '../../api/recommendations/recommendationRoute.types'
@@ -42,6 +43,9 @@ describe('route result panel smoke', () => {
     expect(screen.getAllByText(/Маршрут слабый/).length).toBeGreaterThan(0)
     expect(screen.getByText('Маршрут пока короткий из-за качества доступных данных.')).toBeTruthy()
     expect(screen.queryByText('route_short_due_to_low_place_density')).toBeNull()
+    expect(screen.getByRole('button', { name: /Начать маршрут/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Сообщить о проблеме' })).toBeTruthy()
+    expect(screen.queryByText('Техническая диагностика')).toBeNull()
   })
 })
 

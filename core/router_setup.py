@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from routers.destinations import router as destinations_router
+from routers.debug_reports import router as debug_reports_router
 from routers.admin_destinations import router as admin_destinations_router
 from routers.admin_discovery import router as admin_discovery_router
 from routers.admin_destination_pipeline import router as admin_destination_pipeline_router
@@ -81,6 +82,7 @@ def include_app_routers(app: FastAPI) -> None:
 
 _ROOT_ROUTERS = (
     admin_taxonomy_router,
+    debug_reports_router,
     admin_router,
     admin_read_models_router,
     admin_reviews_router,

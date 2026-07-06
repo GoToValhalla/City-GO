@@ -1,17 +1,19 @@
 import { env } from './env'
 
-const STORAGE_KEY = 'city-go-debug-enabled'
+const STORAGE_KEY = 'citygo.debug'
+const LEGACY_STORAGE_KEY = 'city-go-debug-enabled'
 
 const readStored = (): boolean | null => {
   try {
     const value = window.localStorage.getItem(STORAGE_KEY)
-    if (value === null) return null
-    return value === '1'
+    const fallback = value ?? window.localStorage.getItem(LEGACY_STORAGE_KEY)
+    if (fallback === null) return null
+    return fallback === '1' || fallback === 'true'
   } catch { return null }
 }
 
 const store = (enabled: boolean): void => {
-  try { window.localStorage.setItem(STORAGE_KEY, enabled ? '1' : '0') } catch { return }
+  try { window.localStorage.setItem(STORAGE_KEY, enabled ? 'true' : 'false') } catch { return }
 }
 
 export const syncDebugQueryFlag = (): void => {

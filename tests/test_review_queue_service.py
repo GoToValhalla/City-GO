@@ -1,27 +1,25 @@
 from __future__ import annotations
 
 from models.city_admin_import_job import CityAdminImportJob
-from services.review_queue_service import ensure_review_item
+import pytest
+
+from services.review_queue_service import ReviewQueueJobLinkError, ensure_review_item
 
 
-def test_review_queue_drops_invalid_job_id_without_breaking_import(db_session, city_factory, place_factory):
+def test_review_queue_invalid_job_id_fails_before_fk_crash(db_session, city_factory, place_factory):
     city = city_factory(slug="review-invalid-job", name="Review Invalid Job")
     place = place_factory(city_id=city.id, slug="review-invalid-job-place", title="Review Invalid Job Place")
 
-    item = ensure_review_item(
-        db_session,
-        city_id=city.id,
-        place_id=place.id,
-        field_name="photo",
-        reason="missing_photo",
-        job_id=999999,
-        payload={"source": "collector"},
-    )
-    db_session.commit()
-    db_session.refresh(item)
-
-    assert item.job_id is None
-    assert item.payload == {"source": "collector", "dropped_invalid_job_id": 999999}
+    with pytest.raises(ReviewQueueJobLinkError, match="city_admin_import_jobs.id=999999"):
+        ensure_review_item(
+            db_session,
+            city_id=city.id,
+            place_id=place.id,
+            field_name="photo",
+            reason="missing_photo",
+            job_id=999999,
+            payload={"source": "collector"},
+        )
 
 
 def test_review_queue_keeps_valid_city_admin_import_job_id(db_session, city_factory, place_factory):

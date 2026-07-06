@@ -4,6 +4,7 @@ import { AppHeader } from '../../components/ui/AppHeader'
 import type { Place } from '../../entities/place/model/types'
 import { filterPlaces } from '../../features/place-search/model/filterPlaces'
 import { getCurrentCity, type CityOption } from '../../shared/city/currentCity'
+import { DiagnosticsPanel } from '../../shared/debug/DiagnosticsPanel'
 import { HomeHero } from '../../widgets/home/HomeHero'
 import { HomeStats } from '../../widgets/home/HomeStats'
 import { PlacesSection } from '../../widgets/home/PlacesSection'
@@ -64,6 +65,7 @@ export const HomePage = () => {
           <QuickActions />
           <HomeStats loading={loading} placesCount={statsPlacesCount} />
           <PlacesSection loading={loading} error={error} places={filteredPlaces} />
+          <DiagnosticsPanel compact payload={{ screen: 'home', category: 'ui', severity: error ? 'error' : 'info', city_slug: city.slug, title: 'Home diagnostics', summary: error ?? `${statsPlacesCount} places shown`, response_summary: { places_total: placesTotal, filtered: filteredPlaces.length } }} />
         </main>
       </div>
     </div>

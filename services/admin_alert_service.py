@@ -58,10 +58,11 @@ def send_admin_alert(
     city_slug: str | None = None,
     job_id: int | None = None,
     details: dict[str, Any] | None = None,
+    chat_id_override: str | None = None,
 ) -> dict[str, object]:
     """Send a best-effort Telegram alert without breaking background jobs."""
     token = settings.telegram_bot_token or settings.bot_token
-    chat_id = settings.telegram_chat_id
+    chat_id = chat_id_override or settings.telegram_chat_id
     if not token or not chat_id:
         print(
             "admin_alert_not_configured: set TELEGRAM_CHAT_ID and "
