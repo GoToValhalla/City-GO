@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
 from models.place import Place
@@ -43,15 +43,20 @@ def calculate_quality_v2(place: Place) -> QualityResult:
     components["opening_hours"] = 8 if bool(place.opening_hours) else 0
     components["contacts"] = 7 if _valid_phone(place.phone) or _valid_website(place.website) else 0
     components["verification"] = 10 if place.verification_status == "verified" else 3 if place.verification_status != "rejected" else 0
-    components["freshness"] = 8 if place.updated_at and place.updated_at >= datetime.utcnow() - timedelta(days=365) else 2
+    components["freshness"] = 8 if _is_fresh(place.updated_at, max_age_days=365) else 2
     components["source_confidence"] = max(0, min(7, round((place.confidence or 0) * 7)))
     components["duplicate_risk"] = 5 if not place.is_duplicate_suspected else 0
 
-    if not components["address"]: recommendations.append("Добавить адрес.")
-    if not components["photo"]: recommendations.append("Добавить подтверждённое фото.")
-    if components["description"] < 10: recommendations.append("Дополнить описание места.")
-    if not components["opening_hours"]: warnings.append("Не указаны часы работы.")
-    if place.is_duplicate_suspected: blocking.append("Есть риск дубликата.")
+    if not components["address"]:
+        recommendations.append("Добавить адрес.")
+    if not components["photo"]:
+        recommendations.append("Добавить подтверждённое фото.")
+    if components["description"] < 10:
+        recommendations.append("Дополнить описание места.")
+    if not components["opening_hours"]:
+        warnings.append("Не указаны часы работы.")
+    if place.is_duplicate_suspected:
+        blocking.append("Есть риск дубликата.")
 
     score = max(0, min(100, sum(components.values())))
     bucket = "excellent" if score >= 85 else "good" if score >= 70 else "needs_work" if score >= 45 else "critical"
@@ -61,6 +66,14 @@ def calculate_quality_v2(place: Place) -> QualityResult:
 
 def publication_ready(result: QualityResult) -> bool:
     return not result.blocking_issues
+
+
+def _is_fresh(updated_at: datetime | None, *, max_age_days: int) -> bool:
+    if updated_at is None:
+        return False
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    return updated_at >= datetime.now(timezone.utc) - timedelta(days=max_age_days)
 
 
 def _present(value: object) -> bool:
@@ -77,6 +90,7 @@ def _valid_phone(phone: str | None) -> bool:
 
 
 def _valid_website(website: str | None) -> bool:
-    if not website: return False
+    if not website:
+        return False
     parsed = urlparse(website if "://" in website else f"https://{website}")
     return bool(parsed.netloc and "." in parsed.netloc)
