@@ -101,6 +101,12 @@ class Settings(BaseSettings):
     verification_scheduler_interval_hours: int = 24
     verification_scheduler_city_slugs: str = ""
 
+    # Admin import worker fallback scheduler. Production web runtime enables it
+    # implicitly so queued admin imports are consumed even without a separate daemon.
+    import_worker_scheduler_enabled: bool = False
+    import_worker_scheduler_interval_seconds: int = 15
+    import_worker_scheduler_batch_limit: int = 1
+
     # Destination-first foundation (phased rollout; defaults keep legacy city flow).
     destination_foundation_enabled: bool = False
     destination_catalog_reads_enabled: bool = False
