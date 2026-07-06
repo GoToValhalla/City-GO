@@ -14,7 +14,8 @@ def _clean(value: object) -> str | None:
 
 
 def first_image(place: Any, image_urls: list[str] | None) -> str | None:
-    return (image_urls or [_clean(getattr(place, "image_url", None)) or None])[0]
+    del place
+    return image_urls[0] if image_urls else None
 
 
 def hours_text(value: object) -> object | None:
