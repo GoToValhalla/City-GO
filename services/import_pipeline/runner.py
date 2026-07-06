@@ -40,7 +40,7 @@ def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_
   readiness=compute_city_readiness(db,city_slug=city.slug) or {};results["readiness"]=readiness;set_step(job,STEP_COMPUTING_READINESS,detail={"readiness_score":readiness.get("readiness_score")})
   if total<=0:raise RuntimeError("OSM import finished without places")
   set_step(job,STEP_READY_FOR_REVIEW,successful=len(ids),processed=len(ids));job.status="success_with_warnings" if warnings else "success";job.finished_at=datetime.utcnow();job.step_details={**dict(job.step_details or {}),"warnings":warnings,"changed_place_ids":ids,"has_changes":bool(ids),"import_summary":summary}
-  if ids or original[0]=="importing":city.launch_status="review_required";city.is_active=False
+  if original[0]=="importing":city.launch_status="review_required";city.is_active=False
   else:city.launch_status,city.is_active=original
   city.last_import_at=job.finished_at;log_import_event(db,event="import_pipeline_finished",city_slug=city.slug,actor_id=actor_id,message=f"Pipeline #{job.id}: {len(ids)} изменений",details={"job_id":job.id,**results});db.commit()
   if notify_completion:_notify(city,job,total,len(ids),readiness,warnings)
@@ -51,7 +51,7 @@ def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_
   total=db.query(Place).filter(Place.city_id==city_id).count();detail={"step":job.current_step or "unknown","error":str(exc)[:1000],"places_total":total};results["partial_success_after_error"]=detail;job.last_error=str(exc)[:2000];job.finished_at=datetime.utcnow();job.step_details={**dict(job.step_details or {}),"changed_place_ids":ids,"has_changes":bool(ids),"partial_success_after_error":detail}
   if total>0:
    job.status="partial_success";set_step(job,STEP_READY_FOR_REVIEW,total=total,processed=total,successful=total,detail={"partial_success_after_error":detail})
-   if ids or original[0]=="importing":city.launch_status="review_required";city.is_active=False
+   if original[0]=="importing":city.launch_status="review_required";city.is_active=False
    else:city.launch_status,city.is_active=original
   else:job.status="failed";city.launch_status,city.is_active=original
   db.commit()
