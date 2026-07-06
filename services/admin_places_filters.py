@@ -6,6 +6,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Query, Session
 
 from models.city import City
+from models.destination import Destination, DestinationPlaceMembership
 from models.place import Place
 from services.admin_backlog_clauses import reason_clause
 from services.place_quality_signals import PLACEHOLDER_SQL_PATTERNS
@@ -77,6 +78,7 @@ def apply_place_filters(
     query: Query,
     *,
     city_slug: str | None = None,
+    destination_slug: str | None = None,
     publication_status: str | None = None,
     verification_status: str | None = None,
     category: str | None = None,
@@ -98,6 +100,16 @@ def apply_place_filters(
 ) -> Query:
     if city_slug:
         query = query.join(City).filter(City.slug == city_slug)
+    if destination_slug:
+        query = (
+            query.join(DestinationPlaceMembership, DestinationPlaceMembership.place_id == Place.id)
+            .join(Destination, Destination.id == DestinationPlaceMembership.destination_id)
+            .filter(
+                Destination.slug == destination_slug,
+                DestinationPlaceMembership.is_hidden.is_(False),
+                DestinationPlaceMembership.invalidated_at.is_(None),
+            )
+        )
     if publication_status:
         query = query.filter(Place.publication_status == publication_status)
     if verification_status:

@@ -4,6 +4,7 @@ import type { AdminPlace, AdminPlacesResponse } from './adminTypes'
 
 export type PlacesListFilters = {
   citySlug: string
+  destinationSlug: string
   preset: string
   pubStatus: string
   verifyStatus: string
@@ -30,6 +31,7 @@ const buildQuery = (filters: PlacesListFilters, offset: number) => {
   const sp = new URLSearchParams({ limit: String(filters.limit), offset: String(offset), sort: filters.sort, direction: filters.direction })
   const values: Record<string, string> = {
     city_slug: filters.citySlug,
+    destination_slug: filters.destinationSlug,
     preset: filters.preset,
     publication_status: filters.pubStatus,
     verification_status: filters.verifyStatus,

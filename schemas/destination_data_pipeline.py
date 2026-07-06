@@ -50,6 +50,8 @@ class DestinationPipelineRunList(BaseModel):
 
 class DestinationReadinessRead(BaseModel):
     destination_slug: str
+    bootstrap_ready: bool = False
+    bootstrap_blockers: list[str] = Field(default_factory=list)
     readiness_score: int
     places_total: int
     published_places: int

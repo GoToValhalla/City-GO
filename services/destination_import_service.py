@@ -7,15 +7,22 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.destination import Destination, DestinationPlaceMembership, DestinationScope
 from models.place import Place
-from services.destination_candidate_adapter import DestinationCandidate, collect_scope_candidates
+from services.destination_candidate_adapter import DestinationCandidate, DestinationSourceError, collect_scope_candidates
 from services.destination_bbox import point_in_bbox
 from services.destination_membership_service import upsert_membership
 from services.destination_pipeline_counters import add_counter
 from services.place_merge_policy import is_service_only_category
 
 
-def import_destination_scope(db: Session, destination: Destination, scope: DestinationScope, counters: dict[str, int], *, dry_run: bool) -> list[Place]:
-    candidates = collect_scope_candidates(destination, scope)
+def import_destination_scope(db: Session, destination: Destination, scope: DestinationScope, counters: dict[str, int], *, dry_run: bool, errors: list[dict[str, object]] | None = None) -> list[Place]:
+    try:
+        candidates = collect_scope_candidates(destination, scope)
+    except DestinationSourceError as exc:
+        add_counter(counters, "errors_count")
+        add_counter(counters, "source_errors")
+        if errors is not None:
+            errors.append({"stage": "importing", "scope_code": scope.code, "message": str(exc)[:500]})
+        return []
     counters["candidates_found"] += len(candidates)
     add_counter(counters, "scopes_processed")
     if dry_run:
@@ -23,6 +30,8 @@ def import_destination_scope(db: Session, destination: Destination, scope: Desti
     city_id = _city_id(db, destination, scope)
     if city_id is None:
         add_counter(counters, "errors_count")
+        if errors is not None:
+            errors.append({"stage": "importing", "scope_code": scope.code, "message": "Не найден активный город для записи мест"})
         return []
     places = [_upsert_candidate(db, city_id, destination, scope, candidate, counters) for candidate in candidates]
     scope.last_imported_at = datetime.now(timezone.utc)
@@ -48,6 +57,7 @@ def _upsert_candidate(db: Session, city_id: int, destination: Destination, scope
 
 
 def _new_place(city_id: int, candidate: DestinationCandidate, service_only: bool) -> Place:
+    changes = candidate.changes or {}
     return Place(
         city_id=city_id,
         slug=candidate.slug,
@@ -56,6 +66,10 @@ def _new_place(city_id: int, candidate: DestinationCandidate, service_only: bool
         lng=candidate.lng,
         category=candidate.category,
         canonical_category=candidate.category,
+        short_description=changes.get("short_description") if isinstance(changes.get("short_description"), str) else None,
+        address=changes.get("address") if isinstance(changes.get("address"), str) else None,
+        opening_hours=changes.get("opening_hours"),
+        average_visit_duration_minutes=changes.get("average_visit_duration_minutes") if isinstance(changes.get("average_visit_duration_minutes"), int) else None,
         source=candidate.source,
         is_active=True,
         is_published=not service_only,

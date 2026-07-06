@@ -70,3 +70,23 @@
   gap: 8px;
   margin: 16px 0;
 }
+
+.admin-link-button {
+  padding: 0;
+  color: var(--link-admin-color, #0b7285);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.admin-checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+}
+
+.admin-empty-state {
+  color: var(--text-admin-secondary, #5c6773);
+}

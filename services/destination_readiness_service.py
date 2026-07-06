@@ -8,6 +8,7 @@ from models.destination_data_pipeline import DestinationDataPipelineRun
 from models.place import Place
 from models.place_merge_review import ReviewItem
 from schemas.destination_data_pipeline import DestinationReadinessRead
+from services.destination_bootstrap_service import destination_bootstrap_status
 
 
 def build_destination_readiness(db: Session, destination: Destination) -> DestinationReadinessRead:
@@ -20,9 +21,12 @@ def build_destination_readiness(db: Session, destination: Destination) -> Destin
     coverage = _coverage(query, total)
     score = _score(total, published, route, coverage, pending)
     last = _last_run(db, destination.id)
+    bootstrap_ready, bootstrap_blockers = destination_bootstrap_status(db, destination)
     destination.readiness_score = score
     return DestinationReadinessRead(
         destination_slug=destination.slug,
+        bootstrap_ready=bootstrap_ready,
+        bootstrap_blockers=bootstrap_blockers,
         readiness_score=score,
         places_total=total,
         published_places=published,

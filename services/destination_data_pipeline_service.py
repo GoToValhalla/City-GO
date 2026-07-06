@@ -9,6 +9,7 @@ from models.destination_data_pipeline import DestinationDataPipelineRun
 from models.place import Place
 from schemas.destination_data_pipeline import DestinationPipelineRunRequest
 from services.admin_audit_service import write_admin_audit_log
+from services.destination_bootstrap_service import destination_bootstrap_status
 from services.destination_enrichment_pipeline import enrich_destination_places
 from services.destination_import_service import import_destination_scope
 from services.destination_pipeline_lifecycle import create_run, idempotent_run, member_places, selected_scopes, stage
@@ -19,13 +20,29 @@ from services.destination_readiness_service import build_destination_readiness
 IMPORT_MODES = {"full", "import_only"}
 ENRICH_MODES = {"full", "enrich_only"}
 RECALC_MODES = {"full", "membership_recalc_only"}
+ACTIVE_STATUSES = {"queued", "running"}
+
+
+class DestinationPipelinePreconditionError(ValueError):
+    def __init__(self, message: str, *, status_code: int = 409) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def start_destination_pipeline(db: Session, destination: Destination, body: DestinationPipelineRunRequest, *, actor: str) -> DestinationDataPipelineRun:
     existing = idempotent_run(db, destination.id, body.idempotency_key)
     if existing is not None:
         return existing
+    active = active_destination_run(db, destination.id)
+    if active is not None:
+        active.message = "Уже есть активный прогон"
+        return active
     scopes = selected_scopes(db, destination.id, body.scope_ids)
+    ready, blockers = destination_bootstrap_status(db, destination)
+    if not ready:
+        raise DestinationPipelinePreconditionError(f"Направление не готово к сбору: {', '.join(blockers)}", status_code=422)
+    if not scopes:
+        raise DestinationPipelinePreconditionError("Нет включённых контуров для сбора", status_code=422)
     run = create_run(db, destination, body, scopes, actor)
     write_admin_audit_log(db, actor=actor, action="destination_pipeline_run_started", entity_type="destination", entity_id=destination.id, new_value={"mode": body.mode, "dry_run": body.dry_run, "scope_ids": run.scope_ids})
     db.commit()
@@ -51,7 +68,7 @@ def _execute_run(db: Session, destination: Destination, run: DestinationDataPipe
     places: list[Place] = []
     stage(run, "importing" if run.mode in IMPORT_MODES else "preparing")
     try:
-        places = _import(db, destination, scopes, counters, run.dry_run) if run.mode in IMPORT_MODES else member_places(db, destination.id)
+        places = _import(db, destination, scopes, counters, run.dry_run, errors) if run.mode in IMPORT_MODES else member_places(db, destination.id)
         stage(run, "enriching")
         if run.mode in ENRICH_MODES:
             enrich_destination_places(db, places, counters, actor=actor, dry_run=run.dry_run)
@@ -74,7 +91,16 @@ def _execute_run(db: Session, destination: Destination, run: DestinationDataPipe
     return run
 
 
-def _import(db: Session, destination: Destination, scopes: list[DestinationScope], counters: dict[str, int], dry_run: bool) -> list[Place]:
+def _import(db: Session, destination: Destination, scopes: list[DestinationScope], counters: dict[str, int], dry_run: bool, errors: list[dict[str, object]]) -> list[Place]:
     counters["scopes_total"] = len(scopes)
-    nested = [import_destination_scope(db, destination, scope, counters, dry_run=dry_run) for scope in scopes]
+    nested = [import_destination_scope(db, destination, scope, counters, dry_run=dry_run, errors=errors) for scope in scopes]
     return [place for group in nested for place in group]
+
+
+def active_destination_run(db: Session, destination_id: int) -> DestinationDataPipelineRun | None:
+    return (
+        db.query(DestinationDataPipelineRun)
+        .filter(DestinationDataPipelineRun.destination_id == destination_id, DestinationDataPipelineRun.status.in_(ACTIVE_STATUSES))
+        .order_by(DestinationDataPipelineRun.created_at.desc(), DestinationDataPipelineRun.id.desc())
+        .first()
+    )

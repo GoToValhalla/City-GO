@@ -6,6 +6,7 @@ import os
 
 # alembic fileConfig сбрасывает handlers pytest caplog
 os.environ["ALEMBIC_SKIP_FILE_CONFIG"] = "1"
+os.environ.setdefault("CITYGO_DESTINATION_SOURCE_ADAPTER", "deterministic")
 from typing import Generator
 
 import allure

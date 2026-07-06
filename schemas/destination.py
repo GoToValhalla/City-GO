@@ -31,6 +31,12 @@ class DestinationScopeSummary(BaseModel):
     code: str
     name: str
     scope_type: str
+    import_strategy: str = "single_bbox"
+    import_profile: str = "tourist_core"
+    bbox: dict[str, object] | None = None
+    polygon: dict[str, object] | None = None
+    priority: int = 0
+    status: str = "draft"
     enabled: bool
     is_walkable_cluster: bool = False
 
@@ -62,6 +68,20 @@ class AdminDestinationCreate(BaseModel):
     is_published: bool = False
 
 
+class AdminDestinationUpdate(BaseModel):
+    slug: str | None = Field(default=None, min_length=2, max_length=120)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    destination_type: str | None = None
+    parent_id: int | None = None
+    legacy_city_id: int | None = None
+    center_lat: float | None = None
+    center_lng: float | None = None
+    bbox: dict[str, object] | None = None
+    launch_status: str | None = None
+    is_published: bool | None = None
+    is_active: bool | None = None
+
+
 class AdminDestinationScopeCreate(BaseModel):
     code: str
     name: str
@@ -73,6 +93,19 @@ class AdminDestinationScopeCreate(BaseModel):
     is_walkable_cluster: bool = False
     priority: int = 0
     enabled: bool = True
+
+
+class AdminDestinationScopeUpdate(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    scope_type: str | None = None
+    import_strategy: str | None = None
+    bbox: dict[str, object] | None = None
+    polygon: dict[str, object] | None = None
+    import_profile: str | None = None
+    is_walkable_cluster: bool | None = None
+    priority: int | None = None
+    enabled: bool | None = None
 
 
 class AdminAssignPlaceRequest(BaseModel):

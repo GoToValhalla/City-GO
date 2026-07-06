@@ -4,7 +4,7 @@
 
 Destination Data Pipeline v1 связывает уже существующий Destination-first foundation с реальным операторским потоком:
 
-Destination + DestinationScope → backend-owned run → deterministic scope candidates → Place create/upsert → DestinationPlaceMembership → deterministic enrichment task → `PlaceDataMergeService` safe apply или `ReviewItem` → readiness metrics → admin workspace → public `/places?destination_slug=...` и route candidates under feature flag.
+Destination + DestinationScope → backend-owned run → production OSM/Overpass candidates → Place create/upsert → DestinationPlaceMembership → enrichment task → `PlaceDataMergeService` safe apply или `ReviewItem` → readiness metrics → admin workspace → public `/places?destination_slug=...` и route candidates under feature flag.
 
 ## Основные сущности
 
@@ -23,6 +23,11 @@ Destination + DestinationScope → backend-owned run → deterministic scope can
 - `GET /admin/destinations/{slug}/data-pipeline/runs/{run_id}`
 - `POST /admin/destinations/{slug}/data-pipeline/runs/{run_id}/stop`
 - `POST /admin/destinations/{slug}/memberships/recalculate`
+- `POST /admin/destinations`
+- `PATCH /admin/destinations/{slug}`
+- `POST /admin/destinations/{slug}/scopes`
+- `PATCH /admin/destinations/{slug}/scopes/{scope_id}`
+- `DELETE /admin/destinations/{slug}/scopes/{scope_id}`
 - `GET /admin/destinations/{slug}/readiness`
 - `GET /admin/destinations/{slug}/review-items`
 
@@ -31,7 +36,7 @@ Write endpoints create admin audit log rows.
 ## Pipeline stages
 
 1. `preparing`: validates destination and enabled scopes.
-2. `importing`: deterministic bbox adapter collects candidates from enabled scopes.
+2. `importing`: OSM/Overpass adapter collects candidates from enabled scopes.
 3. `enriching`: places missing address/description/hours/duration receive deterministic `EnrichmentTask`.
 4. `merging`: merge is performed only by `PlaceDataMergeService`.
 5. `recalculating_memberships`: bbox recalc updates materialized memberships and writes overlap conflicts.
@@ -69,6 +74,19 @@ Runs expose:
 
 This is not used on the public hot path.
 
+## Bootstrap readiness
+
+The same readiness response includes:
+
+- `bootstrap_ready`
+- `bootstrap_blockers`
+
+The admin UI disables collection until blockers are resolved:
+
+- `NO_SCOPES`: no collection contours exist.
+- `NO_ENABLED_SCOPES`: contours exist, but all are disabled.
+- `INVALID_SCOPE_GEOMETRY`: at least one enabled contour has an invalid bbox.
+
 ## Admin workspace
 
 `AdminDestinationDetailPage` now shows:
@@ -96,7 +114,8 @@ Legacy `/places?city_slug=...` and city route payloads remain supported.
 
 ## Limitations
 
-- Local v1 uses bbox JSON and deterministic adapter; no PostGIS requirement and no Docker requirement.
+- Local v1 uses bbox fields and no PostGIS requirement.
+- Tests can force `CITYGO_DESTINATION_SOURCE_ADAPTER=deterministic`; production default is `osm_overpass`.
 - `places.city_id` remains non-null. For destinations without `legacy_city_id`, import resolves an existing active city whose center is inside the scope bbox; if none exists, the run is partial with an error counter.
 - Stop endpoint can cancel queued/running rows; synchronous completed runs return `409`.
 - External source adapters can be added behind `collect_scope_candidates` without changing admin/public contracts.
@@ -131,3 +150,24 @@ cd frontend && npm run build
 10. `GET /places?destination_slug={pilot_slug}` again
 11. `POST /v1/user-routes/build` with destination payload
 12. verify admin workspace metrics and run history
+
+## Phone operator pilot: Куршская коса
+
+1. Откройте `/admin/destinations`.
+2. Создайте направление:
+   - name: `Куршская коса`
+   - slug: `kurshskaya-kosa`
+   - type: `Туристический кластер`
+3. Откройте страницу направления.
+4. Добавьте контур:
+   - code: `core`
+   - name: `Основной контур`
+   - profile: `Туристические места`
+   - south: `54.94`
+   - west: `20.43`
+   - north: `55.32`
+   - east: `20.99`
+   - enabled: да
+5. Убедитесь, что в готовности нет блокеров начальной настройки.
+6. Нажмите `Собрать и обогатить места`.
+7. После завершения откройте `Места направления` и публичный каталог.

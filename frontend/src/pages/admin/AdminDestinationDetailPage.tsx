@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { adminGet, adminPost, adminPostLong } from './adminApi'
+import { adminDelete, adminGet, adminPatch, adminPost, adminPostLong } from './adminApi'
 import { AdminLoading, AdminSectionError } from './shared/AdminStates'
 import './AdminDataPipeline.css'
 
@@ -9,8 +9,10 @@ type DestinationDetail = {
   title: string
   destination_type: string
   places_count: number
-  scopes: { id: number; code: string; name: string; scope_type: string; enabled: boolean }[]
+  scopes: ScopeRow[]
 }
+
+type ScopeRow = { id: number; code: string; name: string; scope_type: string; import_strategy: string; import_profile: string; bbox?: Record<string, number> | null; enabled: boolean }
 
 type MembershipRow = {
   id: number
@@ -31,6 +33,8 @@ type PipelineRun = {
   finished_at?: string | null
 }
 type Readiness = {
+  bootstrap_ready: boolean
+  bootstrap_blockers: string[]
   readiness_score: number
   places_total: number
   published_places: number
@@ -70,7 +74,10 @@ export const AdminDestinationDetailPage = () => {
   const [error, setError] = useState<string | null>(null)
   const [scopeCode, setScopeCode] = useState('catalog-core')
   const [scopeName, setScopeName] = useState('Основной каталог')
-  const [scopeBbox, setScopeBbox] = useState('{"south":54.5,"north":55.0,"west":20.0,"east":21.0}')
+  const [scopeProfile, setScopeProfile] = useState('tourist_core')
+  const [scopeEnabled, setScopeEnabled] = useState(true)
+  const [editingScopeId, setEditingScopeId] = useState<number | null>(null)
+  const [scopeBox, setScopeBox] = useState({ south: '', west: '', north: '', east: '' })
   const [assignPlaceId, setAssignPlaceId] = useState('')
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -106,13 +113,22 @@ export const AdminDestinationDetailPage = () => {
   }, [slug])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    if (!latestRun || !['queued', 'running'].includes(latestRun.status)) return undefined
+    const id = window.setInterval(() => { void load() }, 5000)
+    return () => window.clearInterval(id)
+  }, [latestRun?.status, load])
 
-  const runPipeline = async (mode: string) => {
-    setAction(mode)
+  const runPipeline = async () => {
+    if (!detail || !readiness?.bootstrap_ready) return
+    const activeScopes = detail.scopes.filter((scope) => scope.enabled)
+    const summary = activeScopes.map((scope) => `${scope.name} · ${profileLabel(scope.import_profile)}`).join('\n')
+    if (!window.confirm(`Собрать и обогатить места для направления «${detail.title}»?\n\nАктивные контуры:\n${summary || 'нет'}`)) return
+    setAction('full')
     setFormError(null)
     setNotice(null)
     try {
-      const data = await adminPostLong<{ message: string }>(`/admin/destinations/${slug}/data-pipeline/run`, { mode })
+      const data = await adminPostLong<{ message: string }>(`/admin/destinations/${slug}/data-pipeline/run`, { mode: 'full' })
       setNotice(data.message)
       await load()
     } catch (err) {
@@ -142,21 +158,62 @@ export const AdminDestinationDetailPage = () => {
     setSaving(true)
     setFormError(null)
     try {
-      const bbox = JSON.parse(scopeBbox) as Record<string, number>
-      await adminPost(`/admin/destinations/${slug}/scopes`, {
+      const body = {
         code: scopeCode,
         name: scopeName,
         scope_type: 'catalog',
         import_strategy: 'single_bbox',
-        bbox,
-        enabled: true,
-      })
+        import_profile: scopeProfile,
+        bbox: numericBbox(scopeBox),
+        enabled: scopeEnabled,
+      }
+      if (editingScopeId) await adminPatch(`/admin/destinations/${slug}/scopes/${editingScopeId}`, body)
+      else await adminPost(`/admin/destinations/${slug}/scopes`, body)
+      resetScopeForm()
       await load()
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Не удалось создать контур')
     } finally {
       setSaving(false)
     }
+  }
+
+  const editScope = (scope: ScopeRow) => {
+    setEditingScopeId(scope.id)
+    setScopeCode(scope.code)
+    setScopeName(scope.name)
+    setScopeProfile(scope.import_profile)
+    setScopeEnabled(scope.enabled)
+    setScopeBox({
+      south: String(scope.bbox?.south ?? ''),
+      west: String(scope.bbox?.west ?? ''),
+      north: String(scope.bbox?.north ?? ''),
+      east: String(scope.bbox?.east ?? ''),
+    })
+  }
+
+  const deleteScope = async (scope: ScopeRow) => {
+    if (!window.confirm(`Удалить контур «${scope.name}»?`)) return
+    setSaving(true)
+    setFormError(null)
+    try {
+      await adminDelete(`/admin/destinations/${slug}/scopes/${scope.id}`)
+      if (editingScopeId === scope.id) resetScopeForm()
+      await load()
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Не удалось удалить контур')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const resetScopeForm = () => {
+    setEditingScopeId(null)
+    setScopeCode('catalog-core')
+    setScopeName('Основной каталог')
+    setScopeProfile('tourist_core')
+    setScopeEnabled(true)
+    setScopeBox(emptyScopeBox)
   }
 
   const onAssignPlace = async (e: FormEvent) => {
@@ -209,14 +266,20 @@ export const AdminDestinationDetailPage = () => {
           <article className="admin-metric-card"><span>Скрыто служебных</span><strong>{readiness?.service_only_hidden ?? 0}</strong></article>
           <article className="admin-metric-card"><span>Проверки</span><strong>{readiness?.pending_reviews ?? reviews.length}</strong></article>
         </div>
+        {!readiness?.bootstrap_ready ? (
+          <div className="admin-state admin-state-warning">
+            Сбор пока недоступен: {(readiness?.bootstrap_blockers ?? []).map(bootstrapLabel).join(', ') || 'добавьте включённый контур'}
+          </div>
+        ) : null}
         <div className="admin-action-row">
-          <button type="button" className="admin-btn admin-btn-safe" disabled={Boolean(action)} onClick={() => void runPipeline('full')}>{action === 'full' ? 'Запуск…' : 'Запустить полный сбор данных'}</button>
-          <button type="button" className="admin-btn" disabled={Boolean(action)} onClick={() => void runPipeline('import_only')}>Только импорт</button>
-          <button type="button" className="admin-btn" disabled={Boolean(action)} onClick={() => void runPipeline('enrich_only')}>Только обогащение</button>
+          <button type="button" className="admin-btn admin-btn-safe" disabled={Boolean(action) || !readiness?.bootstrap_ready} onClick={() => void runPipeline()}>{action === 'full' ? 'Сбор запущен…' : 'Собрать и обогатить места'}</button>
           <button type="button" className="admin-btn" disabled={Boolean(action)} onClick={() => void recalculateMemberships()}>Пересчитать принадлежность мест</button>
         </div>
         <p className="admin-page-subtitle">Последний прогон: {latestRun ? `${statusLabel(latestRun.status)} · ${stageLabel(latestRun.stage)}` : 'ещё не запускался'}</p>
-        <p><a href={`/places?destination_slug=${detail.slug}`}>Открыть публичный каталог направления</a></p>
+        <div className="admin-action-row">
+          <Link className="admin-btn" to={`/admin/places?destination=${detail.slug}`}>Открыть места направления</Link>
+          <a className="admin-btn" href={`/places?destination_slug=${detail.slug}`}>Открыть публичный каталог направления</a>
+        </div>
       </section>
 
       <section className="admin-section">
@@ -235,19 +298,26 @@ export const AdminDestinationDetailPage = () => {
         <h2 className="admin-section-title">Контуры</h2>
         <div className="admin-table-wrap">
           <table className="admin-table">
-            <thead><tr><th>Код</th><th>Название</th><th>Тип</th><th>Статус</th></tr></thead>
+            <thead><tr><th>Код</th><th>Название</th><th>Профиль</th><th>Статус</th><th /></tr></thead>
             <tbody>
               {detail.scopes.map((s) => (
-                <tr key={s.id}><td>{s.code}</td><td>{s.name}</td><td>{scopeTypeLabel(s.scope_type)}</td><td>{s.enabled ? 'Включён' : 'Выключен'}</td></tr>
+                <tr key={s.id}><td>{s.code}</td><td>{s.name}</td><td>{profileLabel(s.import_profile)}</td><td>{s.enabled ? 'Включён' : 'Выключен'}</td><td><button type="button" className="admin-link-button" onClick={() => editScope(s)}>Править</button> · <button type="button" className="admin-link-button" onClick={() => void deleteScope(s)}>Удалить</button></td></tr>
               ))}
+              {!detail.scopes.length ? <tr><td colSpan={5}>Контуров пока нет</td></tr> : null}
             </tbody>
           </table>
         </div>
         <form className="admin-form-grid" onSubmit={(e) => void onCreateScope(e)}>
-          <input value={scopeCode} onChange={(e) => setScopeCode(e.target.value)} placeholder="Код контура" required />
-          <input value={scopeName} onChange={(e) => setScopeName(e.target.value)} placeholder="Название" required />
-          <textarea value={scopeBbox} onChange={(e) => setScopeBbox(e.target.value)} rows={3} aria-label="BBox JSON" />
-          <button type="submit" className="admin-btn admin-btn-safe" disabled={saving}>{saving ? 'Сохранение…' : 'Добавить контур'}</button>
+          <label className="admin-field"><span>Код</span><input value={scopeCode} onChange={(e) => setScopeCode(e.target.value)} required /></label>
+          <label className="admin-field"><span>Название</span><input value={scopeName} onChange={(e) => setScopeName(e.target.value)} required /></label>
+          <label className="admin-field"><span>Профиль сбора</span><select value={scopeProfile} onChange={(e) => setScopeProfile(e.target.value)}><option value="tourist_core">Туристические места</option><option value="food_and_coffee">Еда и кофе</option><option value="nature_walk">Прогулки и природа</option><option value="useful_services">Полезные сервисы</option></select></label>
+          <label className="admin-field"><span>Юг</span><input inputMode="decimal" value={scopeBox.south} onChange={(e) => setScopeBox((box) => ({ ...box, south: e.target.value }))} required /></label>
+          <label className="admin-field"><span>Запад</span><input inputMode="decimal" value={scopeBox.west} onChange={(e) => setScopeBox((box) => ({ ...box, west: e.target.value }))} required /></label>
+          <label className="admin-field"><span>Север</span><input inputMode="decimal" value={scopeBox.north} onChange={(e) => setScopeBox((box) => ({ ...box, north: e.target.value }))} required /></label>
+          <label className="admin-field"><span>Восток</span><input inputMode="decimal" value={scopeBox.east} onChange={(e) => setScopeBox((box) => ({ ...box, east: e.target.value }))} required /></label>
+          <label className="admin-field admin-checkbox-field"><input type="checkbox" checked={scopeEnabled} onChange={(e) => setScopeEnabled(e.target.checked)} /> Включён</label>
+          <button type="submit" className="admin-btn admin-btn-safe" disabled={saving}>{saving ? 'Сохранение…' : editingScopeId ? 'Сохранить контур' : 'Добавить контур'}</button>
+          {editingScopeId ? <button type="button" className="admin-btn admin-btn-muted" onClick={resetScopeForm}>Отменить правку</button> : null}
         </form>
       </section>
 
@@ -330,6 +400,15 @@ const statusLabel = (value: string) => ({
   cancelled: 'Остановлен',
 }[value] ?? 'Неизвестно')
 
+const numericBbox = (box: { south: string; west: string; north: string; east: string }) => ({
+  south: Number(box.south),
+  west: Number(box.west),
+  north: Number(box.north),
+  east: Number(box.east),
+})
+
+const emptyScopeBox = { south: '', west: '', north: '', east: '' }
+
 const stageLabel = (value: string) => ({
   preparing: 'Подготовка',
   importing: 'Импорт',
@@ -365,11 +444,18 @@ const sectionLabel = (value: string) => ({
   pending_reviews: 'заявки на проверку',
 }[value] ?? value)
 
-const scopeTypeLabel = (value: string) => ({
-  catalog: 'Каталог',
-  route: 'Маршруты',
-  all: 'Все сценарии',
-}[value] ?? 'Контур')
+const profileLabel = (value: string) => ({
+  tourist_core: 'Туристические места',
+  food_and_coffee: 'Еда и кофе',
+  nature_walk: 'Прогулки и природа',
+  useful_services: 'Полезные сервисы',
+}[value] ?? value)
+
+const bootstrapLabel = (value: string) => ({
+  NO_SCOPES: 'нет контуров',
+  NO_ENABLED_SCOPES: 'нет включённых контуров',
+  INVALID_SCOPE_GEOMETRY: 'проверьте координаты контура',
+}[value] ?? value)
 
 const assignmentLabel = (value: string) => ({
   legacy_city: 'Из города',

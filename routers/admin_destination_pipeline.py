@@ -12,7 +12,7 @@ from schemas.admin_review import ReviewItemRead
 from schemas.destination_data_pipeline import DestinationPipelineRunList, DestinationPipelineRunRequest, DestinationPipelineRunResponse, DestinationReadinessRead
 from services.admin_audit_service import write_admin_audit_log
 from services.city_destination_compatibility import get_destination_by_slug
-from services.destination_data_pipeline_service import start_destination_pipeline, stop_destination_pipeline
+from services.destination_data_pipeline_service import DestinationPipelinePreconditionError, start_destination_pipeline, stop_destination_pipeline
 from services.destination_pipeline_recalc import recalculate_destination_memberships
 from services.destination_pipeline_runs import latest_run, serialize_run
 from services.destination_readiness_service import build_destination_readiness
@@ -23,7 +23,10 @@ router = APIRouter(prefix="/admin/destinations", tags=["admin-destination-pipeli
 @router.post("/{slug}/data-pipeline/run", response_model=DestinationPipelineRunResponse)
 def run_destination_pipeline(slug: str, body: DestinationPipelineRunRequest, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> DestinationPipelineRunResponse:
     dest = _destination(db, slug)
-    run = start_destination_pipeline(db, dest, body, actor=auth.actor_id)
+    try:
+        run = start_destination_pipeline(db, dest, body, actor=auth.actor_id)
+    except DestinationPipelinePreconditionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return DestinationPipelineRunResponse(run=serialize_run(run, dest), message=run.message or "Прогон обработан")
 
 

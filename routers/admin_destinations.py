@@ -14,12 +14,24 @@ from schemas.destination import (
     AdminAssignPlaceRequest,
     AdminDestinationCreate,
     AdminDestinationScopeCreate,
+    AdminDestinationScopeUpdate,
+    AdminDestinationUpdate,
     AdminHidePlaceRequest,
     DestinationDetail,
     DestinationListResponse,
     DestinationMembershipRead,
 )
+from services.admin_audit_service import write_admin_audit_log
 from services.city_destination_compatibility import get_destination_by_slug
+from services.destination_admin_validation import (
+    ValidationIssue,
+    validate_bbox,
+    validate_coordinates,
+    validate_destination_type,
+    validate_required_text,
+    validate_slug,
+)
+from services.destination_data_pipeline_service import active_destination_run
 from services.destination_membership_service import hide_membership, upsert_membership
 from services.destination_service import create_destination, list_scopes
 
@@ -80,12 +92,40 @@ def admin_create_destination(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> DestinationDetail:
-    if db.query(Destination).filter(Destination.slug == payload.slug).first():
+    try:
+        data = _destination_create_data(payload)
+    except ValidationIssue as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+    if db.query(Destination).filter(Destination.slug == data["slug"]).first():
         raise HTTPException(status_code=409, detail="Destination slug already exists")
-    row = create_destination(db, payload.model_dump())
+    row = create_destination(db, data)
+    write_admin_audit_log(db, actor=auth.actor_id, action="destination_created", entity_type="destination", entity_id=row.id, new_value=data)
     db.commit()
     db.refresh(row)
     return read_destination(row.slug, db=db)
+
+
+@router.patch("/{slug}", response_model=DestinationDetail)
+def admin_update_destination(
+    slug: str,
+    payload: AdminDestinationUpdate,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> DestinationDetail:
+    dest = _destination_or_404(db, slug)
+    old = _destination_snapshot(dest)
+    try:
+        data = _destination_update_data(payload)
+    except ValidationIssue as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+    if "slug" in data and data["slug"] != dest.slug and db.query(Destination).filter(Destination.slug == data["slug"]).first():
+        raise HTTPException(status_code=409, detail="Destination slug already exists")
+    for key, value in data.items():
+        setattr(dest, key, value)
+    write_admin_audit_log(db, actor=auth.actor_id, action="destination_updated", entity_type="destination", entity_id=dest.id, old_value=old, new_value=_destination_snapshot(dest))
+    db.commit()
+    db.refresh(dest)
+    return read_destination(dest.slug, db=db)
 
 
 @router.get("/{slug}", response_model=DestinationDetail)
@@ -116,14 +156,62 @@ def admin_create_scope(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
-    dest = get_destination_by_slug(db, slug)
-    if dest is None:
-        raise HTTPException(status_code=404, detail="Destination not found")
-    scope = DestinationScope(destination_id=dest.id, **payload.model_dump())
+    dest = _destination_or_404(db, slug)
+    try:
+        data = _scope_create_data(payload)
+    except ValidationIssue as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+    if _scope_code_exists(db, dest.id, str(data["code"])):
+        raise HTTPException(status_code=409, detail="Scope code already exists")
+    scope = DestinationScope(destination_id=dest.id, **data)
     db.add(scope)
+    write_admin_audit_log(db, actor=auth.actor_id, action="destination_scope_created", entity_type="destination_scope", entity_id=None, new_value=data | {"destination_id": dest.id})
     db.commit()
     db.refresh(scope)
     return scope
+
+
+@router.patch("/{slug}/scopes/{scope_id}")
+def admin_update_scope(
+    slug: str,
+    scope_id: int,
+    payload: AdminDestinationScopeUpdate,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    dest = _destination_or_404(db, slug)
+    scope = _scope_or_404(db, dest.id, scope_id)
+    old = _scope_snapshot(scope)
+    try:
+        data = _scope_update_data(payload)
+    except ValidationIssue as exc:
+        raise HTTPException(status_code=422, detail=exc.message) from exc
+    if "code" in data and data["code"] != scope.code and _scope_code_exists(db, dest.id, str(data["code"])):
+        raise HTTPException(status_code=409, detail="Scope code already exists")
+    for key, value in data.items():
+        setattr(scope, key, value)
+    write_admin_audit_log(db, actor=auth.actor_id, action="destination_scope_updated", entity_type="destination_scope", entity_id=scope.id, old_value=old, new_value=_scope_snapshot(scope))
+    db.commit()
+    db.refresh(scope)
+    return scope
+
+
+@router.delete("/{slug}/scopes/{scope_id}")
+def admin_delete_scope(
+    slug: str,
+    scope_id: int,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+):
+    dest = _destination_or_404(db, slug)
+    scope = _scope_or_404(db, dest.id, scope_id)
+    if active_destination_run(db, dest.id) is not None:
+        raise HTTPException(status_code=409, detail="Нельзя удалить контур во время активного прогона")
+    snapshot = _scope_snapshot(scope)
+    db.delete(scope)
+    write_admin_audit_log(db, actor=auth.actor_id, action="destination_scope_deleted", entity_type="destination_scope", entity_id=scope.id, old_value=snapshot)
+    db.commit()
+    return {"deleted": True}
 
 
 @router.get("/{slug}/memberships", response_model=list[DestinationMembershipRead])
@@ -185,3 +273,72 @@ def admin_hide_place(
         raise HTTPException(status_code=404, detail="Membership not found")
     db.commit()
     return {"hidden": True}
+
+
+def _destination_or_404(db: Session, slug: str) -> Destination:
+    dest = get_destination_by_slug(db, slug)
+    if dest is None:
+        raise HTTPException(status_code=404, detail="Destination not found")
+    return dest
+
+
+def _destination_create_data(payload: AdminDestinationCreate) -> dict[str, object]:
+    data = payload.model_dump()
+    data["slug"] = validate_slug(str(data["slug"]))
+    data["name"] = validate_required_text(str(data["name"]), "Название")
+    data["destination_type"] = validate_destination_type(str(data.get("destination_type") or "region"))
+    validate_coordinates(data.get("center_lat"), data.get("center_lng"))
+    data["bbox"] = validate_bbox(data.get("bbox"))
+    return data
+
+
+def _destination_update_data(payload: AdminDestinationUpdate) -> dict[str, object]:
+    data = payload.model_dump(exclude_unset=True)
+    if "slug" in data and data["slug"] is not None:
+        data["slug"] = validate_slug(str(data["slug"]))
+    if "name" in data and data["name"] is not None:
+        data["name"] = validate_required_text(str(data["name"]), "Название")
+    if "destination_type" in data and data["destination_type"] is not None:
+        data["destination_type"] = validate_destination_type(str(data["destination_type"]))
+    validate_coordinates(data.get("center_lat"), data.get("center_lng"))
+    if "bbox" in data:
+        data["bbox"] = validate_bbox(data.get("bbox"))
+    return data
+
+
+def _scope_create_data(payload: AdminDestinationScopeCreate) -> dict[str, object]:
+    data = payload.model_dump()
+    data["code"] = validate_slug(str(data["code"]))
+    data["name"] = validate_required_text(str(data["name"]), "Название контура")
+    data["bbox"] = validate_bbox(data.get("bbox"))
+    return data
+
+
+def _scope_update_data(payload: AdminDestinationScopeUpdate) -> dict[str, object]:
+    data = payload.model_dump(exclude_unset=True)
+    if "code" in data and data["code"] is not None:
+        data["code"] = validate_slug(str(data["code"]))
+    if "name" in data and data["name"] is not None:
+        data["name"] = validate_required_text(str(data["name"]), "Название контура")
+    if "bbox" in data:
+        data["bbox"] = validate_bbox(data.get("bbox"))
+    return data
+
+
+def _scope_or_404(db: Session, destination_id: int, scope_id: int) -> DestinationScope:
+    scope = db.query(DestinationScope).filter_by(destination_id=destination_id, id=scope_id).first()
+    if scope is None:
+        raise HTTPException(status_code=404, detail="Scope not found")
+    return scope
+
+
+def _scope_code_exists(db: Session, destination_id: int, code: str) -> bool:
+    return db.query(DestinationScope.id).filter_by(destination_id=destination_id, code=code).first() is not None
+
+
+def _destination_snapshot(dest: Destination) -> dict[str, object]:
+    return {key: getattr(dest, key) for key in ("slug", "name", "destination_type", "center_lat", "center_lng", "bbox", "launch_status", "is_published", "is_active")}
+
+
+def _scope_snapshot(scope: DestinationScope) -> dict[str, object]:
+    return {key: getattr(scope, key) for key in ("code", "name", "scope_type", "import_strategy", "bbox", "import_profile", "priority", "enabled")}

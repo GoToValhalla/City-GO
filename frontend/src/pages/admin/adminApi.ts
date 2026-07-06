@@ -201,3 +201,8 @@ export const adminPatch = <T>(path: string, body?: unknown, options: AdminWriteO
   invalidateAdminGetCache(options)
   return adminRequest<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined, timeoutMs: options.timeoutMs })
 }
+
+export const adminDelete = <T>(path: string, options: AdminWriteOptions = {}) => {
+  invalidateAdminGetCache(options)
+  return adminRequest<T>(path, { method: 'DELETE', timeoutMs: options.timeoutMs })
+}

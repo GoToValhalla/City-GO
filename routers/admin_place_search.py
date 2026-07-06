@@ -17,6 +17,7 @@ router = APIRouter(prefix="/admin", tags=["admin-place-search"])
 @router.get("/places/search", response_model=AdminPlaceListResponse)
 def search_places(
     city_slug: str | None = None,
+    destination_slug: str | None = None,
     publication_status: str | None = None,
     verification_status: str | None = None,
     category: str | None = None,
@@ -45,6 +46,7 @@ def search_places(
     items, total = search_admin_places(
         db,
         city_slug=city_slug,
+        destination_slug=destination_slug,
         publication_status=publication_status,
         verification_status=verification_status,
         category=category,

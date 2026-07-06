@@ -11,13 +11,13 @@ import { useAdminPlacesList, type PlacesListFilters } from './useAdminPlacesList
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 
 const DEFAULT_FILTERS: PlacesListFilters = {
-  citySlug: '', preset: '', pubStatus: '', verifyStatus: '', category: '', routeEligible: '', active: '', searchable: '',
+  citySlug: '', destinationSlug: '', preset: '', pubStatus: '', verifyStatus: '', category: '', routeEligible: '', active: '', searchable: '',
   hasPhoto: '', hasAddress: '', hasDescription: '', hasPhone: '', hasWebsite: '', hasHours: '', lowConfidence: '',
   qualityTier: '', source: '', sort: 'updated', direction: 'desc', limit: 50, q: '',
 }
 
 const PARAM_KEYS: Record<keyof PlacesListFilters, string> = {
-  citySlug: 'city', preset: 'preset', pubStatus: 'publication', verifyStatus: 'verification', category: 'category',
+  citySlug: 'city', destinationSlug: 'destination', preset: 'preset', pubStatus: 'publication', verifyStatus: 'verification', category: 'category',
   routeEligible: 'routes', active: 'active', searchable: 'searchable', hasPhoto: 'photo', hasAddress: 'address',
   hasDescription: 'description', hasPhone: 'phone', hasWebsite: 'website', hasHours: 'hours', lowConfidence: 'confidence',
   qualityTier: 'quality', source: 'source', sort: 'sort', direction: 'direction', limit: 'limit', q: 'q',

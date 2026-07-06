@@ -5,7 +5,7 @@ COUNTER_KEYS = (
     "scopes_total", "scopes_processed", "candidates_found", "places_created",
     "places_updated", "duplicates_skipped", "memberships_created",
     "memberships_updated", "review_items_created", "enrichment_tasks_created",
-    "safe_merges_applied", "service_only_hidden", "errors_count",
+    "safe_merges_applied", "service_only_hidden", "errors_count", "source_errors",
 )
 
 
