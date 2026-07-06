@@ -106,11 +106,7 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
         job.finished_at = current
         job.last_error = job.last_error or "Import job stalled: no heartbeat before timeout"
         set_step(job, STEP_ERROR, detail={"stalled_at": current.isoformat(), "stalled": True})
-        city_slug = None
-        if city is not None:
-            city.launch_status = "import_failed"
-            city.is_active = False
-            city_slug = city.slug
+        city_slug = city.slug if city is not None else None
         alerts.append({"job_id": int(job.id), "city_slug": city_slug, "source": job.source, "last_error": job.last_error})
     if stalled:
         db.commit()
