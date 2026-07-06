@@ -10,22 +10,18 @@ alwaysApply: true
 
 ## Workflow
 
-1. Inspect relevant code (`routers/`, `services/`, `models/`, `frontend/src/`, `tests/`) before editing.
-2. Minimal diffs; reuse existing patterns; no architecture rewrites unless asked.
-3. Behavior changes → add/update tests; run narrow checks first, then broader regression if needed.
+1. Inspect relevant code before editing; minimal diffs; reuse existing patterns.
+2. Behavior changes → tests; narrow checks first.
+3. Proceed without approval prompts; commit/push only when user asks.
 4. Final reply: **changed files**, **checks run**, **risks**.
 
 ## Hard constraints
 
-- Admin/write paths: verify server-side auth; never trust client `actor`/`role`.
-- Do not worsen route/catalog eligibility (pharmacies, stops, service-only, low-value POIs stay out of tourist routes unless explicit).
-- Do not silently publish/hide cities or places via import/reconciliation.
-- Do not add docs/planning files unless requested.
+- Admin/write: server-side auth only; never trust client `actor`/`role`; audit writes.
+- Do not worsen route/catalog eligibility (pharmacies, service-only, low-value POIs).
+- Do not silently publish/hide cities/places via import/reconciliation.
+- No docs/planning files unless requested. Deep detail: `AGENTS.md` (read on demand).
 
 ## Pointers
 
-- API entry: `main.py`, `core/router_setup.py`
-- Route engine: `services/candidate_retrieval_service.py`, `services/route_builder_v2_service.py`
-- Visibility: `services/place_public_visibility.py`, `services/route_eligibility.py`
-- Config/flags: `core/config.py`
-- Agent workflow detail: `AGENTS.md` (read only when needed)
+`main.py` · `core/router_setup.py` · `services/candidate_retrieval_service.py` · `services/place_public_visibility.py` · `core/config.py`

@@ -1,0 +1,18 @@
+---
+description: Route engine pipeline and eligibility guardrails
+globs: "{services/**/route*,services/**/user_route*,services/candidate_retrieval_service.py,routers/user_routes.py,tests/test_*route*}"
+alwaysApply: false
+---
+
+# Route engine (scoped)
+
+Preserve pipeline: validation → candidates → hard/soft filters → scoring → assembly → fallback → warnings.
+
+- Do not silently drop places, relax filters, or trim stops without warnings/debug.
+- Separate hard vs soft filter removals; expose counts in debug/admin paths.
+- Low-value categories and non-route-eligible places must not enter tourist routes unless explicit.
+- Partial tail rebuild for live edit — do not full-rebuild when tail-only is enough.
+
+Key files: `services/candidate_retrieval_service.py`, `services/route_builder_v2_service.py`, `services/route_eligibility.py`.
+
+Full pipeline notes: `docs/` and `AGENTS.md` when debugging complex route loss.

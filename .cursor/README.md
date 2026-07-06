@@ -1,61 +1,35 @@
 # City GO — Cursor setup
 
-Short prompts + repo search beat pasted history. Rules and skills live here; `AGENTS.md` is the deep reference — open only when needed.
+Short prompts + repo search. Rules auto-apply by path; only `00-city-go-core` is always on.
 
 ## Modes
 
 | Mode | Use for |
 |------|---------|
-| **Ask** | Investigation, reading code, “why does X happen?” |
-| **Plan** | Large features, migrations, multi-area changes |
-| **Agent** | Scoped implementation with tests |
+| Ask | Investigation |
+| Plan | Large multi-area work |
+| Agent | Scoped implementation |
 
-Start a **new chat** after each logical unit (one endpoint, one admin screen, one CI fix).
+New chat per logical unit. Skills: `fix-ci`, `backend-endpoint`, `admin-ui-change`, `regression-tests`, `deploy-check`.
 
-## Skills (`.cursor/skills/`)
+## Rules (`.cursor/rules/`)
 
-| Skill | Use when |
-|-------|----------|
-| `fix-ci` | Red GitHub Actions |
-| `backend-endpoint` | New/changed API |
-| `admin-ui-change` | Admin frontend |
-| `regression-tests` | Lock in a bug fix |
-| `deploy-check` | Pre-deploy safety |
+| File | Scope |
+|------|--------|
+| `00-city-go-core.mdc` | Always on |
+| `backend-fastapi.mdc` | Python backend |
+| `frontend-admin.mdc` | Frontend/admin |
+| `tests-quality-gate.mdc` | Tests |
+| `ci-deploy.mdc` | CI/workflows |
+| `route-engine.mdc` | Route pipeline |
+| `data-import.mdc` | Import/taxonomy |
 
-Invoke by name in the prompt, e.g. “use fix-ci skill”.
-
-## Token tips
-
-- Ignore/index excludes: `.cursorignore`, `.cursorindexingignore`
-- Point to paths: `routers/user_routes.py`, not full file dumps
-- **Max Mode** only for broad audits spanning many modules
-
----
+Token excludes: `.cursorignore`, `.cursorindexingignore`.
 
 ## Prompt templates
 
-### 1. Small fix
+**Small fix:** `Task: … Files: … Run: pytest/npm target`
 
-```
-Task: <one sentence>
-Files likely involved: <paths if known>
-Constraints: minimal diff, add test if behavior changes
-Run: <pytest or npm test target>
-```
+**Investigate:** `Ask mode. Why …? Start: path. Root cause + minimal fix (no code unless asked).`
 
-### 2. Investigation
-
-```
-Ask mode. Why does <behavior> happen?
-Start from: <router/service/test path>
-Return: root cause, relevant files, suggested minimal fix (no code unless asked)
-```
-
-### 3. Plan-first feature
-
-```
-Plan mode. Feature: <summary>
-Areas: backend / frontend / migrations / tests
-Requirements: <bullets>
-Do not implement yet — output steps, files to touch, risks, test plan
-```
+**Plan feature:** `Plan mode. Feature: … Areas: … Output steps, files, risks, test plan — no implement.`
