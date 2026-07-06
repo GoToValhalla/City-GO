@@ -60,7 +60,13 @@ export const AdminReviewsPage = () => {
     finally { setBusy(false) }
   }
   const toggle = (field: string) => setSelected((current) => {
-    const next = new Set(current); next.has(field) ? next.delete(field) : next.add(field); return next
+    const next = new Set(current)
+    if (next.has(field)) {
+      next.delete(field)
+    } else {
+      next.add(field)
+    }
+    return next
   })
 
   if (loading) return <AdminLoading />
