@@ -77,6 +77,7 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                     run_city_import_job(db, city_id=city_id, actor_id=actor_id)
                 processed += 1
             except Exception as exc:  # noqa: BLE001
+                db.rollback()
                 failed += 1
                 error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
                 errors.append(error)
