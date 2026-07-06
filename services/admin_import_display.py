@@ -7,6 +7,7 @@ from models.city_admin_import_job import CityAdminImportJob
 from services.import_pipeline.progress import is_stalled, step_label
 from services.import_pipeline.steps import STEP_QUEUED
 
+ACTIVE_IMPORT_STATUSES = {"queued", "running"}
 FAILED_IMPORT_STATUSES = {"failed", "stalled", "import_failed"}
 REVIEWABLE_IMPORT_STATUSES = {"success", "success_with_warnings", "partial_success", "imported"}
 REVIEWABLE_DESTINATION_STATUSES = {"review_required", "imported"}
@@ -17,7 +18,7 @@ def is_published_city(city: City) -> bool:
 
 
 def is_active_import_job(job: CityAdminImportJob | None) -> bool:
-    return job is not None and job.status in {"queued", "running"}
+    return job is not None and job.status in ACTIVE_IMPORT_STATUSES
 
 
 def is_reviewable_import_job(job: CityAdminImportJob | None) -> bool:
@@ -57,6 +58,11 @@ def pipeline_warnings(job: CityAdminImportJob | None) -> list[dict[str, object]]
 def job_execution_failed(job: CityAdminImportJob | None) -> bool:
     if job is None:
         return False
+    # A queued/running job is the current execution. Do not classify it as failed
+    # from stale metrics left by an earlier run or from scopes_total > scopes_ok
+    # before the worker has actually processed any scope.
+    if job.status in ACTIVE_IMPORT_STATUSES:
+        return False
     if job.status in FAILED_IMPORT_STATUSES:
         return True
     if is_stalled(job):
@@ -79,6 +85,11 @@ def job_execution_failed(job: CityAdminImportJob | None) -> bool:
 def effective_failed_items(job: CityAdminImportJob | None) -> int:
     if job is None:
         return 0
+    # Active jobs have not produced a final result yet. Showing scopes_total as
+    # errors while status is queued/running creates the queued+failed
+    # contradiction seen in production.
+    if job.status in ACTIVE_IMPORT_STATUSES:
+        return int(job.failed_items or 0)
     base = int(job.failed_items or 0)
     if base > 0:
         return base
@@ -139,14 +150,14 @@ def import_execution_summary(
         "needs_review": diff.get("needs_review"),
         "scopes_total": scopes_total,
         "scopes_succeeded": scopes_ok,
-        "scopes_failed": max(scopes_total - scopes_ok, 0) if scopes_total else None,
+        "scopes_failed": max(scopes_total - scopes_ok, 0) if scopes_total and not is_active_import_job(job) else None,
         "route_eligible": None,
     }
     warnings: list[str] = []
     if summary["route_eligible"] is None:
         warnings.append("ROUTE_ELIGIBLE_UNKNOWN")
     if not diff and job is not None:
-        warnings.append("IMPORT_METRICS_PARTIAL")
+        warnings.append("IMPORT_METRICS_PENDING" if is_active_import_job(job) else "IMPORT_METRICS_PARTIAL")
     if warnings:
         summary["warnings"] = warnings
     return summary
@@ -165,41 +176,46 @@ def snapshot_warning(snapshot: dict[str, object] | None) -> dict[str, object] | 
 def resolve_import_display(city: City, job: CityAdminImportJob | None) -> dict[str, object]:
     city_published = is_published_city(city)
     active_job = is_active_import_job(job)
-    failed = job_execution_failed(job)
     raw_status = str(job.status if job is not None else city.launch_status)
     raw_step = str(job.current_step if job is not None else STEP_QUEUED)
     destination_publication_status = "published" if city_published else str(city.launch_status)
     job_execution_status = raw_status
-    if failed and job is not None:
-        display_status = raw_status
-        display_step = raw_step
-        display_step_label = step_label(raw_step)
-        status_group = "failed"
-    elif active_job:
+
+    # Current execution status is authoritative for queued/running jobs. Previous
+    # step_details or scope counters must not override it.
+    if active_job:
         display_status = raw_status
         display_step = raw_step
         display_step_label = step_label(raw_step)
         status_group = "running" if raw_status == "running" else "queued"
-    elif city_published and job is None:
-        display_status = "published"
-        display_step = "published"
-        display_step_label = "Опубликован"
-        status_group = "published"
-    elif city_published and not failed:
-        display_status = raw_status
-        display_step = raw_step
-        display_step_label = step_label(raw_step)
-        status_group = "published"
-    elif is_reviewable_import_job(job) or destination_needs_review(city):
-        display_status = raw_status
-        display_step = raw_step
-        display_step_label = step_label(raw_step)
-        status_group = "review"
+        failed = False
     else:
-        display_status = raw_status
-        display_step = raw_step
-        display_step_label = step_label(raw_step)
-        status_group = "failed" if raw_status in FAILED_IMPORT_STATUSES else "idle"
+        failed = job_execution_failed(job)
+        if failed and job is not None:
+            display_status = raw_status
+            display_step = raw_step
+            display_step_label = step_label(raw_step)
+            status_group = "failed"
+        elif city_published and job is None:
+            display_status = "published"
+            display_step = "published"
+            display_step_label = "Опубликован"
+            status_group = "published"
+        elif city_published and not failed:
+            display_status = raw_status
+            display_step = raw_step
+            display_step_label = step_label(raw_step)
+            status_group = "published"
+        elif is_reviewable_import_job(job) or destination_needs_review(city):
+            display_status = raw_status
+            display_step = raw_step
+            display_step_label = step_label(raw_step)
+            status_group = "review"
+        else:
+            display_status = raw_status
+            display_step = raw_step
+            display_step_label = step_label(raw_step)
+            status_group = "failed" if raw_status in FAILED_IMPORT_STATUSES else "idle"
     return {
         "city_published": city_published,
         "active_job": active_job,
