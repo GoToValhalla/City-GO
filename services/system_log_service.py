@@ -60,7 +60,10 @@ def list_system_logs(
     if level:
         query = query.filter(SystemLog.level == level)
     if module:
-        query = query.filter(SystemLog.module == module)
+        if module == "import":
+            query = query.filter(SystemLog.module.in_(["import", "city_import", "import_worker"]))
+        else:
+            query = query.filter(SystemLog.module == module)
     if city_slug:
         query = query.filter(SystemLog.city_slug == city_slug)
     if request_id:
