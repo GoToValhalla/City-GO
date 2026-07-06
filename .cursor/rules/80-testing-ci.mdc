@@ -1,0 +1,26 @@
+---
+description: Tests, quality gates, CI/deploy workflows
+globs: "{tests,ui-tests,frontend/src}/**/*.{py,ts,tsx},.github/workflows/**/*"
+alwaysApply: false
+---
+
+# Testing & CI
+
+- Behavior changes → targeted tests first, then domain regression.
+- Do not weaken assertions to green CI; explain environment-only failures (e.g. local Postgres).
+- New backend tests: `*_new` suffix per project convention.
+
+## Canonical checks
+
+```bash
+python3 -m compileall routers services schemas models tests -q
+.venv/bin/python -m pytest tests/test_alembic_single_head_new.py -q --no-cov
+.venv/bin/python -m pytest tests/<domain> -q --no-cov
+npm --prefix frontend test -- --run
+npm --prefix frontend run build
+git diff --check
+```
+
+## CI fixes
+
+Root cause from `gh run view` logs; no skipping hooks/tests unless user asks.

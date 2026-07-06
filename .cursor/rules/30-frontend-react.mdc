@@ -1,0 +1,18 @@
+---
+description: React/Vite public frontend — mobile-first, normal vs debug mode
+globs: "frontend/src/**/*.{ts,tsx,css}"
+alwaysApply: false
+---
+
+# Frontend (React)
+
+- Mobile-first; no white screen; handle loading/error/empty states.
+- Normal mode: no raw route quality/warnings/debug noise as primary content.
+- Debug mode (`?debug=1`, `citygo.debug` in localStorage): show diagnostics, copy/send report.
+- Match existing component patterns; Russian user-facing copy where applicable.
+- Use shared debug helpers under `frontend/src/shared/debug/`.
+
+## Tests
+
+Vitest + Testing Library for visible behavior (normal + debug modes).  
+`npm --prefix frontend test -- --run <file>`

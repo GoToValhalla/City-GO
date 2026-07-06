@@ -1,0 +1,17 @@
+---
+description: Admin panel — explicit actions, diagnostics preserved
+globs: "frontend/src/pages/admin/**/*.{ts,tsx,css},routers/admin*.py,services/admin*.py"
+alwaysApply: false
+---
+
+# Admin UI
+
+- Preserve diagnostics; failed import ≠ published destination (separate badges/states).
+- Actions explicit (POST); no silent mutation on GET/page load.
+- Loading, error, permission-denied, empty states required.
+- Use `adminGet`/`adminPost`; handle 401/403 via session flow.
+- No broad visual redesign unless requested; Russian admin copy.
+
+## Key areas
+
+Imports (`AdminImportJobsPage`), discovery, debug reports (`AdminDebugReportsPage`), destinations, places moderation.

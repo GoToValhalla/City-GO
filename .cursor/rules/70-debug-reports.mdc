@@ -1,0 +1,18 @@
+---
+description: Debug reports API, sanitization, Telegram alerts, frontend debug mode
+globs: "{routers/debug_reports.py,services/debug_report_service.py,models/debug_report.py,schemas/debug_report.py,frontend/src/shared/debug/**,frontend/src/pages/admin/AdminDebugReportsPage*,tests/test_debug_reports*}"
+alwaysApply: false
+---
+
+# Debug reports
+
+- Full payload stored in DB/admin (`/admin/debug-reports/{public_id}`).
+- Telegram: opt-in, short summary + admin link only — never full JSON.
+- Sanitize: Authorization, Cookie, tokens, secrets, passwords, API keys, env values.
+- Coordinates coarse/rounded by default (`allow_precise_coordinates` to opt in).
+- Telegram failure must not fail report creation.
+- Public: `POST /debug-reports`; `?debug=1` enables copy/send diagnostics.
+
+## Env (no secrets in repo)
+
+`CITYGO_DEBUG_REPORTS_TELEGRAM_ENABLED` · `CITYGO_DEBUG_REPORTS_TELEGRAM_CHAT_ID` · `CITYGO_DEBUG_REPORTS_ADMIN_BASE_URL`

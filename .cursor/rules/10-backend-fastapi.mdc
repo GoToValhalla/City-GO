@@ -1,0 +1,21 @@
+---
+description: FastAPI backend — routers, services, schemas, admin API
+globs: "{routers,services,schemas,core,db}/**/*.py,main.py"
+alwaysApply: false
+---
+
+# Backend (FastAPI)
+
+- Routers thin; business logic in `services/`; contracts in `schemas/`.
+- GET/read endpoints must not mutate state (no recovery/normalization on page load).
+- Admin endpoints explicit; 401/403/404/422; no raw stack traces to public clients.
+- Preserve `request_id`, warnings, debug fields in responses.
+- Async where already used; mirror existing layering.
+
+## Sensitive domains
+
+Publication, visibility, route eligibility, import jobs, review queue, debug reports — read code + tests before changing.
+
+## Commands
+
+`.venv/bin/python -m pytest tests/<target> -q --no-cov`

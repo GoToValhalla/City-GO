@@ -1,0 +1,32 @@
+---
+description: Context budget — manual/reference for AI sessions (not auto-loaded)
+alwaysApply: false
+---
+
+# Context engineering (reference)
+
+Load manually via `@90-context-engineering` or read `docs/cursor/CONTEXT_BUDGET.md`.
+
+## Do
+
+- Start from `docs/cursor/REPO_MAP.md` + task template in `docs/cursor/templates/`.
+- Paste short summaries: debug report `public_id`, `request_id`, failed step, error class.
+- Offload huge logs to artifacts; reference path or admin report id.
+- Task-scoped file lists from `docs/cursor/TASK_SCOPES.md`.
+
+## Do not
+
+- Paste full pytest output, raw JSON payloads, or multi-hundred-line stack traces.
+- Load all `docs/` or entire test suite context by default.
+- Use broad `grep` across repo when TASK_SCOPES gives entry points.
+
+## Debug report reference format
+
+```
+Report: DBG-XXXXXXXXXX (/admin/debug-reports/DBG-XXXXXXXXXX)
+Screen: route | City: zelenogradsk | Request: cg_req_123
+Summary: import stalled at collecting_places; scopes 0/3
+Error: ReviewQueueJobLinkError (fixed) / psycopg UndefinedTable
+```
+
+Full payload: fetch from admin or DB — not in prompt.

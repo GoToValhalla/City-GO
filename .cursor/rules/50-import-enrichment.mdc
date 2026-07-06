@@ -1,0 +1,19 @@
+---
+description: Import pipeline, enrichment, review queue job linkage
+globs: "{data/scripts/**,services/**/import*,services/review_queue*,services/**/enrichment*,core/place_taxonomy.py,tests/test_import*,tests/test_*pipeline*,tests/test_*enrichment*,tests/test_review_queue*}"
+alwaysApply: false
+---
+
+# Import & enrichment
+
+- Import job state and destination publication state are separate in admin reporting.
+- `review_queue_items.job_id` → `city_admin_import_jobs.id` only.
+- `ImportBatch.id` → `import_batch_id` in payload, never in `job_id` FK.
+- Invalid job id → `ReviewQueueJobLinkError` before DB FK crash.
+- Discovery bulk-create must not queue import unless `queue_import=true` explicit.
+- One canonical taxonomy; idempotent imports; explicit publication flags.
+- Collect-max → normalize/dedup → enrich → classify → publish/report.
+
+## Key files
+
+`data/scripts/import_city_osm.py` · `services/import_pipeline/runner.py` · `services/review_queue_service.py`

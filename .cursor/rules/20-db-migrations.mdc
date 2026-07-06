@@ -1,0 +1,17 @@
+---
+description: Alembic migrations, models, FK integrity
+globs: "{migrations,models,db}/**/*.py,tests/test_alembic*"
+alwaysApply: false
+---
+
+# DB & migrations
+
+- Exactly one Alembic head; update `tests/test_alembic_single_head_new.py` when adding revisions.
+- New models → import in `models/__init__.py` for metadata coverage.
+- Never weaken FK to hide bugs; fix linkage at application layer.
+- SQLite tests: use `batch_alter_table` patterns from existing migrations for FK adds.
+- Migrations idempotent-safe; document breaking changes in `docs/`.
+
+## Verify
+
+`.venv/bin/python -m pytest tests/test_alembic_single_head_new.py -q --no-cov`

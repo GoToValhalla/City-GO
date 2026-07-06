@@ -1,0 +1,17 @@
+---
+description: Route engine — eligibility, warnings, debug trace
+globs: "{services/**/route*,services/candidate_retrieval_service.py,routers/user_routes.py,frontend/src/widgets/recommendation-route/**,tests/test_*route*}"
+alwaysApply: false
+---
+
+# Routes
+
+- Pipeline: validation → candidates → hard/soft filters → scoring → assembly → fallback → warnings.
+- Pharmacies, banks, stops, service-only POIs must not enter tourist routes by default.
+- 1-point route is not a full successful route in normal UI.
+- Do not silently drop places or relax filters without warnings/debug_trace.
+- Debug mode preserves route quality, warnings, reason_codes, raw summaries.
+
+## Key files
+
+`services/candidate_retrieval_service.py` · `services/route_builder_v2_service.py` · `RouteResultPanel.tsx`

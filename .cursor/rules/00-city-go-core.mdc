@@ -1,27 +1,34 @@
 ---
-description: City GO core workflow and product guardrails (always on)
+description: City GO core invariants (only always-on rule)
 alwaysApply: true
 ---
 
 # City GO — core
 
-**Product:** travel route planning, place catalog, admin ops.  
-**Stack:** FastAPI/Python backend, React/Vite frontend, PostgreSQL (prod), GitHub Actions CI.
+**Product:** travel routes, place catalog, admin ops. **Branch:** `main`.
+**Stack:** FastAPI/Python, React/Vite, PostgreSQL (prod).
+
+## Invariants
+
+- Do not fake data or weaken DB constraints to hide bugs.
+- Diagnostics (warnings, debug_trace, reason_codes, request_id) must not be deleted.
+- Normal UI and debug UI are separate; debug is opt-in (`?debug=1`).
+- AI is not source of truth — inspect code and tests first.
+- Do not auto-start imports from discovery bulk-create (`queue_import=false` default).
+- Import job state ≠ destination publication state.
+- Admin/write: server-side auth only; never trust client `actor`/`role`; audit writes.
 
 ## Workflow
 
-1. Inspect relevant code before editing; minimal diffs; reuse existing patterns.
-2. Behavior changes → tests; narrow checks first.
-3. Proceed without approval prompts; commit/push only when user asks.
-4. Final reply: **changed files**, **checks run**, **risks**.
+1. Start from `docs/cursor/REPO_MAP.md` + `docs/cursor/TASK_SCOPES.md` — avoid broad repo scans.
+2. Minimal diffs; reuse existing patterns; domain rules load by glob or manual `@rule`.
+3. Behavior changes → targeted tests; report environment-only failures explicitly.
+4. Proceed without approval prompts; commit/push only when user asks.
 
-## Hard constraints
+## Final response (required)
 
-- Admin/write: server-side auth only; never trust client `actor`/`role`; audit writes.
-- Do not worsen route/catalog eligibility (pharmacies, service-only, low-value POIs).
-- Do not silently publish/hide cities/places via import/reconciliation.
-- No docs/planning files unless requested. Deep detail: `AGENTS.md` (read on demand).
+Changed files · checks run · risks · what was not verified.
 
 ## Pointers
 
-`main.py` · `core/router_setup.py` · `services/candidate_retrieval_service.py` · `services/place_public_visibility.py` · `core/config.py`
+`main.py` · `core/router_setup.py` · `core/config.py` · `docs/cursor/README.md`
