@@ -1,0 +1,27 @@
+---
+description: Testing standards and quality gates
+globs: "{tests,ui-tests,frontend/src}/**/*.{py,ts,tsx}"
+alwaysApply: false
+---
+
+# Tests & quality gate
+
+- Behavior changes require tests (backend pytest, frontend vitest, UI smoke when relevant).
+- Order: narrow targeted tests → module regression → full suite if time allows.
+- Cover positive, negative, edge, and regression cases; do not weaken assertions to green CI.
+
+## City GO specifics
+
+- Route/catalog: assert low-value categories and `service_only` / non-route-eligible places do not leak into public routes or catalogs.
+- Admin UI: loading, disabled, error, success, and data refresh after writes.
+- API: contract shape, auth (401/403), and service-level logic — not only status codes.
+
+## Commands
+
+```bash
+.venv/bin/python -m pytest tests/<file> -q --no-cov
+cd frontend && npm test -- --run <pattern>
+cd frontend && npm run build
+```
+
+If a test cannot run locally, state why and give the exact command for CI.

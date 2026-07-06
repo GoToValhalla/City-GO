@@ -1,0 +1,31 @@
+---
+description: City GO core workflow and product guardrails (always on)
+alwaysApply: true
+---
+
+# City GO — core
+
+**Product:** travel route planning, place catalog, admin ops.  
+**Stack:** FastAPI/Python backend, React/Vite frontend, PostgreSQL (prod), GitHub Actions CI.
+
+## Workflow
+
+1. Inspect relevant code (`routers/`, `services/`, `models/`, `frontend/src/`, `tests/`) before editing.
+2. Minimal diffs; reuse existing patterns; no architecture rewrites unless asked.
+3. Behavior changes → add/update tests; run narrow checks first, then broader regression if needed.
+4. Final reply: **changed files**, **checks run**, **risks**.
+
+## Hard constraints
+
+- Admin/write paths: verify server-side auth; never trust client `actor`/`role`.
+- Do not worsen route/catalog eligibility (pharmacies, stops, service-only, low-value POIs stay out of tourist routes unless explicit).
+- Do not silently publish/hide cities or places via import/reconciliation.
+- Do not add docs/planning files unless requested.
+
+## Pointers
+
+- API entry: `main.py`, `core/router_setup.py`
+- Route engine: `services/candidate_retrieval_service.py`, `services/route_builder_v2_service.py`
+- Visibility: `services/place_public_visibility.py`, `services/route_eligibility.py`
+- Config/flags: `core/config.py`
+- Agent workflow detail: `AGENTS.md` (read only when needed)

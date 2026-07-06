@@ -1,0 +1,158 @@
+---
+description: Data quality, taxonomy, places and OSM/import pipeline rules for City Go
+alwaysApply: true
+---
+
+# City Go Data Pipeline Rules
+
+Data quality directly affects route quality and recommendation quality.
+
+No route or recommendation fix is complete if the underlying place data remains inconsistent.
+
+## Core data principles
+
+1. There must be one canonical taxonomy.
+2. Imported categories must be mapped to canonical categories.
+3. Public visibility must not depend on title text matching.
+4. Imported data must not become production-visible without explicit publication rules.
+5. Place source, freshness and confidence must be preserved.
+6. Re-running import scripts must be safe and idempotent.
+7. Duplicate places must be detected by more than slug/source URL.
+
+## Taxonomy
+
+Do not create new category strings ad hoc.
+
+Before changing category logic, inspect:
+- core/place_taxonomy.py
+- import scripts
+- seed builders
+- scoring services
+- route filters
+- frontend category usage
+- admin filters
+- tests
+
+Canonical taxonomy should be used across:
+- OSM import
+- seed generation
+- route candidate retrieval
+- scoring
+- recommendation filters
+- admin UI
+- frontend category display
+
+If OSM or another external source uses categories like `cafe`, `restaurant`, `viewpoint`, `culture`, `useful`, map them explicitly to canonical categories.
+
+## Import pipeline
+
+Import scripts must be:
+- idempotent
+- restart-safe
+- observable
+- rate-limit aware
+- duplicate-safe
+- bounded by city geometry/bbox
+- safe on partial failure
+
+Before editing an import script, check:
+- how existing records are matched
+- how duplicates are detected
+- how source IDs are stored
+- how failed records are handled
+- how import stats are calculated
+- whether repeated runs create duplicates
+- whether imported records become public immediately
+
+## Publication and visibility
+
+Imported places should not silently become trusted/public production places unless the product explicitly allows that.
+
+Visibility should be controlled by explicit fields such as:
+- status
+- is_active
+- is_published
+- is_route_eligible
+- confidence
+- review status
+- source trust level
+
+Forbidden visibility logic:
+- title ILIKE filters for fake/seed/demo objects
+- hiding by Russian title fragments
+- hiding by arbitrary substring matching
+
+Use flags or taxonomy metadata instead.
+
+## Deduplication
+
+Deduplication must consider:
+- source id
+- source URL
+- normalized title
+- city_id
+- coordinates
+- geo-proximity radius
+- category
+- address when available
+
+Slug-only dedup is not enough.
+Global slug uniqueness is unsafe for multi-city data. Prefer city-scoped uniqueness where product routing allows it.
+
+## Addresses and coordinates
+
+Places must preserve:
+- lat/lng
+- address if available
+- source of address
+- last verification date
+- freshness/confidence
+
+If address is missing, the pipeline may attempt enrichment, but must mark confidence and source.
+Do not invent precise addresses without source.
+
+Coordinates must have one source of truth for city centers.
+Frontend hardcoded city coordinates should be replaced by API/city data where practical.
+
+## Data freshness and confidence
+
+Every place-related data point should support future freshness/confidence behavior:
+- source
+- last_checked_at
+- confidence level
+- needs_recheck
+- reviewed/verified status
+
+Highly volatile data includes:
+- opening hours
+- phone
+- website
+- subjective tags
+- availability
+- seasonal status
+
+Do not treat volatile imported data as permanently true.
+
+## Tests required
+
+For data/import changes add tests for:
+- idempotent repeated import
+- duplicate detection
+- taxonomy mapping
+- visibility flags
+- missing coordinates
+- missing address
+- invalid source data
+- imported draft vs published behavior
+- city-scoped slug behavior if changed
+
+## Documentation required
+
+Document:
+- canonical taxonomy
+- external source mapping
+- import flow
+- dedup rules
+- publication rules
+- confidence/freshness behavior
+- known data limitations

@@ -52,7 +52,16 @@ logs/
 Thumbs.db
 .idea/
 .vscode/
-.cursor/
+
+# Cursor — track shared rules/skills; ignore local machine state
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+!.cursor/skills/
+!.cursor/skills/**
+!.cursor/README.md
+.cursor/permissions.json
+.cursor/projects/
 .cursor-workpacks/
 .claude/
 
@@ -82,6 +91,7 @@ ui-tests/playwright/.cache/
 # Test reporters
 allure-results/
 allure-report/
+backend-test-artifacts/
 
 # Generated data artifacts
 artifacts/

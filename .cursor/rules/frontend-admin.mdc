@@ -1,0 +1,25 @@
+---
+description: React/Vite frontend and admin UI
+globs: "frontend/src/**/*.{ts,tsx,css}"
+alwaysApply: false
+---
+
+# Frontend / admin
+
+- Follow existing page structure under `frontend/src/pages/admin/` and `adminApi.ts`.
+- Admin actions: loading, disabled while in-flight, error message, success refresh — no silent failures.
+- Preserve filters, city/destination selection, and pagination unless the task says otherwise.
+- No broad visual redesign unless requested; Russian labels for admin-facing copy.
+
+## API
+
+Use `adminGet` / `adminPost` from `adminApi.ts`; handle 401/403 via existing session flow. Match backend response shapes; do not invent fields.
+
+## Tests
+
+Vitest + Testing Library for user-visible behavior: `frontend/src/**/*.test.tsx`.  
+Run: `cd frontend && npm test -- --run` (narrow file when possible).
+
+## Mobile
+
+Keep admin tables/forms usable on small screens where practical; match existing `AdminDataPipeline.css` patterns.

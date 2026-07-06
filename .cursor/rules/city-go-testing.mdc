@@ -1,0 +1,81 @@
+---
+description: Testing requirements for City Go
+alwaysApply: true
+---
+
+# City Go Testing Rules
+
+Every non-trivial change must include tests.
+
+New tests must be marked as new until the user runs them.
+Use `_new` suffix for new test function names.
+
+Test coverage must include:
+- positive scenarios
+- negative scenarios
+- boundary scenarios
+- empty data scenarios
+- invalid input scenarios
+- permission scenarios
+- fallback scenarios
+- regression scenarios
+- API contract scenarios
+- integration scenarios where modules interact
+
+For route features, tests must cover:
+1. enough candidate places exist and route uses more than 2 places
+2. no candidates found
+3. candidates found but hard filters remove all
+4. soft filters relaxed by fallback
+5. time budget too small
+6. invalid start point
+7. city has places but coordinates are missing
+8. category diversity does not over-remove places
+9. replan preserves completed places
+10. live edit rebuilds only remaining route tail
+11. debug output explains candidate removal
+12. warnings are returned when fallback is used
+13. already visited places are not repeated unless explicitly allowed
+14. skipped places are not reintroduced by tail rebuild
+15. route mode constraints are respected
+
+For admin features, tests must cover:
+1. role-based access
+2. object-level authorization
+3. list filters
+4. pagination
+5. details view
+6. create/update/delete where supported
+7. moderation actions
+8. audit log creation
+9. forbidden access
+10. invalid data validation
+11. bulk actions where supported
+12. safe handling of missing related objects
+
+For API changes:
+- validate response schema
+- validate error response
+- validate backward compatibility if endpoint already exists
+- validate permissions
+- validate pagination and filtering
+
+For DB changes:
+- add migration tests where possible
+- verify old data compatibility
+- verify null/empty legacy values
+- verify indexes for frequently filtered fields
+
+For UI changes:
+- verify desktop behavior
+- verify mobile behavior
+- verify loading state
+- verify empty state
+- verify error state
+- verify permission denied state
+
+Do not remove existing tests unless they are truly obsolete.
+If a test is obsolete, explain why.
+
+Do not mark a task as complete if tests were not created or updated for changed behavior.
+If tests could not be run, clearly list the exact command that must be run manually and why it was not run.

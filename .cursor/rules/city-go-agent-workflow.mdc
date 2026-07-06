@@ -1,0 +1,124 @@
+---
+description: Agent workflow for implementing City Go tasks
+alwaysApply: true
+---
+
+# City Go Agent Workflow
+
+For every task, follow this workflow.
+
+## Step 1. Understand the task
+
+Restate the goal briefly.
+List affected areas.
+List unknowns.
+
+Do not ask the user for clarification if the existing code gives enough context.
+Make a safe implementation decision and document it.
+
+## Step 2. Inspect implementation
+
+Read related files:
+- routers
+- services
+- schemas
+- models
+- migrations
+- tests
+- docs
+- frontend components if UI is affected
+- bot handlers if Telegram is affected
+
+Find:
+- current behavior
+- root cause
+- affected dependencies
+- risks
+- duplicated logic
+- missing tests
+- stale documentation
+
+## Step 3. Plan
+
+Create a short implementation plan:
+1. files to change
+2. files to add
+3. tests to add/update
+4. docs to update
+5. expected behavior
+6. compatibility risks
+
+## Step 4. Implement
+
+Make minimal but complete changes.
+Do not create unrelated changes.
+Do not reformat unrelated files.
+Do not rename things unless necessary.
+Do not introduce hardcode unless explicitly required and documented.
+
+## Step 5. Test
+
+Run relevant tests.
+If full test suite is too slow, run targeted tests and explain what remains.
+
+Required test report:
+- command
+- result
+- failures if any
+- what was not run
+
+## Step 6. Document
+
+Update architecture and module docs.
+Documentation must match actual implementation.
+
+## Step 7. Report
+
+Final response must include:
+- what changed
+- changed files
+- tests run
+- docs updated
+- risks/limitations
+- next recommended task
+
+## Mandatory audit-first mode
+
+For large tasks, especially admin panel, routes, AI, recommendations, permissions, DB, payments or infrastructure:
+1. Audit first.
+2. Produce implementation plan.
+3. Only then write code.
+
+Do not start large feature implementation without repository inspection.
+
+## Admin panel workflow
+
+For admin panel tasks:
+1. Inspect existing admin endpoints and UI.
+2. Build entity map.
+3. Build permission matrix.
+4. Build API map.
+5. Build audit event map.
+6. Implement by vertical slices, not by random screens.
+
+Admin vertical slice format:
+- backend endpoint
+- permission check
+- service logic
+- audit log
+- frontend screen/component
+- tests
+- documentation
+
+## Route workflow
+
+For route tasks:
+1. Trace route pipeline.
+2. Find where candidates are lost.
+3. Add debug/warnings if missing.
+4. Separate hard filters from soft filters.
+5. Add or fix fallback.
+6. Add route regression tests.
+7. Update route docs.
+
+Never finish with only UI changes if backend data quality or route logic is the real problem.

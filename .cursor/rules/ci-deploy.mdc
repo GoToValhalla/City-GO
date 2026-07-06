@@ -1,0 +1,19 @@
+---
+description: GitHub Actions CI and deployment workflows
+globs: ".github/workflows/**/*,{Dockerfile,docker-compose*.yml,scripts/deploy*,scripts/release*}"
+alwaysApply: false
+---
+
+# CI & deploy
+
+- Do not enable expensive or production-mutating workflows on every push unless explicitly requested; prefer `workflow_dispatch` for admin/data/backlog jobs.
+- Keep deploy behind required checks; never commit secrets or log tokens.
+- Fix CI by root cause (read `gh run view` / logs), not by skipping tests or masking failures.
+
+## Before changing workflows
+
+Inspect: `.github/workflows/`, `scripts/release_smoke.sh`, `Dockerfile`. Note env assumptions (Postgres, tokens).
+
+## Final report
+
+Include: workflow files changed, local checks run, remaining risks, and what must be verified on prod/Docker smoke.
