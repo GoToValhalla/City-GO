@@ -7,6 +7,7 @@ import os
 # alembic fileConfig сбрасывает handlers pytest caplog
 os.environ["ALEMBIC_SKIP_FILE_CONFIG"] = "1"
 os.environ.setdefault("CITYGO_DESTINATION_SOURCE_ADAPTER", "deterministic")
+os.environ.setdefault("CITYGO_DISCOVERY_PROVIDER", "deterministic")
 from typing import Generator
 
 import allure
@@ -37,6 +38,7 @@ import models.route_generation_candidate  # noqa: F401
 import models.category  # noqa: F401
 import models.city  # noqa: F401
 import models.destination  # noqa: F401
+import models.destination_discovery  # noqa: F401
 import models.destination_data_pipeline  # noqa: F401
 import models.city_admin_import_job  # noqa: F401
 import models.city_start_point  # noqa: F401

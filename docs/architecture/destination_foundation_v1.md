@@ -82,8 +82,9 @@ Walking guard: region/natural без `is_walkable_cluster` → `422 walking_not_
 - readiness
 - review-items
 - geo-search / from-geo-candidate / scopes/from-geo-candidate (геокандидат из Nominatim; snapshot передаётся клиентом в POST)
+- `/admin/discovery` — region-first discovery: search → preview job → bulk create
 
-UI: `AdminDestinationsPage`, `AdminDestinationDetailPage`, `AdminDestinationGeoSearchPanel` (поиск по названию, создание направления и контуров из кандидата; recover только по явному включению в UI, иначе `recover: false`).
+UI: `AdminDiscoveryPage` (основной поток), `AdminDestinationsPage` (список), `AdminDestinationDetailPage`, `AdminDestinationGeoSearchPanel` (fallback: поиск города и ручные контуры; recover только по явному включению).
 
 ## Backfill
 
