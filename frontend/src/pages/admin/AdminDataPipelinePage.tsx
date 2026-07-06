@@ -117,6 +117,10 @@ export const AdminDataPipelinePage = () => {
             <strong>{status?.metrics.places_route_eligible ?? 0}</strong>
           </article>
           <article className="admin-metric-card">
+            <span className="admin-muted">На слияние данных</span>
+            <strong>{status?.metrics.pending_merge_reviews ?? 0}</strong>
+          </article>
+          <article className="admin-metric-card">
             <span className="admin-muted">Обновлено</span>
             <strong>{formatTime(status?.fetched_at ?? null)}</strong>
           </article>

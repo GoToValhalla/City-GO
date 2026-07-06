@@ -25,6 +25,8 @@ export type Place = {
   short_description: string | null
   description?: string | null
   category: string
+  category_label?: string | null
+  category_info?: { slug: string | null; label: string }
   address: string | null
   lat?: number | null
   lng?: number | null
@@ -77,6 +79,7 @@ export type Place = {
   image_is_exact?: boolean
   image?: PlaceImage
   tags?: Array<string | { id?: number; code: string; name?: string }>
+  data_quality?: { is_degraded: boolean; completeness_score: number; source_freshness_days?: number | null }
 }
 
 export type PlaceDetail = Place & {

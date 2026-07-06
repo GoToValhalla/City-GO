@@ -42,6 +42,7 @@ def admin_preview_place_conditions() -> tuple[Any, ...]:
         or_(Place.status.is_(None), Place.status == PUBLIC_ACTIVE_STATUS),
         Place.is_published.is_(True),
         Place.is_visible_in_catalog.is_(True),
+        or_(Place.internal_status.is_(None), Place.internal_status != "service_only"),
         or_(
             Place.canonical_category.is_(None),
             Place.canonical_category.notin_(tuple(PUBLIC_HIDDEN_CATEGORIES)),

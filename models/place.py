@@ -1,10 +1,14 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, JSON, String, UniqueConstraint, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db.base import Base
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Place(Base):
@@ -49,6 +53,10 @@ class Place(Base):
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    internal_status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    lineage: Mapped[dict[str, object]] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), default=dict, nullable=False)
+    last_enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Data Foundation contract. Legacy fields remain intact, but new logic must use these canonical fields.
     canonical_category: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
@@ -110,11 +118,11 @@ class Place(Base):
     average_visit_duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
-        default=lambda ctx: ctx.get_current_parameters().get("created_at") or datetime.utcnow(),
-        onupdate=datetime.utcnow,
+        default=lambda ctx: ctx.get_current_parameters().get("created_at") or utc_now(),
+        onupdate=utc_now,
     )
 
     city = relationship("City", back_populates="places")
@@ -131,6 +139,6 @@ class Place(Base):
 
 @event.listens_for(Place, "before_insert")
 def set_place_insert_timestamps(mapper: object, connection: object, target: Place) -> None:
-    timestamp = target.created_at or target.updated_at or datetime.utcnow()
+    timestamp = target.created_at or target.updated_at or utc_now()
     target.created_at = target.created_at or timestamp
     target.updated_at = target.updated_at or timestamp

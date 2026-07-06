@@ -43,6 +43,7 @@ class DataPipelineMetrics(BaseModel):
     pending_photos: int = 0
     active_import_jobs: int = 0
     active_enrichment_tasks: int = 0
+    pending_merge_reviews: int = 0
 
 
 class DataPipelineStatusResponse(BaseModel):

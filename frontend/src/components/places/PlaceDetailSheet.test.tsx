@@ -1,8 +1,8 @@
 /* @vitest-environment jsdom */
 import '@testing-library/jest-dom/vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import type { PlaceDetail } from '../../entities/place/model/types'
 import { PlaceDetailSheet } from './PlaceDetailSheet'
 
@@ -24,11 +24,13 @@ const place = {
 } as PlaceDetail
 
 describe('PlaceDetailSheet', () => {
+  afterEach(cleanup)
+
   it('hides synthetic category copy and keeps verified facts', () => {
     render(<MemoryRouter><PlaceDetailSheet place={place} /></MemoryRouter>)
     expect(screen.getByRole('heading', { name: 'Лапти' })).toBeInTheDocument()
     expect(screen.getByText('Боевая улица, 3А')).toBeInTheDocument()
-    expect(screen.getByText(/Подробное описание дополняется/)).toBeInTheDocument()
+    expect(screen.getByText(/Ниже показаны только подтверждённые данные карточки/)).toBeInTheDocument()
     expect(screen.queryByText('Что внутри')).not.toBeInTheDocument()
     expect(screen.queryByText('Зал, меню и возможность сделать паузу')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Добавить в маршрут' })).not.toBeInTheDocument()
@@ -43,5 +45,14 @@ describe('PlaceDetailSheet', () => {
 
     expect(screen.getByLabelText('Открыть фото 2 из 2: Лапти')).toHaveAttribute('href', 'https://example.com/two.jpg')
     expect(screen.getByRole('button', { name: 'Показать фото 2 из 2' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('shows degraded and fallback copy without raw nulls', () => {
+    render(<MemoryRouter><PlaceDetailSheet place={{ ...place, address: null, short_description: null, data_quality: { is_degraded: true, completeness_score: 0 } }} /></MemoryRouter>)
+    expect(screen.getByText('Информация о месте проверяется модераторами City GO')).toBeInTheDocument()
+    expect(screen.getByText('Информация о месте уточняется')).toBeInTheDocument()
+    expect(screen.getByText('Адрес уточняется')).toBeInTheDocument()
+    expect(screen.getAllByText('Время работы уточняется').length).toBeGreaterThan(0)
+    expect(screen.queryByText(/null|undefined|None/)).not.toBeInTheDocument()
   })
 })

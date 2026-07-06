@@ -68,6 +68,7 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
   const imageUrl = gallery[safePhotoIndex] ?? fallbackImageUrl
   const address = placeAddressLabel(place)
   const hours = placeHoursLabel(place)
+  const degraded = Boolean(place.data_quality?.is_degraded)
   const atmosphere = meaningfulDetail(listText(place.atmosphere))
   const inside = meaningfulDetail(listText(place.inside))
   const bestFor = meaningfulDetail(listText(place.best_for))
@@ -135,8 +136,9 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
         <h1 className="place-detail-sheet__title">{title}</h1>
 
         <div className="place-detail-sheet__description">
-          {visibleDescription ? <p>{visibleDescription}</p> : null}
-          {descriptionPending ? <p className="place-detail-sheet__pending">Подробное описание дополняется. Ниже показаны только подтверждённые данные карточки.</p> : null}
+          {degraded ? <p className="place-detail-sheet__degraded">Информация о месте проверяется модераторами City GO</p> : null}
+          {visibleDescription ? <p>{visibleDescription}</p> : <p>Информация о месте уточняется</p>}
+          {descriptionPending ? <p className="place-detail-sheet__pending">Ниже показаны только подтверждённые данные карточки.</p> : null}
           {shouldCollapseDescription ? (
             <button className="place-detail-sheet__read-more" type="button" onClick={() => setExpanded((value) => !value)}>
               {expanded ? 'Свернуть' : 'Читать дальше'}
@@ -147,8 +149,8 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
         {featureLabels.length ? <div className="place-detail-features">{featureLabels.map((feature) => <span key={feature}>{feature}</span>)}</div> : null}
 
         <section className="place-detail-facts" aria-label="Основная информация">
-          {address ? <FactRow icon={<MapPin size={18} />} label="Адрес">{address}</FactRow> : null}
-          {hours ? <FactRow icon={<Clock3 size={18} />} label="Часы работы">{hours}</FactRow> : null}
+          <FactRow icon={<MapPin size={18} />} label="Адрес">{address || 'Адрес уточняется'}</FactRow>
+          <FactRow icon={<Clock3 size={18} />} label="Часы работы">{hours || 'Время работы уточняется'}</FactRow>
           {place.phone ? <FactRow icon={<Phone size={18} />} label="Телефон"><a href={`tel:${place.phone}`}>{place.phone}</a></FactRow> : null}
           {place.website ? <FactRow icon={<Globe2 size={18} />} label="Сайт"><a href={place.website} target="_blank" rel="noopener noreferrer">Открыть сайт</a></FactRow> : null}
         </section>

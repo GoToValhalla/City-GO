@@ -84,6 +84,7 @@ def evaluate_place_route_eligibility(
         "missing_city_id" if _present_and_empty(place, "city_id") else "",
         "inactive" if _present_and_not_true(place, "is_active") else "",
         "place_status_not_active" if getattr(place, "status", "active") not in (None, "active") else "",
+        "service_only" if getattr(place, "internal_status", "active") == "service_only" else "",
         "lifecycle_not_active" if getattr(place, "lifecycle_status", "active") != "active" else "",
         "draft_or_unpublished" if _present_and_not_true(place, "is_published") else "",
         "not_visible_in_catalog" if _present_and_not_true(place, "is_visible_in_catalog") else "",
@@ -105,6 +106,7 @@ def compile_route_eligible_sql_conditions(context: str = "tourist_walk") -> tupl
     category_ok = _category_sql_condition()
     return (
         Place.is_active.is_(True), or_(Place.status.is_(None), Place.status == "active"),
+        or_(Place.internal_status.is_(None), Place.internal_status != "service_only"),
         Place.lifecycle_status == "active", Place.is_published.is_(True), Place.is_visible_in_catalog.is_(True),
         Place.is_route_eligible.is_(True), Place.publication_status.in_(PUBLICATION_STATUSES),
         Place.lat.is_not(None), Place.lng.is_not(None), Place.lat != 0.0, Place.lng != 0.0,

@@ -28,6 +28,7 @@ import models.import_job_step  # noqa: F401
 import models.intelligence_discipline_stage3  # noqa: F401
 import models.known_missing_poi  # noqa: F401
 import models.place_image  # noqa: F401
+import models.place_merge_review  # noqa: F401
 import models.place_field_confidence  # noqa: F401
 import models.place_photo_candidate  # noqa: F401
 import models.place_verification  # noqa: F401

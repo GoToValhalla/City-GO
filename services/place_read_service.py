@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 
 from models.place import Place
 from schemas.place import PlaceRead
+from schemas.public_place import PublicPlaceRead
+from services.place_data_sanitizer import public_place_payload
 from services.place_public_image_service import PublicPlaceImage, resolve_public_place_images, resolve_public_place_images_bulk
 
 
@@ -27,6 +29,19 @@ def build_place_reads(db: Session, places: list[Place]) -> list[PlaceRead]:
         _apply_public_images(payload, public_by_id.get(place.id, []))
         result.append(PlaceRead(**payload))
     return result
+
+
+def build_public_place_read(db: Session, place: Place) -> PublicPlaceRead:
+    images = [image.image_url for image in resolve_public_place_images(db, place) if image.image_url]
+    return PublicPlaceRead(**public_place_payload(place, images))
+
+
+def build_public_place_reads(db: Session, places: list[Place]) -> list[PublicPlaceRead]:
+    public_by_id = resolve_public_place_images_bulk(db, places) if places else {}
+    return [
+        PublicPlaceRead(**public_place_payload(place, [image.image_url for image in public_by_id.get(place.id, []) if image.image_url]))
+        for place in places
+    ]
 
 
 def _apply_public_images(payload: dict[str, object], public_images: list[PublicPlaceImage]) -> None:

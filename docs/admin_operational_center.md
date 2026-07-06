@@ -73,6 +73,12 @@
 - `POST /admin/coverage-gaps/refresh`
 - `PATCH /admin/coverage-gaps/{gap_id}`
 - `POST /admin/places/{place_id}/emergency-hide`
+- `GET /admin/reviews`
+- `GET /admin/reviews/{id}/diff`
+- `POST /admin/reviews/{id}/merge`
+- `POST /admin/reviews/{id}/reject`
+- `POST /admin/places/{id}/manual-override`
+- `POST /admin/places/{id}/trigger-enrich`
 - `GET /admin/route-health`
 - `POST /admin/route-health/re-run`
 

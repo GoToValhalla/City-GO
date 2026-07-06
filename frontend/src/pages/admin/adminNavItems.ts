@@ -16,6 +16,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { path: '/admin/photos', label: 'Фото', section: 'moderation' },
   { path: '/admin/verification', label: 'Проверка мест', section: 'moderation' },
   { path: '/admin/place-changes', label: 'Изменения мест', section: 'moderation' },
+  { path: '/admin/reviews', label: 'Слияние данных', section: 'moderation' },
   { path: '/admin/data-pipeline', label: 'Мониторинг конвейера данных', section: 'ops' },
   { path: '/admin/imports', label: 'Импорты', section: 'ops' },
   { path: '/admin/enrichment', label: 'Обогащение данных', section: 'ops' },

@@ -37,6 +37,12 @@ export const PlaceDetailPage = () => {
     void loadPlace()
   }, [loadPlace])
 
+  useEffect(() => {
+    if (!place || error) return undefined
+    const timer = window.setInterval(() => { void loadPlace() }, 45_000)
+    return () => window.clearInterval(timer)
+  }, [error, loadPlace, place])
+
   return (
     <div className="app-screen">
       <div className="app-container">

@@ -144,6 +144,16 @@
   line-height: 19px;
 }
 
+.place-detail-sheet__degraded {
+  padding: 10px 12px;
+  color: var(--cg-text-main);
+  background: var(--cg-bg-muted);
+  border: 1px solid var(--cg-border-soft);
+  border-radius: var(--cg-radius-md);
+  font-size: 13px;
+  line-height: 19px;
+}
+
 .place-detail-features {
   display: flex;
   flex-wrap: wrap;

@@ -47,6 +47,7 @@ import { AdminRouteEligibilityPage } from './pages/admin/AdminRouteEligibilityPa
 import { AdminRouteDryRunPage } from './pages/admin/AdminRouteDryRunPage'
 import { AdminRouteDataQualityPage } from './pages/admin/AdminRouteDataQualityPage'
 import { AdminRouteHealthPage } from './pages/admin/AdminRouteHealthPage'
+import { AdminReviewsPage } from './pages/admin/AdminReviewsPage'
 import { AdminAnalyticsPage } from './pages/admin/AdminAnalyticsPage'
 import { AdminQualityPage } from './pages/admin/AdminQualityPage'
 import { AdminSystemHealthPage } from './pages/admin/AdminSystemHealthPage'
@@ -87,6 +88,7 @@ function App() {
     <Route path="/admin/verification" element={<AdminPage><AdminPlaceVerificationsPage /></AdminPage>} />
     <Route path="/admin/place-verifications" element={<Navigate to="/admin/verification" replace />} />
     <Route path="/admin/place-changes" element={<AdminPage><AdminPlaceChangeReviewsPage /></AdminPage>} />
+    <Route path="/admin/reviews" element={<AdminPage><AdminReviewsPage /></AdminPage>} />
     <Route path="/admin/imports" element={<AdminPage><AdminImportJobsPage /></AdminPage>} />
     <Route path="/admin/data-pipeline" element={<AdminPage><AdminDataPipelinePage /></AdminPage>} />
     <Route path="/admin/imports/:citySlug/jobs/:jobId/changes" element={<AdminPage><AdminImportJobChangesPage /></AdminPage>} />

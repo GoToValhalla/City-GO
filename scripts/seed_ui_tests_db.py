@@ -16,6 +16,7 @@ from db.session import SessionLocal
 from models.category import Category
 from models.city import City
 from models.place import Place
+from models.place_merge_review import ReviewItem
 
 
 CITY = {"slug": "zelenogradsk", "name": "Зеленоградск", "region": "Калининградская область", "country": "Россия", "timezone": "Europe/Kaliningrad", "center_lat": 54.9601, "center_lng": 20.4753, "launch_status": "published", "is_active": True, "quality_status": "ready", "readiness_score": 90}
@@ -24,6 +25,7 @@ PLACES = (
     ("museum-kurort", "Музей курортной истории", "museum", 54.9608, 20.4759),
     ("cafe-center", "Кафе у вокзала", "cafe", 54.9589, 20.4768),
     ("queen-louise-park", "Парк королевы Луизы", "park", 54.9619, 20.4728),
+    ("degraded-card", "Карточка на проверке", "museum", 54.9622, 20.4731),
 )
 
 
@@ -55,6 +57,10 @@ def _upsert_place(db: Session, city: City, categories: dict[str, Category], row:
     category = categories[code]
     for key, value in _place_payload(title, category, lat, lng).items():
         setattr(place, key, value)
+    if slug == "degraded-card":
+        place.short_description = None
+        place.address = None
+        place.completeness_score = 0
     db.add(place)
 
 
@@ -66,8 +72,17 @@ def _place_payload(title: str, category: Category, lat: float, lng: float) -> di
         "status": "active", "lifecycle_status": "active", "publication_status": "published",
         "is_active": True, "is_published": True, "is_visible_in_catalog": True,
         "is_route_eligible": True, "is_searchable": True, "quality_score": 80,
-        "confidence_score": 8, "existence_confidence_level": "high", "verification_status": "verified",
+        "completeness_score": 30, "confidence_score": 8, "existence_confidence_level": "high", "verification_status": "verified",
     }
+
+
+def _seed_review(db: Session, city: City) -> None:
+    place = db.query(Place).filter(Place.city_id == city.id, Place.slug == "museum-kurort").one()
+    db.add(ReviewItem(
+        place_id=place.id, proposed_diff={"address": {"current": place.address, "proposed": "Зеленоградск, Курортный проспект", "reason": "LOW_CONFIDENCE_SCORE"}},
+        status="pending", created_by="ui-seed", place_version_at_creation=place.version,
+        source="EXTERNAL_API_ENRICHED", confidence=0.5, reason="LOW_CONFIDENCE_SCORE",
+    ))
 
 
 def _reset_local_schema() -> None:
@@ -84,6 +99,7 @@ def main() -> None:
         city = _upsert_city(db)
         categories = {code: _upsert_category(db, code, name) for code, name in CATEGORIES}
         [_upsert_place(db, city, categories, row) for row in PLACES]
+        _seed_review(db, city)
         db.commit()
     finally:
         db.close()
