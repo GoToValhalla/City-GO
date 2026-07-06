@@ -11,6 +11,16 @@ from models.city_admin_import_job import CityAdminImportJob
 from models.place import Place
 from models.place_image import PLACE_IMAGE_STATUS_NEEDS_REVIEW, PlaceImage
 from services.admin_import_job_change_service import CHANGE_TYPES
+from services.admin_import_display import (
+    effective_failed_items,
+    import_error_summary,
+    import_execution_summary,
+    is_active_import_job,
+    is_published_city,
+    job_execution_failed,
+    resolve_import_display,
+    snapshot_warning,
+)
 from services.import_pipeline.progress import is_stalled, step_label
 from services.import_pipeline.steps import STEP_QUEUED, STEP_READY_FOR_REVIEW, TERMINAL_STEPS
 
@@ -49,13 +59,11 @@ def _latest_step_result(db: Session, city_id: int, *, source: str, key: str) -> 
 
 
 def _is_published(city: City) -> bool:
-    return city.launch_status == "published" and bool(city.is_active)
+    return is_published_city(city)
 
 
 def _is_active_job(job: CityAdminImportJob | None) -> bool:
-    if job is None:
-        return False
-    return job.status in {"queued", "running"}
+    return is_active_import_job(job)
 
 
 def recover_failed_import_with_places(db: Session, city: City, *, places_total: int | None = None, job: CityAdminImportJob | None = None, actor_id: str = "admin-panel-read") -> bool:
@@ -90,26 +98,39 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         pending_photos = db.query(PlaceImage).join(Place, Place.id == PlaceImage.place_id).filter(Place.city_id == city.id, PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW).count()
     city_published = _is_published(city)
     active_job = _is_active_job(job)
-    display_as_published = city_published and not active_job
-    raw_status = job.status if job is not None else city.launch_status
-    raw_step = job.current_step if job is not None else STEP_QUEUED
-    status = "published" if display_as_published else raw_status
-    current_step = "published" if display_as_published else raw_step
-    details = _admin_step_details(db=db, city=city, job=job, places_total=int(places_total), places_published=int(places_published), pending_photos=int(pending_photos), snapshot=snapshot)
+    display = resolve_import_display(city, job)
+    status = display["display_status"]
+    current_step = display["display_step"]
+    details = _admin_step_details(
+        db=db,
+        city=city,
+        job=job,
+        places_total=int(places_total),
+        places_published=int(places_published),
+        pending_photos=int(pending_photos),
+        snapshot=snapshot,
+        status_group=str(display["status_group"]),
+    )
+    failed_items = effective_failed_items(job)
+    execution_summary = import_execution_summary(job, places_published=int(places_published))
+    error_summary = import_error_summary(job)
+    snap_warn = snapshot_warning(snapshot)
     return {
         "id": f"city-import-{city.id}",
         "city_id": city.id,
         "city_slug": city.slug,
         "city_name": city.name,
         "status": status,
+        "job_execution_status": display["job_execution_status"],
+        "destination_publication_status": display["destination_publication_status"],
         "launch_status": city.launch_status,
         "is_city_active": bool(city.is_active),
         "current_step": current_step,
-        "current_step_label": "Опубликован" if display_as_published else step_label(current_step),
+        "current_step_label": display["display_step_label"],
         "source": job.source if job is not None else "admin_city_import",
         "pipeline_mode": PIPELINE_MODE,
         "pipeline_mode_label": PIPELINE_MODE_LABEL,
-        "status_group": _status_group(status, current_step, city.launch_status, bool(city.is_active)),
+        "status_group": display["status_group"],
         "action_hint": _action_hint(job, city, places_total),
         "auto_refresh_seconds": 7 if active_job else None,
         "data_coverage": coverage,
@@ -127,19 +148,23 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "total_items": job.total_items if job is not None else 0,
         "processed_items": job.processed_items if job is not None else 0,
         "successful_items": job.successful_items if job is not None else 0,
-        "failed_items": job.failed_items if job is not None else 0,
+        "failed_items": failed_items,
         "retry_count": job.retry_count if job is not None else 0,
         "step_details": details,
+        "import_execution_summary": execution_summary,
+        "import_error_summary": error_summary,
+        "snapshot_warning": snap_warn,
         "is_stalled": is_stalled(job) if job is not None else False,
+        "job_execution_failed": job_execution_failed(job),
         "started_at": job.started_at if job is not None else None,
         "finished_at": job.finished_at if job is not None else None,
         "created_at": job.created_at if job is not None else None,
         "updated_at": job.updated_at if job is not None else None,
-        "last_error": None if display_as_published else (job.last_error if job is not None else None),
+        "last_error": None if display["suppress_job_errors"] else (job.last_error if job is not None else None),
         "can_run": False if city_published else _can_run(job, city),
-        "can_retry": False if active_job else _can_retry(job, raw_status),
-        "can_cancel": active_job and _can_cancel(job, raw_status),
-        "can_publish": False if active_job or display_as_published else _can_publish(city, places_total),
+        "can_retry": False if active_job else _can_retry(job, str(display["job_execution_status"])),
+        "can_cancel": active_job and _can_cancel(job, str(display["job_execution_status"])),
+        "can_publish": False if active_job or (city_published and not job_execution_failed(job)) else _can_publish(city, places_total),
         "can_unpublish": _can_unpublish(city),
         "report_url": f"/admin/routes/data-quality/{city.slug}",
         "logs_url": f"/admin/system-logs?city_slug={city.slug}&module=import",
@@ -176,7 +201,7 @@ def refresh_import_job_snapshot(db: Session, *, city_id: int, source: str = "exp
     return snapshot
 
 
-def _admin_step_details(*, db: Session, city: City, job: CityAdminImportJob | None, places_total: int, places_published: int, pending_photos: int, snapshot: dict[str, object] | None) -> dict[str, object]:
+def _admin_step_details(*, db: Session, city: City, job: CityAdminImportJob | None, places_total: int, places_published: int, pending_photos: int, snapshot: dict[str, object] | None, status_group: str) -> dict[str, object]:
     details = dict(job.step_details or {}) if job is not None else {}
     coverage = _snapshot_coverage(snapshot)
     changes = _snapshot_changes(snapshot)
@@ -189,7 +214,7 @@ def _admin_step_details(*, db: Session, city: City, job: CityAdminImportJob | No
         details["latest_address_enrichment"] = latest_address
     details.update({
         "admin_pipeline_contract": {"mode": PIPELINE_MODE, "label": PIPELINE_MODE_LABEL, "collection": "legacy_osm_import", "quality_layer": "foundation_pipeline", "publication_mode": "manual_review_required_for_changed_places"},
-        "admin_status_group": _status_group(job.status if job is not None else city.launch_status, job.current_step if job is not None else STEP_QUEUED, city.launch_status, bool(city.is_active)),
+        "admin_status_group": status_group,
         "admin_action_hint": _action_hint(job, city, places_total),
         "admin_auto_refresh_seconds": 7 if _is_active_job(job) else None,
         "snapshot_at": snapshot.get("taken_at") if snapshot else None,
@@ -235,6 +260,8 @@ def _data_coverage(db: Session, *, city_id: int, total: int, published: int, pen
 
 
 def _status_group(status: str, current_step: str, launch_status: str, is_active: bool = False) -> str:
+    if status in FAILED_IMPORT_STATUSES:
+        return "failed"
     if status == "queued":
         return "queued"
     if status == "running":

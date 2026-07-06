@@ -112,6 +112,24 @@ That POST action marks only hard-stuck running jobs:
 
 This keeps GET read-only and gives admins a manual escape hatch when import-worker leaves jobs in `running`.
 
+## Import job vs destination publication status
+
+Admin import responses now expose two independent states:
+
+- `destination_publication_status` — product publication of the city/destination (`published` when `launch_status=published` and `is_active=true`);
+- `job_execution_status` / `status` — latest import job execution (`queued`, `running`, `stalled`, `failed`, `success`, …).
+
+Rules:
+
+- failed or stalled import jobs must not be masked as `published` / `Опубликован` only because the destination is already published;
+- `progress` / `processed_items` reaching 100% does not imply success when `import_diff.status=failed`, scopes failed, or pipeline warnings contain errors;
+- `failed_items` is derived from stored counters, pipeline warnings, and scope failures when the DB counter is zero;
+- `import_error_summary` surfaces `failed_step`, `error_message`, scope counters for failed jobs;
+- `import_execution_summary` reports raw collected/saved, scopes, publication counts separately; unknown metrics stay `null` with warnings;
+- `snapshot_warning` with code `SNAPSHOT_MISSING` is returned when no cached `admin_import_snapshot` exists.
+
+The admin UI shows two badges: import execution status and destination publication status.
+
 ## Admin UI
 
 Desktop may render a table. Mobile must render cards:

@@ -127,6 +127,12 @@ export type AdminImportJob = {
   can_unpublish?: boolean
   report_url?: string | null
   logs_url?: string | null
+  job_execution_status?: string
+  destination_publication_status?: string
+  job_execution_failed?: boolean
+  import_execution_summary?: Record<string, unknown> | null
+  import_error_summary?: { failed_step?: string; error_message?: string; job_id?: number } | null
+  snapshot_warning?: { code?: string; message?: string } | null
 }
 
 export type AdminImportJobsResponse = { items: AdminImportJob[]; total: number; limit: number; offset: number }

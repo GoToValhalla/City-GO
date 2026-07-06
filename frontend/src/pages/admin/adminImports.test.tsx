@@ -233,6 +233,41 @@ describe('AdminImportJobsPage', () => {
     expect(screen.queryByText(/Фото остаются блокером/)).toBeNull()
   })
 
+  it('shows failed import and published destination as separate states', async () => {
+    const failedPublishedJob = job({
+      city_id: 8,
+      city_slug: 'zelenogradsk',
+      city_name: 'Зеленоградск',
+      job_id: 9,
+      id: 'city-import-8',
+      status: 'stalled',
+      job_execution_status: 'stalled',
+      destination_publication_status: 'published',
+      launch_status: 'published',
+      is_city_active: true,
+      job_execution_failed: true,
+      current_step: 'collecting_places',
+      current_step_label: 'Завис',
+      total_items: 466,
+      processed_items: 466,
+      failed_items: 1,
+      import_error_summary: { failed_step: 'collecting_places', error_message: 'tourist_core: psycopg.errors.UndefinedTable' },
+      snapshot_warning: { code: 'SNAPSHOT_MISSING', message: 'Snapshot не создан.' },
+      import_execution_summary: { raw_collected: 0, raw_saved: 0, published: 26, scopes_total: 3, scopes_succeeded: 0, scopes_failed: 3 },
+      step_details: { data_coverage: baseCoverage, change_summary: {}, admin_pipeline_contract: {}, snapshot_stale: true },
+    })
+    installFetch({ items: [failedPublishedJob], details: { 8: failedPublishedJob } })
+    renderPage('/admin/imports?city=zelenogradsk&job=9')
+    await screen.findByText('Зеленоградск · запуск #9')
+    const statusBadges = screen.getAllByTestId('import-job-status-badge')
+    expect(statusBadges.some((el) => el.textContent?.includes('Завис'))).toBe(true)
+    expect(screen.getAllByTestId('destination-publication-badge').length).toBeGreaterThan(0)
+    expect(screen.getByTestId('import-error-summary').textContent).toContain('psycopg')
+    expect(screen.getByTestId('snapshot-missing-warning')).toBeTruthy()
+    expect(screen.getByTestId('import-execution-summary').textContent).toContain('0')
+    expect(screen.queryByText('100%')).toBeNull()
+  })
+
   it('polling runs only for queued or running jobs and stops after success', async () => {
     vi.useFakeTimers()
     let listRequests = 0
