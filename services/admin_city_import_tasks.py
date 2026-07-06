@@ -45,17 +45,26 @@ def run_all_cities_enrichment_background(*, actor_id: str) -> None:
 
 def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -> dict[str, Any]:
     limit = max(1, int(limit or 1))
-    with SessionLocal() as db:
-        stalled = mark_stalled_import_jobs(db, actor_id=actor_id)
-        jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "queued").order_by(CityAdminImportJob.created_at.asc(), CityAdminImportJob.id.asc()).limit(limit).all()
-        work = [(int(job.id), int(job.city_id), str(job.source or "")) for job in jobs]
-
     processed = 0
     failed = 0
     errors: list[dict[str, object]] = []
-    for job_id, city_id, source in work:
-        try:
-            with SessionLocal() as db:
+    with SessionLocal() as db:
+        stalled = mark_stalled_import_jobs(db, actor_id=actor_id)
+        jobs = (
+            db.query(CityAdminImportJob)
+            .filter(CityAdminImportJob.status == "queued")
+            .order_by(CityAdminImportJob.created_at.asc(), CityAdminImportJob.id.asc())
+            .with_for_update(skip_locked=True)
+            .limit(limit)
+            .all()
+        )
+        for job in jobs:
+            job_id = int(job.id)
+            city_id = int(job.city_id)
+            source = str(job.source or "")
+            if job.status != "queued":
+                continue
+            try:
                 if source == SOURCE_ENRICHMENT_ONLY:
                     run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id)
                 elif source == SOURCE_SNAPSHOT_REFRESH:
@@ -66,14 +75,13 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                     run_photo_enrichment_job(db, city_id=city_id, actor_id=actor_id)
                 else:
                     run_city_import_job(db, city_id=city_id, actor_id=actor_id)
-            processed += 1
-        except Exception as exc:  # noqa: BLE001
-            failed += 1
-            error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
-            errors.append(error)
-            _mark_worker_exception(job_id=job_id, error=str(exc))
-            send_admin_alert(title="Import worker job failed", message=str(exc)[:1000], level="error", job_id=job_id, details=error)
-    with SessionLocal() as db:
+                processed += 1
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
+                errors.append(error)
+                _mark_worker_exception(job_id=job_id, error=str(exc))
+                send_admin_alert(title="Import worker job failed", message=str(exc)[:1000], level="error", job_id=job_id, details=error)
         queue = import_queue_summary(db)
     return {"processed": processed, "failed": failed, "stalled_marked": stalled, "errors": errors, "queue": queue}
 
