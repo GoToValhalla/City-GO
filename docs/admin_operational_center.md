@@ -8,6 +8,7 @@
 - `/admin/coverage?tab=gaps` — Data Coverage Assurance: must-have POI gaps, причины и действия.
 - `/admin/system-health` — сервисы, очереди и persisted alert lifecycle.
 - `/admin/analytics` — агрегаты product events и route build events.
+- `/admin/route-health` — backend-only диагностика опубликованных маршрутов.
 - `/admin/system-logs` — correlation filters и bounded pagination.
 - `/admin/imports?city=<slug>&job=<id>` — конкретный запуск импорта или обогащения.
 - `/admin/enrichment?city=<slug>&batch=<id>` — конкретный ручной пакет обогащения.
@@ -71,8 +72,45 @@
 - `POST /admin/coverage-gaps/sync`
 - `POST /admin/coverage-gaps/refresh`
 - `PATCH /admin/coverage-gaps/{gap_id}`
+- `POST /admin/places/{place_id}/emergency-hide`
+- `GET /admin/route-health`
+- `POST /admin/route-health/re-run`
 
 Все endpoints используют `admin_required`. Старые поля workspace сохранены; поле `operations` добавлено совместимо.
+
+## Emergency Hide
+
+`POST /admin/places/{place_id}/emergency-hide` — обратимое логическое скрытие места.
+Endpoint не удаляет строку и не трогает внешние источники. Он снимает публикацию,
+каталог, поиск и route eligibility, затем пишет `AdminAuditLog` с idempotency key.
+
+Админский UI на карточке места требует:
+
+- причину не короче 10 символов;
+- явное подтверждение оператора;
+- disabled/busy state во время запроса;
+- перечитывание карточки после успеха;
+- русское сообщение об ошибке без backend stack trace.
+
+После успешного скрытия место не должно появляться в `/places`, `/places/{id}`,
+поиске и пользовательской сборке маршрутов.
+
+## Route Health
+
+`GET /admin/route-health` и `POST /admin/route-health/re-run` запускают только
+backend-проверки уже сохранённых маршрутов. UI не пересчитывает маршруты сам и не
+показывает сырые `code`/JSON details пользователю.
+
+Проверки покрывают:
+
+- меньше 3 туристических точек;
+- служебные или route-ineligible места;
+- точки из другого города;
+- длинный переход без промежуточных точек;
+- слабое разнообразие категорий.
+
+Проблемы в интерфейсе показываются русскими строками с короткой диагностикой,
+например количеством служебных точек или длиной маршрута.
 
 ## Data Quality Contract
 

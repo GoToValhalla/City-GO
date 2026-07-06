@@ -50,3 +50,23 @@ def test_emergency_hide_is_idempotent_new(client: TestClient, published_place_fa
     assert second.status_code == 200
     assert second.json()["audit_log_id"] == first.json()["audit_log_id"]
     assert second.json()["idempotent_replay"] is True
+
+
+def test_emergency_hide_removes_place_from_public_catalog_new(client: TestClient, city_factory, published_place_factory) -> None:
+    city = city_factory(slug="emergency-public-city")
+    place = published_place_factory(city_id=city.id, category="museum", title="Скрываемое место")
+
+    response = client.post(
+        f"/admin/places/{place.id}/emergency-hide",
+        headers=_AUTH,
+        json={"reason": "Подтвержденная жалоба на недоступное место", "idempotency_key": "hide-key-4"},
+    )
+    assert response.status_code == 200
+
+    catalog = client.get(f"/places/?city_slug={city.slug}")
+    assert catalog.status_code == 200
+    ids = {item["id"] for item in catalog.json()["items"]}
+    assert place.id not in ids
+
+    detail = client.get(f"/places/{place.id}")
+    assert detail.status_code == 404

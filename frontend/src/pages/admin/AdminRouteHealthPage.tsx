@@ -35,6 +35,40 @@ const ISSUE_LABELS: Record<string, string> = {
   route_low_diversity_warning: 'Слабое разнообразие категорий',
 }
 
+const numberDetail = (details: Record<string, unknown>, key: string) => {
+  const value = details[key]
+  return typeof value === 'number' ? value : null
+}
+
+const arrayDetailCount = (details: Record<string, unknown>, key: string) => {
+  const value = details[key]
+  return Array.isArray(value) ? value.length : null
+}
+
+const issueDetailsText = (issue: RouteHealthIssue) => {
+  if (issue.code === 'route_min_points_failed') {
+    const tourist = numberDetail(issue.details, 'tourist_points')
+    const minimum = numberDetail(issue.details, 'minimum')
+    return `Туристических точек: ${tourist ?? 0}; минимум: ${minimum ?? 3}`
+  }
+  if (issue.code === 'route_service_places_detected') {
+    const total = numberDetail(issue.details, 'total')
+    return `Служебных точек: ${total ?? 'нужно проверить'}`
+  }
+  if (issue.code === 'route_city_mixing_error') {
+    const total = arrayDetailCount(issue.details, 'place_ids')
+    return `Точек из другого города: ${total ?? 'нужно проверить'}`
+  }
+  if (issue.code === 'route_long_transition_warning') {
+    const distance = numberDetail(issue.details, 'distance_km')
+    return distance === null ? 'Проверьте длину перехода' : `Длина маршрута: ${distance.toFixed(1)} км`
+  }
+  if (issue.code === 'route_low_diversity_warning') {
+    return 'Проверьте разнообразие категорий в маршруте'
+  }
+  return 'Подробности доступны в backend-диагностике'
+}
+
 export const AdminRouteHealthPage = () => {
   const [state, setState] = useState<RouteHealthSummary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -108,7 +142,7 @@ export const AdminRouteHealthPage = () => {
                     <td>{issue.route_title}</td>
                     <td>{issue.severity === 'critical' ? 'Критично' : issue.severity === 'warning' ? 'Предупреждение' : 'Норма'}</td>
                     <td>{ISSUE_LABELS[issue.code] ?? issue.label}</td>
-                    <td>{JSON.stringify(issue.details)}</td>
+                    <td>{issueDetailsText(issue)}</td>
                   </tr>
                 ))}
               </tbody>

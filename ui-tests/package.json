@@ -5,6 +5,10 @@
   "scripts": {
     "test": "PLAYWRIGHT_HTML_OPEN=never playwright test",
     "test:ui": "PLAYWRIGHT_HTML_OPEN=never playwright test --ui",
+    "test:local": "PLAYWRIGHT_HTML_OPEN=never VITE_API_BASE_URL=http://127.0.0.1:8000 VITE_ADMIN_API_TOKEN=local-dev-admin-token PLAYWRIGHT_API_URL=http://127.0.0.1:8000 PLAYWRIGHT_ADMIN_TOKEN=local-dev-admin-token playwright test",
+    "test:smoke:local": "PLAYWRIGHT_HTML_OPEN=never VITE_API_BASE_URL=http://127.0.0.1:8000 VITE_ADMIN_API_TOKEN=local-dev-admin-token PLAYWRIGHT_API_URL=http://127.0.0.1:8000 PLAYWRIGHT_ADMIN_TOKEN=local-dev-admin-token playwright test tests/smoke.spec.ts",
+    "backend:local": "cd .. && DATABASE_URL=sqlite:///./ui_tests_local.db ADMIN_API_TOKEN=local-dev-admin-token APP_ENV=test .venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000",
+    "prepare:local": "cd .. && DATABASE_URL=sqlite:///./ui_tests_local.db .venv/bin/python scripts/seed_ui_tests_db.py",
     "install:browsers": "playwright install chromium"
   },
   "devDependencies": {

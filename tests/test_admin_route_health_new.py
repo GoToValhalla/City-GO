@@ -9,8 +9,8 @@ from models.route_place import RoutePlace
 _AUTH = {"Authorization": "Bearer test"}
 
 
-def _route(db_session, city_id: int, title: str = "Маршрут") -> Route:
-    route = Route(city_id=city_id, slug=f"route-{title}", title=title, route_mode="walk", is_active=True)
+def _route(db_session, city_id: int, title: str = "Маршрут", distance_km: float | None = None) -> Route:
+    route = Route(city_id=city_id, slug=f"route-{title}", title=title, route_mode="walk", is_active=True, distance_km=distance_km)
     db_session.add(route)
     db_session.commit()
     db_session.refresh(route)
@@ -63,3 +63,30 @@ def test_route_health_rerun_returns_backend_read_model_new(client: TestClient, c
     body = response.json()
     assert body["status"] == "completed"
     assert set(body["result"]) >= {"routes_checked", "issues", "status", "checked_at"}
+
+
+def test_route_health_detects_long_transition_warning_new(client: TestClient, db_session, city_factory, published_place_factory) -> None:
+    city = city_factory(slug="route-long-city")
+    first = published_place_factory(city_id=city.id, category="museum", title="Музей")
+    second = published_place_factory(city_id=city.id, category="park", title="Парк")
+    route = _route(db_session, city.id, "long-transition", distance_km=7.2)
+    _link(db_session, route, first, 1)
+    _link(db_session, route, second, 2)
+
+    response = client.get("/admin/route-health?city_slug=route-long-city", headers=_AUTH)
+    assert response.status_code == 200
+    codes = {issue["code"] for issue in response.json()["issues"]}
+    assert "route_long_transition_warning" in codes
+
+
+def test_route_health_detects_low_diversity_warning_new(client: TestClient, db_session, city_factory, published_place_factory) -> None:
+    city = city_factory(slug="route-diversity-city")
+    route = _route(db_session, city.id, "low-diversity")
+    for index in range(4):
+        place = published_place_factory(city_id=city.id, category="cafe", title=f"Кафе {index}")
+        _link(db_session, route, place, index + 1)
+
+    response = client.get("/admin/route-health?city_slug=route-diversity-city", headers=_AUTH)
+    assert response.status_code == 200
+    codes = {issue["code"] for issue in response.json()["issues"]}
+    assert "route_low_diversity_warning" in codes

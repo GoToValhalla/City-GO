@@ -51,6 +51,8 @@ export const AdminPlaceDetailPage = () => {
   const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [emergencyReason, setEmergencyReason] = useState('')
+  const [emergencyConfirmed, setEmergencyConfirmed] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -144,6 +146,27 @@ export const AdminPlaceDetailPage = () => {
     }
   }
 
+  const emergencyHide = async () => {
+    if (!id || emergencyReason.trim().length < 10 || !emergencyConfirmed) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      await adminPost(`/admin/places/${id}/emergency-hide`, {
+        reason: emergencyReason.trim(),
+        idempotency_key: `emergency-hide-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
+      })
+      setEmergencyReason('')
+      setEmergencyConfirmed(false)
+      setNotice('Место экстренно скрыто: оно убрано из каталога, поиска и маршрутов')
+      await load()
+    } catch {
+      setError('Не удалось экстренно скрыть место. Проверьте причину и повторите.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (loading) return <AdminLoading />
   if (!data || !form) return <AdminError message={error || 'Место не найдено'} />
 
@@ -188,6 +211,37 @@ export const AdminPlaceDetailPage = () => {
             <button className="admin-btn admin-btn-danger" disabled={busy || data.publication_status !== 'published'} onClick={unpublish}>Скрыть с сайта</button>
             <button className="admin-btn" disabled={busy} onClick={() => void refreshAddress()}>Обновить адрес</button>
             <Link className="admin-btn" to={`/admin/audit?entity_id=${data.id}`}>Полный аудит</Link>
+          </section>
+          <section className="admin-detail-panel">
+            <h3>Экстренное скрытие</h3>
+            <p className="admin-muted">Скрывает место из каталога, поиска и маршрутов без удаления данных.</p>
+            <label className="admin-field" htmlFor="emergency-hide-reason">
+              <span>Причина скрытия</span>
+              <textarea
+                id="emergency-hide-reason"
+                value={emergencyReason}
+                disabled={busy}
+                onChange={(event) => setEmergencyReason(event.target.value)}
+                placeholder="Например: подтверждена жалоба, место закрыто или данные опасно неверны"
+              />
+            </label>
+            <label className="admin-checkbox-row">
+              <input
+                type="checkbox"
+                checked={emergencyConfirmed}
+                disabled={busy}
+                onChange={(event) => setEmergencyConfirmed(event.target.checked)}
+              />
+              Подтверждаю экстренное скрытие места
+            </label>
+            <button
+              type="button"
+              className="admin-btn admin-btn-danger"
+              disabled={busy || emergencyReason.trim().length < 10 || !emergencyConfirmed}
+              onClick={() => void emergencyHide()}
+            >
+              {busy ? 'Скрываем…' : 'Экстренно скрыть место'}
+            </button>
           </section>
         </>
       )}
