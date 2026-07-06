@@ -9,6 +9,10 @@ from starlette.responses import Response
 
 from core.cors import parse_cors_origins
 from core.config import settings
+from core.import_worker_scheduler import (
+    start_import_worker_scheduler,
+    stop_import_worker_scheduler,
+)
 from core.place_verification_scheduler import (
     start_place_verification_scheduler,
     stop_place_verification_scheduler,
@@ -29,9 +33,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             "Set it via environment variable before starting the app."
         )
     start_place_verification_scheduler()
+    start_import_worker_scheduler()
     try:
         yield
     finally:
+        await stop_import_worker_scheduler()
         await stop_place_verification_scheduler()
 
 
