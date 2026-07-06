@@ -8,6 +8,8 @@ from services.import_pipeline.progress import is_stalled, step_label
 from services.import_pipeline.steps import STEP_QUEUED
 
 FAILED_IMPORT_STATUSES = {"failed", "stalled", "import_failed"}
+REVIEWABLE_IMPORT_STATUSES = {"success", "success_with_warnings", "partial_success", "imported"}
+REVIEWABLE_DESTINATION_STATUSES = {"review_required", "imported"}
 
 
 def is_published_city(city: City) -> bool:
@@ -16,6 +18,14 @@ def is_published_city(city: City) -> bool:
 
 def is_active_import_job(job: CityAdminImportJob | None) -> bool:
     return job is not None and job.status in {"queued", "running"}
+
+
+def is_reviewable_import_job(job: CityAdminImportJob | None) -> bool:
+    return job is not None and job.status in REVIEWABLE_IMPORT_STATUSES
+
+
+def destination_needs_review(city: City) -> bool:
+    return str(city.launch_status) in REVIEWABLE_DESTINATION_STATUSES
 
 
 def import_diff(job: CityAdminImportJob | None) -> dict[str, object]:
@@ -179,7 +189,12 @@ def resolve_import_display(city: City, job: CityAdminImportJob | None) -> dict[s
         display_status = raw_status
         display_step = raw_step
         display_step_label = step_label(raw_step)
-        status_group = "published" if city_published else "idle"
+        status_group = "published"
+    elif is_reviewable_import_job(job) or destination_needs_review(city):
+        display_status = raw_status
+        display_step = raw_step
+        display_step_label = step_label(raw_step)
+        status_group = "review"
     else:
         display_status = raw_status
         display_step = raw_step
