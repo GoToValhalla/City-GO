@@ -96,6 +96,12 @@ class Settings(BaseSettings):
     verification_scheduler_interval_hours: int = 24
     verification_scheduler_city_slugs: str = ""
 
+    # Destination-first foundation (phased rollout; defaults keep legacy city flow).
+    destination_foundation_enabled: bool = False
+    destination_catalog_reads_enabled: bool = False
+    destination_route_reads_enabled: bool = False
+    destination_import_enabled: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

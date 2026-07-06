@@ -27,6 +27,7 @@ router = APIRouter(prefix="/places", tags=["places"])
 def read_places(
     city_id: int | None = Query(default=None),
     city_slug: str | None = Query(default=None),
+    destination_slug: str | None = Query(default=None),
     category_id: int | None = Query(default=None),
     tag_id: int | None = Query(default=None),
     q: str | None = Query(default=None),
@@ -36,10 +37,13 @@ def read_places(
     sort_order: str = Query(default="asc"),
     db: Session = Depends(get_db),
 ) -> PublicPlaceSearchResponse:
+    if city_slug and destination_slug:
+        raise HTTPException(status_code=400, detail="Use either city_slug or destination_slug, not both")
     items = get_places(
         db=db,
         city_id=city_id,
         city_slug=city_slug,
+        destination_slug=destination_slug,
         category_id=category_id,
         tag_id=tag_id,
         q=q,
@@ -53,6 +57,7 @@ def read_places(
         db=db,
         city_id=city_id,
         city_slug=city_slug,
+        destination_slug=destination_slug,
         category_id=category_id,
         tag_id=tag_id,
         q=q,

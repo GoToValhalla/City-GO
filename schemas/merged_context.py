@@ -52,13 +52,11 @@ class MergedContext(BaseModel):
     city_center_location: Optional[Tuple[float, float]] = None
     distance_to_city_center_meters: Optional[int] = None
 
-    # TODO(Data Foundation V2): добавить поля после миграции API:
-    # destination_id: Optional[str]
-    # destination_slug: Optional[str]
-    # destination_type: Optional[str]
-    # route_type: Optional[str]
-    # include_child_destinations: bool
-    # corridor_buffer_meters: Optional[int]
+    # Destination-first route context (v1, phased).
+    destination_id: Optional[str] = None
+    destination_slug: Optional[str] = None
+    destination_type: Optional[str] = None
+    trip_type: str = "walking"
 
     # --- TIME — лимиты времени на маршрут.
     time_budget_minutes: int

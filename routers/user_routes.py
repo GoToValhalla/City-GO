@@ -24,6 +24,7 @@ from schemas.user_route import (
 from services.public_route_sanitizer import sanitize_user_route_state
 from services.route_analytics_service import record_route_build
 from services.route_builder_v2_service import RouteBuilderV2Error
+from services.destination_route_resolution import resolve_route_build_request
 from services.user_route_build_service import UserRouteBuildService
 from services.user_route_correct_service import UserRouteCorrectService
 from services.user_route_edit_service import UserRouteEditService
@@ -40,9 +41,13 @@ def build_user_route(
     if payload.start_source == "current_location" and (payload.lat is None or payload.lng is None):
         raise HTTPException(status_code=422, detail="lat/lng required for current_location")
 
+    resolved_payload, block_reason = resolve_route_build_request(db, payload)
+    if block_reason:
+        raise HTTPException(status_code=422, detail={"partial_reason": block_reason})
+
     started = perf_counter()
     try:
-        route = UserRouteBuildService().build(db=db, request=payload)
+        route = UserRouteBuildService().build(db=db, request=resolved_payload)
     except RouteBuilderV2Error as exc:
         raise HTTPException(status_code=422, detail={"code": "route_builder_v2_invalid_request", "message": str(exc)}) from exc
     record_route_build(

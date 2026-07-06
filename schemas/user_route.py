@@ -37,6 +37,9 @@ class UserRouteIntent(BaseModel):
     pace_mode: str | None = None
     is_visiting: bool = False
     city_id: str | None = None
+    destination_id: str | None = None
+    destination_slug: str | None = None
+    trip_type: str = "walking"
     visit_city_id: str | None = None
     visit_days: int | None = Field(default=None, ge=1, le=30)
     user_id: str | None = Field(default=None, min_length=1, max_length=100)

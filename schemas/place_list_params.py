@@ -15,6 +15,7 @@ class PlaceListParams(PaginationParams):
 
     city_id: int | None = None
     city_slug: str | None = None
+    destination_slug: str | None = None
     category_id: int | None = None
     tag_id: int | None = None
     q: str | None = None

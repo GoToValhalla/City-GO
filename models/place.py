@@ -31,6 +31,10 @@ class Place(Base):
     # Целевая модель: Place должен быть геонезависимым объектом с координатами, primary_destination_id
     # и many-to-many связью PlaceDestination. Байкал/Алтай/Карелия не должны требовать fake city_id.
     city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False, index=True)
+    primary_destination_id: Mapped[int | None] = mapped_column(
+        ForeignKey("destinations.id"), nullable=True, index=True
+    )
+    destination_assignment_stale: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
 
     slug: Mapped[str] = mapped_column(String, index=True, nullable=False)
@@ -135,6 +139,8 @@ class Place(Base):
     field_provenance = relationship("PlaceFieldProvenance", back_populates="place")
     state_transitions = relationship("PlaceStateTransition", back_populates="place")
     quality_history = relationship("QualityScoreHistory", back_populates="place")
+    destination_memberships = relationship("DestinationPlaceMembership", back_populates="place")
+    primary_destination = relationship("Destination", foreign_keys=[primary_destination_id])
 
 
 @event.listens_for(Place, "before_insert")

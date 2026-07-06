@@ -182,11 +182,11 @@ class CandidateRetrievalService:
         lat, lng = ctx.location
 
         distance_expr = self._distance_meters_expr(lat=lat, lng=lng)
-        query = self._base_query(ctx).where(distance_expr <= ctx.radius_meters)
+        query = self._base_query(db, ctx).where(distance_expr <= ctx.radius_meters)
         query = query.order_by(distance_expr.asc()).limit(self.MAX_CANDIDATES)
         return db.execute(query).scalars().all()
 
-    def _base_query(self, ctx: MergedContext, *, apply_user_exclusions: bool = True):
+    def _base_query(self, db: Session, ctx: MergedContext, *, apply_user_exclusions: bool = True):
         admin_preview = bool(getattr(ctx, "is_admin", False))
         eligibility_conditions = (
             admin_preview_route_eligible_sql_conditions()
@@ -200,8 +200,11 @@ class CandidateRetrievalService:
                 City.is_active.is_(True),
                 ~City.launch_status.in_(BLOCKED_CITY_LAUNCH_STATUSES),
             )
-        if ctx.city_id:
+        if ctx.city_id and not _destination_route_reads_enabled(ctx):
             query = query.where(City.slug == str(ctx.city_id))
+
+        if _destination_route_reads_enabled(ctx):
+            query = _apply_destination_membership_route_filter(db, query, ctx)
 
         # Важно: не фильтруем кандидатов по CityImportScope.status.
         # В проде импортные места могут быть связаны со scope в статусе completed/ready,
@@ -252,7 +255,7 @@ class CandidateRetrievalService:
         """
         lat, lng = ctx.location
         distance_expr = self._distance_meters_expr(lat=lat, lng=lng)
-        query = self._base_query(ctx).order_by(distance_expr.asc()).limit(self.MAX_CANDIDATES)
+        query = self._base_query(db, ctx).order_by(distance_expr.asc()).limit(self.MAX_CANDIDATES)
         return db.execute(query).scalars().all()
 
     def _fallback_route_visible_city_wide(
@@ -424,7 +427,7 @@ class CandidateRetrievalService:
         *,
         apply_user_exclusions: bool = True,
     ) -> int:
-        query = self._base_query(ctx, apply_user_exclusions=apply_user_exclusions)
+        query = self._base_query(db, ctx, apply_user_exclusions=apply_user_exclusions)
         if max_distance_meters is not None:
             lat, lng = ctx.location
             query = query.where(self._distance_meters_expr(lat=lat, lng=lng) <= max_distance_meters)
@@ -835,3 +838,39 @@ def _retrieval_loss_summary(
         "lost_after_post_processing": max(0, raw_candidates_count - final_candidates_count),
         "coverage_pct": round((final_candidates_count / city_wide_eligible) * 100, 2) if city_wide_eligible else None,
     }
+
+
+def _destination_route_reads_enabled(ctx: MergedContext) -> bool:
+    from services.destination_flags import destination_route_reads_enabled
+
+    return destination_route_reads_enabled() and bool(
+        getattr(ctx, "destination_id", None) or getattr(ctx, "destination_slug", None)
+    )
+
+
+def _apply_destination_membership_route_filter(db: Session, query, ctx: MergedContext):
+    from models.destination import DestinationPlaceMembership
+    from services.city_destination_compatibility import get_destination_by_id, get_destination_by_slug
+
+    dest_id: int | None = None
+    raw_id = getattr(ctx, "destination_id", None)
+    if raw_id is not None:
+        try:
+            dest_id = int(raw_id)
+        except (TypeError, ValueError):
+            dest_id = None
+    if dest_id is None:
+        slug = getattr(ctx, "destination_slug", None)
+        if slug:
+            dest = get_destination_by_slug(db, str(slug))
+            dest_id = dest.id if dest else None
+    if dest_id is None:
+        return query
+    return query.join(
+        DestinationPlaceMembership,
+        DestinationPlaceMembership.place_id == Place.id,
+    ).where(
+        DestinationPlaceMembership.destination_id == dest_id,
+        DestinationPlaceMembership.is_hidden.is_(False),
+        DestinationPlaceMembership.invalidated_at.is_(None),
+    )

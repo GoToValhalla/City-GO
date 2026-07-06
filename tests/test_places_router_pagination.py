@@ -11,6 +11,7 @@ def test_read_places_passes_limit_and_offset_and_returns_structured_response() -
         db,
         city_id=None,
         city_slug=None,
+        destination_slug=None,
         category_id=None,
         tag_id=None,
         q=None,
@@ -18,6 +19,7 @@ def test_read_places_passes_limit_and_offset_and_returns_structured_response() -
         offset=0,
         sort_by='title',
         sort_order='asc',
+        **kwargs,
     ):
         captured["limit"] = limit
         captured["offset"] = offset
@@ -27,9 +29,11 @@ def test_read_places_passes_limit_and_offset_and_returns_structured_response() -
         db,
         city_id=None,
         city_slug=None,
+        destination_slug=None,
         category_id=None,
         tag_id=None,
         q=None,
+        **kwargs,
     ):
         return 0
 

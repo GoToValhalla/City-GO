@@ -9,6 +9,7 @@ def test_read_places_returns_empty_structured_response() -> None:
         db,
         city_id=None,
         city_slug=None,
+        destination_slug=None,
         category_id=None,
         tag_id=None,
         q=None,
@@ -16,6 +17,7 @@ def test_read_places_returns_empty_structured_response() -> None:
         offset=0,
         sort_by='title',
         sort_order='asc',
+        **kwargs,
     ):
         return []
 
@@ -23,9 +25,11 @@ def test_read_places_returns_empty_structured_response() -> None:
         db,
         city_id=None,
         city_slug=None,
+        destination_slug=None,
         category_id=None,
         tag_id=None,
         q=None,
+        **kwargs,
     ):
         return 0
 

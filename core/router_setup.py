@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 
+from routers.destinations import router as destinations_router
+from routers.admin_destinations import router as admin_destinations_router
 from routers.admin import router as admin_router
 from routers.admin_ai import router as admin_ai_router
 from routers.admin_background_operations import router as admin_background_operations_router
@@ -70,6 +72,7 @@ def include_app_routers(app: FastAPI) -> None:
     app.include_router(recommendations_router)
     app.include_router(recommendations_router, prefix="/v1")
     app.include_router(user_routes_router, prefix="/v1")
+    app.include_router(destinations_router)
     app.include_router(user_signals_router)
     app.include_router(verification_router, prefix="/v1")
 
@@ -85,6 +88,7 @@ _ROOT_ROUTERS = (
     admin_bot_analytics_router,
     admin_coverage_gaps_router,
     admin_data_pipeline_router,
+    admin_destinations_router,
     admin_data_quality_router,
     admin_emergency_hide_router,
     admin_import_queue_router,

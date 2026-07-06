@@ -21,6 +21,7 @@ def normalize_place_query_params(params: PlaceQueryParams) -> PlaceQueryParams:
         PlaceListParams(
             city_id=params.city_id,
             city_slug=params.city_slug,
+            destination_slug=params.destination_slug,
             category_id=params.category_id,
             tag_id=params.tag_id,
             q=params.q,
@@ -39,6 +40,7 @@ def normalize_place_query_params(params: PlaceQueryParams) -> PlaceQueryParams:
     return PlaceQueryParams(
         city_id=normalized_list.city_id,
         city_slug=normalized_list.city_slug,
+        destination_slug=normalized_list.destination_slug,
         category_id=normalized_list.category_id,
         tag_id=normalized_list.tag_id,
         q=normalized_list.q,

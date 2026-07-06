@@ -53,6 +53,8 @@ import { AdminQualityPage } from './pages/admin/AdminQualityPage'
 import { AdminSystemHealthPage } from './pages/admin/AdminSystemHealthPage'
 import { AdminTaxonomyPage } from './pages/admin/AdminTaxonomyPage'
 import { AdminDataPipelinePage } from './pages/admin/AdminDataPipelinePage'
+import { AdminDestinationsPage } from './pages/admin/AdminDestinationsPage'
+import { AdminDestinationDetailPage } from './pages/admin/AdminDestinationDetailPage'
 import { CityRouteScope } from './features/city-routing/CityRouteScope'
 import { LegacyCityRedirect } from './features/city-routing/LegacyCityRedirect'
 
@@ -91,6 +93,8 @@ function App() {
     <Route path="/admin/reviews" element={<AdminPage><AdminReviewsPage /></AdminPage>} />
     <Route path="/admin/imports" element={<AdminPage><AdminImportJobsPage /></AdminPage>} />
     <Route path="/admin/data-pipeline" element={<AdminPage><AdminDataPipelinePage /></AdminPage>} />
+    <Route path="/admin/destinations" element={<AdminPage><AdminDestinationsPage /></AdminPage>} />
+    <Route path="/admin/destinations/:slug" element={<AdminPage><AdminDestinationDetailPage /></AdminPage>} />
     <Route path="/admin/imports/:citySlug/jobs/:jobId/changes" element={<AdminPage><AdminImportJobChangesPage /></AdminPage>} />
     <Route path="/admin/import-jobs" element={<Navigate to="/admin/imports" replace />} />
     <Route path="/admin/coverage" element={<AdminPage><AdminCoveragePage /></AdminPage>} />

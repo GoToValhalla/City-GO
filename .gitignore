@@ -4,11 +4,22 @@
 !.env.example
 !frontend/.env.example
 
+# Secrets & credentials
+*.pem
+*.key
+*.p12
+credentials.json
+secrets.json
+service-account*.json
+**/storage-state.json
+
 # Python
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.egg-info/
+.eggs/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -21,8 +32,16 @@ venv/
 node_modules/
 dist/
 build/
+dist-ssr/
 .vite/
 coverage/
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+.turbo/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Logs
 *.log
@@ -30,8 +49,12 @@ logs/
 
 # OS / IDE
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
+.cursor/
+.cursor-workpacks/
+.claude/
 
 # Local databases and dumps
 *.db
@@ -39,6 +62,8 @@ logs/
 *.sqlite3
 *.dump
 *.sql.gz
+ci_*.db
+ci_schema_check.db
 
 # Temporary files
 tmp/
@@ -51,6 +76,12 @@ frontend/.playwright-cli/
 .playwright/
 playwright-report/
 test-results/
+ui-tests/blob-report/
+ui-tests/playwright/.cache/
+
+# Test reporters
+allure-results/
+allure-report/
 
 # Generated data artifacts
 artifacts/
@@ -58,9 +89,15 @@ data/audit/
 data/exports/
 data/raw.bak
 
-# Local backups
+# Local backups & snapshots
 .trash/
 app_backup_before_cleanup/
+_chatgpt_snapshot/
+agent-transcripts/
+
+# Local deploy scratch
+deploy.local/
+*.local.sh
 
 # Local AI agent context / private project notes
 cotext.md

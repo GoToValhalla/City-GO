@@ -37,6 +37,7 @@ def normalize_place_list_params(params: PlaceListParams) -> PlaceListParams:
     return PlaceListParams(
         city_id=normalized_search.city_id,
         city_slug=normalized_search.city_slug,
+        destination_slug=params.destination_slug,
         category_id=normalized_search.category_id,
         tag_id=normalized_search.tag_id,
         q=normalized_search.q,

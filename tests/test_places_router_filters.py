@@ -1,9 +1,25 @@
-from datetime import datetime
-
 from fastapi.testclient import TestClient
 
 from db.dependencies import get_db
 from main import app
+from schemas.public_place import PublicCategory, PublicCoordinates, PublicDataQuality, PublicPlaceRead
+
+_PUBLIC_ITEM = PublicPlaceRead(
+    id=1,
+    slug="coffee-point",
+    name="Coffee Point",
+    title="Coffee Point",
+    category="coffee",
+    category_label="coffee",
+    category_info=PublicCategory(slug="coffee", label="coffee"),
+    coordinates=PublicCoordinates(lat=54.964, lng=20.475),
+    lat=54.964,
+    lng=20.475,
+    address="Kurortny Prospekt 12",
+    short_description="Good coffee place",
+    price_level=1,
+    data_quality=PublicDataQuality(is_degraded=False, completeness_score=100),
+)
 
 
 def test_read_places_passes_all_filters_and_returns_structured_response() -> None:
@@ -13,6 +29,7 @@ def test_read_places_passes_all_filters_and_returns_structured_response() -> Non
         db,
         city_id=None,
         city_slug=None,
+        destination_slug=None,
         category_id=None,
         tag_id=None,
         q=None,
@@ -20,6 +37,7 @@ def test_read_places_passes_all_filters_and_returns_structured_response() -> Non
         offset=0,
         sort_by="title",
         sort_order="asc",
+        **kwargs,
     ):
         captured["city_id"] = city_id
         captured["city_slug"] = city_slug
@@ -30,36 +48,20 @@ def test_read_places_passes_all_filters_and_returns_structured_response() -> Non
         captured["offset"] = offset
         captured["sort_by"] = sort_by
         captured["sort_order"] = sort_order
-        return [
-            {
-                "id": 1,
-                "title": "Coffee Point",
-                "slug": "coffee-point",
-                "city_id": 1,
-                "category_id": 2,
-                "short_description": "Good coffee place",
-                "category": "coffee",
-                "address": "Kurortny Prospekt 12",
-                "lat": 54.964,
-                "lng": 20.475,
-                "price_level": 1,
-                "dog_friendly": False,
-                "family_friendly": False,
-                "indoor": False,
-                "outdoor": False,
-                "is_active": True,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
-            }
-        ]
+        return [object()]
+
+    def fake_build_public_place_reads(db, items):
+        return [_PUBLIC_ITEM]
 
     def fake_get_places_total(
         db,
         city_id=None,
         city_slug=None,
+        destination_slug=None,
         category_id=None,
         tag_id=None,
         q=None,
+        **kwargs,
     ):
         return 1
 
@@ -70,8 +72,10 @@ def test_read_places_passes_all_filters_and_returns_structured_response() -> Non
 
     original_get_places = places.get_places
     original_get_places_total = places.get_places_total
+    original_build = places.build_public_place_reads
     places.get_places = fake_get_places
     places.get_places_total = fake_get_places_total
+    places.build_public_place_reads = fake_build_public_place_reads
     app.dependency_overrides[get_db] = fake_get_db
 
     client = TestClient(app)
@@ -90,6 +94,7 @@ def test_read_places_passes_all_filters_and_returns_structured_response() -> Non
 
     places.get_places = original_get_places
     places.get_places_total = original_get_places_total
+    places.build_public_place_reads = original_build
     app.dependency_overrides.clear()
 
     assert response.status_code == 200

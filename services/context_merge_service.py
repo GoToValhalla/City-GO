@@ -45,6 +45,9 @@ class RequestContext:
         start_source: Optional[str] = None,
         start_warnings: Optional[List[str]] = None,
         is_admin: Optional[bool] = None,
+        destination_id: Optional[str] = None,
+        destination_slug: Optional[str] = None,
+        trip_type: Optional[str] = None,
     ):
         self.location = location
         self.city_id = city_id
@@ -63,6 +66,9 @@ class RequestContext:
         self.start_source = start_source or "city_center"
         self.start_warnings = list(start_warnings or [])
         self.is_admin = bool(is_admin)
+        self.destination_id = destination_id
+        self.destination_slug = destination_slug
+        self.trip_type = trip_type or "walking"
 
 
 # -----------------------------
@@ -152,6 +158,10 @@ class ContextMergeService:
             category_affinity=dict(profile.behavior.category_affinity) if profile else {},
             liked_place_ids=list(profile.history.liked_place_ids) if profile else [],
             visited_place_ids=list(profile.history.visited_place_ids) if profile else [],
+            destination_id=request.destination_id,
+            destination_slug=request.destination_slug,
+            destination_type=None,
+            trip_type=request.trip_type or "walking",
         )
 
     def _resolve_location(

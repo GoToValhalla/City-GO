@@ -4,6 +4,9 @@ from schemas.user_route import UserRouteIntent
 from services.context_merge_service import RequestContext
 
 
+from services.destination_route_resolution import intent_to_request_context_fields
+
+
 def to_request_context(intent: UserRouteIntent) -> RequestContext:
     return RequestContext(
         location=(intent.lat, intent.lng),
@@ -19,6 +22,7 @@ def to_request_context(intent: UserRouteIntent) -> RequestContext:
         is_visiting=intent.is_visiting,
         visit_city_id=intent.visit_city_id,
         visit_days=intent.visit_days,
+        **intent_to_request_context_fields(intent),
     )
 
 

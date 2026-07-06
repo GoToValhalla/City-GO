@@ -13,6 +13,7 @@ from services.route_builder_v2_service import (
 )
 from services.user_profile_from_signals_service import build_user_profile_from_signals
 from services.user_route_context import to_request_context
+from services.destination_route_resolution import resolve_route_build_request
 from services.user_route_mapper import final_route_to_state
 from services.user_route_slot_build_service import UserRouteSlotBuildService
 
@@ -21,7 +22,8 @@ class UserRouteBuildService:
     """Построение пользовательского маршрута с подготовкой стартового контекста."""
 
     def build(self, db: Session, request: UserRouteBuildRequest) -> UserRouteState:
-        resolved_request = self._resolve_start_context(db, request)
+        resolved_request, _block = resolve_route_build_request(db, request)
+        resolved_request = self._resolve_start_context(db, resolved_request)
         route_builder_plan = build_route_builder_v2_plan_from_intent(resolved_request)
         if route_builder_plan.mode == "slot":
             state = UserRouteSlotBuildService().build(db, resolved_request)

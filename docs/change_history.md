@@ -1,6 +1,16 @@
 # CHANGE HISTORY
 
-## 2026-06-20
+## 2026-07-06
+
+### Destination-first foundation v1
+- Добавлены модели `Destination`, `DestinationScope`, `DestinationPlaceMembership`, миграция и backfill городов.
+- Feature flags для phased rollout catalog/route/import reads.
+- Public API `/v1/destinations`, `destination_slug` в каталоге мест, compatibility layer для city flow.
+- Route candidate retrieval и walking guard через destination membership под флагом.
+- Admin API и UI для направлений (list + detail).
+- Документация: `docs/architecture/destination_foundation_v1.md`.
+- Исправлена потеря `destination_slug` в `place_list_params_service.normalize_place_list_params`.
+
 
 ### Adaptive route refactor
 - Route builder no longer injects hidden `walk` interests on backend or frontend.
