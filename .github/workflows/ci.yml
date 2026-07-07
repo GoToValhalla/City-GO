@@ -2,17 +2,127 @@ name: 00 · CITY GO · CI
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
 
 concurrency:
-  group: full-autotests-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      docs: ${{ steps.filter.outputs.docs }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+      docker: ${{ steps.filter.outputs.docker }}
+      smoke: ${{ steps.filter.outputs.smoke }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            workflows:
+              - '.github/workflows/**'
+            backend:
+              - 'core/**'
+              - 'routers/**'
+              - 'services/**'
+              - 'models/**'
+              - 'db/**'
+              - 'migrations/**'
+              - 'data/**'
+              - 'scripts/**'
+              - 'tests/**'
+              - 'main.py'
+              - 'requirements.txt'
+              - 'requirements-dev.txt'
+              - 'alembic.ini'
+              - 'Dockerfile'
+              - 'docker-compose.yml'
+            frontend:
+              - 'frontend/**'
+            docs:
+              - 'docs/**'
+              - '**/*.md'
+              - 'README.md'
+              - 'DESIGN.md'
+              - 'AGENTS.md'
+              - 'requirements-gate.md'
+            docker:
+              - 'Dockerfile'
+              - 'Dockerfile.*'
+              - 'frontend/Dockerfile'
+              - 'frontend/Dockerfile.*'
+              - 'docker-compose.yml'
+            smoke:
+              - 'scripts/production_smoke.py'
+              - 'tests/test_production_smoke*.py'
+
+  workflow-validate:
+    name: Validate workflow YAML
+    needs: changes
+    if: github.event_name != 'workflow_dispatch' && needs.changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse workflow YAML files
+        run: |
+          python - <<'PY'
+          import pathlib
+          import sys
+
+          try:
+              import yaml
+          except ImportError:
+              import subprocess
+              subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pyyaml'])
+              import yaml
+
+          for path in sorted(pathlib.Path('.github/workflows').glob('*.yml')):
+              yaml.safe_load(path.read_text(encoding='utf-8'))
+              print(f'ok {path}')
+          PY
+
+  docs-only-check:
+    name: Docs-only change gate
+    needs: changes
+    if: |
+      github.event_name != 'workflow_dispatch' &&
+      needs.changes.outputs.docs == 'true' &&
+      needs.changes.outputs.workflows != 'true' &&
+      needs.changes.outputs.backend != 'true' &&
+      needs.changes.outputs.frontend != 'true' &&
+      needs.changes.outputs.docker != 'true' &&
+      needs.changes.outputs.smoke != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Docs-only change detected. Backend/frontend regression skipped."
+
   backend-tests:
     name: Backend full regression
+    needs: changes
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.backend == 'true' ||
+      needs.changes.outputs.workflows == 'true' ||
+      needs.changes.outputs.docker == 'true' ||
+      needs.changes.outputs.smoke == 'true' ||
+      needs.changes.outputs.frontend == 'true' ||
+      needs.changes.outputs.docs != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -106,6 +216,19 @@ jobs:
 
   frontend-tests:
     name: Frontend lint, tests and build
+    needs: changes
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.frontend == 'true' ||
+      needs.changes.outputs.workflows == 'true' ||
+      needs.changes.outputs.docker == 'true' ||
+      (
+        needs.changes.outputs.docs != 'true' &&
+        (
+          needs.changes.outputs.backend == 'true' ||
+          needs.changes.outputs.smoke == 'true'
+        )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -174,16 +297,33 @@ jobs:
     name: Notify CI result
     runs-on: ubuntu-latest
     needs:
+      - changes
+      - workflow-validate
+      - docs-only-check
       - backend-tests
       - frontend-tests
-    if: always()
+    if: |
+      always() &&
+      (
+        needs.docs-only-check.result == 'success' ||
+        (
+          needs.backend-tests.result != 'skipped' ||
+          needs.frontend-tests.result != 'skipped'
+        )
+      )
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts/downloaded
         continue-on-error: true
+      - name: Build docs-only notification
+        if: needs.docs-only-check.result == 'success'
+        run: |
+          mkdir -p artifacts/messages
+          printf '✅ City Go CI docs-only\nMarkdown/docs change only. Backend and frontend regression skipped.\n' > artifacts/messages/docs-only.txt
       - name: Build total autotest report
+        if: needs.docs-only-check.result != 'success'
         env:
           BACKEND_JOB_RESULT: ${{ needs.backend-tests.result }}
           FRONTEND_JOB_RESULT: ${{ needs.frontend-tests.result }}
@@ -191,13 +331,20 @@ jobs:
           python scripts/build_total_autotest_report.py \
             --messages-dir artifacts/downloaded \
             --output artifacts/total-autotest-report.txt
+      - name: Prepare notify text
+        run: |
+          if [ -f artifacts/total-autotest-report.txt ]; then
+            cp artifacts/total-autotest-report.txt artifacts/notify.txt
+          else
+            cp artifacts/messages/docs-only.txt artifacts/notify.txt
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: total-autotest-report
-          path: artifacts/total-autotest-report.txt
+          path: artifacts/notify.txt
           if-no-files-found: error
       - name: Telegram CI notification
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scripts/send_telegram_notification.py --text-file artifacts/total-autotest-report.txt
+        run: python scripts/send_telegram_notification.py --text-file artifacts/notify.txt

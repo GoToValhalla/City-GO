@@ -6,9 +6,10 @@ on:
 permissions:
   contents: read
   packages: write
+  actions: read
 
 concurrency:
-  group: production-deploy
+  group: production-deploy-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -16,9 +17,28 @@ jobs:
     name: Build production images
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify full regression passed for deploy SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA}"
+          WORKFLOW_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml" --jq .id)"
+          CONCLUSION="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WORKFLOW_ID}/runs?branch=main&head_sha=${SHA}&status=completed&per_page=20" --jq '[.workflow_runs[] | select(.name == "00 · CITY GO · CI")] | map(.conclusion) | .[0] // empty')"
+          if [ "$CONCLUSION" != "success" ]; then
+            echo "Deploy blocked: no successful full CI regression for ${SHA} on main." >&2
+            echo "Run '00 · CITY GO · CI' for this commit before production deploy." >&2
+            exit 1
+          fi
+          echo "CI regression success confirmed for ${SHA}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Set image names
         shell: bash
@@ -43,15 +63,20 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build backend image
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker build --quiet \
-            --build-arg CITY_GO_BUILD_SHA="$CITY_GO_BUILD_SHA" \
-            --build-arg CITY_GO_BUILD_RUN_ID="$CITY_GO_BUILD_RUN_ID" \
-            --build-arg CITY_GO_BUILD_RUN_NUMBER="$CITY_GO_BUILD_RUN_NUMBER" \
-            --build-arg CITY_GO_BUILD_TIME="$CITY_GO_BUILD_TIME" \
-            -t "$BACKEND_IMAGE:latest" .
+        uses: docker/build-push-action@v6
+        id: backend-image
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ env.BACKEND_IMAGE }}:latest
+          build-args: |
+            CITY_GO_BUILD_SHA=${{ env.CITY_GO_BUILD_SHA }}
+            CITY_GO_BUILD_RUN_ID=${{ env.CITY_GO_BUILD_RUN_ID }}
+            CITY_GO_BUILD_RUN_NUMBER=${{ env.CITY_GO_BUILD_RUN_NUMBER }}
+            CITY_GO_BUILD_TIME=${{ env.CITY_GO_BUILD_TIME }}
+          cache-from: type=gha,scope=city-go-backend
+          cache-to: type=gha,mode=max,scope=city-go-backend
 
       - name: Backend import smoke inside image
         shell: bash
@@ -115,25 +140,25 @@ jobs:
           docker push "$BACKEND_IMAGE:latest"
 
       - name: Build and push frontend image
-        shell: bash
-        env:
-          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          docker build --progress=plain \
-            --build-arg VITE_ADMIN_API_TOKEN="$ADMIN_API_TOKEN" \
-            --build-arg VITE_BUILD_SHA="$CITY_GO_BUILD_SHA" \
-            --build-arg VITE_BUILD_RUN_ID="$CITY_GO_BUILD_RUN_ID" \
-            --build-arg VITE_BUILD_RUN_NUMBER="$CITY_GO_BUILD_RUN_NUMBER" \
-            --build-arg VITE_BUILD_TIME="$CITY_GO_BUILD_TIME" \
-            -t "$FRONTEND_IMAGE:latest" \
-            ./frontend
-          docker push "$FRONTEND_IMAGE:latest"
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ env.FRONTEND_IMAGE }}:latest
+          build-args: |
+            VITE_ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}
+            VITE_BUILD_SHA=${{ env.CITY_GO_BUILD_SHA }}
+            VITE_BUILD_RUN_ID=${{ env.CITY_GO_BUILD_RUN_ID }}
+            VITE_BUILD_RUN_NUMBER=${{ env.CITY_GO_BUILD_RUN_NUMBER }}
+            VITE_BUILD_TIME=${{ env.CITY_GO_BUILD_TIME }}
+          cache-from: type=gha,scope=city-go-frontend
+          cache-to: type=gha,mode=max,scope=city-go-frontend
 
   deploy:
     name: Deploy production
     runs-on: ubuntu-latest
     needs: build
+    if: github.ref == 'refs/heads/main'
     timeout-minutes: 30
     steps:
       - name: Checkout
