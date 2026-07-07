@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
 from models.city import City
@@ -25,6 +26,7 @@ from services.admin_city_import_job_service import (
 )
 from services.import_pipeline.progress import is_stalled, set_step
 from services.import_pipeline.steps import STEP_ERROR
+from services.system_log_service import write_system_log
 
 
 def run_import_job_background(city_id: int, *, actor_id: str) -> None:
@@ -60,13 +62,40 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
             .limit(limit)
             .all()
         )
+        if not jobs:
+            running_count = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").count()
+            _log_worker_decision(
+                db,
+                event="worker_no_queued_jobs",
+                actor_id=actor_id,
+                message=f"Import worker found no queued jobs; active running jobs: {running_count}",
+                details={"limit": limit, "running": running_count, "stalled_marked": stalled},
+            )
+            db.commit()
         for job in jobs:
             job_id = int(job.id)
             city_id = int(job.city_id)
             source = str(job.source or "")
             if job.status != "queued":
+                _log_worker_decision(
+                    db,
+                    event="worker_claim_skipped",
+                    actor_id=actor_id,
+                    message=f"Import worker skipped job #{job_id}: status is {job.status}",
+                    job=job,
+                    details={"reason": "status_not_queued", "status": job.status, "limit": limit},
+                )
+                db.commit()
                 continue
             try:
+                _log_worker_decision(
+                    db,
+                    event="worker_job_claimed",
+                    actor_id=actor_id,
+                    message=f"Import worker claiming job #{job_id} (city_id={city_id}, source={source})",
+                    job=job,
+                    details={"limit": limit, "queued_seconds": _queued_seconds(job), "stalled_marked": stalled},
+                )
                 if source == SOURCE_ENRICHMENT_ONLY:
                     run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id)
                 elif source == SOURCE_SNAPSHOT_REFRESH:
@@ -78,6 +107,15 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                 else:
                     run_city_import_job(db, city_id=city_id, actor_id=actor_id)
                 processed += 1
+                _log_worker_decision(
+                    db,
+                    event="worker_job_finished",
+                    actor_id=actor_id,
+                    message=f"Import worker finished job #{job_id}",
+                    job=job,
+                    details={"final_status": job.status, "source": source},
+                )
+                db.commit()
             except Exception as exc:  # noqa: BLE001
                 if isinstance(exc, SQLAlchemyError):
                     db.rollback()
@@ -85,9 +123,57 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                 error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
                 errors.append(error)
                 _mark_worker_exception(job_id=job_id, error=str(exc))
+                _log_worker_decision(
+                    db,
+                    event="worker_job_failed",
+                    actor_id=actor_id,
+                    level="error",
+                    message=f"Import worker failed job #{job_id}: {str(exc)[:300]}",
+                    job=job,
+                    details=error,
+                )
+                db.commit()
                 send_admin_alert(title="Import worker job failed", message=str(exc)[:1000], level="error", job_id=job_id, details=error)
         queue = import_queue_summary(db)
     return {"processed": processed, "failed": failed, "stalled_marked": stalled, "errors": errors, "queue": queue}
+
+
+def _queued_seconds(job: CityAdminImportJob, *, now: datetime | None = None) -> int | None:
+    if job.created_at is None:
+        return None
+    return max(0, int(((now or datetime.utcnow()) - job.created_at).total_seconds()))
+
+
+def _log_worker_decision(
+    db: Session,
+    *,
+    event: str,
+    actor_id: str | None,
+    message: str,
+    job: CityAdminImportJob | None = None,
+    level: str = "info",
+    details: dict[str, object] | None = None,
+) -> None:
+    city_slug: str | None = None
+    request_id: str | None = None
+    payload = dict(details or {})
+    payload["event"] = event
+    if job is not None:
+        request_id = str(job.id)
+        payload.update({"job_id": int(job.id), "city_id": int(job.city_id), "source": job.source, "status": job.status})
+        city = db.query(City).filter(City.id == job.city_id).first()
+        city_slug = city.slug if city is not None else None
+    write_system_log(
+        db,
+        level=level,
+        module="import_worker",
+        message=message,
+        details=payload,
+        city_slug=city_slug,
+        request_id=request_id,
+        actor_id=actor_id,
+        commit=False,
+    )
 
 
 def _mark_worker_exception(*, job_id: int, error: str) -> None:
