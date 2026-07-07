@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from models.city_admin_import_job import CityAdminImportJob
 from models.place import Place
@@ -13,8 +14,6 @@ from services.import_pipeline.transaction import (
     record_step_isolation,
     rollback_session,
 )
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
 
 
 def test_collecting_places_failure_records_rollback_before_next_step_new(db_session, city_factory, monkeypatch) -> None:

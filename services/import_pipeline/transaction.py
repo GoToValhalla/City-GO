@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from models.city_admin_import_job import CityAdminImportJob
+from services.import_pipeline.schema_compat import is_schema_mismatch_error
 
 
 def is_aborted_transaction_error(exc: BaseException) -> bool:
@@ -36,6 +37,20 @@ def rollback_if_aborted(db: Session) -> bool:
     return rollback_session(db)
 
 
+def verify_session_usable(db: Session) -> bool:
+    try:
+        db.connection().execute(text("SELECT 1"))
+        return True
+    except SQLAlchemyError:
+        if not rollback_session(db):
+            return False
+        try:
+            db.connection().execute(text("SELECT 1"))
+            return True
+        except SQLAlchemyError:
+            return False
+
+
 def record_step_isolation(
     db: Session,
     job: CityAdminImportJob,
@@ -58,11 +73,20 @@ def record_step_isolation(
 
 
 def recover_after_db_error(db: Session, job: CityAdminImportJob, *, step: str, error: BaseException | None = None) -> dict[str, object]:
-    if error is None or is_aborted_transaction_error(error) or transaction_is_aborted(db):
-        rollback_session(db)
-    return record_step_isolation(
+    should_rollback = (
+        error is None
+        or isinstance(error, SQLAlchemyError)
+        or is_aborted_transaction_error(error)
+        or is_schema_mismatch_error(error)
+        or transaction_is_aborted(db)
+    )
+    rolled_back = rollback_session(db) if should_rollback else False
+    usable = verify_session_usable(db)
+    isolation = record_step_isolation(
         db,
         job,
         after_step=step,
         reason="db_error_recovered",
+        force=should_rollback,
     )
+    return {**isolation, "rolled_back": rolled_back, "session_usable": usable, "error": str(error)[:1000] if error else None}

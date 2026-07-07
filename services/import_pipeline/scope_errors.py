@@ -21,6 +21,12 @@ def classify_scope_error(error: str) -> dict[str, object]:
         }
     if "too many osm objects" in text:
         return {"kind": "source_limits", "retryable": False, "admin_hint": "Слишком много объектов OSM для scope. Сузьте bbox или профиль."}
+    if "undefinedcolumn" in text or "undefinedtable" in text or "does not exist" in text:
+        return {
+            "kind": "schema_mismatch",
+            "retryable": False,
+            "admin_hint": "Схема БД отстаёт от кода импорта. Примените миграции/bootstrap и повторите сбор.",
+        }
     return {"kind": "scope_failure", "retryable": True, "admin_hint": "Scope завершился с ошибкой. Откройте детали и повторите сбор."}
 
 

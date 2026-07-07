@@ -1,0 +1,89 @@
+"""Import-critical schema compatibility checks and repair."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from sqlalchemy import inspect, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.schema import CreateTable
+
+from db.base import Base
+from models.data_foundation import PlaceFieldProvenance
+from models.place import Place
+
+IMPORT_PLACE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("place_layer", "VARCHAR(64) NOT NULL DEFAULT 'tourist_catalog'"),
+    ("route_policy", "VARCHAR(64) NOT NULL DEFAULT 'city_walking'"),
+    ("tourist_eligible", "BOOLEAN NOT NULL DEFAULT TRUE"),
+    ("transport_required", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ("primary_destination_id", "INTEGER"),
+    ("destination_assignment_stale", "BOOLEAN NOT NULL DEFAULT FALSE"),
+)
+IMPORT_CRITICAL_TABLES: tuple[str, ...] = (PlaceFieldProvenance.__tablename__,)
+
+
+def is_schema_mismatch_error(error: BaseException | str | None) -> bool:
+    text_value = str(error or "").lower()
+    markers = (
+        "undefinedcolumn",
+        "undefinedtable",
+        "does not exist",
+        "no such column",
+        "no such table",
+        "unknown column",
+    )
+    return any(marker in text_value for marker in markers)
+
+
+def collecting_has_schema_failure(summary: dict[str, object] | None) -> bool:
+    if not isinstance(summary, dict):
+        return False
+    if is_schema_mismatch_error(str(summary.get("last_error") or "")):
+        return True
+    scope_errors = summary.get("scope_errors")
+    if not isinstance(scope_errors, list):
+        return False
+    return any(
+        isinstance(row, dict) and is_schema_mismatch_error(str(row.get("error") or ""))
+        for row in scope_errors
+    )
+
+
+def diagnose_import_schema_gaps(engine: Engine) -> dict[str, list[str]]:
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
+    missing_tables = [name for name in IMPORT_CRITICAL_TABLES if name not in table_names]
+    place_columns = {column["name"] for column in inspector.get_columns("places")} if "places" in table_names else set()
+    missing_columns = [name for name, _sql in IMPORT_PLACE_COLUMNS if name not in place_columns]
+    return {"missing_tables": missing_tables, "missing_place_columns": missing_columns}
+
+
+def ensure_import_pipeline_schema(engine: Engine) -> dict[str, Any]:
+    gaps = diagnose_import_schema_gaps(engine)
+    created_tables: list[str] = []
+    added_columns: list[str] = []
+    connection = engine.connect()
+    try:
+        inspector = inspect(connection)
+        existing_tables = set(inspector.get_table_names())
+        for table_name in IMPORT_CRITICAL_TABLES:
+            if table_name in existing_tables:
+                continue
+            table = Base.metadata.tables[table_name]
+            connection.execute(CreateTable(table))
+            connection.commit()
+            created_tables.append(table_name)
+            existing_tables.add(table_name)
+        if "places" in existing_tables:
+            place_columns = {column["name"] for column in inspector.get_columns("places")}
+            for column_name, ddl in IMPORT_PLACE_COLUMNS:
+                if column_name in place_columns:
+                    continue
+                connection.execute(text(f"ALTER TABLE places ADD COLUMN {column_name} {ddl}"))
+                connection.commit()
+                added_columns.append(f"places.{column_name}")
+    finally:
+        connection.close()
+    return {"created_tables": created_tables, "added_columns": added_columns, "before": gaps}

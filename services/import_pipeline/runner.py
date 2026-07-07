@@ -38,6 +38,7 @@ from services.import_pipeline.transaction import (
     recover_after_db_error,
     rollback_session,
 )
+from services.import_pipeline.schema_compat import collecting_has_schema_failure, is_schema_mismatch_error
 from services.photo_enrichment_diagnostics import build_photo_enrichment_diagnostics
 from services.place_import_lifecycle_service import mark_place_for_review
 
@@ -76,6 +77,7 @@ def run_enrichment_pipeline(
         job.places_found = int(summary.get("places_found") or 0)
         job.places_saved = int(summary.get("places_saved") or 0)
         collecting_failed = str(summary.get("status") or "").lower() != "success"
+        schema_collecting_failed = collecting_failed and collecting_has_schema_failure(summary)
         if collecting_failed:
             isolation = record_step_isolation(
                 db,
@@ -109,6 +111,7 @@ def run_enrichment_pipeline(
             warning = {
                 "step": STEP_COLLECTING_PLACES,
                 "error": str(summary.get("last_error") or "partial import"),
+                "kind": "schema_mismatch" if schema_collecting_failed else "scope_failure",
             }
             warnings.append(warning)
             append_step_warning(job, STEP_COLLECTING_PLACES, warning["error"])
@@ -138,16 +141,28 @@ def run_enrichment_pipeline(
             STEP_FINDING_IMAGES,
             warnings,
             lambda: run_image_enrich(["--city", city.slug, "--limit", str(IMAGE_LIMIT), "--apply"]),
+            skip_if_dependency_failed=schema_collecting_failed,
+            dependency_step=STEP_COLLECTING_PLACES,
         )
         image_result = images if isinstance(images, dict) else {}
-        photo_diagnostics = build_photo_enrichment_diagnostics(
-            db,
-            city,
-            enrichment_result=image_result if image_result.get("status") != "skipped" else None,
-            step_status=str(image_result.get("status") or "") or None,
-            dependency_step=str(image_result.get("dependency") or "") or None,
-            scan_limit=IMAGE_LIMIT,
-        )
+        try:
+            photo_diagnostics = build_photo_enrichment_diagnostics(
+                db,
+                city,
+                enrichment_result=image_result if image_result.get("status") != "skipped" else None,
+                step_status=str(image_result.get("status") or "") or None,
+                dependency_step=str(image_result.get("dependency") or "") or None,
+                scan_limit=IMAGE_LIMIT,
+            )
+        except SQLAlchemyError as exc:
+            recovery = recover_after_db_error(db, job, step=STEP_FINDING_IMAGES, error=exc)
+            warnings.append({**recovery, "step": STEP_FINDING_IMAGES})
+            photo_diagnostics = {
+                "step_status": "failed",
+                "provider_error": str(exc)[:1000],
+                "provider_status": "diagnostics_failed",
+                "admin_hint": "Диагностика фото недоступна из-за ошибки БД после collecting_places.",
+            }
         results["images"] = {**image_result, "photo_diagnostics": photo_diagnostics}
         results["photo_diagnostics"] = photo_diagnostics
         job.step_details = {**dict(job.step_details or {}), "photo_diagnostics": photo_diagnostics, "photo_enrichment": results["images"]}
@@ -347,8 +362,15 @@ def _optional_step(
         _safe_log_warning(db, job, slug, actor, step, exc)
         return payload
     except Exception as exc:
-        recovery = recover_after_db_error(db, job, step=step, error=exc) if is_aborted_transaction_error(exc) else None
-        payload: dict[str, object] = {"status": "warning", "error": str(exc)[:1000]}
+        recovery = (
+            recover_after_db_error(db, job, step=step, error=exc)
+            if isinstance(exc, SQLAlchemyError) or is_aborted_transaction_error(exc)
+            else None
+        )
+        payload: dict[str, object] = {
+            "status": "warning" if not is_aborted_transaction_error(exc) else "failed",
+            "error": str(exc)[:1000],
+        }
         if recovery is not None:
             payload["transaction_isolation"] = recovery
             warnings.append(recovery)

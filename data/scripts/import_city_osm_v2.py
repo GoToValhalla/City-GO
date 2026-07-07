@@ -13,6 +13,7 @@ from services.coverage_profile_filters import COVERAGE_PROFILE_FILTERS
 from services.data_coverage_assurance import run_data_coverage_assurance
 from services.osm_import_taxonomy import category_from_osm_tags
 from services.place_layer_service import apply_place_layers
+from services.import_pipeline.schema_compat import ensure_import_pipeline_schema
 
 # These filters are the production Overpass contract for Data Coverage Assurance.
 # The legacy importer still owns persistence/lifecycle logic; this wrapper installs
@@ -76,6 +77,9 @@ def _install_coverage_taxonomy() -> None:
 def run(argv: list[str] | None = None) -> dict[str, object]:
     args = legacy_import.parse_args(argv)
     _install_coverage_taxonomy()
+    if args.apply:
+        with SessionLocal() as db:
+            ensure_import_pipeline_schema(db.get_bind().engine)
     result = legacy_import.run(argv)
 
     if args.apply:
