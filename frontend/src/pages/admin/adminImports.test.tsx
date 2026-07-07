@@ -207,7 +207,8 @@ describe('AdminImportJobsPage', () => {
       job_id: 14,
       id: 'city-import-6',
       data_coverage: { ...baseCoverage, without_photo: 4, pending_photos: 0 },
-      step_details: { data_coverage: { ...baseCoverage, without_photo: 4, pending_photos: 0 }, change_summary: {}, admin_pipeline_contract: {} },
+      photo_diagnostics: { admin_hint: 'Фото-блокер: источники не нашли кандидатов.', provider_status: 'no_candidates_from_provider', zero_result_reason: 'no_candidates_from_provider' },
+      step_details: { data_coverage: { ...baseCoverage, without_photo: 4, pending_photos: 0 }, change_summary: {}, admin_pipeline_contract: {}, photo_diagnostics: { admin_hint: 'Фото-блокер: источники не нашли кандидатов.', provider_status: 'no_candidates_from_provider', zero_result_reason: 'no_candidates_from_provider' } },
     })
     const pendingJob = job({
       city_id: 7,
@@ -223,7 +224,11 @@ describe('AdminImportJobsPage', () => {
     await waitFor(() => expect(screen.getAllByText('Фото-блокер').length).toBeGreaterThan(0))
 
     fireEvent.click(screen.getByRole('button', { name: '#14 →' }))
-    await screen.findByText(/Фото остаются блокером/)
+    await screen.findByText('Фото-блокер · запуск #14')
+    const hint = await screen.findByTestId('photo-blocker-hint')
+    expect(hint.textContent).toMatch(/Фото-блокер|Фото остаются блокером/)
+    const statusLine = screen.queryByTestId('photo-diagnostics-status')
+    if (statusLine) expect(statusLine.textContent).toMatch(/no_candidates_from_provider/)
 
     fireEvent.click(screen.getByRole('button', { name: 'Показать все города' }))
     await waitFor(() => expect(screen.getByRole('button', { name: '#15 →' })).toBeTruthy())

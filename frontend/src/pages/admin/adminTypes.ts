@@ -102,6 +102,7 @@ export type AdminImportJob = {
   places_published: number
   places_unpublished: number
   pending_photos: number
+  photo_diagnostics?: Record<string, unknown>
   next_step: string
   job_id?: number | null
   scopes_total?: number

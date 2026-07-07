@@ -22,7 +22,7 @@ from services.import_pipeline.enrichment_only import run_enrichment_only_pipelin
 from services.import_pipeline.runner import run_enrichment_pipeline
 from services.import_pipeline.steps import STEP_CANCELLED, STEP_ERROR, STEP_QUEUED
 from services.import_pipeline_foundation import run_foundation_pipeline
-from services.place_auto_repair_service import PlaceAutoRepairService, PlaceAutoRepairSummary
+from services.photo_enrichment_diagnostics import attach_photo_diagnostics_to_summary, build_photo_enrichment_diagnostics
 
 SOURCE_FULL_IMPORT = "admin_city_import"
 SOURCE_ENRICHMENT_ONLY = "admin_city_enrichment"
@@ -238,10 +238,13 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
     job.started_at = datetime.utcnow()
     db.commit()
     result = run_image_enrich(["--city", city.slug, "--limit", str(IMAGE_LIMIT), "--apply"])
+    if isinstance(result, dict) and "photo_diagnostics" not in result:
+        result = attach_photo_diagnostics_to_summary(db, city, result, scan_limit=IMAGE_LIMIT)
     scanned = int(result.get("scanned_places") or 0) if isinstance(result, dict) else 0
     created = int(result.get("created") or 0) if isinstance(result, dict) else 0
     errors = result.get("errors") if isinstance(result, dict) else []
     provider_status = result.get("provider_status") if isinstance(result, dict) else None
+    photo_diagnostics = result.get("photo_diagnostics") if isinstance(result, dict) else build_photo_enrichment_diagnostics(db, city, enrichment_result=result if isinstance(result, dict) else None, scan_limit=IMAGE_LIMIT)
     auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=[])
     job.places_found = scanned
     job.places_saved = created
@@ -249,8 +252,8 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
     job.processed_items = scanned
     job.successful_items = scanned
     job.failed_items = len(errors or []) if isinstance(errors, list) else 0
-    job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result, "auto_repair": auto_repair}
-    job.status = "success"
+    job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair}
+    job.status = "success_with_warnings" if created <= 0 and str(photo_diagnostics.get("provider_status") or "") not in {"success", ""} else "success"
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"
     log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result, "auto_repair": auto_repair})

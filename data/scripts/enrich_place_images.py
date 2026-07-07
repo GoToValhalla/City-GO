@@ -161,7 +161,9 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             summary["provider_status"] = "candidates_found"
         if args.apply:
             db.commit()
-        return summary
+        from services.photo_enrichment_diagnostics import attach_photo_diagnostics_to_summary
+
+        return attach_photo_diagnostics_to_summary(db, city, summary, scan_limit=int(args.limit))
 
 
 def _candidate_places_query(db: Session, city: City, *, start_after_id: int = 0):

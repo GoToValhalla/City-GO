@@ -38,6 +38,7 @@ from services.import_pipeline.transaction import (
     recover_after_db_error,
     rollback_session,
 )
+from services.photo_enrichment_diagnostics import build_photo_enrichment_diagnostics
 from services.place_import_lifecycle_service import mark_place_for_review
 
 IMAGE_LIMIT = 2000
@@ -138,7 +139,18 @@ def run_enrichment_pipeline(
             warnings,
             lambda: run_image_enrich(["--city", city.slug, "--limit", str(IMAGE_LIMIT), "--apply"]),
         )
-        results["images"] = images
+        image_result = images if isinstance(images, dict) else {}
+        photo_diagnostics = build_photo_enrichment_diagnostics(
+            db,
+            city,
+            enrichment_result=image_result if image_result.get("status") != "skipped" else None,
+            step_status=str(image_result.get("status") or "") or None,
+            dependency_step=str(image_result.get("dependency") or "") or None,
+            scan_limit=IMAGE_LIMIT,
+        )
+        results["images"] = {**image_result, "photo_diagnostics": photo_diagnostics}
+        results["photo_diagnostics"] = photo_diagnostics
+        job.step_details = {**dict(job.step_details or {}), "photo_diagnostics": photo_diagnostics, "photo_enrichment": results["images"]}
         set_step(
             job,
             STEP_FINDING_IMAGES,

@@ -22,6 +22,7 @@ from services.admin_import_display import (
     snapshot_warning,
 )
 from services.import_pipeline.progress import is_stalled, step_label
+from services.photo_enrichment_diagnostics import build_photo_enrichment_diagnostics
 from services.import_pipeline.steps import STEP_QUEUED, STEP_READY_FOR_REVIEW, TERMINAL_STEPS
 
 PUBLISHABLE_CITY_STATUSES = {"review_required", "imported", "success", "success_with_warnings", "partial_success", "import_failed", "unpublished"}
@@ -115,6 +116,8 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
     execution_summary = import_execution_summary(job, places_published=int(places_published))
     error_summary = import_error_summary(job)
     snap_warn = snapshot_warning(snapshot)
+    photo_diagnostics = _photo_diagnostics_for_city(db, city, job=job, details=details)
+    details["photo_diagnostics"] = photo_diagnostics
     return {
         "id": f"city-import-{city.id}",
         "city_id": city.id,
@@ -139,6 +142,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "places_published": places_published,
         "places_unpublished": max(places_total - places_published, 0),
         "pending_photos": pending_photos,
+        "photo_diagnostics": photo_diagnostics,
         "next_step": _import_next_step(current_step, status, city.launch_status) if snapshot else "Snapshot ещё не создан. Нажмите «Обновить snapshot», чтобы увидеть coverage и отчёт изменений без тяжёлого GET.",
         "job_id": job.id if job is not None else None,
         "scopes_total": job.scopes_total if job is not None else 0,
@@ -212,6 +216,7 @@ def _admin_step_details(*, db: Session, city: City, job: CityAdminImportJob | No
         details.setdefault("photo_enrichment", latest_photo)
     if latest_address:
         details["latest_address_enrichment"] = latest_address
+    details["photo_diagnostics"] = _photo_diagnostics_for_city(db, city, job=job, details=details)
     details.update({
         "admin_pipeline_contract": {"mode": PIPELINE_MODE, "label": PIPELINE_MODE_LABEL, "collection": "legacy_osm_import", "quality_layer": "foundation_pipeline", "publication_mode": "manual_review_required_for_changed_places"},
         "admin_status_group": status_group,
@@ -224,6 +229,33 @@ def _admin_step_details(*, db: Session, city: City, job: CityAdminImportJob | No
         "change_summary": changes,
     })
     return details
+
+
+def _photo_diagnostics_for_city(
+    db: Session,
+    city: City,
+    *,
+    job: CityAdminImportJob | None,
+    details: dict[str, object],
+) -> dict[str, object]:
+    enrichment = details.get("photo_enrichment") or details.get("latest_photo_enrichment")
+    enrichment_dict = enrichment if isinstance(enrichment, dict) else None
+    step_status = None
+    dependency_step = None
+    warnings = details.get("warnings")
+    if isinstance(warnings, list):
+        for row in warnings:
+            if isinstance(row, dict) and row.get("reason") == "dependency_failed" and row.get("step") == "finding_images":
+                step_status = "skipped"
+                dependency_step = str(row.get("dependency") or "collecting_places")
+    return build_photo_enrichment_diagnostics(
+        db,
+        city,
+        enrichment_result=enrichment_dict,
+        step_status=step_status,
+        dependency_step=dependency_step,
+        scan_limit=2000,
+    )
 
 
 def _snapshot(job: CityAdminImportJob | None) -> dict[str, object] | None:

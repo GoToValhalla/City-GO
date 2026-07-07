@@ -37,7 +37,7 @@ def test_photo_enrichment_success_with_zero_created_is_visible_in_details(db_ses
 
     job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin")
 
-    assert job.status == "success"
+    assert job.status == "success_with_warnings"
     assert job.source == service.SOURCE_PHOTO_ENRICHMENT
     assert job.current_step == "snapshot_refresh"
     assert job.finished_at is not None
@@ -59,6 +59,7 @@ def test_photo_enrichment_success_with_zero_created_is_visible_in_details(db_ses
     assert details["photo_enrichment"]["scanned_places"] == 5
     assert details["photo_enrichment"]["candidates_found"] == 0
     assert details["photo_enrichment"]["provider_status"] == "source_evidence_exhausted"
+    assert details["photo_diagnostics"]["provider_status"] == "no_candidates_from_provider"
     assert details["photo_enrichment"]["errors"] == [{"place_id": 1, "error": "no source evidence"}]
 
     detail = get_admin_import_job(db_session, city.id)
