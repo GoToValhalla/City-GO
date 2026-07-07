@@ -42,7 +42,23 @@ def eligible_for_photo_search(db: Session, *, city_id: int) -> int:
 
 
 def filtered_out_by_reason(db: Session, *, city_id: int) -> dict[str, int]:
-    places = db.query(Place).filter(Place.city_id == city_id, Place.image_url.is_(None)).all()
+    # ponytail: select only the scalar columns the loop actually reads, not full ORM
+    # rows, since this runs on every admin import job details request for the whole city.
+    rows = (
+        db.query(
+            Place.is_published,
+            Place.is_visible_in_catalog,
+            Place.category,
+            Place.lat,
+            Place.lng,
+            Place.status,
+            Place.is_spam_poi,
+            Place.title,
+            Place.is_route_eligible,
+        )
+        .filter(Place.city_id == city_id, Place.image_url.is_(None))
+        .all()
+    )
     counts = {
         "unpublished_or_hidden": 0,
         "service_category": 0,
@@ -52,20 +68,20 @@ def filtered_out_by_reason(db: Session, *, city_id: int) -> dict[str, int]:
         "low_quality_title": 0,
         "not_route_eligible": 0,
     }
-    for place in places:
-        if place.is_published is not True or place.is_visible_in_catalog is not True:
+    for is_published, is_visible_in_catalog, category, lat, lng, status, is_spam_poi, title_raw, is_route_eligible in rows:
+        if is_published is not True or is_visible_in_catalog is not True:
             counts["unpublished_or_hidden"] += 1
-        if is_public_hidden_category(place.category):
+        if is_public_hidden_category(category):
             counts["service_category"] += 1
-        if place.lat is None or place.lng is None:
+        if lat is None or lng is None:
             counts["missing_coordinates"] += 1
-        if place.status != "active":
+        if status != "active":
             counts["inactive_place"] += 1
-        if getattr(place, "is_spam_poi", False):
+        if is_spam_poi:
             counts["low_quality_title"] += 1
-        title = (place.title or "").strip()
+        title = (title_raw or "").strip()
         if len(title) < 2 or BAD_TITLE_PATTERN.match(title):
             counts["low_quality_title"] += 1
-        if place.is_route_eligible is not True:
+        if is_route_eligible is not True:
             counts["not_route_eligible"] += 1
     return {key: value for key, value in counts.items() if value > 0}

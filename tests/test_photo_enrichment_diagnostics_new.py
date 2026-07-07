@@ -3,6 +3,7 @@ from __future__ import annotations
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_city_import_job_payload import build_import_job_payload
 from services.photo_enrichment_diagnostics import build_photo_enrichment_diagnostics
+from services.photo_enrichment_diagnostics.eligibility import filtered_out_by_reason
 
 
 def test_without_photo_and_no_run_reports_warning_new(db_session, city_factory, place_factory) -> None:
@@ -99,3 +100,17 @@ def test_admin_import_display_includes_photo_diagnostics_new(db_session, city_fa
     assert diagnostics["provider_status"] == "no_candidates_from_provider"
     assert payload["step_details"]["photo_diagnostics"]["admin_hint"]
     assert payload["photo_diagnostics"]["without_photo_total"] == 1
+
+
+def test_filtered_out_by_reason_counts_all_reasons_new(db_session, city_factory, place_factory) -> None:
+    """Regression: this scans every without-photo place on every admin import job details
+    request (timeout risk for large cities), so it must select only the scalar columns it
+    reads instead of hydrating full ORM rows. Verifies counts still match after that change."""
+    city = city_factory(slug="photo-diag-perf", launch_status="review_required", is_active=False)
+    place_factory(city_id=city.id, slug="photo-diag-perf-1", title="ATM", image_url=None, category="atm")
+    place_factory(city_id=city.id, slug="photo-diag-perf-2", title="yes", image_url=None, category="museum")
+
+    counts = filtered_out_by_reason(db_session, city_id=city.id)
+
+    assert counts["service_category"] == 1
+    assert counts["low_quality_title"] == 1
