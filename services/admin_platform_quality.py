@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.place import Place
 from services.data_quality.constants import STOPLIST_CATEGORIES
-from services.data_quality.critical_coverage import compute_city_critical_coverage
 
 NON_TOURIST_LAYERS = {"service_layer", "transport_layer", "admin_evidence_only"}
 
@@ -41,11 +40,14 @@ def city_quality_row(db: Session, city: City, category: str | None = None) -> di
     blockers = {key: value for key, value in {"no_photo": no_photo_total, "no_address": no_address_total}.items() if value}
     readiness = _readiness_score(review_universe_total, no_photo_total, no_address_total)
     primary_blocker = _primary_blocker(blockers, readiness)
-
-    try:
-        critical_coverage = compute_city_critical_coverage(db, places_query)
-    except Exception as exc:  # noqa: BLE001 - admin screen must degrade, not fail
-        critical_coverage = {"degraded": True, "error": exc.__class__.__name__}
+    critical_coverage = _fast_critical_coverage(
+        places_total=places_total,
+        review_universe_total=review_universe_total,
+        manual_review_total=manual_review_total,
+        excluded_total=excluded_total,
+        no_photo_total=no_photo_total,
+        no_address_total=no_address_total,
+    )
 
     return {
         "readiness_score": readiness,
@@ -135,6 +137,41 @@ def _primary_blocker(blockers: dict[str, int], readiness: int) -> str | None:
     if blockers.get("no_address"):
         return "no_address"
     return None
+
+
+def _fast_critical_coverage(
+    *,
+    places_total: int,
+    review_universe_total: int,
+    manual_review_total: int,
+    excluded_total: int,
+    no_photo_total: int,
+    no_address_total: int,
+) -> dict[str, Any]:
+    """Return smoke-safe critical coverage counters from aggregate SQL results.
+
+    The full triage engine loads every place and several related tables. That is too
+    heavy for the default admin quality list and production smoke. Detailed per-place
+    critical coverage remains available through the dedicated critical coverage views.
+    """
+    ready_total = max(0, review_universe_total - manual_review_total)
+    return {
+        "mode": "fast_summary",
+        "places_total": places_total,
+        "route_candidate_total": review_universe_total,
+        "route_ready_total": ready_total,
+        "route_blockers_total": manual_review_total,
+        "card_ready_total": ready_total,
+        "card_blockers_total": manual_review_total,
+        "auto_enrichment_total": no_photo_total + no_address_total,
+        "manual_review_total": manual_review_total,
+        "optional_gaps_total": 0,
+        "not_applicable_total": excluded_total,
+        "blockers_breakdown": {
+            "no_photo": no_photo_total,
+            "no_address": no_address_total,
+        },
+    }
 
 
 def _severity(readiness: int, manual_review_total: int) -> str:
