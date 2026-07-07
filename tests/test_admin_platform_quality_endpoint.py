@@ -11,20 +11,19 @@ def test_admin_quality_endpoint_forwards_safe_limit(
     client: TestClient,
     monkeypatch,
 ) -> None:
-    """GET /admin/quality keeps the default read bounded for production smoke safety."""
+    """GET /admin/quality keeps the default read bounded without changing response shape."""
     calls: list[dict[str, Any]] = []
 
     def fake_quality_summary(db: Session, **kwargs: Any) -> dict[str, object]:
         calls.append(kwargs)
-        return {"items": [], "total": 0, "limit": kwargs["limit"], "offset": kwargs["offset"], "todo": []}
+        return {"items": [], "total": 0, "todo": []}
 
     monkeypatch.setattr("routers.admin_platform.quality_summary", fake_quality_summary)
 
     response = client.get("/admin/quality")
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["limit"] == 5
+    assert response.json() == {"items": [], "total": 0, "todo": []}
     assert calls == [{"city_slug": None, "region": None, "category": None, "severity": None, "limit": 5, "offset": 0}]
 
 
@@ -43,7 +42,7 @@ def test_admin_quality_endpoint_degrades_instead_of_failing(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["degraded"] is True
+    assert set(payload) == {"items", "total", "todo"}
     assert payload["items"] == []
-    assert payload["limit"] == 1
+    assert payload["total"] == 0
     assert payload["todo"]
