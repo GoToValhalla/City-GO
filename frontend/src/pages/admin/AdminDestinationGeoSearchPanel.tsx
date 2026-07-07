@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { AdminApiError } from './adminApi'
 import {
   DESTINATION_TYPE_LABELS,
@@ -51,9 +52,12 @@ export const AdminDestinationGeoSearchPanel = ({
       setItems(data.items)
       setSearched(true)
     } catch (err) {
-      setItems([])
-      setSearched(true)
-      setSearchError(err instanceof Error ? err.message : 'Не удалось выполнить геопоиск')
+      const message = err instanceof Error ? err.message : 'Не удалось выполнить геопоиск'
+      flushSync(() => {
+        setItems([])
+        setSearched(true)
+        setSearchError(message)
+      })
     } finally {
       setSearching(false)
     }
