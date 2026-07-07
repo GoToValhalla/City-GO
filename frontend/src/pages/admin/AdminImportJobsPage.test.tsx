@@ -72,7 +72,7 @@ describe('AdminImportJobsPage import-worker queue controls', () => {
     await waitFor(() => {
       expect(mockedAdminGet.mock.calls.filter(([path]) => path === '/admin/import-queue').length).toBeGreaterThanOrEqual(2)
     })
-    expect(await screen.findByText('Worker запущен один раз. Лимит: 1.')).toBeInTheDocument()
+    expect(await screen.findByText('Worker запущен один раз. Лимит: 1.')).toBeTruthy()
   })
 
   it('disables run-once while worker is already running', async () => {
@@ -80,6 +80,6 @@ describe('AdminImportJobsPage import-worker queue controls', () => {
 
     renderPage()
 
-    expect(await screen.findByRole('button', { name: 'Запустить worker один раз' })).toBeDisabled()
+    expect((await screen.findByRole('button', { name: 'Запустить worker один раз' })).hasAttribute('disabled')).toBe(true)
   })
 })
