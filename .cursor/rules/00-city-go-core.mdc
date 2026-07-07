@@ -25,6 +25,20 @@ alwaysApply: true
 3. Behavior changes → targeted tests; report environment-only failures explicitly.
 4. Proceed without approval prompts; commit/push only when user asks.
 
+## Token economy
+
+* Do not scan the whole repository unless required.
+* Prefer currently open files and explicitly mentioned files.
+* Prefer direct callers/usages before broad search.
+* Do not read generated files, dependencies, caches, logs, build output, local databases, dumps, backups, or env files.
+* One task = one focused change.
+* No speculative improvements.
+* No optional refactors.
+* No unrelated cleanup.
+* Do not use expensive/max context modes unless required.
+* Keep outputs short and focused.
+* Stop after the requested task is complete.
+
 ## Final response (required)
 
 Changed files · checks run · risks · what was not verified.

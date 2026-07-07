@@ -1,0 +1,52 @@
+---
+description: Token economy rules for Cursor Agent
+alwaysApply: false
+---
+
+Token economy rules
+
+Do not scan the whole repository unless explicitly required.
+
+Before using Agent:
+
+1. Prefer the currently open file.
+2. Prefer explicitly mentioned files.
+3. Prefer direct callers/usages before broad repo search.
+4. Ask before broad investigation if the task scope is unclear.
+5. Do not read generated files, dependencies, caches, logs, build output, local databases, dumps, backups, or env files.
+6. Do not produce long explanations unless explicitly asked.
+
+For code edits:
+
+* One task = one focused change.
+* No speculative improvements.
+* No optional refactors.
+* No style-only changes unless requested.
+* No unrelated cleanup.
+* No large rewrites unless explicitly requested.
+* Do not paste full files unless requested.
+
+For investigation:
+
+* First inspect likely files.
+* Then inspect direct callers/usages.
+* Only then expand search.
+* Prefer targeted grep/search queries.
+* Do not open many unrelated files.
+* Summarize findings compactly.
+
+For model/token usage:
+
+* Use cheaper/default Cursor modes for routine work.
+* Use expensive/premium/max context only when the task explicitly requires broad context or complex reasoning.
+* Avoid repeated re-reading of the same context.
+* Keep prompts and outputs focused.
+* Stop after the requested task is complete.
+
+For output:
+
+* Keep summaries short.
+* Do not include long reasoning.
+* Do not repeat unchanged context.
+* Do not include unrelated suggestions.
+* Report only changed files, checks performed, and remaining risks.

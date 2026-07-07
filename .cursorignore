@@ -1,5 +1,6 @@
 # Cursor context — exclude noisy, generated, secret, or heavy paths
 
+.git/
 .venv/
 venv/
 node_modules/
@@ -15,13 +16,14 @@ htmlcov/
 .vitest/
 .cache/
 __pycache__/
+pycache/
 *.pyc
 .DS_Store
 Thumbs.db
-
 *.sqlite
 *.sqlite3
 *.db
+*.dump
 *.db-shm
 *.db-wal
 *.log
@@ -29,11 +31,9 @@ Thumbs.db
 logs/
 tmp/
 temp/
-
 .env
 .env.*
 !.env.example
-
 backend-test-artifacts/
 allure-results/
 allure-report/
@@ -42,7 +42,6 @@ test-results/
 ui-tests/blob-report/
 artifacts/
 .trash/
-
 data/raw/
 data/cache/
 data/raw.bak
@@ -52,10 +51,9 @@ exports/
 uploads/
 media/
 photos/
-
 _chatgpt_snapshot/
 agent-transcripts/
 ci_*.db
-
 # Large archive — search on demand only
 docs/archive/
+*.bak
