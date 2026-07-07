@@ -58,6 +58,7 @@ import { AdminDestinationsPage } from './pages/admin/AdminDestinationsPage'
 import { AdminDiscoveryPage } from './pages/admin/AdminDiscoveryPage'
 import { AdminDestinationDetailPage } from './pages/admin/AdminDestinationDetailPage'
 import { AdminDebugReportsPage } from './pages/admin/AdminDebugReportsPage'
+import { AdminDbSchemaDiagnosticsPage } from './pages/admin/AdminDbSchemaDiagnosticsPage'
 import { CityRouteScope } from './features/city-routing/CityRouteScope'
 import { LegacyCityRedirect } from './features/city-routing/LegacyCityRedirect'
 import { GlobalDebugToolbar } from './shared/debug/GlobalDebugToolbar'
@@ -99,6 +100,7 @@ function App() {
     <Route path="/admin/data-pipeline" element={<AdminPage><AdminDataPipelinePage /></AdminPage>} />
     <Route path="/admin/discovery" element={<AdminPage><AdminDiscoveryPage /></AdminPage>} />
     <Route path="/admin/debug-reports" element={<AdminPage><AdminDebugReportsPage /></AdminPage>} />
+    <Route path="/admin/diagnostics/db-schema" element={<AdminPage><AdminDbSchemaDiagnosticsPage /></AdminPage>} />
     <Route path="/admin/destinations" element={<AdminPage><AdminDestinationsPage /></AdminPage>} />
     <Route path="/admin/destinations/:slug" element={<AdminPage><AdminDestinationDetailPage /></AdminPage>} />
     <Route path="/admin/imports/:citySlug/jobs/:jobId/changes" element={<AdminPage><AdminImportJobChangesPage /></AdminPage>} />

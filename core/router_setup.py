@@ -13,6 +13,7 @@ from routers.admin_br_model import router as admin_br_model_router
 from routers.admin_coverage_gaps import router as admin_coverage_gaps_router
 from routers.admin_data_pipeline import router as admin_data_pipeline_router
 from routers.admin_data_quality import router as admin_data_quality_router
+from routers.admin_db_schema_diagnostics import router as admin_db_schema_diagnostics_router
 from routers.admin_emergency_hide import router as admin_emergency_hide_router
 from routers.admin_import_jobs import router as admin_import_jobs_router
 from routers.admin_import_pipeline import router as admin_import_pipeline_router
@@ -96,6 +97,7 @@ _ROOT_ROUTERS = (
     admin_discovery_router,
     admin_destination_pipeline_router,
     admin_data_quality_router,
+    admin_db_schema_diagnostics_router,
     admin_emergency_hide_router,
     admin_import_queue_router,
     admin_import_jobs_router,

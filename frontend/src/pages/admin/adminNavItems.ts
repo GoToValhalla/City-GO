@@ -26,6 +26,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { path: '/admin/metrics', label: 'Метрики', section: 'system' },
   { path: '/admin/analytics', label: 'Аналитика', section: 'system' },
   { path: '/admin/system-health', label: 'Состояние системы', section: 'system' },
+  { path: '/admin/diagnostics/db-schema', label: 'Схема БД', section: 'system' },
   { path: '/admin/debug-reports', label: 'Отчёты об ошибках', section: 'system' },
   { path: '/admin/audit', label: 'Журнал действий', section: 'system' },
   { path: '/admin/system-logs', label: 'Системные логи', section: 'system' },
