@@ -70,9 +70,20 @@ def _summary(db: Session) -> dict[str, Any]:
     }
 
 
+def _schedule_worker_if_idle(background_tasks: BackgroundTasks, *, auth: AdminContext, summary: dict[str, Any]) -> bool:
+    queued = int(summary.get("queued") or 0)
+    running = int(summary.get("running") or 0)
+    if queued <= 0 or running > 0:
+        return False
+    background_tasks.add_task(run_queued_import_jobs, actor_id=auth.actor_id, limit=1)
+    return True
+
+
 @router.get("/import-queue")
-def read_import_queue(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
-    return _summary(db)
+def read_import_queue(background_tasks: BackgroundTasks, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    summary = _summary(db)
+    summary["worker_kicked"] = _schedule_worker_if_idle(background_tasks, auth=auth, summary=summary)
+    return summary
 
 
 @router.post("/import-queue/run-once")
