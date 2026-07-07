@@ -1,9 +1,9 @@
-"""Lightweight import-worker scheduler for admin queued jobs.
+"""Optional lightweight import-worker scheduler for admin queued jobs.
 
-The standalone data/scripts/run_admin_import_worker.py remains supported, but
-production web runtime also needs a deterministic consumer for jobs queued from
-/admin/import-jobs actions. Without this loop, CityAdminImportJob rows can stay
-in status=queued forever when no separate worker process is running.
+The standalone data/scripts/run_admin_import_worker.py remains the preferred
+consumer for long import jobs. This in-process scheduler is deliberately opt-in:
+running heavy OSM import work inside the web runtime can starve production smoke
+endpoints and normal user traffic on small deployments.
 """
 
 from __future__ import annotations
@@ -23,15 +23,9 @@ _task: Task[None] | None = None
 
 
 def start_import_worker_scheduler() -> None:
-    """Start polling queued admin import jobs when enabled.
-
-    It is enabled explicitly by IMPORT_WORKER_SCHEDULER_ENABLED or implicitly in
-    production so a deployed web process can consume jobs even if the separate
-    import-worker daemon is not configured.
-    """
+    """Start polling queued admin import jobs only when explicitly enabled."""
     global _task
-    enabled = bool(settings.import_worker_scheduler_enabled) or settings.app_env == "production"
-    if not enabled or _task is not None:
+    if not bool(settings.import_worker_scheduler_enabled) or _task is not None:
         return
     _task = asyncio.create_task(_scheduler_loop())
     logger.info("import worker scheduler started")
