@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type { Mock } from 'vitest'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { adminGet, adminPost } from './adminApi'
 import { AdminImportJobsPage } from './AdminImportJobsPage'
 
@@ -89,6 +89,10 @@ describe('AdminImportJobsPage import-worker queue controls', () => {
     vi.clearAllMocks()
     mockAdminGet()
     mockedAdminPost.mockResolvedValue({ scheduled: true, limit: 1, queue: queueIdle })
+  })
+
+  afterEach(() => {
+    cleanup()
   })
 
   it('refreshes queue through GET without triggering run-once', async () => {
