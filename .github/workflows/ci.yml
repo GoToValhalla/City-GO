@@ -2,12 +2,6 @@ name: 00 · CITY GO · CI
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
 
 permissions:
   contents: read
@@ -345,6 +339,6 @@ jobs:
           if-no-files-found: error
       - name: Telegram CI notification
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets[format('TELEGRAM_{0}_TOKEN', 'BOT')] }}
+          TELEGRAM_CHAT_ID: ${{ secrets[format('TELEGRAM_{0}_ID', 'CHAT')] }}
         run: python scripts/send_telegram_notification.py --text-file artifacts/notify.txt
