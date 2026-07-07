@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
+
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import type { Mock } from 'vitest'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { adminGet, adminPost } from './adminApi'
 import { AdminImportJobsPage } from './AdminImportJobsPage'
@@ -29,8 +32,8 @@ const queueRunning = {
 
 const emptyImportJobs = { items: [], total: 0, limit: 50, offset: 0 }
 
-const mockedAdminGet = vi.mocked(adminGet)
-const mockedAdminPost = vi.mocked(adminPost)
+const mockedAdminGet = adminGet as unknown as Mock
+const mockedAdminPost = adminPost as unknown as Mock
 
 const mockAdminGet = (queue = queueIdle) => {
   mockedAdminGet.mockImplementation((path: string) => {
