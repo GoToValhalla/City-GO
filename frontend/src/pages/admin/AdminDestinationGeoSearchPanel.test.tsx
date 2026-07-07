@@ -53,14 +53,19 @@ describe('AdminDestinationGeoSearchPanel', () => {
     await waitFor(() => expect(mockSearch).toHaveBeenCalledWith(labels.city))
   }
 
+  const waitForCandidateAction = async (label: string) => {
+    await waitFor(() => expect(screen.getByRole('button', { name: label })).toBeEnabled())
+  }
+
   it('renders geo-search candidates with Cyrillic labels', async () => {
     mockSearch.mockResolvedValueOnce({ query: labels.city, items: [candidate] })
     render(<AdminDestinationGeoSearchPanel mode="create-destination" />)
     await searchCandidates()
+    await waitForCandidateAction(labels.createDestination)
     expect(screen.getByTestId('geo-candidate-list')).toBeInTheDocument()
     expect(screen.getByText(labels.city)).toBeInTheDocument()
     expect(screen.getByText(new RegExp(labels.region))).toBeInTheDocument()
-    expect(screen.getByText(new RegExp(`${labels.cityType} \\u00b7 54\\.7104`))).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(`${labels.cityType} ${String.fromCharCode(183)} 54\\.7104`))).toBeInTheDocument()
   })
 
   it('shows empty state when geo-search returns no items', async () => {
@@ -85,6 +90,7 @@ describe('AdminDestinationGeoSearchPanel', () => {
     mockCreateDestination.mockResolvedValueOnce({ slug: 'kaliningrad', title: labels.city })
     render(<AdminDestinationGeoSearchPanel mode="create-destination" onDestinationCreated={onCreated} />)
     await searchCandidates()
+    await waitForCandidateAction(labels.createDestination)
     fireEvent.click(screen.getByRole('button', { name: labels.createDestination }))
     await waitFor(() => expect(mockCreateDestination).toHaveBeenCalledWith(candidate, expect.objectContaining({ name: labels.city, destination_type: 'city' })))
     expect(onCreated).toHaveBeenCalledWith('kaliningrad')
@@ -97,6 +103,7 @@ describe('AdminDestinationGeoSearchPanel', () => {
     mockCreateScope.mockResolvedValueOnce({ action: 'created' })
     render(<AdminDestinationGeoSearchPanel mode="create-scope" destinationSlug="dest-city-a" onScopeApplied={onScopeApplied} />)
     await searchCandidates()
+    await waitForCandidateAction(labels.addScope)
     fireEvent.click(screen.getByRole('button', { name: labels.addScope }))
     await waitFor(() => expect(mockCreateScope).toHaveBeenCalledWith('dest-city-a', candidate, expect.objectContaining({ recover: false })))
     expect(onScopeApplied).toHaveBeenCalledWith('created')
@@ -109,6 +116,7 @@ describe('AdminDestinationGeoSearchPanel', () => {
     mockCreateScope.mockResolvedValueOnce({ action: 'recovered' })
     render(<AdminDestinationGeoSearchPanel mode="create-scope" destinationSlug="dest-city-a" onScopeApplied={onScopeApplied} />)
     await searchCandidates()
+    await waitForCandidateAction(labels.addScope)
     fireEvent.click(screen.getByLabelText(new RegExp(labels.recover)))
     fireEvent.click(screen.getByRole('button', { name: labels.addScope }))
     await waitFor(() => expect(mockCreateScope).toHaveBeenCalledWith('dest-city-a', candidate, expect.objectContaining({ recover: true })))
@@ -121,7 +129,7 @@ describe('AdminDestinationGeoSearchPanel', () => {
     mockCreateScope.mockRejectedValueOnce(new AdminApiError({ method: 'POST', endpoint: '/admin/destinations/dest-city-a/scopes/from-geo-candidate', status: 409 }))
     render(<AdminDestinationGeoSearchPanel mode="create-scope" destinationSlug="dest-city-a" />)
     await searchCandidates()
-    await waitFor(() => expect(screen.getByRole('button', { name: labels.addScope })).toBeEnabled())
+    await waitForCandidateAction(labels.addScope)
     fireEvent.click(screen.getByRole('button', { name: labels.addScope }))
     await waitFor(() => expect(screen.getByText(/\u041a\u043e\u043d\u0442\u0443\u0440 \u0441 \u0442\u0430\u043a\u0438\u043c \u043a\u043e\u0434\u043e\u043c/)).toBeInTheDocument())
     expect(mockCreateScope).toHaveBeenCalledWith('dest-city-a', candidate, expect.objectContaining({ recover: false }))
