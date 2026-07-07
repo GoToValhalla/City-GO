@@ -79,7 +79,7 @@ def test_all_scopes_failed_marks_job_partial_success_with_diagnostics_new(db_ses
     monkeypatch.setattr(import_runner, "normalize_places_categories", lambda *_args, **_kwargs: {"scanned": 0, "updated": 0})
     monkeypatch.setattr(import_runner, "compute_city_readiness", lambda *_args, **_kwargs: {"readiness_score": 0.5})
     monkeypatch.setattr(import_runner, "send_admin_alert", lambda **_kwargs: {"sent": True})
-    monkeypatch.setattr("services.admin_city_import_job_payload.refresh_import_job_snapshot", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(import_runner, "_try_refresh_snapshot", lambda *_args, **_kwargs: None)
 
     result = import_runner.run_enrichment_pipeline(db_session, job=job, city=city, actor_id="qa", notify_completion=False)
     db_session.refresh(job)
