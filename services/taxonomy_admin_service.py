@@ -29,7 +29,17 @@ def category_dict(row: Category, *, places_count: int | None = None) -> dict[str
         "places_count": int(places_count or 0), "archived_at": row.archived_at.isoformat() if row.archived_at else None}
 
 
-def list_categories(db: Session, *, search: str | None, active: bool | None, parent_id: int | None, route_policy: str | None, offset: int, limit: int) -> dict[str, object]:
+def list_categories(
+    db: Session,
+    *,
+    search: str | None,
+    active: bool | None,
+    parent_id: int | None,
+    route_policy: str | None,
+    offset: int,
+    limit: int,
+    include_counts: bool = True,
+) -> dict[str, object]:
     query = db.query(Category)
     if search: query = query.filter(or_(Category.name.ilike(f"%{search}%"), Category.code.ilike(f"%{search}%"), Category.user_name.ilike(f"%{search}%")))
     if active is not None: query = query.filter(Category.is_active == active)
@@ -37,7 +47,7 @@ def list_categories(db: Session, *, search: str | None, active: bool | None, par
     if route_policy: query = query.filter(Category.route_policy == route_policy)
     total = query.count()
     rows = query.order_by(Category.sort_order, Category.name).offset(offset).limit(limit).all()
-    counts = _category_place_counts(db, [row.id for row in rows])
+    counts = _category_place_counts(db, [row.id for row in rows]) if include_counts else {}
     return {"items": [category_dict(row, places_count=counts.get(row.id, 0)) for row in rows], "total": total, "offset": offset, "limit": limit}
 
 
@@ -135,7 +145,7 @@ def rollback_bulk(db: Session, *, batch: TaxonomyBulkBatch, actor: str) -> Taxon
         if place is None: continue
         place.category_id = item["old_category_id"]; place.category = item["old_category"]; place.canonical_category = item["old_category"]
         place.is_route_eligible = bool(item["old_route_eligible"]); db.add(place); restored += 1
-    batch.status = "rolled_back"; batch.rolled_back_at = datetime.utcnow(); batch.rollback_result = {"restored": restored}
+    batch.status = "rolled_back"; batch.rolled_at = datetime.utcnow(); batch.rollback_result = {"restored": restored}
     write_admin_audit_log(db, actor=actor, action="taxonomy.bulk.rolled_back", entity_type="taxonomy_batch", entity_id=batch.id, new_value=batch.rollback_result)
     db.commit(); return batch
 
