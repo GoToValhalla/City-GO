@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Validate Cursor setup for the City-GO repository."""
 
+from dataclasses import dataclass
 from pathlib import Path
+import argparse
 import sys
 
 
@@ -10,6 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 CORE_RULE = ROOT / ".cursor" / "rules" / "00-city-go-core.mdc"
 TOKEN_RULE = ROOT / ".cursor" / "rules" / "10-token-economy.mdc"
 CURSORIGNORE = ROOT / ".cursorignore"
+
+
+@dataclass
+class Check:
+    name: str
+    passed: bool
 
 
 def read_text(path: Path) -> str:
@@ -26,42 +34,51 @@ def normalized_lines(text: str) -> set[str]:
     }
 
 
-def check(name: str, passed: bool) -> bool:
-    """Print one check result and return its boolean state."""
-    status = "OK" if passed else "FAIL"
-    print(f"{status}: {name}")
-    return passed
+def check(name: str, passed: bool) -> Check:
+    """Create a Check object."""
+    return Check(name=name, passed=passed)
 
 
 def main() -> int:
     """Run all Cursor setup checks."""
-    results: list[bool] = []
+    parser = argparse.ArgumentParser(description="Validate Cursor setup for the City-GO repository.")
+    parser.add_argument("--quiet", action="store_true", help="Print only the final summary")
+    args = parser.parse_args()
 
-    results.append(check(f"{CORE_RULE.relative_to(ROOT)} exists", CORE_RULE.exists()))
+    results: list[Check] = []
+
+    def add_check(name: str, passed: bool):
+        c = check(name, passed)
+        results.append(c)
+        if not args.quiet:
+            status = "OK" if c.passed else "FAIL"
+            print(f"{status}: {c.name}")
+
+    add_check(f"{CORE_RULE.relative_to(ROOT)} exists", CORE_RULE.exists())
     if CORE_RULE.exists():
         core_text = read_text(CORE_RULE)
-        results.append(check("core rule contains 'alwaysApply: true'", "alwaysApply: true" in core_text))
-        results.append(check("core rule contains '## Token economy'", "## Token economy" in core_text))
+        add_check("core rule contains 'alwaysApply: true'", "alwaysApply: true" in core_text)
+        add_check("core rule contains '## Token economy'", "## Token economy" in core_text)
 
-    results.append(check(f"{TOKEN_RULE.relative_to(ROOT)} exists", TOKEN_RULE.exists()))
+    add_check(f"{TOKEN_RULE.relative_to(ROOT)} exists", TOKEN_RULE.exists())
     if TOKEN_RULE.exists():
         token_text = read_text(TOKEN_RULE)
-        results.append(check("token economy rule contains 'alwaysApply: false'", "alwaysApply: false" in token_text))
+        add_check("token economy rule contains 'alwaysApply: false'", "alwaysApply: false" in token_text)
 
-    results.append(check(f"{CURSORIGNORE.relative_to(ROOT)} exists", CURSORIGNORE.exists()))
+    add_check(f"{CURSORIGNORE.relative_to(ROOT)} exists", CURSORIGNORE.exists())
     if CURSORIGNORE.exists():
         cursorignore_text = read_text(CURSORIGNORE)
         cursorignore_lines = normalized_lines(cursorignore_text)
 
-        results.append(check(".cursorignore contains exact line '.env'", ".env" in cursorignore_lines))
-        results.append(check(".cursorignore contains exact line '.env.*'", ".env.*" in cursorignore_lines))
-        results.append(check(".cursorignore contains exact line '!.env.example'", "!.env.example" in cursorignore_lines))
-        results.append(check(".cursorignore contains exact line '*.bak'", "*.bak" in cursorignore_lines))
+        add_check(".cursorignore contains exact line '.env'", ".env" in cursorignore_lines)
+        add_check(".cursorignore contains exact line '.env.*'", ".env.*" in cursorignore_lines)
+        add_check(".cursorignore contains exact line '!.env.example'", "!.env.example" in cursorignore_lines)
+        add_check(".cursorignore contains exact line '*.bak'", "*.bak" in cursorignore_lines)
 
-        results.append(check(".cursorignore does not contain wrong exact line '.env.'", ".env." not in cursorignore_lines))
-        results.append(check(".cursorignore does not contain wrong exact line '.bak'", ".bak" not in cursorignore_lines))
+        add_check(".cursorignore does not contain wrong exact line '.env.'", ".env." not in cursorignore_lines)
+        add_check(".cursorignore does not contain wrong exact line '.bak'", ".bak" not in cursorignore_lines)
 
-    if all(results):
+    if all(c.passed for c in results):
         print("\nCursor setup validation passed.")
         return 0
 
