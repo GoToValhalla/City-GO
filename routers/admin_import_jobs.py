@@ -1,6 +1,6 @@
 """Admin: запуск, повтор и публикация единых import jobs."""
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
@@ -25,17 +25,13 @@ from services.admin_city_import_job_service import (
     queue_city_snapshot_refresh_job,
     reset_import_job_to_queued,
 )
-from services.admin_city_import_tasks import import_queue_summary, run_queued_import_jobs
+from services.admin_city_import_tasks import import_queue_summary
 from services.admin_city_publication_service import publish_city
 from services.admin_extended_service import get_admin_import_job
 from services.admin_import_job_change_service import CHANGE_TYPES, import_job_changes_summary, list_import_job_changes, serialize_change
 from services.admin_import_jobs_fast import list_admin_import_jobs_fast
 
 router = APIRouter(prefix="/admin", tags=["admin-import-jobs"])
-
-
-def _schedule_import_worker(background_tasks: BackgroundTasks, *, actor_id: str, limit: int = 1) -> None:
-    background_tasks.add_task(run_queued_import_jobs, actor_id=actor_id, limit=max(1, int(limit or 1)))
 
 
 @router.get("/import-jobs", response_model=AdminImportJobListResponse)
@@ -76,14 +72,13 @@ def read_import_job_changes_summary(city_id: int, auth: AdminContext = Depends(a
 
 
 @router.post("/import-jobs/{city_id}/snapshot/refresh", response_model=AdminImportJobActionResponse)
-def refresh_import_snapshot_endpoint(city_id: int, background_tasks: BackgroundTasks, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+def refresh_import_snapshot_endpoint(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     try:
         queue_city_snapshot_refresh_job(db, city_id=city_id, actor_id=auth.actor_id)
         db.commit()
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
-    _schedule_import_worker(background_tasks, actor_id=auth.actor_id)
-    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Обновление snapshot поставлено в очередь. Задача запущена import-worker.")
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Обновление snapshot поставлено в очередь.")
 
 
 @router.post("/import-jobs/{city_id}/snapshot/refresh-now", response_model=AdminImportJobActionResponse)
@@ -96,29 +91,27 @@ def refresh_import_snapshot_now_endpoint(city_id: int, auth: AdminContext = Depe
 
 
 @router.post("/import-jobs/{city_id}/enrich-addresses", response_model=AdminImportJobActionResponse)
-def enrich_addresses(city_id: int, background_tasks: BackgroundTasks, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+def enrich_addresses(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     try:
         queue_city_address_enrichment_job(db, city_id=city_id, actor_id=auth.actor_id)
         db.commit()
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
-    _schedule_import_worker(background_tasks, actor_id=auth.actor_id)
-    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Добор адресов поставлен в очередь. Задача запущена import-worker.")
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Добор адресов поставлен в очередь.")
 
 
 @router.post("/import-jobs/{city_id}/enrich-photos", response_model=AdminImportJobActionResponse)
-def enrich_photos(city_id: int, background_tasks: BackgroundTasks, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+def enrich_photos(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     try:
         queue_city_photo_enrichment_job(db, city_id=city_id, actor_id=auth.actor_id)
         db.commit()
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
-    _schedule_import_worker(background_tasks, actor_id=auth.actor_id)
-    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Добор фото поставлен в очередь. Задача запущена import-worker.")
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Добор фото поставлен в очередь.")
 
 
 @router.post("/import-jobs/{city_id}/run", response_model=AdminImportJobActionResponse)
-def start_import_job(city_id: int, background_tasks: BackgroundTasks, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+def start_import_job(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     item = get_admin_import_job(db, city_id)
     if item is None:
         raise HTTPException(404, "Задача импорта не найдена")
@@ -128,20 +121,18 @@ def start_import_job(city_id: int, background_tasks: BackgroundTasks, auth: Admi
                 reset_import_job_to_queued(db, city_id=city_id)
             except ValueError as exc:
                 raise HTTPException(409, str(exc)) from exc
-            _schedule_import_worker(background_tasks, actor_id=auth.actor_id)
-            return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Текущий запуск уже был reviewable/failed. Вместо /run автоматически выполнен /retry. Задача запущена import-worker.")
+            return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Текущий запуск уже был reviewable/failed. Вместо /run автоматически выполнен /retry.")
         raise HTTPException(409, "Запуск недоступен для текущего статуса")
     try:
         queue_city_import_job(db, city_id=city_id, actor_id=auth.actor_id)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     db.commit()
-    _schedule_import_worker(background_tasks, actor_id=auth.actor_id)
-    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Полный сбор и обогащение поставлены в очередь. Задача запущена import-worker.")
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Полный сбор и обогащение поставлены в очередь.")
 
 
 @router.post("/import-jobs/{city_id}/retry", response_model=AdminImportJobActionResponse)
-def retry_import_job(city_id: int, background_tasks: BackgroundTasks, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+def retry_import_job(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     item = get_admin_import_job(db, city_id)
     if item is None:
         raise HTTPException(404, "Задача импорта не найдена")
@@ -151,8 +142,7 @@ def retry_import_job(city_id: int, background_tasks: BackgroundTasks, auth: Admi
         reset_import_job_to_queued(db, city_id=city_id)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    _schedule_import_worker(background_tasks, actor_id=auth.actor_id)
-    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Повтор полного сбора и обогащения поставлен в очередь. Задача запущена import-worker.")
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Повтор полного сбора и обогащения поставлен в очередь.")
 
 
 @router.post("/import-jobs/{city_id}/cancel", response_model=AdminImportJobActionResponse)
@@ -183,7 +173,7 @@ def publish_imported_city(city_id: int, payload: AdminActionRequest | None = Non
 
 
 @router.post("/import-jobs/{city_id}/enrich", response_model=AdminImportJobActionResponse)
-def enrich_city_job(city_id: int, background_tasks: BackgroundTasks, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+def enrich_city_job(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     item = get_admin_import_job(db, city_id)
     if item is None:
         raise HTTPException(404, "Город не найден")
@@ -192,12 +182,11 @@ def enrich_city_job(city_id: int, background_tasks: BackgroundTasks, auth: Admin
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     db.commit()
-    _schedule_import_worker(background_tasks, actor_id=auth.actor_id)
-    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Полный сбор и обогащение поставлен в очередь. Задача запущена import-worker.")
+    return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Полный сбор и обогащение поставлен в очередь.")
 
 
 @router.post("/import-jobs/enrich-all", response_model=AdminImportJobActionResponse)
-def enrich_all_cities_job(background_tasks: BackgroundTasks, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+def enrich_all_cities_job(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
     city_ids = [row.id for row in db.query(City.id).order_by(City.slug.asc()).all()]
     if not city_ids:
         raise HTTPException(404, "Города для запуска не найдены")
@@ -210,6 +199,4 @@ def enrich_all_cities_job(background_tasks: BackgroundTasks, auth: AdminContext 
         except ValueError:
             skipped_running += 1
     db.commit()
-    if queued:
-        _schedule_import_worker(background_tasks, actor_id=auth.actor_id, limit=min(queued, 5))
-    return AdminImportJobActionResponse(city_id=0, status="queued", message=f"Полный сбор и обогащение поставлен в очередь для городов: {queued}. Уже выполняются: {skipped_running}. Задача запущена import-worker.")
+    return AdminImportJobActionResponse(city_id=0, status="queued", message=f"Полный сбор и обогащение поставлен в очередь для городов: {queued}. Уже выполняются: {skipped_running}.")
