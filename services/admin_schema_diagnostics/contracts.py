@@ -45,6 +45,36 @@ IMPORT_PLACES_COLUMNS: tuple[str, ...] = (
     "updated_at",
 )
 
+SOURCE_OBSERVATIONS_COLUMNS: tuple[str, ...] = (
+    "id",
+    "import_batch_id",
+    "city_id",
+    "scope_id",
+    "source_type",
+    "source_external_id",
+    "source_object_type",
+    "source_url",
+    "source_license",
+    "attribution_text",
+    "idempotency_key",
+    "raw_name",
+    "raw_category",
+    "raw_lat",
+    "raw_lng",
+    "raw_payload",
+    "payload_hash",
+    "first_seen_at",
+    "last_seen_at",
+    "seen_in_batch_id",
+    "canonical_place_id",
+    "match_status",
+    "normalization_status",
+    "rejection_reason",
+    "confidence",
+    "created_at",
+    "updated_at",
+)
+
 IMPORT_CRITICAL = SchemaContract(
     key="import_critical",
     tables=(
@@ -67,7 +97,7 @@ IMPORT_CRITICAL = SchemaContract(
         "review_queue_items": ("id", "place_id", "status", "job_id"),
         "place_images": ("id", "place_id", "image_url", "status", "source_type"),
         "place_field_provenance": ("id", "place_id", "field_name", "source", "confidence"),
-        "source_observations": ("id", "canonical_place_id", "scope_id", "source_type", "raw_payload"),
+        "source_observations": SOURCE_OBSERVATIONS_COLUMNS,
         "place_source_presence": ("id", "place_id", "source_external_id"),
     },
 )

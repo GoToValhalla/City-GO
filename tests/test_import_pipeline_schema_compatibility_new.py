@@ -146,3 +146,55 @@ def test_undefined_column_in_collecting_triggers_rollback_without_poison_new(db_
     assert result["import"]["last_error"] == original_error
     assert result["images"]["status"] == "skipped"
     assert verify_session_usable(db_session) is True
+
+
+def test_diagnose_reports_missing_source_observations_columns_new(db_session) -> None:
+    bind = db_session.get_bind()
+    bind.execute(text("ALTER TABLE source_observations RENAME COLUMN source_license TO source_license_bak"))
+    try:
+        gaps = diagnose_import_schema_gaps(bind.engine)
+        assert "source_license" in gaps["missing_source_observation_columns"]
+    finally:
+        bind.execute(text("ALTER TABLE source_observations RENAME COLUMN source_license_bak TO source_license"))
+
+
+def test_existing_source_observations_schema_reports_no_gaps_new(db_session) -> None:
+    bind = db_session.get_bind()
+    gaps = diagnose_import_schema_gaps(bind.engine)
+    assert gaps["missing_source_observation_columns"] == []
+
+
+def test_ensure_import_pipeline_schema_repairs_source_observations_before_collection_new() -> None:
+    """Simulates the pre-migration production table (columns never shipped) on a fresh engine,
+    since SQLite can't drop indexed/constrained columns from an already-migrated table in place."""
+    from sqlalchemy import create_engine
+
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE source_observations ("
+                "id INTEGER PRIMARY KEY, import_batch_id INTEGER NOT NULL, city_id INTEGER NOT NULL, "
+                "scope_id INTEGER, source_type VARCHAR(64) NOT NULL, source_external_id VARCHAR(128) NOT NULL, "
+                "source_object_type VARCHAR(64), source_url VARCHAR(1000), raw_name VARCHAR(255), "
+                "raw_category VARCHAR(128), raw_lat FLOAT, raw_lng FLOAT, raw_payload JSON, "
+                "payload_hash VARCHAR(128) NOT NULL, first_seen_at DATETIME, last_seen_at DATETIME, "
+                "seen_in_batch_id INTEGER, canonical_place_id INTEGER, match_status VARCHAR(64) NOT NULL, "
+                "normalization_status VARCHAR(64) NOT NULL, rejection_reason VARCHAR(128), confidence FLOAT, "
+                "created_at DATETIME, updated_at DATETIME"
+                ")"
+            )
+        )
+
+    gaps_before = diagnose_import_schema_gaps(engine)
+    assert set(gaps_before["missing_source_observation_columns"]) == {"source_license", "attribution_text", "idempotency_key"}
+
+    result = ensure_import_pipeline_schema(engine)
+
+    assert set(result["added_columns"]) >= {
+        "source_observations.source_license",
+        "source_observations.attribution_text",
+        "source_observations.idempotency_key",
+    }
+    gaps_after = diagnose_import_schema_gaps(engine)
+    assert gaps_after["missing_source_observation_columns"] == []

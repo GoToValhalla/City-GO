@@ -69,3 +69,29 @@ def test_contract_groups_cover_import_photo_route_new() -> None:
     assert "place_field_provenance" in IMPORT_CRITICAL.tables
     assert "place_images" in PHOTO_CRITICAL.tables
     assert "places" in ROUTE_CRITICAL.columns
+
+
+def test_evaluate_contract_reports_missing_source_license_new() -> None:
+    result = evaluate_contract(
+        IMPORT_CRITICAL,
+        existing_tables=set(IMPORT_CRITICAL.tables),
+        existing_columns={table: set(columns) for table, columns in IMPORT_CRITICAL.columns.items() if table != "source_observations"}
+        | {"source_observations": {"id", "canonical_place_id", "scope_id", "source_type", "raw_payload"}},
+    )
+    assert result["status"] == "schema_drift"
+    assert "source_observations.source_license" in result["missing_columns"]
+
+
+def test_evaluate_contract_reports_missing_adjacent_source_observation_columns_new() -> None:
+    result = evaluate_contract(
+        IMPORT_CRITICAL,
+        existing_tables=set(IMPORT_CRITICAL.tables),
+        existing_columns={table: set(columns) for table, columns in IMPORT_CRITICAL.columns.items() if table != "source_observations"}
+        | {"source_observations": {"id", "canonical_place_id", "scope_id", "source_type", "raw_payload", "source_license"}},
+    )
+    assert result["status"] == "schema_drift"
+    assert "source_observations.source_external_id" in result["missing_columns"]
+    assert "source_observations.source_object_type" in result["missing_columns"]
+    assert "source_observations.source_url" in result["missing_columns"]
+    assert "source_observations.attribution_text" in result["missing_columns"]
+    assert "source_observations.idempotency_key" in result["missing_columns"]

@@ -21,6 +21,14 @@ IMPORT_PLACE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("primary_destination_id", "INTEGER"),
     ("destination_assignment_stale", "BOOLEAN NOT NULL DEFAULT FALSE"),
 )
+# Writer-used columns (source_observation_service.py, place_enrichment_sources.py,
+# import_pipeline_foundation_steps.py, data/scripts/import_city_osm.py) that were
+# added to the SourceObservation model but never shipped in a migration.
+IMPORT_SOURCE_OBSERVATION_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("source_license", "VARCHAR(255)"),
+    ("attribution_text", "VARCHAR(1000)"),
+    ("idempotency_key", "VARCHAR(255)"),
+)
 IMPORT_CRITICAL_TABLES: tuple[str, ...] = (PlaceFieldProvenance.__tablename__,)
 
 
@@ -57,7 +65,19 @@ def diagnose_import_schema_gaps(engine: Engine) -> dict[str, list[str]]:
     missing_tables = [name for name in IMPORT_CRITICAL_TABLES if name not in table_names]
     place_columns = {column["name"] for column in inspector.get_columns("places")} if "places" in table_names else set()
     missing_columns = [name for name, _sql in IMPORT_PLACE_COLUMNS if name not in place_columns]
-    return {"missing_tables": missing_tables, "missing_place_columns": missing_columns}
+    source_observation_columns = (
+        {column["name"] for column in inspector.get_columns("source_observations")}
+        if "source_observations" in table_names
+        else set()
+    )
+    missing_source_observation_columns = [
+        name for name, _sql in IMPORT_SOURCE_OBSERVATION_COLUMNS if name not in source_observation_columns
+    ]
+    return {
+        "missing_tables": missing_tables,
+        "missing_place_columns": missing_columns,
+        "missing_source_observation_columns": missing_source_observation_columns,
+    }
 
 
 def ensure_import_pipeline_schema(engine: Engine) -> dict[str, Any]:
@@ -84,6 +104,40 @@ def ensure_import_pipeline_schema(engine: Engine) -> dict[str, Any]:
                 connection.execute(text(f"ALTER TABLE places ADD COLUMN {column_name} {ddl}"))
                 connection.commit()
                 added_columns.append(f"places.{column_name}")
+        if "source_observations" in existing_tables:
+            source_observation_columns = {column["name"] for column in inspector.get_columns("source_observations")}
+            for column_name, ddl in IMPORT_SOURCE_OBSERVATION_COLUMNS:
+                if column_name in source_observation_columns:
+                    continue
+                connection.execute(text(f"ALTER TABLE source_observations ADD COLUMN {column_name} {ddl}"))
+                connection.commit()
+                added_columns.append(f"source_observations.{column_name}")
+            existing_indexes = {index["name"] for index in inspector.get_indexes("source_observations")}
+            if "ix_source_observations_source_license" not in existing_indexes:
+                connection.execute(
+                    text("CREATE INDEX ix_source_observations_source_license ON source_observations (source_license)")
+                )
+                connection.commit()
+            if "ix_source_observations_idempotency_key" not in existing_indexes:
+                connection.execute(
+                    text("CREATE INDEX ix_source_observations_idempotency_key ON source_observations (idempotency_key)")
+                )
+                connection.commit()
+            existing_unique_constraints = {
+                constraint["name"] for constraint in inspector.get_unique_constraints("source_observations")
+            }
+            if (
+                "uq_source_observation_idempotency_key" not in existing_unique_constraints
+                and "uq_source_observation_idempotency_key" not in existing_indexes
+            ):
+                # unique index instead of ADD CONSTRAINT ... UNIQUE: equivalent enforcement, works on SQLite too.
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX uq_source_observation_idempotency_key "
+                        "ON source_observations (idempotency_key)"
+                    )
+                )
+                connection.commit()
     finally:
         connection.close()
     return {"created_tables": created_tables, "added_columns": added_columns, "before": gaps}
