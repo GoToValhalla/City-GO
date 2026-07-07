@@ -108,7 +108,7 @@ def quality_summary(
         rows.append(row)
     if severity:
         rows = [row for row in rows if row["severity"] == severity]
-    return {"items": rows, "total": total if not severity else len(rows), "limit": safe_limit, "offset": safe_offset, "todo": _todo(rows)}
+    return {"items": rows, "total": total if not severity else len(rows), "todo": _todo(rows)}
 
 
 def _tourist_review_condition():
