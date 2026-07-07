@@ -13,6 +13,12 @@ def classify_scope_error(error: str) -> dict[str, object]:
         return {"kind": "data_integrity", "retryable": False, "admin_hint": "Передан неверный import job id. Повторите сбор города."}
     if "temporary failure in name resolution" in text or "urlopen error" in text or "timed out" in text or "name or service not known" in text:
         return {"kind": "source_failure", "retryable": True, "admin_hint": "Внешний источник OSM временно недоступен. Повторите сбор позже."}
+    if "locked_elsewhere" in text:
+        return {
+            "kind": "scope_lock",
+            "retryable": True,
+            "admin_hint": "Scope заблокирован другим import job. Дождитесь завершения активного job или повторите позже.",
+        }
     if "too many osm objects" in text:
         return {"kind": "source_limits", "retryable": False, "admin_hint": "Слишком много объектов OSM для scope. Сузьте bbox или профиль."}
     return {"kind": "scope_failure", "retryable": True, "admin_hint": "Scope завершился с ошибкой. Откройте детали и повторите сбор."}
@@ -25,7 +31,13 @@ def scope_failure_rows(results: list[dict[str, Any]] | None) -> list[dict[str, o
             continue
         error = str(item.get("error") or item.get("reason") or item.get("status") or "unknown")
         meta = classify_scope_error(error)
-        rows.append({"scope": item.get("scope"), "profile": item.get("profile"), "error": error[:1000], **meta})
+        row: dict[str, object] = {"scope": item.get("scope"), "profile": item.get("profile"), "error": error[:1000], **meta}
+        for key in ("lock_key", "owner_job_id", "current_job_id", "stale", "retryable", "admin_hint"):
+            if key in item and item.get(key) is not None:
+                row[key] = item[key]
+        if item.get("admin_hint"):
+            row["admin_hint"] = item["admin_hint"]
+        rows.append(row)
     return rows
 
 

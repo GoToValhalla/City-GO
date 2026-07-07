@@ -19,7 +19,8 @@ from models.region import Region
 from models.route import Route
 from models.route_place import RoutePlace
 from models.tag import Tag
-from services.import_job_service import lock_scope, unlock_scope
+from services.import_job_service import unlock_scope
+from services.import_scope_lock import acquire_scope_lock
 
 
 def lock_target(target: dict[str, Any], now: datetime, force: bool) -> dict[str, Any]:
@@ -32,8 +33,25 @@ def lock_target(target: dict[str, Any], now: datetime, force: bool) -> dict[str,
             return {"status": "skipped", "reason": "scope_disabled"}
         if not _due(scope, now, force):
             return {"status": "skipped", "reason": "not_due"}
-        status = "locked" if lock_scope(db, scope, now) else "locked_elsewhere"
-        return {"status": status}
+        lock_result = acquire_scope_lock(
+            db,
+            scope,
+            now,
+            force=force,
+            city_admin_import_job_id=target.get("city_admin_import_job_id"),
+        )
+        if lock_result["acquired"]:
+            return {"status": "locked", "lock_key": lock_result["lock_key"]}
+        return {
+            "status": "locked_elsewhere",
+            "error": "locked_elsewhere",
+            "lock_key": lock_result["lock_key"],
+            "owner_job_id": lock_result.get("owner_job_id"),
+            "current_job_id": lock_result.get("current_job_id"),
+            "stale": lock_result.get("stale"),
+            "retryable": lock_result.get("retryable"),
+            "admin_hint": lock_result.get("admin_hint"),
+        }
 
 
 def schedule_next(target: dict[str, Any]) -> None:
