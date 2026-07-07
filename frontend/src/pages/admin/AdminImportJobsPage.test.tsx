@@ -32,13 +32,52 @@ const queueRunning = {
 
 const emptyImportJobs = { items: [], total: 0, limit: 50, offset: 0 }
 
+const failedStalledImportJobs = {
+  items: [
+    {
+      id: 'failed-job',
+      city_id: 101,
+      city_slug: 'failed-city',
+      city_name: 'Failed City',
+      status: 'failed',
+      source: 'admin_city_import',
+      places_total: 12,
+      places_published: 0,
+      places_unpublished: 12,
+      pending_photos: 0,
+      next_step: 'Разобрать ошибку импорта',
+      failed_items: 1,
+      step_details: {},
+    },
+    {
+      id: 'stalled-job',
+      city_id: 102,
+      city_slug: 'stalled-city',
+      city_name: 'Stalled City',
+      status: 'stalled',
+      source: 'admin_city_import',
+      places_total: 8,
+      places_published: 0,
+      places_unpublished: 8,
+      pending_photos: 0,
+      next_step: 'Проверить зависшую задачу',
+      is_stalled: true,
+      failed_items: 0,
+      step_details: {},
+    },
+  ],
+  total: 2,
+  limit: 50,
+  offset: 0,
+}
+
 const mockedAdminGet = adminGet as unknown as Mock
 const mockedAdminPost = adminPost as unknown as Mock
 
-const mockAdminGet = (queue = queueIdle) => {
+const mockAdminGet = (queue = queueIdle, importJobs = emptyImportJobs) => {
   mockedAdminGet.mockImplementation((path: string) => {
     if (path === '/admin/import-queue') return Promise.resolve(queue)
-    if (path.startsWith('/admin/import-jobs')) return Promise.resolve(emptyImportJobs)
+    if (path.startsWith('/admin/import-jobs')) return Promise.resolve(importJobs)
     return Promise.reject(new Error(`Unexpected GET ${path}`))
   })
 }
@@ -84,5 +123,17 @@ describe('AdminImportJobsPage import-worker queue controls', () => {
     renderPage()
 
     expect((await screen.findByRole('button', { name: 'Запустить worker один раз' })).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('shows failed and stalled import statuses without masking them as empty or neutral states', async () => {
+    mockAdminGet(queueIdle, failedStalledImportJobs)
+
+    renderPage()
+
+    expect(await screen.findByText('Failed City')).toBeTruthy()
+    expect(await screen.findByText('Stalled City')).toBeTruthy()
+    expect((await screen.findAllByText('Ошибка')).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('Завис')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Задач по выбранному фильтру нет')).toBeNull()
   })
 })
