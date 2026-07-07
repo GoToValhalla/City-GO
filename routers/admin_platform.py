@@ -28,7 +28,7 @@ def read_quality(
     region: str | None = None,
     category: str | None = None,
     severity: str | None = None,
-    limit: int = Query(default=25, ge=1, le=50),
+    limit: int = Query(default=5, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
