@@ -22,11 +22,32 @@ from services.place_import_lifecycle_service import mark_place_for_review
 IMAGE_LIMIT=2000
 ADDRESS_LIMIT=5000
 
+def _touch_job(job:CityAdminImportJob)->None:
+ job.updated_at=datetime.utcnow()
+
+def _try_refresh_snapshot(db:Session,*,city_id:int,source:str)->None:
+ try:
+  from services.admin_city_import_job_payload import refresh_import_job_snapshot
+  refresh_import_job_snapshot(db,city_id=city_id,source=source)
+ except Exception:
+  return
+
+def _finalize_import_status(job:CityAdminImportJob,*,summary:dict[str,object],total:int,warnings:list[dict[str,object]])->None:
+ scopes_total=int(summary.get("scopes_total") or 0)
+ scopes_ok=int(summary.get("scopes_succeeded") or 0)
+ if scopes_total>0 and scopes_ok==0 and str(summary.get("status") or "").lower()=="failed":
+  job.status="partial_success" if total>0 else "failed"
+  job.last_error=job.last_error or str(summary.get("last_error") or "All import scopes failed")
+ elif warnings:
+  job.status="success_with_warnings"
+ else:
+  job.status="success"
+
 def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_id:str,force:bool=True,notify_completion:bool=True)->dict[str,Any]:
  city_id=int(city.id);original=(city.launch_status,bool(city.is_active));started=datetime.utcnow();warnings=[];results={}
  job.status="running";job.started_at=job.started_at or started;set_step(job,STEP_RUNNING);db.commit()
  try:
-  set_step(job,STEP_COLLECTING_PLACES);_log(db,job,city.slug,actor_id,STEP_COLLECTING_PLACES,"started");db.commit()
+  set_step(job,STEP_COLLECTING_PLACES);_log(db,job,city.slug,actor_id,STEP_COLLECTING_PLACES,"started");_touch_job(job);db.commit()
   summary=summarize_import_results(run_osm_import_only(city.slug,force=force,city_admin_import_job_id=int(job.id)));results["import"]=summary;job.scopes_succeeded=int(summary.get("scopes_succeeded") or 0);job.places_found=int(summary.get("places_found") or 0);job.places_saved=int(summary.get("places_saved") or 0)
   total=db.query(Place).filter(Place.city_id==city_id).count();set_step(job,STEP_COLLECTING_PLACES,total=total,processed=total,successful=job.places_saved,detail={"import_diff":summary});db.commit()
   if summary.get("status")!="success" and total<=0:raise RuntimeError(str(summary.get("last_error") or "Ошибка импорта OSM"))
@@ -39,10 +60,10 @@ def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_
   ids=sorted({int(p.id) for p in places});record_place_changes(db,job=job,places=places,since=started);results.update(changed_place_ids=ids,has_changes=bool(ids),quality={"mode":"foundation","changed_places":len(ids)});set_step(job,STEP_COMPUTING_QUALITY,processed=len(ids),detail=results["quality"]);set_step(job,STEP_COMPUTING_READINESS)
   readiness=compute_city_readiness(db,city_slug=city.slug) or {};results["readiness"]=readiness;set_step(job,STEP_COMPUTING_READINESS,detail={"readiness_score":readiness.get("readiness_score")})
   if total<=0:raise RuntimeError("OSM import finished without places")
-  set_step(job,STEP_READY_FOR_REVIEW,successful=len(ids),processed=len(ids));job.status="success_with_warnings" if warnings else "success";job.finished_at=datetime.utcnow();job.step_details={**dict(job.step_details or {}),"warnings":warnings,"changed_place_ids":ids,"has_changes":bool(ids),"import_summary":summary}
+  set_step(job,STEP_READY_FOR_REVIEW,successful=len(ids),processed=len(ids));_finalize_import_status(job,summary=summary,total=total,warnings=warnings);job.finished_at=datetime.utcnow();job.step_details={**dict(job.step_details or {}),"warnings":warnings,"changed_place_ids":ids,"has_changes":bool(ids),"import_summary":summary}
   if original[0]=="importing":city.launch_status="review_required";city.is_active=False
   else:city.launch_status,city.is_active=original
-  city.last_import_at=job.finished_at;log_import_event(db,event="import_pipeline_finished",city_slug=city.slug,actor_id=actor_id,message=f"Pipeline #{job.id}: {len(ids)} изменений",details={"job_id":job.id,**results});db.commit()
+  city.last_import_at=job.finished_at;_try_refresh_snapshot(db,city_id=city_id,source="import_pipeline_finished");log_import_event(db,event="import_pipeline_finished",city_slug=city.slug,actor_id=actor_id,message=f"Pipeline #{job.id}: {len(ids)} изменений",details={"job_id":job.id,**results});db.commit()
   if notify_completion:_notify(city,job,total,len(ids),readiness,warnings)
   return results
  except Exception as exc:
@@ -54,7 +75,7 @@ def run_enrichment_pipeline(db:Session,*,job:CityAdminImportJob,city:City,actor_
    if original[0]=="importing":city.launch_status="review_required";city.is_active=False
    else:city.launch_status,city.is_active=original
   else:job.status="failed";city.launch_status,city.is_active=original
-  db.commit()
+  _try_refresh_snapshot(db,city_id=city_id,source="import_pipeline_partial_failure");db.commit()
   if notify_completion:send_admin_alert(title="Import completed with warnings",message=f"{city.name}: pipeline завершён с ошибкой, изменения оставлены на проверке.",level="warning",city_slug=city.slug,job_id=int(job.id),details={"status":job.status,"places_total":total,"changed_places":len(ids),"warnings":[detail]})
   if total<=0:raise
   return results

@@ -29,7 +29,7 @@ from services.import_publication_gate import assess_import_quality
 from services.import_state_service import update_import_state
 from services.place_public_visibility import is_public_hidden_category
 from services.place_field_provenance_service import record_place_field_provenance
-from services.review_queue_service import ensure_review_item
+from services.review_queue_service import ensure_review_item, safe_import_job_id
 from services.place_import_lifecycle_service import (
     apply_accepted_import_to_place,
     existing_place_must_be_hidden,
@@ -720,26 +720,30 @@ def _enqueue_place_change_review(
 
     reason = str((decision.review_reasons or ["source_data_changed"])[0])
     severity = "high" if reason in {"large_coordinate_drift", "source_removed", "source_closed"} else "medium"
+    linked_job_id, job_link_issue = safe_import_job_id(db, city_admin_import_job_id)
+    payload: dict[str, object] = {
+        "kind": "place_change",
+        "source": "osm",
+        "import_batch_id": batch.id,
+        "city_admin_import_job_id": linked_job_id,
+        "source_url": item.get("source_url"),
+        "decision": decision.action,
+        "place_title": place.title,
+        "before_public": before_public or {},
+        "changes": changes,
+        "review_reasons": list(decision.review_reasons or []),
+    }
+    if job_link_issue is not None:
+        payload["job_link_issue"] = job_link_issue
     ensure_review_item(
         db,
         city_id=city.id,
         place_id=place.id,
-        job_id=city_admin_import_job_id,
+        job_id=linked_job_id,
         field_name="place_change",
         reason=reason,
         severity=severity,
-        payload={
-            "kind": "place_change",
-            "source": "osm",
-            "import_batch_id": batch.id,
-            "city_admin_import_job_id": city_admin_import_job_id,
-            "source_url": item.get("source_url"),
-            "decision": decision.action,
-            "place_title": place.title,
-            "before_public": before_public or {},
-            "changes": changes,
-            "review_reasons": list(decision.review_reasons or []),
-        },
+        payload=payload,
     )
 
 

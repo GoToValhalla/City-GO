@@ -178,6 +178,8 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
             job.finished_at = datetime.utcnow()
         if city is not None:
             city.last_import_at = datetime.utcnow()
+        if job and city is not None:
+            _refresh_snapshot_light(db, city=city, job=job, source="import_pipeline_failed")
         db.commit()
         send_admin_alert(title="Import completed with warnings" if total > 0 else "Import pipeline failed", message=f"Pipeline прерван. Изменённых мест: {len(ids)}. Публикация города не изменялась.", level="warning" if total > 0 else "error", city_slug=city.slug if city else None, job_id=int(job.id) if job else None, details={"status": job.status if job else "failed", "places_total": total, "changed_places": len(ids), "city_launch_status": city.launch_status if city else None, "city_is_active": bool(city.is_active) if city else None, "warnings": [{"step": "unified_pipeline", "error": str(exc)[:1000]}]})
     db.refresh(job)

@@ -26,6 +26,20 @@ def _valid_city_admin_import_job_id(db: Session, job_id: int | None) -> int | No
     )
 
 
+def safe_import_job_id(db: Session, job_id: int | None) -> tuple[int | None, dict[str, object] | None]:
+    """Resolve import job link for review queue without risking FK violations."""
+    if job_id is None:
+        return None, None
+    try:
+        return _valid_city_admin_import_job_id(db, job_id), None
+    except ReviewQueueJobLinkError as exc:
+        return None, {
+            "requested_job_id": job_id,
+            "job_link_error": str(exc),
+            "kind": "data_integrity",
+        }
+
+
 def ensure_review_item(
     db: Session,
     *,

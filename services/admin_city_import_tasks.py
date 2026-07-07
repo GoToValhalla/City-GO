@@ -26,6 +26,7 @@ from services.admin_city_import_job_service import (
 )
 from services.import_pipeline.progress import is_stalled, set_step
 from services.import_pipeline.steps import STEP_ERROR
+from services.admin_city_import_job_payload import refresh_import_job_snapshot
 from services.system_log_service import write_system_log
 
 
@@ -208,6 +209,10 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
         if city is not None and city.launch_status == "importing":
             city.launch_status = "import_failed"
             city.is_active = False
+        try:
+            refresh_import_job_snapshot(db, city_id=int(job.city_id), source="stalled_job_recovery")
+        except Exception:
+            pass
         alerts.append({"job_id": int(job.id), "city_slug": city_slug, "source": job.source, "last_error": job.last_error})
     if stalled:
         db.commit()

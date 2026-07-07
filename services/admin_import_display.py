@@ -5,6 +5,7 @@ from __future__ import annotations
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from services.import_pipeline.progress import is_stalled, step_label
+from services.import_pipeline.scope_errors import classify_scope_error, import_failure_diagnostics
 from services.import_pipeline.steps import STEP_QUEUED
 
 ACTIVE_IMPORT_STATUSES = {"queued", "running"}
@@ -115,6 +116,15 @@ def import_error_summary(job: CityAdminImportJob | None) -> dict[str, object] | 
     warnings = pipeline_warnings(job)
     first = warnings[0] if warnings else {}
     message = str(job.last_error or diff.get("last_error") or first.get("error") or "Import failed")
+    diagnostics = import_failure_diagnostics(diff if isinstance(diff, dict) else None)
+    scope_errors = diagnostics.get("scope_errors") if isinstance(diagnostics, dict) else diff.get("scope_errors")
+    primary_kind = None
+    if isinstance(diagnostics, dict):
+        primary_kind = diagnostics.get("primary_kind")
+    elif isinstance(scope_errors, list) and scope_errors:
+        primary_kind = classify_scope_error(str(scope_errors[0].get("error") or message)).get("kind")
+    else:
+        primary_kind = classify_scope_error(message).get("kind")
     return {
         "job_id": job.id,
         "failed_step": str(first.get("step") or job.current_step or "unknown"),
@@ -122,6 +132,9 @@ def import_error_summary(job: CityAdminImportJob | None) -> dict[str, object] | 
         "import_status": str(diff.get("status") or job.status),
         "scopes_total": int(diff.get("scopes_total") or job.scopes_total or 0),
         "scopes_succeeded": int(diff.get("scopes_succeeded") or job.scopes_succeeded or 0),
+        "primary_error_kind": primary_kind,
+        "scope_errors": scope_errors if isinstance(scope_errors, list) else [],
+        "diagnostics": diagnostics,
     }
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from data.scripts.run_due_import_jobs import run as run_due_import_jobs
+from services.import_pipeline.scope_errors import scope_failure_rows
 
 
 def run_city_import_targets(city_slug: str, *, force: bool = True, city_admin_import_job_id: int | None = None) -> dict[str, Any]:
@@ -34,8 +35,9 @@ def run_osm_import_only(city_slug: str, *, force: bool = True, city_admin_import
     return run_due_import_jobs(base)
 
 
-def summarize_import_results(payload: dict[str, Any]) -> dict[str, int | str | None]:
+def summarize_import_results(payload: dict[str, Any]) -> dict[str, int | str | None | list[dict[str, object]]]:
     results = payload.get("results") if isinstance(payload.get("results"), list) else []
+    scope_errors = scope_failure_rows(results)
     counters = {
         "created": 0,
         "updated": 0,
@@ -87,4 +89,5 @@ def summarize_import_results(payload: dict[str, Any]) -> dict[str, int | str | N
         **counters,
         "status": status,
         "last_error": last_error,
+        "scope_errors": scope_errors,
     }
