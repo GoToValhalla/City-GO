@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
@@ -12,6 +12,7 @@ from db.dependencies import get_db
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_alert_service import send_admin_alert
+from services.admin_city_import_tasks import run_queued_import_jobs
 from services.import_pipeline.steps import STEP_ERROR
 
 router = APIRouter(prefix="/admin", tags=["admin-import-queue"])
@@ -72,6 +73,14 @@ def _summary(db: Session) -> dict[str, Any]:
 @router.get("/import-queue")
 def read_import_queue(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
     return _summary(db)
+
+
+@router.post("/import-queue/run-once")
+def run_import_queue_once(background_tasks: BackgroundTasks, limit: int = 1, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    """Manually kick the import worker without enabling the web startup scheduler."""
+    worker_limit = max(1, min(int(limit or 1), 5))
+    background_tasks.add_task(run_queued_import_jobs, actor_id=auth.actor_id, limit=worker_limit)
+    return {"scheduled": True, "limit": worker_limit, "queue": _summary(db)}
 
 
 @router.post("/import-queue/mark-stalled")
