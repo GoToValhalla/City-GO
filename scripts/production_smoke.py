@@ -225,7 +225,7 @@ def execute_check(config: ProductionSmokeConfig, check: SmokeCheck) -> SmokeResu
             raw = response.read(256_000).decode("utf-8", errors="replace")
             http_status = int(response.status)
     except urllib.error.HTTPError as exc:
-        return SmokeResult(check.name, "failed", f"http_{exc.code}", exc.code)
+        return SmokeResult(check.name, "failed", _http_error_detail(exc), exc.code)
     except (OSError, urllib.error.URLError) as exc:
         return SmokeResult(check.name, "failed", exc.__class__.__name__)
 
@@ -337,6 +337,32 @@ def _contains_traceback(raw: str) -> bool:
     return any(marker in raw for marker in TRACEBACK_MARKERS)
 
 
+def _http_error_detail(exc: urllib.error.HTTPError) -> str:
+    base = f"http_{exc.code}"
+    try:
+        raw = exc.read(4_000).decode("utf-8", errors="replace")
+    except Exception:
+        return base
+    if not raw:
+        return base
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return base
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    if isinstance(detail, list):
+        missing = [str(item.get("loc", [""])[-1]) for item in detail if isinstance(item, dict) and item.get("type") == "missing"]
+        if missing:
+            return f"{base}_missing_{'_'.join(missing[:3])}"
+    if isinstance(detail, dict):
+        code = detail.get("code") or detail.get("partial_reason")
+        if code:
+            return f"{base}_{code}"
+    if isinstance(detail, str) and detail:
+        return f"{base}_{detail[:80]}"
+    return base
+
+
 def _contains_forbidden_route_junk(points: Sequence[Any]) -> bool:
     for point in points:
         if not isinstance(point, dict):
@@ -438,6 +464,8 @@ def _number_or_none(value: Any) -> float | None:
 
 
 def _route_smoke_check(config: ProductionSmokeConfig) -> SmokeCheck:
+    lat = config.route_lat if config.route_lat is not None else DEFAULT_ROUTE_SMOKE_LAT
+    lng = config.route_lng if config.route_lng is not None else DEFAULT_ROUTE_SMOKE_LNG
     return SmokeCheck(
         name="route_quick",
         method="POST",
@@ -445,9 +473,13 @@ def _route_smoke_check(config: ProductionSmokeConfig) -> SmokeCheck:
         body={
             "build_mode": "auto",
             "city_id": config.route_city_id or DEFAULT_ROUTE_SMOKE_CITY_ID,
+            "lat": lat,
+            "lng": lng,
+            "start_source": "map_point",
             "start": {
-                "lat": config.route_lat if config.route_lat is not None else DEFAULT_ROUTE_SMOKE_LAT,
-                "lng": config.route_lng if config.route_lng is not None else DEFAULT_ROUTE_SMOKE_LNG,
+                "type": "map_point",
+                "lat": lat,
+                "lng": lng,
             },
             "mode": "quick",
             "time_budget_minutes": ROUTE_SMOKE_BUDGET_MINUTES,
