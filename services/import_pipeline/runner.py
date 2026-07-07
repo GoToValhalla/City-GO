@@ -40,7 +40,7 @@ from services.import_pipeline.transaction import (
     rollback_session,
     transaction_is_aborted,
 )
-from services.import_pipeline.schema_compat import collecting_has_schema_failure, is_schema_mismatch_error
+from services.import_pipeline.schema_compat import collecting_has_schema_failure, diagnose_import_schema_gaps, ensure_import_pipeline_schema, is_schema_mismatch_error
 from services.photo_enrichment_diagnostics import build_photo_enrichment_diagnostics
 from services.place_import_lifecycle_service import mark_place_for_review
 
@@ -68,6 +68,10 @@ def run_enrichment_pipeline(
     set_step(job, STEP_RUNNING)
     db.commit()
     try:
+        gaps = diagnose_import_schema_gaps(db.connection())
+        if any(gaps.values()):
+            repair = ensure_import_pipeline_schema(db.get_bind().engine)
+            warnings.append({"step": "schema_preflight", "status": "repaired", "before": gaps, **repair})
         set_step(job, STEP_COLLECTING_PLACES)
         _log(db, job, city.slug, actor_id, STEP_COLLECTING_PLACES, "started")
         _touch_job(job)

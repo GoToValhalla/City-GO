@@ -198,3 +198,73 @@ def test_ensure_import_pipeline_schema_repairs_source_observations_before_collec
     }
     gaps_after = diagnose_import_schema_gaps(engine)
     assert gaps_after["missing_source_observation_columns"] == []
+
+
+def test_pipeline_runs_preflight_schema_repair_before_collecting_places_new(db_session, city_factory, monkeypatch) -> None:
+    city = city_factory(slug="preflight-city", launch_status="published", is_active=True)
+    place = Place(city_id=city.id, slug="preflight-place", title="Preflight Place", lat=54.7, lng=20.5, category="park")
+    job = CityAdminImportJob(city_id=city.id, status="queued", source="admin_city_import")
+    db_session.add_all([place, job])
+    db_session.commit()
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        import_runner,
+        "diagnose_import_schema_gaps",
+        lambda _conn: calls.append("diagnose") or {"missing_tables": [], "missing_place_columns": ["place_layer"], "missing_source_observation_columns": []},
+    )
+    monkeypatch.setattr(
+        import_runner,
+        "ensure_import_pipeline_schema",
+        lambda _engine: calls.append("repair") or {"created_tables": [], "added_columns": ["places.place_layer"]},
+    )
+    monkeypatch.setattr(import_runner, "run_osm_import_only", lambda *_args, **_kwargs: calls.append("collecting_places") or {"results": []})
+    monkeypatch.setattr(
+        import_runner,
+        "summarize_import_results",
+        lambda _payload: {"scopes_total": 0, "scopes_succeeded": 0, "places_found": 0, "places_saved": 0, "status": "success"},
+    )
+    monkeypatch.setattr(import_runner, "run_address_backfill", lambda *_args, **_kwargs: {"checked": 0, "updated": 0, "errors": 0})
+    monkeypatch.setattr(import_runner, "run_image_enrich", lambda *_args, **_kwargs: {"scanned_places": 0, "created": 0, "failed": 0})
+    monkeypatch.setattr(import_runner, "normalize_places_categories", lambda *_args, **_kwargs: {"scanned": 0, "updated": 0})
+    monkeypatch.setattr(import_runner, "compute_city_readiness", lambda *_args, **_kwargs: {"readiness_score": 1.0})
+    monkeypatch.setattr(import_runner, "send_admin_alert", lambda **_kwargs: {"sent": True})
+    monkeypatch.setattr(import_runner, "_try_refresh_snapshot", lambda *_args, **_kwargs: None)
+
+    import_runner.run_enrichment_pipeline(db_session, job=job, city=city, actor_id="qa", notify_completion=False)
+    job = db_session.get(CityAdminImportJob, job.id)
+
+    assert calls == ["diagnose", "repair", "collecting_places"]
+    assert any(item.get("step") == "schema_preflight" and item.get("status") == "repaired" for item in job.step_details["warnings"])
+
+
+def test_pipeline_skips_schema_repair_when_no_gaps_new(db_session, city_factory, monkeypatch) -> None:
+    city = city_factory(slug="preflight-clean-city", launch_status="published", is_active=True)
+    place = Place(city_id=city.id, slug="preflight-clean-place", title="Preflight Clean Place", lat=54.7, lng=20.5, category="park")
+    job = CityAdminImportJob(city_id=city.id, status="queued", source="admin_city_import")
+    db_session.add_all([place, job])
+    db_session.commit()
+    repair_calls: list[str] = []
+
+    monkeypatch.setattr(
+        import_runner,
+        "diagnose_import_schema_gaps",
+        lambda _conn: {"missing_tables": [], "missing_place_columns": [], "missing_source_observation_columns": []},
+    )
+    monkeypatch.setattr(import_runner, "ensure_import_pipeline_schema", lambda _engine: repair_calls.append("repair"))
+    monkeypatch.setattr(import_runner, "run_osm_import_only", lambda *_args, **_kwargs: {"results": []})
+    monkeypatch.setattr(
+        import_runner,
+        "summarize_import_results",
+        lambda _payload: {"scopes_total": 0, "scopes_succeeded": 0, "places_found": 0, "places_saved": 0, "status": "success"},
+    )
+    monkeypatch.setattr(import_runner, "run_address_backfill", lambda *_args, **_kwargs: {"checked": 0, "updated": 0, "errors": 0})
+    monkeypatch.setattr(import_runner, "run_image_enrich", lambda *_args, **_kwargs: {"scanned_places": 0, "created": 0, "failed": 0})
+    monkeypatch.setattr(import_runner, "normalize_places_categories", lambda *_args, **_kwargs: {"scanned": 0, "updated": 0})
+    monkeypatch.setattr(import_runner, "compute_city_readiness", lambda *_args, **_kwargs: {"readiness_score": 1.0})
+    monkeypatch.setattr(import_runner, "send_admin_alert", lambda **_kwargs: {"sent": True})
+    monkeypatch.setattr(import_runner, "_try_refresh_snapshot", lambda *_args, **_kwargs: None)
+
+    import_runner.run_enrichment_pipeline(db_session, job=job, city=city, actor_id="qa", notify_completion=False)
+
+    assert repair_calls == []
