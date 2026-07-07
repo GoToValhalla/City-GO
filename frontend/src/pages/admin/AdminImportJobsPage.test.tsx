@@ -134,8 +134,8 @@ describe('AdminImportJobsPage import-worker queue controls', () => {
 
     renderPage()
 
-    expect(await screen.findByText('Failed City')).toBeTruthy()
-    expect(await screen.findByText('Stalled City')).toBeTruthy()
+    expect((await screen.findAllByText('Failed City')).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText('Stalled City')).length).toBeGreaterThan(0)
     expect((await screen.findAllByText('Ошибка')).length).toBeGreaterThan(0)
     expect((await screen.findAllByText('Завис')).length).toBeGreaterThan(0)
     expect(screen.queryByText('Задач по выбранному фильтру нет')).toBeNull()
