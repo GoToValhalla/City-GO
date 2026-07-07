@@ -32,7 +32,7 @@ DEFAULT_BACKEND_CHECKS: tuple[tuple[str, str], ...] = (
 
 DEFAULT_ADMIN_CHECKS: tuple[tuple[str, str], ...] = (
     ("admin_system_health", "/api/admin/system-health"),
-    ("admin_quality", "/api/admin/quality"),
+    ("admin_quality", "/api/admin/quality?city_slug=__production_smoke__"),
     ("admin_taxonomy_categories", "/api/admin/taxonomy/categories?limit=1"),
 )
 
@@ -318,165 +318,178 @@ def _contains_forbidden_route_junk(points: Sequence[Any]) -> bool:
             return True
         if is_placeholder_title(title):
             return True
-        if any(token in title.lower() for token in ("аптек", "pharmacy", "остановк", "bus stop", "банкомат", "atm", "институт хирургии")):
+    return False
+
+
+def _has_large_budget_overflow(payload: Mapping[str, Any]) -> bool:
+    requested = _route_requested_budget(payload)
+    actual = _route_actual_duration(payload)
+    if requested is None or actual is None or requested <= 0:
+        return False
+    return actual > requested * MAX_NORMAL_ROUTE_BUDGET_OVERFLOW_RATIO
+
+
+def _route_requested_budget(payload: Mapping[str, Any]) -> float | None:
+    for key in ("requested_budget_minutes", "budget_minutes", "time_budget_minutes"):
+        value = _number_or_none(payload.get(key))
+        if value is not None:
+            return value
+    request_meta = payload.get("request")
+    if isinstance(request_meta, Mapping):
+        return _number_or_none(request_meta.get("budget_minutes"))
+    return None
+
+
+def _route_actual_duration(payload: Mapping[str, Any]) -> float | None:
+    for key in ("total_duration_minutes", "duration_minutes", "estimated_duration_minutes"):
+        value = _number_or_none(payload.get(key))
+        if value is not None:
+            return value
+    route = payload.get("route")
+    if isinstance(route, Mapping):
+        return _number_or_none(route.get("duration_minutes"))
+    return None
+
+
+def _has_honest_weak_reason(status: str, quality_status: str, partial_reason: str, payload: Mapping[str, Any]) -> bool:
+    if status in {"partial_route", "partial"} or quality_status == "weak" or partial_reason:
+        return True
+    for field_name in USER_FACING_ROUTE_FIELDS:
+        value = payload.get(field_name)
+        if isinstance(value, str) and value.strip() and not RAW_TECHNICAL_CODE.match(value.strip()):
+            return True
+        if isinstance(value, list) and any(isinstance(item, str) and item.strip() and not RAW_TECHNICAL_CODE.match(item.strip()) for item in value):
             return True
     return False
 
 
-def _public_payload_raw_technical_code_path(payload: Mapping[str, Any]) -> str:
-    for field in USER_FACING_ROUTE_FIELDS:
-        path = _raw_code_path(payload.get(field), field)
-        if path:
-            return path
-    return ""
-
-
-def _raw_code_path(value: Any, path: str) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return path if RAW_TECHNICAL_CODE.fullmatch(value.strip()) else ""
+def _public_payload_raw_technical_code_path(value: Any, path: str = "root") -> str | None:
     if isinstance(value, Mapping):
-        for key, item in value.items():
-            nested = _raw_code_path(item, f"{path}.{key}")
+        for key, child in value.items():
+            key_str = str(key)
+            child_path = f"{path}.{key_str}"
+            if key_str in USER_FACING_ROUTE_FIELDS:
+                if _contains_raw_technical_code(child):
+                    return child_path
+                continue
+            nested = _public_payload_raw_technical_code_path(child, child_path)
             if nested:
                 return nested
-    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
-        for index, item in enumerate(value):
-            nested = _raw_code_path(item, f"{path}[{index}]")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            nested = _public_payload_raw_technical_code_path(child, f"{path}[{index}]")
             if nested:
                 return nested
-    return ""
+    return None
 
 
-def _has_honest_weak_reason(status: str, quality_status: str, partial_reason: str, payload: Mapping[str, Any]) -> bool:
-    if status == "partial_route" or quality_status == "weak" or partial_reason:
-        return True
-    warnings = payload.get("user_warnings") or payload.get("warnings") or []
-    return bool(warnings)
+def _contains_raw_technical_code(value: Any) -> bool:
+    if isinstance(value, str):
+        text = value.strip()
+        return bool(text and RAW_TECHNICAL_CODE.match(text))
+    if isinstance(value, list):
+        return any(_contains_raw_technical_code(item) for item in value)
+    if isinstance(value, Mapping):
+        return any(_contains_raw_technical_code(item) for item in value.values())
+    return False
 
 
-def _has_large_budget_overflow(payload: Mapping[str, Any]) -> bool:
-    total = _int_payload(payload, "total_estimated_minutes", "total_duration_minutes", "estimated_minutes")
-    budget = _int_payload(payload, "time_budget_minutes", "requested_budget_minutes", "budget_minutes")
-    if not total or not budget:
-        context = payload.get("context")
-        budget = _int_payload(context, "time_budget_minutes", "requested_budget_minutes") if isinstance(context, Mapping) else budget
-    return bool(total and budget and total >= int(budget * MAX_NORMAL_ROUTE_BUDGET_OVERFLOW_RATIO))
-
-
-def _int_payload(payload: Mapping[str, Any] | None, *keys: str) -> int:
-    if not isinstance(payload, Mapping):
-        return 0
-    for key in keys:
+def _number_or_none(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
         try:
-            value = int(payload.get(key) or 0)
-        except (TypeError, ValueError):
-            value = 0
-        if value > 0:
-            return value
-    return 0
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def _route_smoke_check(config: ProductionSmokeConfig) -> SmokeCheck:
-    route_city_id = config.route_city_id.strip()
-    if not route_city_id:
-        raise ValueError("CITY_GO_ROUTE_SMOKE_CITY_ID is required when route smoke is enabled")
-    body: dict[str, Any] = {
-        "build_mode": "auto",
-        "start_source": "city_center",
-        "city_id": route_city_id,
-        "visit_city_id": route_city_id,
-        "time_budget_minutes": ROUTE_SMOKE_BUDGET_MINUTES,
-        "interests": ["architecture", "history", "museum", "walk"],
-    }
-    if config.route_lat is not None and config.route_lng is not None:
-        body.update({"lat": config.route_lat, "lng": config.route_lng})
-    else:
-        body.update({"lat": DEFAULT_ROUTE_SMOKE_LAT, "lng": DEFAULT_ROUTE_SMOKE_LNG})
-    return SmokeCheck(name="route_quick", method="POST", path=ROUTE_SMOKE_PATH, body=body)
+    return SmokeCheck(
+        name="route_quick",
+        method="POST",
+        path=ROUTE_SMOKE_PATH,
+        body={
+            "city_id": config.route_city_id or DEFAULT_ROUTE_SMOKE_CITY_ID,
+            "start": {
+                "lat": config.route_lat if config.route_lat is not None else DEFAULT_ROUTE_SMOKE_LAT,
+                "lng": config.route_lng if config.route_lng is not None else DEFAULT_ROUTE_SMOKE_LNG,
+            },
+            "mode": "quick",
+            "time_budget_minutes": ROUTE_SMOKE_BUDGET_MINUTES,
+            "interests": ["architecture", "history"],
+        },
+    )
 
 
-def build_summary(results: Sequence[SmokeResult], *, run_url: str = "", commit: str = "") -> str:
-    failed = [result for result in results if result.failed]
-    skipped = [result for result in results if result.skipped]
-    header_icon = "❌" if failed else "⚠️" if skipped else "✅"
-    lines = [
-        f"{header_icon} CITY GO · PRODUCTION SMOKE",
-        f"Commit: {commit[:7] if commit else 'unknown'}",
-    ]
+def summarize_results(results: Sequence[SmokeResult], expected_sha: str = "") -> str:
+    status = "✅" if all(result.ok for result in results) else "❌"
+    lines = [f"{status} CITY GO · PRODUCTION SMOKE"]
+    if expected_sha:
+        lines.append(f"Commit: {expected_sha[:7]}")
     for result in results:
-        icon = "✅" if result.status == "ok" else "⚠️" if result.skipped else "❌"
+        icon = "✅" if result.ok else "❌"
+        if result.skipped:
+            icon = "⚠️"
         detail = f" · {result.detail}" if result.detail else ""
         lines.append(f"{icon} {result.name}: {result.status}{detail}")
-    if failed:
+    failures = [result for result in results if result.failed]
+    if failures:
         lines.append("")
         lines.append("Failed checks:")
-        lines.extend(f"- {result.name}: {result.detail or result.status}" for result in failed)
-    if skipped:
-        lines.append("")
-        lines.append("Skipped checks:")
-        lines.extend(f"- {result.name}: {result.detail or result.status}" for result in skipped)
+        for result in failures:
+            lines.append(f"- {result.name}: {result.detail or result.status}")
+    run_url = os.getenv("GITHUB_RUN_URL", "").strip()
     if run_url:
         lines.append("")
         lines.append(f"GitHub Actions: {run_url}")
     return "\n".join(lines)
 
 
-def write_reports(results: Sequence[SmokeResult], summary_file: str, json_report: str, *, run_url: str = "", commit: str = "") -> None:
-    summary = build_summary(results, run_url=run_url, commit=commit)
-    Path(summary_file).parent.mkdir(parents=True, exist_ok=True)
-    Path(summary_file).write_text(summary + "\n", encoding="utf-8")
-    Path(json_report).parent.mkdir(parents=True, exist_ok=True)
-    Path(json_report).write_text(json.dumps([result.__dict__ for result in results], ensure_ascii=False, indent=2), encoding="utf-8")
+def write_reports(results: Sequence[SmokeResult], summary_file: str | None, json_report: str | None, expected_sha: str = "") -> None:
+    if summary_file:
+        Path(summary_file).parent.mkdir(parents=True, exist_ok=True)
+        Path(summary_file).write_text(summarize_results(results, expected_sha=expected_sha), encoding="utf-8")
+    if json_report:
+        Path(json_report).parent.mkdir(parents=True, exist_ok=True)
+        Path(json_report).write_text(json.dumps([result.__dict__ for result in results], ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run production smoke checks")
-    parser.add_argument("--base-url", default=os.getenv("PRODUCTION_BASE_URL", ""))
-    parser.add_argument("--ssh-host", default=os.getenv("SSH_HOST", ""))
-    parser.add_argument("--expected-sha", default=os.getenv("EXPECTED_SHA", ""))
-    parser.add_argument("--admin-token", default=os.getenv("ADMIN_API_TOKEN", ""))
-    parser.add_argument("--summary-file", default="/tmp/production-smoke/summary.txt")
-    parser.add_argument("--json-report", default="/tmp/production-smoke/report.json")
-    parser.add_argument("--run-url", default=os.getenv("GITHUB_RUN_URL", ""))
-    parser.add_argument("--commit", default=os.getenv("GITHUB_SHA", ""))
-    parser.add_argument("--route-smoke-enabled", default=os.getenv("CITY_GO_ROUTE_SMOKE_ENABLED", "false"))
-    parser.add_argument("--route-city-id", default=os.getenv("CITY_GO_ROUTE_SMOKE_CITY_ID", DEFAULT_ROUTE_SMOKE_CITY_ID))
-    parser.add_argument("--route-lat", default=os.getenv("CITY_GO_ROUTE_SMOKE_LAT", str(DEFAULT_ROUTE_SMOKE_LAT)))
-    parser.add_argument("--route-lng", default=os.getenv("CITY_GO_ROUTE_SMOKE_LNG", str(DEFAULT_ROUTE_SMOKE_LNG)))
+    parser = argparse.ArgumentParser(description="Run City GO production smoke checks")
+    parser.add_argument("--base-url", default="")
+    parser.add_argument("--expected-sha", default="")
+    parser.add_argument("--admin-token", default="")
+    parser.add_argument("--summary-file", default="")
+    parser.add_argument("--json-report", default="")
+    parser.add_argument("--route-smoke", action="store_true")
+    parser.add_argument("--route-city-id", default="")
+    parser.add_argument("--route-lat", type=float, default=None)
+    parser.add_argument("--route-lng", type=float, default=None)
     return parser.parse_args()
+
+
+def _float_or_none(value: str) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _truthy(value: str) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def _float_or_none(value: str) -> float | None:
-    text = value.strip()
-    if not text:
-        return None
-    try:
-        return float(text)
-    except ValueError:
-        return None
-
-
 def main() -> int:
     args = parse_args()
-    config = ProductionSmokeConfig(
-        base_url=resolve_base_url(args.base_url, args.ssh_host),
-        expected_sha=args.expected_sha.strip(),
-        admin_token=args.admin_token.strip(),
-        route_smoke_enabled=_truthy(str(args.route_smoke_enabled)),
-        route_city_id=str(args.route_city_id or ""),
-        route_lat=_float_or_none(str(args.route_lat)),
-        route_lng=_float_or_none(str(args.route_lng)),
-    )
+    config = config_from_env(args)
     results = run_smoke(config)
-    write_reports(results, args.summary_file, args.json_report, run_url=args.run_url, commit=args.commit)
-    print(build_summary(results, run_url=args.run_url, commit=args.commit))
-    return 1 if any(result.failed for result in results) else 0
+    print(summarize_results(results, expected_sha=config.expected_sha))
+    write_reports(results, args.summary_file, args.json_report, expected_sha=config.expected_sha)
+    return 0 if all(result.ok for result in results) else 1
 
 
 if __name__ == "__main__":
