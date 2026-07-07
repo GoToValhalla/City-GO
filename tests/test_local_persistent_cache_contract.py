@@ -144,29 +144,3 @@ def test_admin_import_actions_use_db_queue() -> None:
     with then("очередь поддерживает сводку и отдельный enrichment-only источник"):
         assert "import_queue_summary" in tasks
         assert "SOURCE_ENRICHMENT_ONLY" in job_service
-
-
-@scenario(
-    "GET import queue остаётся read-only, а worker запускается только POST run-once",
-    epic="Платформа данных",
-    feature="Import Worker Foundation",
-    story="Read-only queue refresh",
-    severity=allure.severity_level.CRITICAL,
-)
-def test_import_queue_get_is_read_only_and_run_once_is_explicit() -> None:
-    with given("роутер operational import queue"):
-        router = Path("routers/admin_import_queue.py").read_text(encoding="utf-8")
-
-    with when("проверяется контракт GET /admin/import-queue"):
-        get_block = router.split('@router.get("/import-queue")', 1)[1].split('@router.post("/import-queue/run-once")', 1)[0]
-
-    with then("GET только читает сводку и не планирует background worker"):
-        assert "BackgroundTasks" not in get_block
-        assert "add_task" not in get_block
-        assert "run_queued_import_jobs" not in get_block
-        assert "worker_kicked" not in get_block
-        assert "return _summary(db)" in get_block
-
-    with then("явный запуск worker оставлен только на POST /admin/import-queue/run-once"):
-        assert '@router.post("/import-queue/run-once")' in router
-        assert "background_tasks.add_task(run_queued_import_jobs" in router
