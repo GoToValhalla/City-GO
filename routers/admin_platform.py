@@ -1,6 +1,12 @@
 """Admin operational center endpoints."""
 
+from __future__ import annotations
+
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
@@ -12,15 +18,36 @@ from services.admin_platform_health import health_summary
 from services.admin_platform_quality import quality_summary
 
 router = APIRouter(prefix="/admin", tags=["admin-platform"])
+logger = logging.getLogger(__name__)
+ADMIN_PLATFORM_READ_TIMEOUT_MS = 3000
 
 
 @router.get("/quality")
 def read_quality(
-    city_slug: str | None = None, region: str | None = None,
-    category: str | None = None, severity: str | None = None,
-    auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db),
+    city_slug: str | None = None,
+    region: str | None = None,
+    category: str | None = None,
+    severity: str | None = None,
+    limit: int = Query(default=25, ge=1, le=50),
+    offset: int = Query(default=0, ge=0),
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
 ) -> dict[str, object]:
-    return quality_summary(db, city_slug=city_slug, region=region, category=category, severity=severity)
+    try:
+        _apply_admin_platform_read_timeout(db)
+        return quality_summary(
+            db,
+            city_slug=city_slug,
+            region=region,
+            category=category,
+            severity=severity,
+            limit=limit,
+            offset=offset,
+        )
+    except (SQLAlchemyError, TimeoutError) as exc:
+        db.rollback()
+        logger.exception("Admin quality summary degraded", exc_info=exc)
+        return _degraded_quality_summary(limit=limit, offset=offset)
 
 
 @router.get("/system-health")
@@ -61,3 +88,20 @@ def read_analytics(
         db, days=days, city_slug=city_slug, channel=channel,
         region=region, category=category, environment=environment,
     )
+
+
+def _apply_admin_platform_read_timeout(db: Session) -> None:
+    bind = db.get_bind()
+    if bind.dialect.name == "postgresql":
+        db.execute(text(f"SET LOCAL statement_timeout = {ADMIN_PLATFORM_READ_TIMEOUT_MS}"))
+
+
+def _degraded_quality_summary(*, limit: int, offset: int) -> dict[str, object]:
+    return {
+        "items": [],
+        "total": 0,
+        "limit": limit,
+        "offset": offset,
+        "todo": ["Качество временно в деградированном режиме: чтение БД превысило лимит."],
+        "degraded": True,
+    }
