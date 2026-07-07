@@ -66,14 +66,19 @@ def quality_summary(
     region: str | None = None,
     category: str | None = None,
     severity: str | None = None,
+    limit: int = 25,
+    offset: int = 0,
 ) -> dict[str, object]:
     query = db.query(City)
     if city_slug:
         query = query.filter(City.slug == city_slug)
     if region:
         query = query.filter(City.region == region)
+    total = int(query.count() or 0)
+    safe_limit = max(1, min(50, int(limit or 25)))
+    safe_offset = max(0, int(offset or 0))
     rows = []
-    for city in query.order_by(City.name.asc()).limit(200).all():
+    for city in query.order_by(City.name.asc()).offset(safe_offset).limit(safe_limit).all():
         quality = city_quality_row(db, city, category=category)
         coverage = quality["critical_coverage"] if isinstance(quality.get("critical_coverage"), dict) else {}
         row = {
@@ -103,7 +108,7 @@ def quality_summary(
         rows.append(row)
     if severity:
         rows = [row for row in rows if row["severity"] == severity]
-    return {"items": rows, "total": len(rows), "todo": _todo(rows)}
+    return {"items": rows, "total": total if not severity else len(rows), "limit": safe_limit, "offset": safe_offset, "todo": _todo(rows)}
 
 
 def _tourist_review_condition():
@@ -140,8 +145,8 @@ def _severity(readiness: int, manual_review_total: int) -> str:
     return "critical"
 
 
-def _todo(rows: list[dict[str, Any]]) -> list[dict[str, object]]:
+def _todo(rows: list[dict[str, Any]]) -> list[str]:
     critical = [row for row in rows if row["severity"] == "critical"]
     if not critical:
         return []
-    return [{"type": "review_city_quality", "count": len(critical), "label": "Проверить города с критичным качеством"}]
+    return [f"Проверить города с критичным качеством: {len(critical)}"]
