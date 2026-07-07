@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 from db.base import Base
+from models.destination import Destination  # noqa: F401
 
 
 def utc_now() -> datetime:
