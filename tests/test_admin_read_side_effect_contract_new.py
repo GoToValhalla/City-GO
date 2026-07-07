@@ -204,3 +204,17 @@ def test_import_queue_get_is_read_only_and_mark_stalled_is_explicit_write(client
     assert job.status == "stalled"
     assert job.current_step == "error"
     assert city.launch_status == "import_failed"
+
+
+def test_admin_quality_get_does_not_call_heavy_critical_coverage(client, db_session, city_factory, monkeypatch):
+    city = city_factory(slug="lightweight-city", name="Lightweight City")
+    from services.data_quality import critical_coverage as cc_module
+    monkeypatch.setattr(cc_module, "build_city_critical_coverage", lambda *args, **kwargs: pytest.fail("GET /admin/quality must not call heavy critical coverage"))
+    monkeypatch.setattr(cc_module, "compute_city_critical_coverage", lambda *args, **kwargs: pytest.fail("GET /admin/quality must not call heavy critical coverage"))
+
+    response = client.get("/admin/quality", params={"city_slug": city.slug})
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+    assert "limit" in data
+    assert "offset" in data

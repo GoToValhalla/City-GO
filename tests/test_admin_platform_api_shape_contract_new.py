@@ -56,20 +56,22 @@ def test_admin_quality_shape_is_stable_for_city_with_places_new(client: TestClie
 
     assert response.status_code == 200
     data = response.json()
-    assert set(data) == {"items", "total", "todo"}
+    assert set(data) == {"items", "total", "todo", "limit", "offset"}
     assert data["total"] == 1
     assert isinstance(data["items"], list)
     assert REQUIRED_QUALITY_ITEM_KEYS <= set(data["items"][0])
     assert data["items"][0]["city_slug"] == city.slug
     assert isinstance(data["items"][0]["blockers"], dict)
     assert isinstance(data["items"][0]["critical_coverage"], dict)
+    assert data["limit"] == 25
+    assert data["offset"] == 0
 
 
 def test_admin_quality_returns_empty_shape_not_500_for_unknown_city_new(client: TestClient) -> None:
     response = client.get("/admin/quality", params={"city_slug": "missing-city"})
 
     assert response.status_code == 200
-    assert response.json() == {"items": [], "total": 0, "todo": []}
+    assert response.json() == {"items": [], "total": 0, "todo": [], "limit": 25, "offset": 0}
 
 
 def test_admin_taxonomy_categories_list_shape_has_items_and_total_new(client: TestClient, category_factory) -> None:

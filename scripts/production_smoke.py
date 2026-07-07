@@ -192,6 +192,8 @@ def build_default_checks(config: ProductionSmokeConfig) -> list[SmokeCheck]:
     checks.extend(SmokeCheck(name=name, method="GET", path=path) for name, path in DEFAULT_BACKEND_CHECKS)
     checks.extend(SmokeCheck(name=name, method="GET", path=path, admin=True) for name, path in DEFAULT_ADMIN_CHECKS)
     if config.route_smoke_enabled:
+        if not config.route_city_id:
+            raise ValueError("route_city_id is required when route smoke is enabled")
         checks.append(_route_smoke_check(config))
     return checks
 
@@ -236,6 +238,8 @@ def execute_check(config: ProductionSmokeConfig, check: SmokeCheck) -> SmokeResu
         return SmokeResult(check.name, "ok", safe_build_detail(raw), http_status)
     if check.name == "route_quick":
         return validate_route_response(raw, http_status)
+    if check.name == "admin_quality":
+        return validate_admin_quality_response(raw, http_status)
     return SmokeResult(check.name, "ok", f"http_{http_status}", http_status)
 
 
@@ -260,6 +264,32 @@ def validate_build_sha(result: SmokeResult, expected_sha: str) -> SmokeResult:
     if actual == expected:
         return result
     return SmokeResult(result.name, "failed", f"expected_{expected}_got_{actual}", result.http_status)
+
+
+def validate_admin_quality_response(raw: str, http_status: int) -> SmokeResult:
+    try:
+        payload = json.loads(raw or "{}")
+    except ValueError:
+        return SmokeResult("admin_quality", "failed", "invalid_json", http_status)
+    if not isinstance(payload, dict):
+        return SmokeResult("admin_quality", "failed", "json_not_object", http_status)
+    required_keys = {"items", "total", "todo", "limit", "offset"}
+    if not required_keys <= set(payload):
+        missing = sorted(required_keys - set(payload))
+        return SmokeResult("admin_quality", "failed", f"missing_keys_{missing}", http_status)
+    if not isinstance(payload["items"], list):
+        return SmokeResult("admin_quality", "failed", "items_not_list", http_status)
+    if not isinstance(payload["todo"], list):
+        return SmokeResult("admin_quality", "failed", "todo_not_list", http_status)
+    if not isinstance(payload["total"], int):
+        return SmokeResult("admin_quality", "failed", "total_not_int", http_status)
+    if not isinstance(payload["limit"], int):
+        return SmokeResult("admin_quality", "failed", "limit_not_int", http_status)
+    if not isinstance(payload["offset"], int):
+        return SmokeResult("admin_quality", "failed", "offset_not_int", http_status)
+    if len(payload["items"]) > payload["limit"]:
+        return SmokeResult("admin_quality", "failed", "items_exceeds_limit", http_status)
+    return SmokeResult("admin_quality", "ok", f"items_{len(payload['items'])}", http_status)
 
 
 def validate_route_response(raw: str, http_status: int) -> SmokeResult:
@@ -413,6 +443,7 @@ def _route_smoke_check(config: ProductionSmokeConfig) -> SmokeCheck:
         method="POST",
         path=ROUTE_SMOKE_PATH,
         body={
+            "build_mode": "auto",
             "city_id": config.route_city_id or DEFAULT_ROUTE_SMOKE_CITY_ID,
             "start": {
                 "lat": config.route_lat if config.route_lat is not None else DEFAULT_ROUTE_SMOKE_LAT,
@@ -423,6 +454,46 @@ def _route_smoke_check(config: ProductionSmokeConfig) -> SmokeCheck:
             "interests": ["architecture", "history"],
         },
     )
+
+
+def build_summary(results: Sequence[SmokeResult], run_url: str = "", commit: str = "") -> str:
+    """Backward-compatible summary builder used by smoke tests."""
+    if any(result.failed for result in results):
+        status = "❌"
+    elif any(result.skipped for result in results):
+        status = "⚠️"
+    else:
+        status = "✅"
+
+    lines = [f"{status} CITY GO · PRODUCTION SMOKE"]
+    if commit:
+        lines.append(f"Commit: {commit[:7]}")
+    for result in results:
+        icon = "✅" if result.ok else "❌"
+        if result.skipped:
+            icon = "⚠️"
+        detail = f" · {result.detail}" if result.detail else ""
+        lines.append(f"{icon} {result.name}: {result.status}{detail}")
+
+    failures = [result for result in results if result.failed]
+    skipped = [result for result in results if result.skipped]
+
+    if failures:
+        lines.append("")
+        lines.append("Failed checks:")
+        for result in failures:
+            lines.append(f"- {result.name}: {result.detail or result.status}")
+    if skipped:
+        lines.append("")
+        lines.append("Skipped checks:")
+        for result in skipped:
+            lines.append(f"- {result.name}: {result.detail or result.status}")
+
+    if run_url:
+        lines.append("")
+        lines.append(f"GitHub Actions: {run_url}")
+
+    return "\n".join(lines)
 
 
 def summarize_results(results: Sequence[SmokeResult], expected_sha: str = "") -> str:
