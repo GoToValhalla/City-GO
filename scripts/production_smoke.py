@@ -14,7 +14,6 @@ import json
 import os
 import re
 import urllib.error
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,7 +31,7 @@ DEFAULT_BACKEND_CHECKS: tuple[tuple[str, str], ...] = (
 
 DEFAULT_ADMIN_CHECKS: tuple[tuple[str, str], ...] = (
     ("admin_system_health", "/api/admin/system-health"),
-    ("admin_quality", "/api/admin/quality?city_slug=__production_smoke__"),
+    ("admin_quality", "/api/admin/quality"),
     ("admin_taxonomy_categories", "/api/admin/taxonomy/categories?limit=1"),
 )
 
@@ -371,7 +370,7 @@ def _route_requested_budget(payload: Mapping[str, Any]) -> float | None:
 
 
 def _route_actual_duration(payload: Mapping[str, Any]) -> float | None:
-    for key in ("total_duration_minutes", "duration_minutes", "estimated_duration_minutes"):
+    for key in ("total_duration_minutes", "total_estimated_minutes", "duration_minutes", "estimated_duration_minutes"):
         value = _number_or_none(payload.get(key))
         if value is not None:
             return value
@@ -393,35 +392,36 @@ def _has_honest_weak_reason(status: str, quality_status: str, partial_reason: st
     return False
 
 
-def _public_payload_raw_technical_code_path(value: Any, path: str = "root") -> str | None:
-    if isinstance(value, Mapping):
-        for key, child in value.items():
-            key_str = str(key)
-            child_path = f"{path}.{key_str}"
-            if key_str in USER_FACING_ROUTE_FIELDS:
-                if _contains_raw_technical_code(child):
-                    return child_path
-                continue
-            nested = _public_payload_raw_technical_code_path(child, child_path)
+def _public_payload_raw_technical_code_path(payload: Mapping[str, Any]) -> str | None:
+    for field_name in USER_FACING_ROUTE_FIELDS:
+        if field_name not in payload:
+            continue
+        nested = _raw_technical_code_path(payload[field_name], field_name)
+        if nested:
+            return nested
+    return None
+
+
+def _raw_technical_code_path(value: Any, path: str) -> str | None:
+    if isinstance(value, str):
+        text = value.strip()
+        return path if text and RAW_TECHNICAL_CODE.match(text) else None
+    if isinstance(value, list):
+        for index, child in enumerate(value):
+            nested = _raw_technical_code_path(child, f"{path}[{index}]")
             if nested:
                 return nested
-    elif isinstance(value, list):
-        for index, child in enumerate(value):
-            nested = _public_payload_raw_technical_code_path(child, f"{path}[{index}]")
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            key_path = f"{path}.{key}"
+            nested = _raw_technical_code_path(child, key_path)
             if nested:
                 return nested
     return None
 
 
 def _contains_raw_technical_code(value: Any) -> bool:
-    if isinstance(value, str):
-        text = value.strip()
-        return bool(text and RAW_TECHNICAL_CODE.match(text))
-    if isinstance(value, list):
-        return any(_contains_raw_technical_code(item) for item in value)
-    if isinstance(value, Mapping):
-        return any(_contains_raw_technical_code(item) for item in value.values())
-    return False
+    return _raw_technical_code_path(value, "value") is not None
 
 
 def _number_or_none(value: Any) -> float | None:
