@@ -26,7 +26,27 @@ def city_quality_row(db: Session, city: City, category: str | None = None) -> di
     places_query = db.query(Place).filter(Place.city_id == city.id)
     if category:
         places_query = places_query.filter(Place.category == category)
-    row = _aggregate_query(places_query).one()
+
+    conditions = _critical_conditions()
+    row = places_query.with_entities(
+        func.count(Place.id).label("places_total"),
+        func.sum(case((conditions["tourist"], 1), else_=0)).label("review_universe_total"),
+        func.sum(case((conditions["missing_photo"], 1), else_=0)).label("no_photo"),
+        func.sum(case((conditions["missing_address_any"], 1), else_=0)).label("no_address"),
+        func.sum(case((conditions["manual_review"], 1), else_=0)).label("manual_review_total"),
+        func.sum(case((conditions["missing_description"], 1), else_=0)).label("no_description"),
+        func.sum(case((conditions["missing_opening_hours_required"], 1), else_=0)).label("missing_opening_hours"),
+        func.sum(case((conditions["missing_opening_hours_applicable"], 1), else_=0)).label("missing_opening_hours_applicable"),
+        func.sum(case((conditions["route_blocker"], 1), else_=0)).label("route_blockers_total"),
+        func.sum(case((conditions["card_blocker"], 1), else_=0)).label("card_blockers_total"),
+        func.sum(case((conditions["route_ineligible"], 1), else_=0)).label("route_ineligible_total"),
+        func.sum(case((conditions["missing_category"], 1), else_=0)).label("missing_category_total"),
+        func.sum(case((conditions["unknown_category"], 1), else_=0)).label("unknown_category_total"),
+        func.sum(case((conditions["hours_applicable"], 1), else_=0)).label("hours_applicable_total"),
+        func.sum(case((conditions["has_opening_hours_applicable"], 1), else_=0)).label("has_opening_hours_total"),
+        func.sum(case((conditions["missing_address_required"], 1), else_=0)).label("missing_required_address"),
+    ).one()
+
     pending = _pending_photo_review_by_city(db, [city.id], category).get(city.id, 0)
     return _build_city_quality_row_from_agg(city, row, pending_photo_review_total=pending)
 
