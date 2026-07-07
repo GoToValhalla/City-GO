@@ -23,6 +23,7 @@ from services.import_pipeline.runner import run_enrichment_pipeline
 from services.import_pipeline.steps import STEP_CANCELLED, STEP_ERROR, STEP_QUEUED
 from services.import_pipeline_foundation import run_foundation_pipeline
 from services.photo_enrichment_diagnostics import attach_photo_diagnostics_to_summary, build_photo_enrichment_diagnostics
+from services.place_auto_repair_service import PlaceAutoRepairService
 
 SOURCE_FULL_IMPORT = "admin_city_import"
 SOURCE_ENRICHMENT_ONLY = "admin_city_enrichment"
@@ -256,7 +257,7 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
     job.status = "success_with_warnings" if created <= 0 and str(photo_diagnostics.get("provider_status") or "") not in {"success", ""} else "success"
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"
-    log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result, "auto_repair": auto_repair})
+    log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair})
     db.commit()
     _refresh_snapshot_light(db, city=city, job=job, source="photo_enrichment_finished")
     db.refresh(job)

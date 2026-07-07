@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from data.scripts.backfill_missing_place_addresses import run as run_address_backfill
+from data.scripts.cleanup_imported_places_quality import run as run_quality_cleanup  # noqa: F401 — kept as compat symbol; replaced by normalize_places_categories, see STEP_COMPUTING_QUALITY below
 from data.scripts.enrich_place_images import run as run_image_enrich
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
@@ -18,7 +19,7 @@ from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_log import log_import_event
 from services.admin_city_import_runner import run_osm_import_only, summarize_import_results
 from services.admin_import_job_change_service import record_place_changes
-from services.category_normalize_service import normalize_places_categories
+from services.category_normalize_service import normalize_city_categories, normalize_places_categories  # noqa: F401 — normalize_city_categories kept as compat symbol; runner uses normalize_places_categories on the already-fetched places list
 from services.city_readiness.score import compute_city_readiness
 from services.import_pipeline.progress import append_step_warning, set_step
 from services.import_pipeline.steps import (
@@ -37,6 +38,7 @@ from services.import_pipeline.transaction import (
     record_step_isolation,
     recover_after_db_error,
     rollback_session,
+    transaction_is_aborted,
 )
 from services.import_pipeline.schema_compat import collecting_has_schema_failure, is_schema_mismatch_error
 from services.photo_enrichment_diagnostics import build_photo_enrichment_diagnostics
@@ -56,6 +58,7 @@ def run_enrichment_pipeline(
     notify_completion: bool = True,
 ) -> dict[str, Any]:
     city_id = int(city.id)
+    job_id = int(job.id)
     original = (city.launch_status, bool(city.is_active))
     started = datetime.utcnow()
     warnings: list[dict[str, object]] = []
@@ -89,12 +92,15 @@ def run_enrichment_pipeline(
             if isolation["status"] == "rolled_back":
                 warnings.append(isolation)
                 results["transaction_isolation"] = isolation
+                job = _reload_after_rollback(db, CityAdminImportJob, job_id, job)
         try:
             total = db.query(Place).filter(Place.city_id == city_id).count()
         except SQLAlchemyError as exc:
             isolation = recover_after_db_error(db, job, step=STEP_COLLECTING_PLACES, error=exc)
             warnings.append({**isolation, "error": str(exc)[:1000]})
             results["transaction_isolation"] = isolation
+            if isolation.get("rolled_back") or isolation.get("status") == "rolled_back":
+                job = _reload_after_rollback(db, CityAdminImportJob, job_id, job)
             total = db.query(Place).filter(Place.city_id == city_id).count()
         set_step(
             job,
@@ -157,6 +163,8 @@ def run_enrichment_pipeline(
         except SQLAlchemyError as exc:
             recovery = recover_after_db_error(db, job, step=STEP_FINDING_IMAGES, error=exc)
             warnings.append({**recovery, "step": STEP_FINDING_IMAGES})
+            if recovery.get("rolled_back"):
+                job = _reload_after_rollback(db, CityAdminImportJob, job_id, job)
             photo_diagnostics = {
                 "step_status": "failed",
                 "provider_error": str(exc)[:1000],
@@ -228,14 +236,18 @@ def run_enrichment_pipeline(
             _notify(city, job, total, len(ids), readiness, warnings)
         return results
     except Exception as exc:
-        rollback_session(db)
+        failed_step = job.current_step or "unknown"
+        if is_aborted_transaction_error(exc) or isinstance(exc, SQLAlchemyError) or transaction_is_aborted(db):
+            rollback_session(db)
+            job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).one()
+            city = db.query(City).filter(City.id == city_id).one()
         places = _changed(db, city_id, started)
         ids = sorted({int(p.id) for p in places})
         record_place_changes(db, job=job, places=places, since=started)
         for place in places:
             mark_place_for_review(place, reason="partial_import_changed")
         total = db.query(Place).filter(Place.city_id == city_id).count()
-        detail = {"step": job.current_step or "unknown", "error": str(exc)[:1000], "places_total": total}
+        detail = {"step": failed_step, "error": str(exc)[:1000], "places_total": total}
         results["partial_success_after_error"] = detail
         job.last_error = str(exc)[:2000]
         job.finished_at = datetime.utcnow()
@@ -277,14 +289,26 @@ def _touch_job(job: CityAdminImportJob) -> None:
     job.updated_at = datetime.utcnow()
 
 
+def _reload_after_rollback(db: Session, model: type, obj_id: int, fallback: Any) -> Any:
+    """Re-fetch after a rollback that may have expired/deleted the ORM instance.
+
+    ponytail: test sqlite fixture commits aren't isolated from later rollback (no SAVEPOINT),
+    so the row can briefly appear gone in tests only; on Postgres the row is always found.
+    """
+    reloaded = db.get(model, obj_id)
+    return reloaded if reloaded is not None else fallback
+
+
 def _try_refresh_snapshot(db: Session, *, city_id: int, source: str) -> None:
     try:
-        rollback_session(db)
+        if transaction_is_aborted(db):
+            rollback_session(db)
         from services.admin_city_import_job_payload import refresh_import_job_snapshot
 
         refresh_import_job_snapshot(db, city_id=city_id, source=source)
     except Exception:
-        rollback_session(db)
+        if transaction_is_aborted(db):
+            rollback_session(db)
 
 
 def _finalize_import_status(
@@ -382,7 +406,8 @@ def _optional_step(
 
 def _safe_log_warning(db: Session, job: CityAdminImportJob, slug: str, actor: str, step: str, exc: Exception) -> None:
     try:
-        rollback_session(db)
+        if transaction_is_aborted(db):
+            rollback_session(db)
         _log(db, job, slug, actor, step, "warning", error=str(exc))
         db.commit()
     except SQLAlchemyError:

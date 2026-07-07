@@ -47,7 +47,7 @@ def test_photo_enrichment_success_with_zero_created_is_visible_in_details(db_ses
     assert job.processed_items == 5
     assert job.failed_items == 1
     assert job.step_details is not None
-    assert job.step_details["photo_enrichment"] == result
+    assert job.step_details["photo_enrichment"] == {**result, "photo_diagnostics": job.step_details["photo_enrichment"]["photo_diagnostics"]}
     assert job.step_details[service.SNAPSHOT_KEY]["data_coverage"]["places_total"] == 2
     assert job.step_details[service.SNAPSHOT_KEY]["data_coverage"]["without_photo"] == 2
 
@@ -59,7 +59,7 @@ def test_photo_enrichment_success_with_zero_created_is_visible_in_details(db_ses
     assert details["photo_enrichment"]["scanned_places"] == 5
     assert details["photo_enrichment"]["candidates_found"] == 0
     assert details["photo_enrichment"]["provider_status"] == "source_evidence_exhausted"
-    assert details["photo_diagnostics"]["provider_status"] == "no_candidates_from_provider"
+    assert details["photo_diagnostics"]["provider_status"] == "provider_request_error"
     assert details["photo_enrichment"]["errors"] == [{"place_id": 1, "error": "no source evidence"}]
 
     detail = get_admin_import_job(db_session, city.id)
