@@ -6,6 +6,8 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from db.session import SessionLocal
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
@@ -77,7 +79,8 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                     run_city_import_job(db, city_id=city_id, actor_id=actor_id)
                 processed += 1
             except Exception as exc:  # noqa: BLE001
-                db.rollback()
+                if isinstance(exc, SQLAlchemyError):
+                    db.rollback()
                 failed += 1
                 error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
                 errors.append(error)
@@ -116,6 +119,9 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
         job.last_error = job.last_error or "Import job stalled: no heartbeat before timeout"
         set_step(job, STEP_ERROR, detail={"stalled_at": current.isoformat(), "stalled": True})
         city_slug = city.slug if city is not None else None
+        if city is not None and city.launch_status == "importing":
+            city.launch_status = "import_failed"
+            city.is_active = False
         alerts.append({"job_id": int(job.id), "city_slug": city_slug, "source": job.source, "last_error": job.last_error})
     if stalled:
         db.commit()
