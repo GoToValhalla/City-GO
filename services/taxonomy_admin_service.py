@@ -145,7 +145,7 @@ def rollback_bulk(db: Session, *, batch: TaxonomyBulkBatch, actor: str) -> Taxon
         if place is None: continue
         place.category_id = item["old_category_id"]; place.category = item["old_category"]; place.canonical_category = item["old_category"]
         place.is_route_eligible = bool(item["old_route_eligible"]); db.add(place); restored += 1
-    batch.status = "rolled_back"; batch.rolled_at = datetime.utcnow(); batch.rollback_result = {"restored": restored}
+    batch.status = "rolled_back"; batch.rolled_back_at = datetime.utcnow(); batch.rollback_result = {"restored": restored}
     write_admin_audit_log(db, actor=actor, action="taxonomy.bulk.rolled_back", entity_type="taxonomy_batch", entity_id=batch.id, new_value=batch.rollback_result)
     db.commit(); return batch
 
