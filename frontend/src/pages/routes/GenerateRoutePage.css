@@ -336,9 +336,10 @@
 
 .route-primary-btn,
 .route-chip.active {
-  color: var(--cg-text-main);
+  color: #fff;
   background: var(--cg-primary);
   border-color: var(--cg-primary);
+  -webkit-text-fill-color: #fff;
 }
 
 .route-error-tile,

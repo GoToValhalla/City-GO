@@ -70,14 +70,31 @@
   border: 1px solid var(--cg-border-soft);
   border-radius: var(--cg-radius-pill);
   cursor: pointer;
+  -webkit-text-fill-color: currentColor;
 }
 
 .route-preset-row .is-selected,
 .route-chip-row .is-selected {
-  color: var(--cg-text-main);
+  color: #fff;
   background: var(--cg-primary);
   border-color: var(--cg-primary);
   box-shadow: var(--cg-shadow-primary);
+  -webkit-text-fill-color: #fff;
+}
+
+.route-preset-row button:disabled,
+.route-chip-row button:disabled {
+  color: var(--cg-text-muted);
+  cursor: not-allowed;
+  opacity: 0.72;
+  -webkit-text-fill-color: currentColor;
+}
+
+.route-preset-row .is-selected:disabled,
+.route-chip-row .is-selected:disabled {
+  color: #fff;
+  opacity: 0.72;
+  -webkit-text-fill-color: #fff;
 }
 
 .route-avoid-row button {
@@ -114,7 +131,7 @@
   justify-self: start;
   min-height: 50px;
   padding: 14px 24px;
-  color: var(--cg-text-main);
+  color: #fff;
   background: var(--cg-primary);
   border: 0;
   border-radius: var(--cg-radius-pill);
@@ -122,11 +139,19 @@
   cursor: pointer;
   font-size: 17px;
   font-weight: 700;
+  -webkit-text-fill-color: #fff;
+}
+
+.route-primary-button svg {
+  color: currentColor;
+  flex-shrink: 0;
 }
 
 .route-primary-button:disabled {
+  color: #fff;
   cursor: wait;
-  opacity: .64;
+  opacity: 0.72;
+  -webkit-text-fill-color: #fff;
 }
 
 .route-correction-bar {
@@ -173,10 +198,11 @@
   place-items: center;
   width: 34px;
   height: 34px;
-  color: var(--cg-text-main);
+  color: #fff;
   background: var(--cg-primary);
   border-radius: var(--cg-radius-pill);
   font-weight: 800;
+  -webkit-text-fill-color: #fff;
 }
 
 .route-point-photo {
