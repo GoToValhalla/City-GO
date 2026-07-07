@@ -47,7 +47,7 @@ def read_quality(
     except (SQLAlchemyError, TimeoutError) as exc:
         db.rollback()
         logger.exception("Admin quality summary degraded", exc_info=exc)
-        return _degraded_quality_summary(limit=limit, offset=offset)
+        return _degraded_quality_summary()
 
 
 @router.get("/system-health")
@@ -96,12 +96,9 @@ def _apply_admin_platform_read_timeout(db: Session) -> None:
         db.execute(text(f"SET LOCAL statement_timeout = {ADMIN_PLATFORM_READ_TIMEOUT_MS}"))
 
 
-def _degraded_quality_summary(*, limit: int, offset: int) -> dict[str, object]:
+def _degraded_quality_summary() -> dict[str, object]:
     return {
         "items": [],
         "total": 0,
-        "limit": limit,
-        "offset": offset,
         "todo": ["Качество временно в деградированном режиме: чтение БД превысило лимит."],
-        "degraded": True,
     }
