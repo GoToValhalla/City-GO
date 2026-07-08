@@ -19,6 +19,7 @@ from services.admin_import_display import (
     is_published_city,
     job_execution_failed,
     pipeline_warnings,
+    publication_consistency_warning,
     resolve_import_display,
     snapshot_warning,
     stale_import_error,
@@ -119,7 +120,8 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
     error_summary = import_error_summary(job)
     current_warnings = pipeline_warnings(job)
     stale_error = stale_import_error(job)
-    snap_warn = snapshot_warning(snapshot)
+    snap_warn = snapshot_warning(snapshot, job=job)
+    publication_warn = publication_consistency_warning(city, job)
     photo_diagnostics = _photo_diagnostics_for_city(db, city, job=job, details=details)
     details["photo_diagnostics"] = photo_diagnostics
     return {
@@ -164,6 +166,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "current_warnings": current_warnings,
         "stale_error": None if display["suppress_job_errors"] else stale_error,
         "snapshot_warning": snap_warn,
+        "publication_consistency_warning": publication_warn,
         "is_stalled": is_stalled(job) if job is not None else False,
         "worker_progress": worker_progress_snapshot(job),
         "job_execution_failed": job_execution_failed(job),

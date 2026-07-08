@@ -17,6 +17,7 @@ from services.admin_import_display import (
     import_error_summary,
     import_execution_summary,
     pipeline_warnings,
+    publication_consistency_warning,
     resolve_import_display,
     snapshot_warning,
     stale_import_error,
@@ -118,7 +119,8 @@ def _import_job_list_payload(city: City, *, counters: CityCounters | None, job: 
     error_summary = import_error_summary(job)
     current_warnings = pipeline_warnings(job)
     stale_error = stale_import_error(job)
-    snap_warn = snapshot_warning(snapshot)
+    snap_warn = snapshot_warning(snapshot, job=job)
+    publication_warn = publication_consistency_warning(city, job)
     step_details = {
         "admin_pipeline_contract": {"label": PIPELINE_MODE_LABEL},
         "data_coverage": coverage,
@@ -151,6 +153,7 @@ def _import_job_list_payload(city: City, *, counters: CityCounters | None, job: 
         "current_warnings": current_warnings,
         "stale_error": None if display["suppress_job_errors"] else stale_error,
         "snapshot_warning": snap_warn,
+        "publication_consistency_warning": publication_warn,
         "job_execution_failed": display["job_execution_failed"],
         "is_stalled": False if display["suppress_job_errors"] else (is_stalled(job) if job is not None else False),
         "worker_progress": None if display["suppress_job_errors"] else worker_progress_snapshot(job),

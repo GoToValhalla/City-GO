@@ -22,6 +22,7 @@ from services.admin_import_job_change_service import record_place_changes
 from services.category_normalize_service import normalize_city_categories, normalize_places_categories  # noqa: F401 — normalize_city_categories kept as compat symbol; runner uses normalize_places_categories on the already-fetched places list
 from services.city_readiness.score import compute_city_readiness
 from services.import_pipeline.progress import append_step_warning, set_step
+from services.import_pipeline.scope_errors import classify_scope_error
 from services.import_pipeline.steps import (
     STEP_CATEGORIES_TAGS,
     STEP_COLLECTING_PLACES,
@@ -297,6 +298,16 @@ def run_enrichment_pipeline(
         else:
             job.status = "failed"
             city.launch_status, city.is_active = original
+        error_meta = classify_scope_error(str(exc))
+        log_import_event(
+            db,
+            event="import_pipeline_failed",
+            city_slug=city.slug,
+            actor_id=actor_id,
+            level="error",
+            message=f"Pipeline #{job.id} failed at {failed_step}: {str(exc)[:500]}",
+            details={"job_id": job.id, "city_id": city_id, "step": failed_step, "error": str(exc)[:1000], "places_total": total, **error_meta},
+        )
         _try_refresh_snapshot(db, city_id=city_id, source="import_pipeline_partial_failure")
         db.commit()
         if notify_completion:

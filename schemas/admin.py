@@ -151,6 +151,8 @@ class AdminImportJobRead(BaseModel):
     current_warnings: list[dict[str, Any]] = []
     stale_error: str | None = None
     worker_progress: dict[str, Any] | None = None
+    snapshot_warning: dict[str, Any] | None = None
+    publication_consistency_warning: dict[str, Any] | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     created_at: datetime | None = None

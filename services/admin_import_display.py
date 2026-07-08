@@ -53,7 +53,18 @@ def pipeline_warnings(job: CityAdminImportJob | None) -> list[dict[str, object]]
     raw = details.get("warnings")
     if not isinstance(raw, list):
         return []
-    return [row for row in raw if isinstance(row, dict)]
+    return [_classified_warning(row) for row in raw if isinstance(row, dict)]
+
+
+def _classified_warning(row: dict[str, object]) -> dict[str, object]:
+    """Attach the same error kind/admin_hint classification already used for the
+    primary import_error_summary to every individual warning, so admins see the
+    actual failure reason for each entry instead of only a bare error string."""
+    error = row.get("error")
+    if not isinstance(error, str) or not error or "kind" in row:
+        return row
+    meta = classify_scope_error(error)
+    return {**row, "kind": meta.get("kind"), "retryable": meta.get("retryable"), "admin_hint": meta.get("admin_hint")}
 
 
 def job_execution_failed(job: CityAdminImportJob | None) -> bool:
@@ -187,14 +198,74 @@ def import_execution_summary(
     return summary
 
 
-def snapshot_warning(snapshot: dict[str, object] | None) -> dict[str, object] | None:
-    if snapshot:
+SNAPSHOT_STALE_HOURS = 24
+
+
+def snapshot_warning(
+    snapshot: dict[str, object] | None,
+    *,
+    now: object | None = None,
+    job: CityAdminImportJob | None = None,
+) -> dict[str, object] | None:
+    """Report-only: never mutates state, only surfaces snapshot/coverage
+    inconsistencies for admins to act on manually.
+
+    SNAPSHOT_MISSING only applies once a job has actually finished (success,
+    failed, or stalled) — a queued/running job has not had a chance to
+    produce a snapshot yet, and flagging that as an inconsistency is just noise.
+    """
+    from datetime import datetime
+
+    if not snapshot:
+        if job is not None and job.status in ACTIVE_IMPORT_STATUSES:
+            return None
+        return {
+            "code": "SNAPSHOT_MISSING",
+            "severity": "warning",
+            "message": "Snapshot не создан. Нажмите «Обновить snapshot» для coverage и отчёта изменений.",
+        }
+    coverage = snapshot.get("data_coverage")
+    if isinstance(coverage, dict) and int(coverage.get("places_total") or 0) <= 0:
+        return {
+            "code": "SNAPSHOT_EMPTY_COVERAGE",
+            "severity": "warning",
+            "message": "Snapshot существует, но places_total = 0. Проверьте импорт перед публикацией.",
+        }
+    taken_at_raw = snapshot.get("taken_at")
+    if isinstance(taken_at_raw, str):
+        try:
+            taken_at = datetime.fromisoformat(taken_at_raw)
+        except ValueError:
+            taken_at = None
+        if taken_at is not None:
+            current = now if isinstance(now, datetime) else datetime.utcnow()
+            age_hours = (current - taken_at).total_seconds() / 3600
+            if age_hours > SNAPSHOT_STALE_HOURS:
+                return {
+                    "code": "SNAPSHOT_STALE",
+                    "severity": "warning",
+                    "message": f"Snapshot устарел ({int(age_hours)} ч). Нажмите «Обновить snapshot» для актуального coverage.",
+                }
+    return None
+
+
+def publication_consistency_warning(city: City, job: CityAdminImportJob | None) -> dict[str, object] | None:
+    """Report-only: a published city whose latest import job failed or stalled.
+
+    Never unpublishes or otherwise mutates city/job state — surfaces the
+    inconsistency for an admin to investigate and act on manually.
+    """
+    if job is None or not is_published_city(city):
         return None
-    return {
-        "code": "SNAPSHOT_MISSING",
-        "severity": "warning",
-        "message": "Snapshot не создан. Нажмите «Обновить snapshot» для coverage и отчёта изменений.",
-    }
+    if job.status in FAILED_IMPORT_STATUSES or is_stalled(job):
+        return {
+            "code": "PUBLISHED_CITY_LATEST_IMPORT_FAILED",
+            "severity": "warning",
+            "message": f"Город опубликован, но последний импорт (#{job.id}) в статусе «{job.status}». Публикация не изменена.",
+            "job_id": job.id,
+            "job_status": job.status,
+        }
+    return None
 
 
 def resolve_import_display(city: City, job: CityAdminImportJob | None) -> dict[str, object]:
