@@ -14,12 +14,15 @@ from models.import_batch import ImportBatch
 from models.place import Place
 from models.source_observation import SourceObservation
 from services.category_normalize_service import normalize_places_categories
+from services.import_pipeline.progress import touch_progress
 from services.import_pipeline_publication import apply_pipeline_publication
 from services.place_description_draft_service import build_place_description_draft
 from services.place_enrichment_sources import enrich_places_from_sources
 from services.place_field_confidence_service import is_protected, upsert_field_confidence
 from services.place_photo_candidate_service import add_photo_candidate
 from services.review_queue_service import ensure_review_item
+
+HEARTBEAT_EVERY_N_PLACES = 25
 
 ENRICHMENT_CONFIDENCE_SOURCES = {
     "geoapify",
@@ -46,9 +49,9 @@ def run_step(db: Session, *, step: str, city: City, job: CityAdminImportJob, bat
         "normalize_categories": lambda: _normalize_categories(db, places, counters),
         "backfill_addresses": lambda: None,
         "enrich_external_sources": lambda: _enrich_external_sources(db, city, job, batch, places, counters),
-        "generate_ai_descriptions": lambda: tuple(_description_draft(db, place, job.id) for place in places),
+        "generate_ai_descriptions": lambda: _generate_ai_descriptions(db, places, job),
         "fetch_photo_candidates": lambda: tuple(_photo_candidate(db, place) for place in places if place.image_url),
-        "calculate_field_confidence": lambda: tuple(_confidence(db, place, job.id) for place in places),
+        "calculate_field_confidence": lambda: _calculate_field_confidence(db, places, job),
         "apply_publication_decisions": lambda: tuple(apply_pipeline_publication(db, city, job, place, counters) for place in places),
     }
     actions[step]()
@@ -69,9 +72,10 @@ def _enrich_external_sources(
     counters: dict[str, int],
 ) -> None:
     protected_values: list[tuple[Place, str, object]] = []
+    cache = _prefetch_field_confidence_cache(db, [place.id for place in places])
     for place in places:
         for field_name, attribute in PROTECTED_PLACE_FIELDS.items():
-            if is_protected(_field_row(db, place.id, field_name)):
+            if is_protected(_field_row(db, place.id, field_name, cache=cache)):
                 protected_values.append((place, attribute, getattr(place, attribute, None)))
 
     enrich_places_from_sources(
@@ -81,6 +85,7 @@ def _enrich_external_sources(
         places=places,
         job_id=job.id,
         counters=counters,
+        job=job,
     )
 
     # Provider collectors can propose values, but manual confidence owns the
@@ -106,8 +111,17 @@ def _observe_place(db: Session, batch: ImportBatch, city: City, place: Place) ->
     db.add(row)
 
 
-def _description_draft(db: Session, place: Place, job_id: int | None) -> None:
-    existing = _field_row(db, place.id, "description")
+def _generate_ai_descriptions(db: Session, places: list[Place], job: CityAdminImportJob) -> None:
+    cache = _prefetch_field_confidence_cache(db, [place.id for place in places])
+    for index, place in enumerate(places, start=1):
+        _description_draft(db, place, job.id, cache=cache)
+        if index % HEARTBEAT_EVERY_N_PLACES == 0:
+            touch_progress(job, processed=index)
+            db.commit()
+
+
+def _description_draft(db: Session, place: Place, job_id: int | None, *, cache: dict[tuple[int, str], object] | None = None) -> None:
+    existing = _field_row(db, place.id, "description", cache=cache)
     if place.short_description or is_protected(existing):
         return
     draft = build_place_description_draft(place)
@@ -149,7 +163,16 @@ def _photo_candidate(db: Session, place: Place) -> None:
     add_photo_candidate(db, place_id=place.id, image_url=place.image_url, source_type=source, match_type=match, confidence=0.4 if match != "exact" else 0.8)
 
 
-def _confidence(db: Session, place: Place, job_id: int | None) -> None:
+def _calculate_field_confidence(db: Session, places: list[Place], job: CityAdminImportJob) -> None:
+    cache = _prefetch_field_confidence_cache(db, [place.id for place in places])
+    for index, place in enumerate(places, start=1):
+        _confidence(db, place, job.id, cache=cache)
+        if index % HEARTBEAT_EVERY_N_PLACES == 0:
+            touch_progress(job, processed=index)
+            db.commit()
+
+
+def _confidence(db: Session, place: Place, job_id: int | None, *, cache: dict[tuple[int, str], object] | None = None) -> None:
     fields = {
         "title": place.title,
         "coordinates": [place.lat, place.lng],
@@ -161,25 +184,55 @@ def _confidence(db: Session, place: Place, job_id: int | None) -> None:
         "description": place.short_description,
         "photo": place.image_url,
     }
-    tuple(_confidence_field(db, place, job_id, field, value) for field, value in fields.items())
+    tuple(_confidence_field(db, place, job_id, field, value, cache=cache) for field, value in fields.items())
 
 
-def _confidence_field(db: Session, place: Place, job_id: int | None, field: str, value: object) -> None:
-    existing = _field_row(db, place.id, field)
+def _confidence_field(db: Session, place: Place, job_id: int | None, field: str, value: object, *, cache: dict[tuple[int, str], object] | None = None) -> None:
+    existing = _field_row(db, place.id, field, cache=cache)
     if existing is not None and existing.source_type in ENRICHMENT_CONFIDENCE_SOURCES and value not in (None, "", [], {}):
         return
     confidence = _confidence_value(field, value)
     row, changed = upsert_field_confidence(db, place_id=place.id, field_name=field, confidence=confidence, source_type=place.source or "import")
+    if cache is not None:
+        cache[(place.id, field)] = row
     if changed and row.confidence_level == "low" and value not in (None, "", [], {}):
         ensure_review_item(db, city_id=place.city_id, place_id=place.id, job_id=job_id, field_name=field, reason="low_confidence")
 
 
-def _field_row(db: Session, place_id: int, field_name: str):
+def _prefetch_field_confidence_cache(db: Session, place_ids: list[int]) -> dict[tuple[int, str], object]:
+    """One query for the whole batch instead of one query per (place, field) pair.
+
+    Every place_id passed in is marked as prefetched (even with zero rows), so
+    _field_row can trust a cache miss as "no row" instead of re-querying.
+
+    ponytail: cache is per run_step() call only, not shared across steps — a step
+    that runs after this one will still see fresh/committed rows via a normal query.
+    """
+    from models.place_field_confidence import PlaceFieldConfidence
+
+    cache: dict[tuple[int, str], object] = {(place_id, "__prefetched__"): True for place_id in place_ids}
+    if not place_ids:
+        return cache
+    rows = db.query(PlaceFieldConfidence).filter(PlaceFieldConfidence.place_id.in_(place_ids)).all()
+    cache.update({(row.place_id, row.field_name): row for row in rows})
+    return cache
+
+
+def _field_row(db: Session, place_id: int, field_name: str, *, cache: dict[tuple[int, str], object] | None = None):
     from models.place_field_confidence import PlaceFieldConfidence
 
     for pending in db.new:
         if isinstance(pending, PlaceFieldConfidence) and pending.place_id == place_id and pending.field_name == field_name:
             return pending
+    if cache is not None:
+        key = (place_id, field_name)
+        if key in cache:
+            return cache[key]
+        if (place_id, "__prefetched__") in cache:
+            return None
+        row = db.query(PlaceFieldConfidence).filter_by(place_id=place_id, field_name=field_name).first()
+        cache[key] = row
+        return row
     return db.query(PlaceFieldConfidence).filter_by(place_id=place_id, field_name=field_name).first()
 
 

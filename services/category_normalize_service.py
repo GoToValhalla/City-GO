@@ -20,6 +20,7 @@ def normalize_city_categories(db:Session,*,city_slug:str,apply:bool=True)->dict[
 
 def normalize_places_categories(db:Session,*,places:list[Place],apply:bool=True)->dict[str,object]:
  scanned=updated=synced=skipped=unknown=conflicts=0
+ category_cache:dict[str,Category|None]={}
  for place in places:
   scanned+=1
   if apply:
@@ -29,7 +30,7 @@ def normalize_places_categories(db:Session,*,places:list[Place],apply:bool=True)
    conflicts+=1
   canon=_category_for_place(db,place)
   if canon is None or canon not in PLACE_CATEGORIES:skipped+=1;unknown+=1;continue
-  category=_canonical_category(db,canon,apply=apply);category_id=getattr(category,"id",None)
+  category=_canonical_category(db,canon,apply=apply,cache=category_cache);category_id=getattr(category,"id",None)
   category_changed=canon!=place.category;canonical_changed=canon!=place.canonical_category;fk_changed=bool(category_id) and place.category_id!=category_id
   if not category_changed and not canonical_changed and not fk_changed:skipped+=1;continue
   if apply:
@@ -51,9 +52,12 @@ def _category_for_place(db:Session,place:Place)->str|None:
  return canon
 
 
-def _canonical_category(db:Session,code:str,*,apply:bool)->Category|None:
+def _canonical_category(db:Session,code:str,*,apply:bool,cache:dict[str,Category|None]|None=None)->Category|None:
+ if cache is not None and code in cache:return cache[code]
  category=db.query(Category).filter(Category.code==code).first()
- if category is not None or not apply:return category
- route_eligible=code not in ROUTE_EXCLUDED_CATEGORIES
- category=Category(code=code,name=CATEGORY_LABELS_RU.get(code,code),user_name=CATEGORY_LABELS_RU.get(code,code),is_active=True,is_route_eligible=route_eligible,is_catalog_visible=True,is_searchable=True,is_default_enabled=True,is_spam_category=False,route_policy="manual_review" if code=="service" else "useful_only" if not route_eligible else "allowed_by_context",route_contexts=[])
- db.add(category);db.flush();return category
+ if category is None and apply:
+  route_eligible=code not in ROUTE_EXCLUDED_CATEGORIES
+  category=Category(code=code,name=CATEGORY_LABELS_RU.get(code,code),user_name=CATEGORY_LABELS_RU.get(code,code),is_active=True,is_route_eligible=route_eligible,is_catalog_visible=True,is_searchable=True,is_default_enabled=True,is_spam_category=False,route_policy="manual_review" if code=="service" else "useful_only" if not route_eligible else "allowed_by_context",route_contexts=[])
+  db.add(category);db.flush()
+ if cache is not None:cache[code]=category
+ return category

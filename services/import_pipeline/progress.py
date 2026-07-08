@@ -35,6 +35,14 @@ def set_step(
         job.step_details = base
 
 
+def touch_progress(job: CityAdminImportJob, *, processed: int | None = None) -> None:
+    """Heartbeat for long per-item loops: bump updated_at/processed_items without
+    changing current_step, so admins polling the job see it is still alive mid-step."""
+    job.updated_at = datetime.utcnow()
+    if processed is not None:
+        job.processed_items = processed
+
+
 def append_step_warning(job: CityAdminImportJob, step: str, error: object, *, extra: dict[str, Any] | None = None) -> None:
     details = dict(job.step_details or {})
     warnings = list(details.get("warnings") or [])

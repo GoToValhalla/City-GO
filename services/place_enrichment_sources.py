@@ -21,9 +21,11 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from models.city import City
+from models.city_admin_import_job import CityAdminImportJob
 from models.import_batch import ImportBatch
 from models.place import Place
 from models.source_observation import SourceObservation
+from services.import_pipeline.progress import touch_progress
 from services.place_field_confidence_service import upsert_field_confidence
 from services.place_photo_candidate_service import add_photo_candidate
 from services.review_queue_service import ensure_review_item
@@ -31,6 +33,7 @@ from services.review_queue_service import ensure_review_item
 HTTP_TIMEOUT_SECONDS = 8
 MAX_DESCRIPTION_LENGTH = 420
 ENRICHMENT_FIELDS = ("address", "website", "phone", "opening_hours", "description", "photo")
+HEARTBEAT_EVERY_N_PLACES = 25
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,7 @@ def enrich_places_from_sources(
     places: list[Place],
     job_id: int | None,
     counters: dict[str, int],
+    job: CityAdminImportJob | None = None,
 ) -> None:
     """Run external enrichment providers and apply only safe, missing fields."""
     counters.setdefault("source_observations", 0)
@@ -71,7 +75,7 @@ def enrich_places_from_sources(
     counters.setdefault("source_conflicts", 0)
     counters.setdefault("provider_errors", 0)
 
-    for place in places:
+    for index, place in enumerate(places, start=1):
         provider_profiles = _collect_profiles(place, counters)
         for observation, profile in provider_profiles:
             _record_observation(db, city=city, batch=batch, place=place, observation=observation)
@@ -79,6 +83,9 @@ def enrich_places_from_sources(
             _apply_profile(db, city=city, place=place, profile=profile, observation=observation, job_id=job_id, counters=counters)
         _apply_category_profile(db, city=city, place=place, job_id=job_id, counters=counters)
         _queue_missing_fields(db, city=city, place=place, job_id=job_id)
+        if job is not None and index % HEARTBEAT_EVERY_N_PLACES == 0:
+            touch_progress(job, processed=index)
+            db.commit()
 
 
 def _collect_profiles(place: Place, counters: dict[str, int]) -> list[tuple[ProviderObservation, CandidateProfile]]:
