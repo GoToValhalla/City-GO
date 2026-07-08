@@ -37,6 +37,19 @@ from services.place_public_visibility import is_public_hidden_category
 
 BAD_TITLE_PATTERN = re.compile(r"^(yes|no|unknown|fixme|todo|n/a)$", re.I)
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+# Metadata-source domains that are NOT a place's real business website —
+# scraping their og:image tag returns that site's own logo (e.g. the OSM
+# logo), not a photo of the place. Found via real local rehearsal: 8/10
+# Kaliningrad candidates were the OSM logo because place.source_url pointed
+# at an openstreetmap.org node page, which was then fed to the OG-image
+# website scraper as if it were the place's own site.
+NON_BUSINESS_WEBSITE_HOSTS = (
+    "openstreetmap.org",
+    "wikidata.org",
+    "wikipedia.org",
+    "wikimedia.org",
+    "commons.wikimedia.org",
+)
 REQUEST_TIMEOUT_SECONDS = 12
 # Hard wall-clock cap for one run() call. Per-request timeouts alone don't
 # bound total runtime: up to 4 sequential provider calls per place (website
@@ -436,8 +449,13 @@ def _candidate_from_openverse_search(place: Place, city: City) -> dict[str, Any]
     return None
 
 
+def _is_business_website(website_url: str) -> bool:
+    host = (urllib.parse.urlparse(website_url).hostname or "").lower()
+    return not any(host == blocked or host.endswith(f".{blocked}") for blocked in NON_BUSINESS_WEBSITE_HOSTS)
+
+
 def _candidate_from_website_og_image(website_url: str) -> dict[str, Any] | None:
-    if not _looks_like_url(website_url):
+    if not _looks_like_url(website_url) or not _is_business_website(website_url):
         return None
     html_text = _fetch_text(website_url)
     if not html_text:
