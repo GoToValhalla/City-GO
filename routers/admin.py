@@ -48,6 +48,7 @@ from services.admin_extended_service import (
 )
 from services.admin_city_import_tasks import run_import_job_background
 from services.admin_service import (
+    PlacePublicationBlockedError,
     create_admin_place,
     create_city_and_queue_import,
     get_admin_dashboard,
@@ -270,7 +271,19 @@ def publish_place_from_admin(
 ) -> PlaceRead:
     # actor из auth context; payload.actor игнорируется (deprecated)
     body = payload or AdminActionRequest()
-    place = publish_place(db, place_id, actor=auth.actor_id, reason=body.reason)
+    try:
+        place = publish_place(db, place_id, actor=auth.actor_id, reason=body.reason)
+    except PlacePublicationBlockedError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "result": "blocked",
+                "place_id": exc.place_id,
+                "blocked_reason": exc.blocked_reason,
+                "failed_gates": exc.failed_gates,
+                "message": "Публикация заблокирована: место не прошло проверку безопасности данных (нулевая уверенность и отсутствуют адрес/фото/часы работы).",
+            },
+        ) from exc
     if place is None:
         raise HTTPException(status_code=404, detail="Место не найдено")
     return build_place_read(db, place)
@@ -450,4 +463,24 @@ def read_admin_audit_log(
         city_slug=city_slug,
         limit=limit, offset=offset,
     )
-    return AdminAuditLogResponse(items=[AdminAuditLogRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)
+    applied_filters = {
+        "entity_type": entity_type,
+        "action": action,
+        "actor": actor,
+        "entity_id": entity_id,
+        "city_slug": city_slug,
+    }
+    empty_reason = None
+    if total == 0:
+        active_filters = {key: value for key, value in applied_filters.items() if value}
+        empty_reason = (
+            f"Нет записей аудита по фильтру: {active_filters}" if active_filters else "Нет записей аудита."
+        )
+    return AdminAuditLogResponse(
+        items=[AdminAuditLogRead.model_validate(item) for item in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+        applied_filters=applied_filters,
+        empty_reason=empty_reason,
+    )

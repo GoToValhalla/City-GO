@@ -17,7 +17,18 @@ from services.admin_city_import_setup import finish_city_import_setup
 from services.admin_places_filters import apply_place_filters
 from services.place_read_service import build_place_read
 from services.place_service import create_place, get_place_by_id, get_places, get_places_total, update_place
+from services.publication_policy import unsafe_manual_publish_gates
 from services.route_service import get_route_by_id
+
+
+class PlacePublicationBlockedError(ValueError):
+    """Raised when a manual publish action is blocked by a server-side safety gate."""
+
+    def __init__(self, *, place_id: int, blocked_reason: str, failed_gates: list[str]):
+        self.place_id = place_id
+        self.blocked_reason = blocked_reason
+        self.failed_gates = failed_gates
+        super().__init__(f"place {place_id} publish blocked: {blocked_reason}")
 
 
 def slugify_city_name(name: str) -> str:
@@ -117,6 +128,9 @@ def publish_place(db: Session, place_id: int, *, actor: str, reason: str | None 
     place = get_place_by_id(db, place_id)
     if place is None:
         return None
+    failed_gates = unsafe_manual_publish_gates(place)
+    if failed_gates:
+        raise PlacePublicationBlockedError(place_id=place_id, blocked_reason=failed_gates[0], failed_gates=failed_gates)
     old_value = _place_publication_snapshot(place)
     now = datetime.utcnow()
     place.is_active = True

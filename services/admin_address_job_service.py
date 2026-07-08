@@ -101,28 +101,39 @@ def _run_refresh(db: Session, *, city_slug: str | None, place_ids: list[int]) ->
     else:
         raise ValueError("Укажите город или места")
     applied, skipped, errors = 0, 0, 0
+    skipped_details: list[dict[str, object]] = []
+    error_details: list[dict[str, object]] = []
     for place in query.limit(200).all():
         city = db.query(City).filter(City.id == place.city_id).first()
         try:
-            if _refresh_one(db, place, city.name if city else "", city.slug if city else ""):
+            outcome = _refresh_one(db, place, city.name if city else "", city.slug if city else "")
+            if outcome["applied"]:
                 applied += 1
             else:
                 skipped += 1
-        except Exception:
+                skipped_details.append({"place_id": place.id, "skip_reason": outcome["skip_reason"], "message": outcome["message"]})
+        except Exception as exc:  # noqa: BLE001 — per-place error must not abort the batch, but must be visible
             errors += 1
-    return {"applied": applied, "skipped": skipped, "errors": errors}
+            error_details.append({"place_id": place.id, "error": str(exc)[:500]})
+    return {
+        "applied": applied,
+        "skipped": skipped,
+        "errors": errors,
+        "skipped_details": skipped_details,
+        "error_details": error_details,
+    }
 
 
-def _refresh_one(db: Session, place: Place, city_name: str, city_slug: str) -> bool:
+def _refresh_one(db: Session, place: Place, city_name: str, city_slug: str) -> dict[str, object]:
     payload = reverse_geocode_payload(float(place.lat), float(place.lng))
     proposed = format_nominatim_address(payload)
     assessment = assess_proposed_address(proposed, place.category, city_name=city_name, city_slug=city_slug)
     if not assessment.get("should_apply"):
-        return False
+        return {"applied": False, "skip_reason": assessment.get("skip_reason"), "message": assessment.get("comment")}
     place.address = str(proposed)
     place.address_source = "nominatim"
     conf_map = {"high": 0.9, "medium": 0.7, "medium-low": 0.5, "low": 0.3, "none": 0.0}
     raw = str(assessment.get("confidence") or "medium")
     place.address_confidence = conf_map.get(raw, 0.7)
     place.address_updated_at = datetime.utcnow()
-    return True
+    return {"applied": True, "skip_reason": None, "message": None}

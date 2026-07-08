@@ -212,6 +212,13 @@ def publication_blockers(place: Place) -> list[str]:
         blockers.append("Категория не подходит для маршрутов")
     if place.lat is None or place.lng is None:
         blockers.append("Нет координат")
+    # Deliberately narrow: place.confidence is None for a freshly-created/not-yet-scored
+    # place (normal state), so only an explicit confidence<=0 plus a genuine low
+    # existence_confidence_level signal counts — not the harmless "unknown" default.
+    explicit_zero_confidence = place.confidence is not None and float(place.confidence) <= 0
+    low_existence_confidence = place.existence_confidence_level == "low"
+    if explicit_zero_confidence and low_existence_confidence and not place.address and not place.image_url and not place.opening_hours:
+        blockers.append("Нулевая уверенность и отсутствуют адрес, фото и часы работы")
     return blockers
 
 

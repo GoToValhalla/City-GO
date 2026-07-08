@@ -143,6 +143,32 @@ def run_hard_gates(place: Place, *, city: City | None = None) -> list[str]:
     return failed
 
 
+def unsafe_manual_publish_gates(place: Place) -> list[str]:
+    """Server-side safety gate for the manual "Опубликовать" admin action.
+
+    run_hard_gates() covers structural data problems (name/coords/category/spam).
+    This covers the separate case an editor can still hit: an explicitly-scored
+    zero/near-zero confidence combined with a genuine low-confidence signal and
+    every user-facing critical field (address/photo/hours) missing — a place an
+    admin could confirm/publish with essentially no verifiable content behind it.
+
+    Deliberately narrow: place.confidence is None for a freshly-created/
+    not-yet-scored place (normal onboarding state, must not be blocked here).
+    Only an explicitly recorded confidence <= 0 counts, and only combined with
+    existence_confidence_level == "low" (a real negative signal, not the
+    harmless "unknown" default every new place starts with).
+    """
+    failed: list[str] = []
+    explicit_zero_confidence = place.confidence is not None and float(place.confidence) <= 0
+    low_existence_confidence = place.existence_confidence_level == "low"
+    missing_address = not place.address
+    missing_photo = not place.image_url
+    missing_hours = not place.opening_hours
+    if explicit_zero_confidence and low_existence_confidence and missing_address and missing_photo and missing_hours:
+        failed.append("zero_confidence_missing_critical_fields")
+    return failed
+
+
 def calculate_trust_score(place: Place) -> float:
     score = 0.0
 

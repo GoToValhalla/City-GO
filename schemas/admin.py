@@ -260,6 +260,8 @@ class AdminAuditLogResponse(BaseModel):
     total: int
     limit: int
     offset: int
+    applied_filters: dict[str, Any] | None = None
+    empty_reason: str | None = None
 
 class AdminRouteListResponse(BaseModel):
     items: list[RouteRead]
