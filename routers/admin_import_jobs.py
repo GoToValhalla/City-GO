@@ -17,6 +17,7 @@ from schemas.admin import (
 )
 from services.admin_city_import_job_payload import refresh_import_job_snapshot
 from services.admin_city_import_job_service import (
+    DuplicateActiveJobError,
     cancel_import_job,
     queue_city_address_enrichment_job,
     queue_city_enrichment_job,
@@ -32,6 +33,23 @@ from services.admin_import_job_change_service import CHANGE_TYPES, import_job_ch
 from services.admin_import_jobs_fast import list_admin_import_jobs_fast
 
 router = APIRouter(prefix="/admin", tags=["admin-import-jobs"])
+
+
+def _duplicate_job_conflict(exc: DuplicateActiveJobError) -> HTTPException:
+    """A repeated click while a job is already queued/running must return
+    explicit job_id/status/reason, not just a bare message — so the admin UI
+    can tell the caller which existing job is already in flight."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "result": "blocked",
+            "reason": "duplicate_active_job",
+            "message": str(exc),
+            "job_id": exc.job_id,
+            "job_status": exc.job_status,
+            "source": exc.source,
+        },
+    )
 
 
 @router.get("/import-jobs", response_model=AdminImportJobListResponse)
@@ -76,6 +94,8 @@ def refresh_import_snapshot_endpoint(city_id: int, auth: AdminContext = Depends(
     try:
         queue_city_snapshot_refresh_job(db, city_id=city_id, actor_id=auth.actor_id)
         db.commit()
+    except DuplicateActiveJobError as exc:
+        raise _duplicate_job_conflict(exc) from exc
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Обновление snapshot поставлено в очередь.")
@@ -104,6 +124,8 @@ def enrich_addresses(city_id: int, auth: AdminContext = Depends(admin_required),
     try:
         queue_city_address_enrichment_job(db, city_id=city_id, actor_id=auth.actor_id)
         db.commit()
+    except DuplicateActiveJobError as exc:
+        raise _duplicate_job_conflict(exc) from exc
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Добор адресов поставлен в очередь.")
@@ -114,6 +136,8 @@ def enrich_photos(city_id: int, auth: AdminContext = Depends(admin_required), db
     try:
         queue_city_photo_enrichment_job(db, city_id=city_id, actor_id=auth.actor_id)
         db.commit()
+    except DuplicateActiveJobError as exc:
+        raise _duplicate_job_conflict(exc) from exc
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Добор фото поставлен в очередь.")
@@ -134,6 +158,8 @@ def start_import_job(city_id: int, auth: AdminContext = Depends(admin_required),
         raise HTTPException(409, "Запуск недоступен для текущего статуса")
     try:
         queue_city_import_job(db, city_id=city_id, actor_id=auth.actor_id)
+    except DuplicateActiveJobError as exc:
+        raise _duplicate_job_conflict(exc) from exc
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     db.commit()
@@ -188,6 +214,8 @@ def enrich_city_job(city_id: int, auth: AdminContext = Depends(admin_required), 
         raise HTTPException(404, "Город не найден")
     try:
         queue_city_enrichment_job(db, city_id=city_id, actor_id=auth.actor_id)
+    except DuplicateActiveJobError as exc:
+        raise _duplicate_job_conflict(exc) from exc
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     db.commit()

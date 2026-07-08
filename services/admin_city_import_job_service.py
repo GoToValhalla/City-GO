@@ -25,6 +25,19 @@ from services.import_pipeline_foundation import run_foundation_pipeline
 from services.photo_enrichment_diagnostics import attach_photo_diagnostics_to_summary, build_photo_enrichment_diagnostics
 from services.place_auto_repair_service import PlaceAutoRepairService
 
+class DuplicateActiveJobError(ValueError):
+    """Raised when a queue action is attempted while a job is already
+    queued/running for the city — prevents duplicate active jobs from
+    repeated admin clicks (e.g. double-clicking "Добрать фото")."""
+
+    def __init__(self, *, city_id: int, job_id: int, job_status: str, source: str):
+        self.city_id = city_id
+        self.job_id = job_id
+        self.job_status = job_status
+        self.source = source
+        super().__init__("Pipeline уже выполняется")
+
+
 SOURCE_FULL_IMPORT = "admin_city_import"
 SOURCE_ENRICHMENT_ONLY = "admin_city_enrichment"
 SOURCE_SNAPSHOT_REFRESH = "admin_snapshot_refresh"
@@ -95,7 +108,7 @@ def _queue_job(db: Session, *, city: City, source: str, actor_id: str | None) ->
     from services.admin_city_import_job_payload import _latest_job
     job = _latest_job(db, city.id)
     if job is not None and job.status in {"queued", "running"}:
-        raise ValueError("Pipeline уже выполняется")
+        raise DuplicateActiveJobError(city_id=city.id, job_id=job.id, job_status=job.status, source=job.source)
     scopes = db.query(CityImportScope).filter_by(city_id=city.id, enabled=True).count()
     if job is None:
         job = CityAdminImportJob(city_id=city.id)
