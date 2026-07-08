@@ -9,6 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
@@ -156,11 +157,15 @@ def read_system_logs(
     sort: str = Query("desc", pattern="^(asc|desc)$"),
     auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db),
 ):
-    items, total = list_system_logs(
-        db, level=level, module=module, city_slug=city_slug, request_id=request_id,
-        q=q, place_id=place_id, route_id=route_id, actor_id=actor_id,
-        environment=environment, sort=sort, limit=limit, offset=offset,
-    )
+    try:
+        items, total = list_system_logs(
+            db, level=level, module=module, city_slug=city_slug, request_id=request_id,
+            q=q, place_id=place_id, route_id=route_id, actor_id=actor_id,
+            environment=environment, sort=sort, limit=limit, offset=offset,
+        )
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Не удалось получить логи: ошибка базы данных") from exc
     return SystemLogListResponse(items=[SystemLogRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)
 
 
