@@ -14,8 +14,6 @@ from schemas.admin import (
     AdminCityRead,
     AdminCityWorkspaceResponse,
     AdminDashboardResponse,
-    AdminImportJobListResponse,
-    AdminImportJobRead,
     AdminPlaceCreate,
     AdminPlaceImageCreateRequest,
     AdminPlaceImageRead,
@@ -45,8 +43,6 @@ from services.admin_extended_service import (
     create_admin_route,
     get_admin_cities,
     get_admin_city_workspace,
-    get_admin_import_job,
-    get_admin_import_jobs,
     replace_admin_route_points,
     update_admin_route,
 )
@@ -210,29 +206,6 @@ def read_admin_city_coverage(
     if payload is None:
         raise HTTPException(status_code=404, detail="Город не найден")
     return AdminCoverageResponse.model_validate(payload)
-
-
-@router.get("/import-jobs", response_model=AdminImportJobListResponse)
-def read_admin_import_jobs(
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobListResponse:
-    items, total = get_admin_import_jobs(db, limit=limit, offset=offset)
-    return AdminImportJobListResponse(items=[AdminImportJobRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)
-
-
-@router.get("/import-jobs/{city_id}", response_model=AdminImportJobRead)
-def read_admin_import_job(
-    city_id: int,
-    auth: AdminContext = Depends(admin_required),
-    db: Session = Depends(get_db),
-) -> AdminImportJobRead:
-    item = get_admin_import_job(db, city_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Задача импорта не найдена")
-    return AdminImportJobRead.model_validate(item)
 
 
 @router.get("/places", response_model=AdminPlaceListResponse)

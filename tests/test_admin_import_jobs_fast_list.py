@@ -47,3 +47,22 @@ def test_fast_import_jobs_list_uses_latest_job_without_historical_snapshot_scan(
     assert row["places_total"] == 1
     assert row["auto_refresh_seconds"] == 7
     assert row["can_cancel"] is True
+
+
+def test_get_admin_import_jobs_route_serves_the_fast_list_not_the_full_scan(client, db_session, monkeypatch):
+    """Regression: routers/admin.py used to also register GET /admin/import-jobs
+    with the slower get_admin_import_jobs (full historical snapshot scan). Two
+    routers claiming the same path meant whichever was included first in
+    core/router_setup.py silently won, and the "fast" list optimization below
+    was never actually served in production. This must resolve to the fast path."""
+    from services import admin_extended_service
+
+    monkeypatch.setattr(
+        admin_extended_service,
+        "_latest_import_snapshots",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("GET /admin/import-jobs must not scan historical snapshots")),
+    )
+
+    response = client.get("/admin/import-jobs?limit=50")
+
+    assert response.status_code == 200
