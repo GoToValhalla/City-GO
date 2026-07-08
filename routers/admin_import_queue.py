@@ -6,10 +6,11 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
+from core.config import settings
 from db.dependencies import get_db
 from db.session import SessionLocal
 from models.city import City
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin-import-queue"])
 
 MAX_RUNNING_SECONDS = 60 * 60
+
+_run_once_lock = threading.Lock()
+_run_once_in_progress = False
 
 
 def _utc_naive(value: datetime | None) -> datetime | None:
@@ -89,7 +93,13 @@ def _run_queue_once_isolated(*, actor_id: str, limit: int) -> None:
     hitting slow external providers) can never starve unrelated public/admin
     sync request handlers that share that pool. Errors/timeouts are logged,
     never raised into a thread FastAPI is waiting on.
+
+    This is risk reduction only, not true process isolation: the thread still
+    shares this web process's RAM/CPU/GIL and DB connection pool. That is why
+    this path is disabled by default (see admin_allow_in_web_worker_run_once)
+    and only ever runs one at a time (see _run_once_lock).
     """
+    global _run_once_in_progress
     try:
         run_queued_import_jobs(actor_id=actor_id, limit=limit)
     except Exception as exc:  # noqa: BLE001 - must never crash the daemon thread silently
@@ -103,17 +113,36 @@ def _run_queue_once_isolated(*, actor_id: str, limit: int) -> None:
                     actor_id=actor_id, commit=True,
                 )
         except Exception:
-            return
+            pass
+    finally:
+        with _run_once_lock:
+            _run_once_in_progress = False
 
 
 @router.post("/import-queue/run-once")
 def run_import_queue_once(limit: int = 1, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
-    """Manually kick the import worker without enabling the web startup scheduler.
+    """Manual worker kick. Disabled inside the web process by default —
+    queued jobs are processed by the standalone import-worker container.
+    Running heavy synchronous work here shares this process's RAM/CPU/GIL/DB
+    pool with public traffic and was the root cause of a prior full outage
+    (photo enrichment starving public API availability).
 
-    Dispatched on an isolated daemon thread (not FastAPI's shared sync
-    threadpool) so this can never contend with public/admin request handlers
-    for threadpool capacity, regardless of how long the worker iteration runs.
+    Set ADMIN_ALLOW_IN_WEB_WORKER_RUN_ONCE=true to enable this path for a
+    local/test/emergency-only manual kick. Even then, at most one in-web
+    worker iteration may run at a time; a concurrent call is rejected with 409.
     """
+    global _run_once_in_progress
+    if not settings.admin_allow_in_web_worker_run_once:
+        return {
+            "scheduled": False,
+            "result": "blocked",
+            "reason": "manual in-web worker execution disabled; queued jobs are processed by import-worker",
+            "queue": _summary(db),
+        }
+    with _run_once_lock:
+        if _run_once_in_progress:
+            raise HTTPException(status_code=409, detail="An in-web worker run-once iteration is already in progress")
+        _run_once_in_progress = True
     worker_limit = max(1, min(int(limit or 1), 5))
     thread = threading.Thread(
         target=_run_queue_once_isolated,
@@ -122,7 +151,7 @@ def run_import_queue_once(limit: int = 1, auth: AdminContext = Depends(admin_req
         name="admin-import-run-once",
     )
     thread.start()
-    return {"scheduled": True, "limit": worker_limit, "queue": _summary(db)}
+    return {"scheduled": True, "result": "success", "limit": worker_limit, "queue": _summary(db)}
 
 
 @router.post("/import-queue/mark-stalled")

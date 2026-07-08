@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     import_worker_scheduler_interval_seconds: int = 15
     import_worker_scheduler_batch_limit: int = 1
 
+    # POST /admin/import-queue/run-once must NOT execute heavy worker iterations
+    # inside the web process by default — it shares RAM/CPU/GIL/DB pool with
+    # public traffic, so a slow enrichment run there is a production risk even
+    # when dispatched off the shared threadpool. This is an explicit, narrow
+    # emergency/local override, not a general execution mode.
+    admin_allow_in_web_worker_run_once: bool = False
+
     # Destination-first foundation (phased rollout; defaults keep legacy city flow).
     destination_foundation_enabled: bool = False
     destination_catalog_reads_enabled: bool = False
