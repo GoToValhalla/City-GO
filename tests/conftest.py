@@ -65,6 +65,7 @@ import models.route_draft  # noqa: F401
 import models.review_queue_item  # noqa: F401
 import models.source_observation  # noqa: F401
 import models.tag  # noqa: F401
+import models.user_foundation  # noqa: F401
 
 from main import app
 
