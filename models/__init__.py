@@ -46,9 +46,10 @@ import models.place_snapshot  # noqa: F401
 import models.place_published_snapshot  # noqa: F401
 import models.place_source_presence  # noqa: F401
 import models.place_tag  # noqa: F401
-import models.place_verification_task  # noqa: F401
-import models.publication_admin_stage4  # noqa: F401
-import models.region  # noqa: F401
+import models.taxonomy  # noqa: F401
+import models.telegram_user_context  # noqa: F401
+import models.user_foundation  # noqa: F401
+import models.user_signal  # noqa: F401
 import models.route  # noqa: F401
 import models.route_build_event  # noqa: F401
 import models.route_draft  # noqa: F401
@@ -61,6 +62,3 @@ import models.search_routing_stage5  # noqa: F401
 import models.service_extraction_stage6  # noqa: F401
 import models.source_observation  # noqa: F401
 import models.tag  # noqa: F401
-import models.taxonomy  # noqa: F401
-import models.telegram_user_context  # noqa: F401
-import models.user_signal  # noqa: F401
