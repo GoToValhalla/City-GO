@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -71,4 +73,43 @@ def test_admin_import_queue_run_once_schedules_worker_and_returns_queue(
     assert payload["queue"]["queued"] == 1
     assert payload["queue"]["running"] == 0
     assert payload["queue"]["next_job_ids"] == [queued_job.id]
+
+    for _ in range(50):
+        if calls:
+            break
+        time.sleep(0.02)
     assert calls == [{"actor_id": "test-admin", "limit": 2}]
+
+
+def test_admin_import_queue_run_once_does_not_block_the_request_on_slow_worker(
+    client: TestClient,
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """The endpoint must return immediately even if the worker iteration is slow
+    (e.g. photo enrichment blocked on external providers) — it must never run on
+    Starlette's shared sync threadpool, which public/admin request handlers
+    (like GET /api/cities/available) also depend on."""
+    city_factory(slug="queue-run-once-slow", name="Queue Run Once Slow")
+    started = threading.Event()
+
+    def slow_run_queued_import_jobs(*, actor_id: str, limit: int) -> dict[str, Any]:
+        started.set()
+        time.sleep(2)
+        return {"processed": 0, "failed": 0, "stalled": 0, "errors": []}
+
+    monkeypatch.setattr("routers.admin_import_queue.run_queued_import_jobs", slow_run_queued_import_jobs)
+
+    request_start = time.monotonic()
+    response = client.post("/admin/import-queue/run-once?limit=1")
+    request_elapsed = time.monotonic() - request_start
+
+    assert response.status_code == 200
+    assert request_elapsed < 1.0, "run-once must return before the slow worker iteration completes"
+
+    for _ in range(50):
+        if started.is_set():
+            break
+        time.sleep(0.02)
+    assert started.is_set()

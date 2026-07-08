@@ -1,20 +1,26 @@
 from __future__ import annotations
 
+import logging
+import threading
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
+from db.session import SessionLocal
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_tasks import run_queued_import_jobs
 from services.import_pipeline.progress import worker_progress_snapshot
 from services.import_pipeline.steps import STEP_ERROR
+from services.system_log_service import write_system_log
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin-import-queue"])
 
@@ -77,11 +83,45 @@ def read_import_queue(auth: AdminContext = Depends(admin_required), db: Session 
     return _summary(db)
 
 
+def _run_queue_once_isolated(*, actor_id: str, limit: int) -> None:
+    """Runs on its own daemon thread, never on Starlette's shared sync
+    threadpool, so a slow/blocked worker iteration (e.g. photo enrichment
+    hitting slow external providers) can never starve unrelated public/admin
+    sync request handlers that share that pool. Errors/timeouts are logged,
+    never raised into a thread FastAPI is waiting on.
+    """
+    try:
+        run_queued_import_jobs(actor_id=actor_id, limit=limit)
+    except Exception as exc:  # noqa: BLE001 - must never crash the daemon thread silently
+        logger.exception("manual run-once worker iteration failed: %s", exc)
+        try:
+            with SessionLocal() as db:
+                write_system_log(
+                    db, level="error", module="city_import",
+                    message=f"Manual run-once worker iteration failed: {str(exc)[:500]}",
+                    details={"event": "manual_run_once_failed", "error": str(exc)[:1000]},
+                    actor_id=actor_id, commit=True,
+                )
+        except Exception:
+            return
+
+
 @router.post("/import-queue/run-once")
-def run_import_queue_once(background_tasks: BackgroundTasks, limit: int = 1, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
-    """Manually kick the import worker without enabling the web startup scheduler."""
+def run_import_queue_once(limit: int = 1, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
+    """Manually kick the import worker without enabling the web startup scheduler.
+
+    Dispatched on an isolated daemon thread (not FastAPI's shared sync
+    threadpool) so this can never contend with public/admin request handlers
+    for threadpool capacity, regardless of how long the worker iteration runs.
+    """
     worker_limit = max(1, min(int(limit or 1), 5))
-    background_tasks.add_task(run_queued_import_jobs, actor_id=auth.actor_id, limit=worker_limit)
+    thread = threading.Thread(
+        target=_run_queue_once_isolated,
+        kwargs={"actor_id": auth.actor_id, "limit": worker_limit},
+        daemon=True,
+        name="admin-import-run-once",
+    )
+    thread.start()
     return {"scheduled": True, "limit": worker_limit, "queue": _summary(db)}
 
 
