@@ -88,6 +88,14 @@ def test_citygo171_admin_overview_exposes_excluded_and_unknown_route_buckets_new
         "Way 456",
         "Unnamed POI",
         "Unnamed place",
+        "место для отдыха 134567",
+        "точка 123",
+        "объект 42",
+        "POI 123",
+        "tourism object 123",
+        "12345",
+        "",
+        "   ",
     ],
 )
 def test_citygo171_generic_osm_titles_are_placeholders_new(title: str) -> None:
@@ -97,6 +105,7 @@ def test_citygo171_generic_osm_titles_are_placeholders_new(title: str) -> None:
 def test_citygo171_real_short_titles_are_not_placeholders_new() -> None:
     assert is_placeholder_title("Парк") is False
     assert is_placeholder_title("Пляж") is False
+    assert is_placeholder_title("Кафе №5") is False
 
 
 def test_citygo171_osm_medical_tags_beat_wikidata_shortcut_new() -> None:

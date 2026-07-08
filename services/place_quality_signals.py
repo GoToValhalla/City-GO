@@ -17,6 +17,14 @@ PLACEHOLDER_TITLE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*(node|way|relation)\s+\d+\s*$", re.IGNORECASE),
     re.compile(r"^\s*unnamed\s+(poi|place|point)\s*$", re.IGNORECASE),
     re.compile(r"^\s*(unnamed|unknown|без\s+названия|место\s+без\s+названия)\s*$", re.IGNORECASE),
+    # Generic/generated fallback labels (provider-side placeholder naming,
+    # not real POI names — e.g. "место для отдыха 134567", "точка 123").
+    re.compile(r"^\s*место\s+для\s+отдыха\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*точка\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*объект\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*poi\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*tourism\s+object\s+\d+\s*$", re.IGNORECASE),
+    re.compile(r"^\s*\d+\s*$"),
 )
 
 PLACEHOLDER_SQL_PATTERNS: tuple[str, ...] = (
@@ -35,6 +43,11 @@ PLACEHOLDER_SQL_PATTERNS: tuple[str, ...] = (
     "Unknown%",
     "Без названия%",
     "Место без названия%",
+    "Место для отдыха %",
+    "Точка %",
+    "Объект %",
+    "POI %",
+    "Tourism object %",
 )
 
 

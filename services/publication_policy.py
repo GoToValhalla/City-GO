@@ -14,6 +14,7 @@ from models.place_publication_decision import PlacePublicationDecision
 from models.place_snapshot import PlaceSnapshot
 from models.review_queue_item import ReviewQueueItem
 from services.place_public_visibility import is_public_hidden_category
+from services.place_quality_signals import is_placeholder_title
 
 MODE_SHADOW = "shadow"
 MODE_APPLY = "apply"
@@ -119,6 +120,8 @@ def run_hard_gates(place: Place, *, city: City | None = None) -> list[str]:
 
     if not place.title or len(place.title.strip()) < 3:
         failed.append("missing_name")
+    elif is_placeholder_title(place.title):
+        failed.append("generic_name_requires_review")
 
     if place.lat is None or place.lng is None or not (-90 <= place.lat <= 90) or not (-180 <= place.lng <= 180):
         failed.append("invalid_coordinates")

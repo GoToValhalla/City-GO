@@ -16,6 +16,7 @@ from services.publication_policy import (
     apply_publication_decision,
     create_change_review,
     evaluate_new_place,
+    run_hard_gates,
 )
 from services.publication_policy_summary import get_publication_policy_summary
 
@@ -70,6 +71,27 @@ def test_publication_policy_apply_publishes_high_trust_place(db_session, place_f
     assert place.is_route_eligible is True
     assert place.publication_status == "published"
     assert db_session.query(PlaceSnapshot).filter_by(place_id=place.id, reason="pre_auto_publish").count() == 1
+
+
+@allure.title("Публикация: место с generic-названием не проходит hard gate даже при высоком доверии")
+def test_publication_policy_blocks_generic_name_even_with_high_trust(db_session, place_factory):
+    place = place_factory(is_published=False, is_visible_in_catalog=False, is_route_eligible=False, is_searchable=False, publication_status="draft")
+    _make_high_trust(place)
+    place.title = "место для отдыха 134567"
+    db_session.commit()
+
+    failed_gates = run_hard_gates(place, city=place.city)
+
+    assert "generic_name_requires_review" in failed_gates
+
+    config = PublicationPolicyConfig(mode=MODE_APPLY, auto_publish_enabled=True, auto_publish_threshold=90)
+    decision = evaluate_new_place(place, config=config)
+    apply_publication_decision(db_session, place, decision, config=config)
+    db_session.commit()
+    db_session.refresh(place)
+
+    assert decision.decision != DECISION_AUTO_PUBLISH
+    assert place.is_published is False
 
 
 @allure.title("Публикация: критичное изменение оставляет место видимым и создаёт review")
