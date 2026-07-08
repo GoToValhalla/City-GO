@@ -18,8 +18,10 @@ from services.admin_import_display import (
     is_active_import_job,
     is_published_city,
     job_execution_failed,
+    pipeline_warnings,
     resolve_import_display,
     snapshot_warning,
+    stale_import_error,
 )
 from services.import_pipeline.progress import is_stalled, step_label
 from services.photo_enrichment_diagnostics import build_photo_enrichment_diagnostics
@@ -115,6 +117,8 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
     failed_items = effective_failed_items(job)
     execution_summary = import_execution_summary(job, places_published=int(places_published))
     error_summary = import_error_summary(job)
+    current_warnings = pipeline_warnings(job)
+    stale_error = stale_import_error(job)
     snap_warn = snapshot_warning(snapshot)
     photo_diagnostics = _photo_diagnostics_for_city(db, city, job=job, details=details)
     details["photo_diagnostics"] = photo_diagnostics
@@ -157,6 +161,8 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "step_details": details,
         "import_execution_summary": execution_summary,
         "import_error_summary": error_summary,
+        "current_warnings": current_warnings,
+        "stale_error": None if display["suppress_job_errors"] else stale_error,
         "snapshot_warning": snap_warn,
         "is_stalled": is_stalled(job) if job is not None else False,
         "job_execution_failed": job_execution_failed(job),

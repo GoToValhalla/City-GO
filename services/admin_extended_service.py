@@ -16,8 +16,10 @@ from services.admin_import_display import (
     effective_failed_items,
     import_error_summary,
     import_execution_summary,
+    pipeline_warnings,
     resolve_import_display,
     snapshot_warning,
+    stale_import_error,
 )
 from services.admin_extra_service import admin_coverage
 from services.admin_platform_quality import city_quality_row
@@ -114,6 +116,8 @@ def _import_job_list_payload(city: City, *, counters: CityCounters | None, job: 
     failed_items = effective_failed_items(job)
     execution_summary = import_execution_summary(job, places_published=places_published)
     error_summary = import_error_summary(job)
+    current_warnings = pipeline_warnings(job)
+    stale_error = stale_import_error(job)
     snap_warn = snapshot_warning(snapshot)
     step_details = {
         "admin_pipeline_contract": {"label": PIPELINE_MODE_LABEL},
@@ -144,6 +148,8 @@ def _import_job_list_payload(city: City, *, counters: CityCounters | None, job: 
         "step_details": step_details,
         "import_execution_summary": execution_summary,
         "import_error_summary": error_summary,
+        "current_warnings": current_warnings,
+        "stale_error": None if display["suppress_job_errors"] else stale_error,
         "snapshot_warning": snap_warn,
         "job_execution_failed": display["job_execution_failed"],
         "is_stalled": False if display["suppress_job_errors"] else (is_stalled(job) if job is not None else False),

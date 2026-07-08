@@ -268,9 +268,54 @@ describe('AdminImportJobsPage', () => {
     expect(statusBadges.some((el) => el.textContent?.includes('Завис'))).toBe(true)
     expect(screen.getAllByTestId('destination-publication-badge').length).toBeGreaterThan(0)
     expect(screen.getByTestId('import-error-summary').textContent).toContain('psycopg')
+    expect(screen.getByTestId('import-error-summary').textContent).toContain('Текущие ошибки')
     expect(screen.getByTestId('snapshot-missing-warning')).toBeTruthy()
     expect(screen.getByTestId('import-execution-summary').textContent).toContain('0')
     expect(screen.queryByText('100%')).toBeNull()
+  })
+
+  it('shows current run warnings separately from current errors', async () => {
+    const warnedJob = job({
+      city_id: 20, city_slug: 'warn-city', city_name: 'Ворн Сити', job_id: 20, id: 'city-import-20',
+      status: 'success_with_warnings', job_execution_status: 'success_with_warnings', job_execution_failed: false,
+      current_warnings: [{ step: 'finding_images', error: 'photo provider timeout' }],
+    })
+    installFetch({ items: [warnedJob], details: { 20: warnedJob } })
+    renderPage('/admin/imports?city=warn-city&job=20')
+    await screen.findByText('Ворн Сити · запуск #20')
+    expect(screen.queryByTestId('import-error-summary')).toBeNull()
+    const warningsSection = screen.getByTestId('current-run-warnings')
+    expect(warningsSection.textContent).toContain('Предупреждения текущего запуска')
+    expect(warningsSection.textContent).toContain('photo provider timeout')
+    expect(screen.queryByTestId('stale-import-error')).toBeNull()
+  })
+
+  it('shows a stale saved error only under its own section, not as a current blocker', async () => {
+    const staleJob = job({
+      city_id: 21, city_slug: 'stale-city', city_name: 'Стейл Сити', job_id: 21, id: 'city-import-21',
+      status: 'success', job_execution_status: 'success', job_execution_failed: false,
+      stale_error: 'tourist_core: psycopg.errors.UndefinedColumn: column source_observations.source_license does not exist',
+    })
+    installFetch({ items: [staleJob], details: { 21: staleJob } })
+    renderPage('/admin/imports?city=stale-city&job=21')
+    await screen.findByText('Стейл Сити · запуск #21')
+    expect(screen.queryByTestId('import-error-summary')).toBeNull()
+    const staleSection = screen.getByTestId('stale-import-error')
+    expect(staleSection.textContent).toContain('Старая сохранённая ошибка')
+    expect(staleSection.textContent).toContain('UndefinedColumn')
+  })
+
+  it('renders no stale section when there is no stale error', async () => {
+    const cleanJob = job({
+      city_id: 22, city_slug: 'clean-city', city_name: 'Клин Сити', job_id: 22, id: 'city-import-22',
+      status: 'success', job_execution_status: 'success', job_execution_failed: false,
+    })
+    installFetch({ items: [cleanJob], details: { 22: cleanJob } })
+    renderPage('/admin/imports?city=clean-city&job=22')
+    await screen.findByText('Клин Сити · запуск #22')
+    expect(screen.queryByTestId('stale-import-error')).toBeNull()
+    expect(screen.queryByTestId('current-run-warnings')).toBeNull()
+    expect(screen.queryByTestId('import-error-summary')).toBeNull()
   })
 
   it('polling runs only for queued or running jobs and stops after success', async () => {

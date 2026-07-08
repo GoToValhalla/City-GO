@@ -138,6 +138,17 @@ def import_error_summary(job: CityAdminImportJob | None) -> dict[str, object] | 
     }
 
 
+def stale_import_error(job: CityAdminImportJob | None) -> str | None:
+    """job.last_error when it is NOT the current run's failure — an operator-visible
+    "Старая сохранённая ошибка" from a previous attempt, so it is not mistaken for
+    a current blocker once import_error_summary() is None (current run is clean)."""
+    if job is None or not job.last_error:
+        return None
+    if job_execution_failed(job):
+        return None
+    return str(job.last_error)
+
+
 def import_execution_summary(
     job: CityAdminImportJob | None,
     *,

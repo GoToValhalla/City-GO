@@ -85,6 +85,98 @@ def test_successful_import_keeps_success_status_new(db_session) -> None:
     assert payload["failed_items"] == 0
 
 
+def test_current_run_error_appears_under_current_errors_new(db_session) -> None:
+    city, _job = _published_city_with_failed_job(db_session)
+    payload = build_import_job_payload(db_session, city)
+    assert payload["import_error_summary"] is not None
+    assert "psycopg" in payload["import_error_summary"]["error_message"]
+    assert payload["stale_error"] is None
+
+
+def test_current_run_warning_appears_under_current_warnings_new(db_session) -> None:
+    city = City(name="Warn City", slug="warn-city", country="Россия", launch_status="review_required", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(
+        city_id=city.id,
+        status="success_with_warnings",
+        current_step="ready_for_review",
+        step_details={
+            "import_diff": {"status": "success", "scopes_total": 2, "scopes_succeeded": 2, "places_found": 10, "places_saved": 8},
+            "warnings": [{"step": "finding_images", "reason": "dependency_failed", "error": "photo provider timeout"}],
+        },
+    )
+    db_session.add(job)
+    db_session.commit()
+    payload = build_import_job_payload(db_session, city)
+    assert payload["job_execution_failed"] is False
+    assert payload["import_error_summary"] is None
+    assert len(payload["current_warnings"]) == 1
+    assert payload["current_warnings"][0]["error"] == "photo provider timeout"
+    assert payload["stale_error"] is None
+
+
+def test_stale_stored_error_appears_only_under_stale_section_new(db_session) -> None:
+    """A job that finished cleanly this run but still carries last_error from a
+    previous failed attempt must expose it only via stale_error, not as a current blocker."""
+    city = City(name="Stale Error City", slug="stale-error-city", country="Россия", launch_status="review_required", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(
+        city_id=city.id,
+        status="success",
+        current_step="ready_for_review",
+        last_error="tourist_core: psycopg.errors.UndefinedColumn: column source_observations.source_license does not exist",
+        step_details={"import_diff": {"status": "success", "scopes_total": 2, "scopes_succeeded": 2, "places_found": 10, "places_saved": 8}},
+    )
+    db_session.add(job)
+    db_session.commit()
+    payload = build_import_job_payload(db_session, city)
+    assert payload["job_execution_failed"] is False
+    assert payload["import_error_summary"] is None
+    assert payload["stale_error"] is not None
+    assert "UndefinedColumn" in payload["stale_error"]
+
+
+def test_stale_undefined_column_is_not_counted_as_current_blocker_new(db_session) -> None:
+    city = City(name="Stale Blocker City", slug="stale-blocker-city", country="Россия", launch_status="review_required", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(
+        city_id=city.id,
+        status="success",
+        current_step="ready_for_review",
+        scopes_total=3,
+        scopes_succeeded=3,
+        last_error="tourist_core: psycopg.errors.UndefinedColumn: column source_observations.source_license does not exist",
+        step_details={"import_diff": {"status": "success", "scopes_total": 3, "scopes_succeeded": 3, "places_found": 10, "places_saved": 10}},
+    )
+    db_session.add(job)
+    db_session.commit()
+    payload = build_import_job_payload(db_session, city)
+    assert payload["job_execution_failed"] is False
+    assert payload["import_error_summary"] is None
+    assert payload["failed_items"] == 0
+
+
+def test_no_stale_section_when_there_is_no_stale_error_new(db_session) -> None:
+    city = City(name="Clean City", slug="clean-city", country="Россия", launch_status="review_required", is_active=False)
+    db_session.add(city)
+    db_session.flush()
+    job = CityAdminImportJob(
+        city_id=city.id,
+        status="success",
+        current_step="ready_for_review",
+        step_details={"import_diff": {"status": "success", "scopes_total": 2, "scopes_succeeded": 2, "places_found": 10, "places_saved": 8}},
+    )
+    db_session.add(job)
+    db_session.commit()
+    payload = build_import_job_payload(db_session, city)
+    assert payload["stale_error"] is None
+    assert payload["import_error_summary"] is None
+    assert payload["current_warnings"] == []
+
+
 def test_discovery_bulk_create_does_not_create_import_job_new(client, monkeypatch, db_session) -> None:
     from models.city_admin_import_job import CityAdminImportJob
 

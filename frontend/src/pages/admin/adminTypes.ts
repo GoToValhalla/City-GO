@@ -133,6 +133,8 @@ export type AdminImportJob = {
   job_execution_failed?: boolean
   import_execution_summary?: Record<string, unknown> | null
   import_error_summary?: { failed_step?: string; error_message?: string; job_id?: number } | null
+  current_warnings?: Array<{ step?: string; error?: string; reason?: string }>
+  stale_error?: string | null
   snapshot_warning?: { code?: string; message?: string } | null
 }
 
