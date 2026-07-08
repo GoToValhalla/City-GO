@@ -15,6 +15,7 @@ import html
 import json
 import re
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -37,6 +38,14 @@ from services.place_public_visibility import is_public_hidden_category
 BAD_TITLE_PATTERN = re.compile(r"^(yes|no|unknown|fixme|todo|n/a)$", re.I)
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 REQUEST_TIMEOUT_SECONDS = 12
+# Hard wall-clock cap for one run() call. Per-request timeouts alone don't
+# bound total runtime: up to 4 sequential provider calls per place (website
+# OG-image, Wikimedia search, 2x Openverse queries) times up to IMAGE_LIMIT
+# places could otherwise run for hours with no result written (prod: a
+# Kaliningrad photo enrichment job stalled 1h41m in finding_images with no
+# final diagnostics). Hitting the deadline stops scanning further places and
+# writes whatever partial summary/diagnostics exist so far.
+MAX_RUNTIME_SECONDS = 10 * 60
 USER_AGENT = "CityGoImageEnricher/1.0"
 HTTP_TEXT_CACHE_NAMESPACE = "image_enrichment_http_text_v1"
 OPENVERSE_ACCEPTED_LICENSES = {"cc0", "pdm", "by", "by-sa"}
@@ -97,9 +106,15 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             "source_evidence_providers": list(SOURCE_EVIDENCE_PROVIDERS),
             "dry_run": args.dry_run,
             "preview": [],
+            "deadline_exceeded": False,
         }
 
+        deadline = time.monotonic() + MAX_RUNTIME_SECONDS
         for place in places:
+            if time.monotonic() >= deadline:
+                summary["deadline_exceeded"] = True
+                summary["warnings"].append(f"Stopped after exceeding max runtime of {MAX_RUNTIME_SECONDS}s; scanned {summary['scanned_places']} of {len(places)} places.")
+                break
             summary["scanned_places"] += 1
             summary["last_scanned_place_id"] = int(place.id)
             if not _is_eligible_place(place):
@@ -153,10 +168,17 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
                 summary["created"] += 1
                 summary["auto_approved"] += 1
                 summary["place_image_url_synced"] += 1
+                # Commit incrementally so progress survives a kill/deadline mid-scan
+                # instead of holding one long-lived open transaction for the whole run.
+                db.commit()
 
-        if int(summary["created"] or 0) == 0 and int(summary["candidates_found"] or 0) == 0:
+        if summary["deadline_exceeded"]:
+            summary["provider_status"] = "max_runtime_exceeded"
+            summary["zero_result_reason"] = "max_runtime_exceeded"
+        elif int(summary["created"] or 0) == 0 and int(summary["candidates_found"] or 0) == 0:
             summary["warnings"].append("No image candidates found from trusted sources, Wikimedia Commons, or Openverse.")
             summary["provider_status"] = "source_evidence_exhausted"
+            summary["zero_result_reason"] = "source_evidence_exhausted"
         else:
             summary["provider_status"] = "candidates_found"
         if args.apply:

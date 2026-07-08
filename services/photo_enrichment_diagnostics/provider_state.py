@@ -17,6 +17,8 @@ def provider_state(
         return "step_skipped_due_to_dependency_failure", "dependency_failed", f"Шаг пропущен: зависимость {dependency_step or 'collecting_places'} не выполнена.", None
     if step_status == "blocked":
         return "blocked", "prerequisites_not_met", "Добор фото не запущен: не выполнены предварительные условия (нет мест в городе).", None
+    if run.get("deadline_exceeded"):
+        return "max_runtime_exceeded", "max_runtime_exceeded", f"Добор фото остановлен по таймауту, просмотрено {scanned} мест.", None
     if not run and without_photo > 0:
         return "no_photo_enrichment_run", "photo_enrichment_not_run", "Добор фото ещё не запускался для текущего состояния города.", None
     if eligible <= 0 and without_photo > 0:
@@ -53,8 +55,9 @@ def admin_hint(status: str, without_photo: int, created: int, pending_existing: 
         "provider_auth_error": "Фото-блокер: ошибка авторизации внешнего источника фото.",
         "provider_quota_error": "Фото-блокер: квота/rate limit внешнего источника фото.",
         "provider_request_error": "Фото-блокер: ошибка запроса к внешнему источнику фото.",
+        "max_runtime_exceeded": "Фото-блокер: добор фото остановлен по таймауту выполнения. Запустите повторно с меньшим лимитом мест.",
     }
-    if status == "step_skipped_due_to_dependency_failure":
+    if status in {"step_skipped_due_to_dependency_failure", "max_runtime_exceeded"}:
         return hints[status]
     if without_photo <= 0 or created > 0 or pending_existing > 0:
         return None

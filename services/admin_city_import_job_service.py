@@ -302,6 +302,8 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
     job.failed_items = len(errors or []) if isinstance(errors, list) else 0
     job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair, "prerequisites": prerequisites}
     job.status = "success_with_warnings" if created <= 0 and str(photo_diagnostics.get("provider_status") or "") not in {"success", ""} else "success"
+    if isinstance(result, dict) and result.get("deadline_exceeded"):
+        job.last_error = f"Добор фото остановлен по таймауту выполнения после просмотра {scanned} мест."
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"
     log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair})
