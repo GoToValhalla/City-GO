@@ -249,7 +249,12 @@ def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> C
     result = run_address_backfill(["--city", city.slug, "--limit", str(ADDRESS_LIMIT), "--apply"])
     auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=[])
     job.step_details = {**dict(job.step_details or {}), "address_enrichment": result, "auto_repair": auto_repair, "prerequisites": prerequisites}
-    job.status = "success"
+    deadline_exceeded = bool(isinstance(result, dict) and result.get("deadline_exceeded"))
+    errors = int(result.get("errors") or 0) if isinstance(result, dict) else 0
+    job.status = "success_with_warnings" if deadline_exceeded or errors > 0 else "success"
+    if deadline_exceeded:
+        checked = int(result.get("checked") or 0) if isinstance(result, dict) else 0
+        job.last_error = f"Добор адресов остановлен по таймауту выполнения после проверки {checked} мест."
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"
     db.commit()

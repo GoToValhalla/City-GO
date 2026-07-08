@@ -22,6 +22,8 @@ def create_public_debug_report(payload: DebugReportCreate, db: Session = Depends
         admin_url=admin_url(row),
         copied_summary=copied_summary(row),
         telegram_sent=row.telegram_sent,
+        telegram_status="success" if row.telegram_sent else "accepted_with_warning",
+        telegram_error=row.telegram_error,
     )
 
 

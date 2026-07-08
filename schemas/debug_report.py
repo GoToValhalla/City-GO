@@ -80,6 +80,8 @@ class DebugReportCreateResponse(BaseModel):
     admin_url: str
     copied_summary: str
     telegram_sent: bool
+    telegram_status: str
+    telegram_error: str | None = None
 
 
 class DebugReportListResponse(BaseModel):

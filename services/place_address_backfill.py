@@ -18,6 +18,12 @@ from services.place_import_lifecycle_service import mark_place_for_review
 
 ADDRESS_MATCH_THRESHOLD = 0.72
 _ORIGINAL_REVERSE_GEOCODE = reverse_geocode
+# Hard wall-clock cap for one run_backfill() call. Per-request geocode timeouts
+# alone don't bound total runtime: up to `limit` (often thousands) places times
+# a deliberate sleep_seconds throttle plus per-request timeout could otherwise
+# run for many hours with no final result — the same class of risk fixed for
+# photo enrichment (data/scripts/enrich_place_images.py MAX_RUNTIME_SECONDS).
+MAX_RUNTIME_SECONDS = 10 * 60
 
 
 def run_backfill(
@@ -31,8 +37,13 @@ def run_backfill(
     start_after_id: int = 0,
 ) -> dict[str, Any]:
     stats = _empty_stats(city_slug, apply, verify_existing, start_after_id)
+    deadline = time.monotonic() + MAX_RUNTIME_SECONDS
     for place in _iter_candidate_places(db, city_slug, verify_existing=verify_existing, start_after_id=start_after_id):
         if stats["checked"] >= limit:
+            break
+        if time.monotonic() >= deadline:
+            stats["deadline_exceeded"] = True
+            stats["warnings"].append(f"Stopped after exceeding max runtime of {MAX_RUNTIME_SECONDS}s; checked {stats['checked']} places.")
             break
         stats["last_scanned_place_id"] = int(place.id)
         _process_place(db, place, stats, sleep_seconds, apply, verify_existing)
@@ -56,6 +67,8 @@ def _empty_stats(city_slug: str, apply: bool, verify_existing: bool, start_after
         "cleared_placeholders": 0,
         "errors": 0,
         "providers": {},
+        "deadline_exceeded": False,
+        "warnings": [],
         "updated_place_ids": [],
         "results": [],
     }

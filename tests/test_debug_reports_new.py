@@ -51,7 +51,45 @@ def test_debug_report_telegram_failure_does_not_break_creation_new(client, monke
     monkeypatch.setattr("services.debug_report_service.send_admin_alert", lambda **kwargs: {"sent": False, "reason": "timeout"})
     response = client.post("/debug-reports", json=_payload())
     assert response.status_code == 200
-    assert response.json()["telegram_sent"] is False
+    body = response.json()
+    assert body["telegram_sent"] is False
+    assert body["telegram_status"] == "accepted_with_warning"
+    assert body["telegram_error"] == "timeout"
+
+
+def test_debug_report_telegram_success_returns_explicit_status_new(client, monkeypatch):
+    monkeypatch.setattr("services.debug_report_service.settings.citygo_debug_reports_telegram_enabled", True)
+    monkeypatch.setattr("services.debug_report_service.send_admin_alert", lambda **kwargs: {"sent": True})
+    response = client.post("/debug-reports", json=_payload())
+    body = response.json()
+    assert body["telegram_sent"] is True
+    assert body["telegram_status"] == "success"
+    assert body["telegram_error"] is None
+
+
+def test_debug_report_telegram_disabled_returns_explicit_reason_new(client, db_session, monkeypatch):
+    monkeypatch.setattr("services.debug_report_service.settings.citygo_debug_reports_telegram_enabled", False)
+    response = client.post("/debug-reports", json=_payload())
+    body = response.json()
+    assert body["telegram_sent"] is False
+    assert body["telegram_status"] == "accepted_with_warning"
+    assert body["telegram_error"] == "telegram_disabled"
+
+
+def test_debug_report_telegram_failure_is_logged_with_context_new(client, db_session, monkeypatch):
+    monkeypatch.setattr("services.debug_report_service.settings.citygo_debug_reports_telegram_enabled", True)
+    monkeypatch.setattr("services.debug_report_service.send_admin_alert", lambda **kwargs: {"sent": False, "reason": "timeout"})
+
+    response = client.post("/debug-reports", json=_payload(city_slug="zelenogradsk", request_id="req-log-1"))
+
+    assert response.status_code == 200
+    from models.system_log import SystemLog
+
+    log = db_session.query(SystemLog).filter(SystemLog.module == "debug_report").order_by(SystemLog.id.desc()).first()
+    assert log is not None
+    assert log.city_slug == "zelenogradsk"
+    assert log.request_id == "req-log-1"
+    assert "timeout" in log.message
 
 
 def test_admin_debug_reports_list_detail_and_filters_new(client):

@@ -11,6 +11,7 @@ from core.version import get_backend_version
 from models.debug_report import DebugReport
 from schemas.debug_report import DebugReportCreate
 from services.admin_alert_service import send_admin_alert
+from services.system_log_service import write_system_log
 
 SECRET_KEYS = {"authorization", "cookie", "set-cookie", "token", "access_token", "refresh_token", "password", "secret", "api_key", "apikey"}
 
@@ -26,7 +27,7 @@ def create_debug_report(db: Session, payload: DebugReportCreate) -> DebugReport:
     )
     db.add(row)
     db.flush()
-    _send_telegram_if_enabled(row)
+    _send_telegram_if_enabled(db, row)
     return row
 
 
@@ -83,9 +84,10 @@ def copied_summary(row: DebugReport) -> str:
     return "\n".join(lines)
 
 
-def _send_telegram_if_enabled(row: DebugReport) -> None:
+def _send_telegram_if_enabled(db: Session, row: DebugReport) -> None:
     if not settings.citygo_debug_reports_telegram_enabled:
         row.telegram_sent = False
+        row.telegram_error = "telegram_disabled"
         return
     result = send_admin_alert(
         title="Import pipeline failed" if row.category == "import" else "Debug Report",
@@ -98,6 +100,13 @@ def _send_telegram_if_enabled(row: DebugReport) -> None:
     )
     row.telegram_sent = bool(result.get("sent"))
     row.telegram_error = None if row.telegram_sent else str(result.get("reason") or "not_sent")[:500]
+    if not row.telegram_sent:
+        write_system_log(
+            db, level="warning", module="debug_report",
+            message=f"Telegram send failed for debug report {row.public_id}: {row.telegram_error}",
+            details={"public_id": row.public_id, "reason": row.telegram_error, "screen": row.screen, "request_id": row.request_id},
+            city_slug=row.city_slug, request_id=row.request_id, commit=False,
+        )
 
 
 def _telegram_message(row: DebugReport) -> str:

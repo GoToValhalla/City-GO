@@ -25,7 +25,7 @@ from services.public_route_sanitizer import sanitize_user_route_state
 from services.route_analytics_service import record_route_build
 from services.route_builder_v2_service import RouteBuilderV2Error
 from services.destination_route_resolution import resolve_route_build_request
-from services.user_route_build_service import UserRouteBuildService
+from services.user_route_build_service import RouteBuildTimeoutError, UserRouteBuildService
 from services.user_route_correct_service import UserRouteCorrectService
 from services.user_route_edit_service import UserRouteEditService
 from services.user_route_session_service import UserRouteSessionError, UserRouteSessionService
@@ -50,6 +50,8 @@ def build_user_route(
         route = UserRouteBuildService().build(db=db, request=resolved_payload)
     except RouteBuilderV2Error as exc:
         raise HTTPException(status_code=422, detail={"code": "route_builder_v2_invalid_request", "message": str(exc)}) from exc
+    except RouteBuildTimeoutError as exc:
+        raise HTTPException(status_code=422, detail={"code": "route_build_deadline_exceeded", "message": str(exc)}) from exc
     record_route_build(
         db,
         route,
@@ -73,10 +75,11 @@ def preview_user_route(
         raise HTTPException(status_code=422, detail={"code": "route_builder_v2_invalid_request", "message": str(exc)}) from exc
     except Exception as exc:
         print(f"user_route_preview_failed: {exc.__class__.__name__}: {exc}")
+        is_timeout = isinstance(exc, RouteBuildTimeoutError)
         return sanitize_user_route_state(UserRouteState(
             route_id="preview-unavailable",
             status="preview_failed",
-            partial_reason="route_preview_mapping_failed",
+            partial_reason="route_preview_deadline_exceeded" if is_timeout else "route_preview_mapping_failed",
             context=payload,
             total_places=0,
             total_minutes=0,
@@ -101,7 +104,7 @@ def preview_user_route(
                     "stage": "preview_response_mapping",
                     "status": "failed",
                     "error": exc.__class__.__name__,
-                    "message": "Preview route build failed.",
+                    "message": "Preview route build exceeded internal deadline." if is_timeout else "Preview route build failed.",
                 }
             ],
         ))
