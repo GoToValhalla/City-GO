@@ -211,7 +211,6 @@ def run_enrichment_pipeline(
         if total <= 0:
             raise RuntimeError("OSM import finished without places")
         set_step(job, STEP_READY_FOR_REVIEW, successful=len(ids), processed=len(ids))
-        _finalize_import_status(job, summary=summary, total=total, warnings=warnings)
         job.finished_at = datetime.utcnow()
         job.step_details = {
             **dict(job.step_details or {}),
@@ -220,6 +219,18 @@ def run_enrichment_pipeline(
             "has_changes": bool(ids),
             "import_summary": summary,
         }
+        if _job_recovered_externally(db, job_id):
+            log_import_event(
+                db,
+                event="import_pipeline_finished_after_recovery",
+                city_slug=city.slug,
+                actor_id=actor_id,
+                message=f"Pipeline #{job.id}: finished after job was already marked recovered externally; not overwriting status",
+                details={"job_id": job.id},
+            )
+            db.commit()
+            return results
+        _finalize_import_status(job, summary=summary, total=total, warnings=warnings)
         if original[0] == "importing":
             city.launch_status = "review_required"
             city.is_active = False
@@ -253,7 +264,6 @@ def run_enrichment_pipeline(
         total = db.query(Place).filter(Place.city_id == city_id).count()
         detail = {"step": failed_step, "error": str(exc)[:1000], "places_total": total}
         results["partial_success_after_error"] = detail
-        job.last_error = str(exc)[:2000]
         job.finished_at = datetime.utcnow()
         job.step_details = {
             **dict(job.step_details or {}),
@@ -262,6 +272,20 @@ def run_enrichment_pipeline(
             "partial_success_after_error": detail,
             "warnings": warnings,
         }
+        if _job_recovered_externally(db, job_id):
+            log_import_event(
+                db,
+                event="import_pipeline_failed_after_recovery",
+                city_slug=city.slug,
+                actor_id=actor_id,
+                message=f"Pipeline #{job.id}: failed after job was already marked recovered externally; not overwriting status",
+                details={"job_id": job.id, "error": str(exc)[:1000]},
+            )
+            db.commit()
+            if total <= 0:
+                raise
+            return results
+        job.last_error = str(exc)[:2000]
         if total > 0:
             job.status = "partial_success"
             set_step(job, STEP_READY_FOR_REVIEW, total=total, processed=total, successful=total, detail={"partial_success_after_error": detail})
@@ -291,6 +315,20 @@ def run_enrichment_pipeline(
 
 def _touch_job(job: CityAdminImportJob) -> None:
     job.updated_at = datetime.utcnow()
+
+
+RECOVERED_STATUSES = frozenset({"stalled", "cancelled"})
+
+
+def _job_recovered_externally(db: Session, job_id: int) -> bool:
+    """True if an admin/orphan-cleanup action already terminated this job
+    (marked stalled or cancelled) while this pipeline run was still executing.
+
+    Checked against the DB's committed status, not the in-memory `job` object,
+    since that object can be stale relative to a concurrent admin request.
+    """
+    current_status = db.query(CityAdminImportJob.status).filter(CityAdminImportJob.id == job_id).scalar()
+    return current_status in RECOVERED_STATUSES
 
 
 def _reload_after_rollback(db: Session, model: type, obj_id: int, fallback: Any) -> Any:

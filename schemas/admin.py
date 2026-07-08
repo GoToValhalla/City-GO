@@ -121,6 +121,9 @@ class AdminImportJobRead(BaseModel):
     city_slug: str
     city_name: str
     status: str
+    status_group: str | None = None
+    job_execution_status: str | None = None
+    destination_publication_status: str | None = None
     launch_status: str | None = None
     is_city_active: bool = False
     current_step: str = "queued"
@@ -143,6 +146,11 @@ class AdminImportJobRead(BaseModel):
     retry_count: int = 0
     step_details: dict[str, Any] | None = None
     is_stalled: bool = False
+    job_execution_failed: bool = False
+    import_error_summary: dict[str, Any] | None = None
+    current_warnings: list[dict[str, Any]] = []
+    stale_error: str | None = None
+    worker_progress: dict[str, Any] | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     created_at: datetime | None = None
