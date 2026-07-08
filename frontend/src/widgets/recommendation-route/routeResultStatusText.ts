@@ -1,6 +1,7 @@
 export const statusLabel = (status?: string) => {
   if (status === 'partial_route') return 'Маршрут частично готов'
   if (status === 'no_route') return 'Маршрут не найден'
+  if (status === 'preview_failed') return 'Не удалось собрать маршрут'
   return 'Маршрут готов'
 }
 
