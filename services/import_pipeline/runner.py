@@ -85,7 +85,7 @@ def run_enrichment_pipeline(
         job.places_found = int(summary.get("places_found") or 0)
         job.places_saved = int(summary.get("places_saved") or 0)
         collecting_failed = str(summary.get("status") or "").lower() != "success"
-        schema_collecting_failed = collecting_failed and collecting_has_schema_failure(summary)
+        schema_collecting_failed_any_scope = collecting_failed and collecting_has_schema_failure(summary)
         if collecting_failed:
             isolation = record_step_isolation(
                 db,
@@ -116,13 +116,20 @@ def run_enrichment_pipeline(
             detail={"import_diff": summary},
         )
         db.commit()
+        # A schema error in one scope must not block finding_images when other
+        # scopes in this same run already succeeded and produced real places —
+        # only a schema failure with zero successful scopes this run is a true
+        # blocker (matches collecting_failed's own "status != success" check,
+        # which already treats partial_success/failed uniformly as "not clean").
+        scopes_succeeded_this_run = int(summary.get("scopes_succeeded") or 0)
+        schema_collecting_failed = schema_collecting_failed_any_scope and scopes_succeeded_this_run <= 0
         if collecting_failed and total <= 0:
             raise RuntimeError(str(summary.get("last_error") or "Ошибка импорта OSM"))
         if collecting_failed:
             warning = {
                 "step": STEP_COLLECTING_PLACES,
                 "error": str(summary.get("last_error") or "partial import"),
-                "kind": "schema_mismatch" if schema_collecting_failed else "scope_failure",
+                "kind": "schema_mismatch" if schema_collecting_failed_any_scope else "scope_failure",
             }
             warnings.append(warning)
             append_step_warning(job, STEP_COLLECTING_PLACES, warning["error"])
