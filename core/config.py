@@ -120,6 +120,23 @@ class Settings(BaseSettings):
     destination_route_reads_enabled: bool = False
     destination_import_enabled: bool = False
 
+    # Dark-launch user foundation flags. Defaults must keep the current public
+    # product flow unchanged: no login, no visible profile, no public reviews,
+    # no fake ratings, no server-side favorites/history writes.
+    feature_auth_enabled: bool = False
+    feature_profile_enabled: bool = False
+    feature_favorites_enabled: bool = False
+    feature_saved_routes_enabled: bool = False
+    feature_route_history_enabled: bool = False
+    feature_reviews_enabled: bool = False
+    feature_public_reviews_enabled: bool = False
+    feature_review_votes_enabled: bool = False
+    feature_user_photos_enabled: bool = False
+    feature_suggestions_enabled: bool = False
+    feature_moderation_enabled: bool = False
+    feature_telegram_identity_enabled: bool = False
+    feature_account_linking_enabled: bool = False
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
