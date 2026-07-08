@@ -283,10 +283,12 @@ jobs:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
-            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'REMOTE'
+            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_SHA='${DEPLOY_SHA}' bash -s" <<'REMOTE'
           set -euo pipefail
           cd /srv/app
 
@@ -299,27 +301,51 @@ jobs:
           df -h /
           docker system df || true
 
+          echo "=== Recording rollback metadata (previous deployed image IDs) ==="
+          PREVIOUS_SHA="$(cat /srv/app/.last_deployed_sha 2>/dev/null || echo unknown)"
+          echo "Previous deployed SHA: ${PREVIOUS_SHA}"
+          echo "Attempted SHA: ${DEPLOY_SHA}" || true
+          docker compose images 2>/dev/null || true
+
           echo "=== Stop and remove app containers before image replacement ==="
           docker compose stop frontend backend import-worker bot || true
           docker compose rm -f frontend backend import-worker bot migrate seed address-backfill place-enrichment-export || true
 
-          echo "=== Prune unused docker data before docker load ==="
+          echo "=== Safe cleanup before docker load (dangling data only; previous tagged image is preserved for rollback) ==="
           docker container prune -f || true
-          docker image prune -af || true
-          docker builder prune -af || true
+          docker builder prune -f || true
           rm -rf /tmp/city-go-build-* /tmp/city-go-deploy-* || true
 
           echo "=== Production disk after deploy cleanup ==="
           df -h /
           docker system df || true
 
-          docker load -i /tmp/city-go-images.tar.gz
-          docker compose up -d --remove-orphans
+          echo "=== docker load (bounded) ==="
+          set +e
+          timeout 300s docker load -i /tmp/city-go-images.tar.gz
+          LOAD_STATUS=$?
+          set -e
+          if [ "$LOAD_STATUS" -ne 0 ]; then
+            echo "ERROR: docker load timed out or failed (exit code ${LOAD_STATUS})" >&2
+            exit "$LOAD_STATUS"
+          fi
+
+          echo "=== docker compose up (bounded) ==="
+          set +e
+          timeout 180s docker compose up -d --remove-orphans
+          UP_STATUS=$?
+          set -e
+          if [ "$UP_STATUS" -ne 0 ]; then
+            echo "ERROR: docker compose up timed out or failed (exit code ${UP_STATUS})" >&2
+            exit "$UP_STATUS"
+          fi
+
           echo "=== Docker compose status after deploy up ==="
           docker compose ps
 
           rm -f /tmp/city-go-images.tar.gz /tmp/city-go-docker-compose.yml || true
-          docker image prune -f || true
+
+          echo "${DEPLOY_SHA}" > /srv/app/.last_deployed_sha || true
 
           echo "=== Production disk after deploy ==="
           df -h /
@@ -346,9 +372,11 @@ jobs:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'REMOTE'
+          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_SHA='${DEPLOY_SHA}' bash -s" <<'REMOTE'
           set -euo pipefail
           cd /srv/app
 
@@ -374,8 +402,14 @@ jobs:
 
           if [ "$ready" != "1" ]; then
             echo "ERROR: backend /ready did not pass within 180 seconds." >&2
+            echo "Attempted SHA: ${DEPLOY_SHA}"
+            echo "Previous deployed SHA: $(cat /srv/app/.last_deployed_sha 2>/dev/null || echo unknown)"
             echo "=== docker compose ps ==="
             docker compose ps || true
+            echo "=== Disk free ==="
+            df -h / || true
+            echo "=== Docker image list summary ==="
+            docker images --format 'table {{.Repository}}\t{{.Tag}}\t{{.CreatedSince}}\t{{.Size}}' | head -20 || true
             show_logs backend 250
             show_logs migrate 200
             show_logs db 150
@@ -383,6 +417,30 @@ jobs:
             show_logs bot 100
             exit 1
           fi
+          REMOTE
+
+      - name: Cleanup old images after confirmed healthy deploy
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          # Only reached after "Verify build.json" and "Verify backend ready" both
+          # succeeded, so the new image is confirmed running and healthy. Safe to
+          # prune older unused images now — the previous deployed image is no
+          # longer needed for an emergency rollback via `docker compose up` on a
+          # prior tag, since this deploy is already verified good.
+          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'REMOTE'
+          set -euo pipefail
+          cd /srv/app
+          echo "=== Pruning unused images after confirmed healthy deploy ==="
+          docker image prune -af || true
+          docker builder prune -af || true
+          echo "=== Production disk after post-deploy cleanup ==="
+          df -h /
+          docker system df || true
           REMOTE
 
       - name: Upload deploy log
