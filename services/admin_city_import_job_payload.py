@@ -124,6 +124,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
     publication_warn = publication_consistency_warning(city, job)
     photo_diagnostics = _photo_diagnostics_for_city(db, city, job=job, details=details)
     details["photo_diagnostics"] = photo_diagnostics
+    enrichment_prerequisites = (job.step_details or {}).get("prerequisites") if job is not None else None
     return {
         "id": f"city-import-{city.id}",
         "city_id": city.id,
@@ -149,6 +150,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "places_unpublished": max(places_total - places_published, 0),
         "pending_photos": pending_photos,
         "photo_diagnostics": photo_diagnostics,
+        "enrichment_prerequisites": enrichment_prerequisites,
         "next_step": _import_next_step(current_step, status, city.launch_status) if snapshot else "Snapshot ещё не создан. Нажмите «Обновить snapshot», чтобы увидеть coverage и отчёт изменений без тяжёлого GET.",
         "job_id": job.id if job is not None else None,
         "scopes_total": job.scopes_total if job is not None else 0,

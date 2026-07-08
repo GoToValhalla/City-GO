@@ -206,6 +206,21 @@ def run_snapshot_refresh_job(db: Session, *, city_id: int, actor_id: str) -> Cit
     return job
 
 
+def _enrichment_prerequisites(db: Session, *, city: City) -> dict[str, object]:
+    """Shared prerequisite check for standalone admin enrichment actions
+    (Добрать фото / Добрать адреса). These do not go through run_enrichment_pipeline,
+    so unlike the main import they had no check that collecting_places ever
+    produced usable places before scanning — this made "eligible but never run"
+    indistinguishable from "ran and found nothing to do"."""
+    places_total = db.query(Place).filter(Place.city_id == city.id).count()
+    blocked_reason = None if places_total > 0 else "no_places_in_city"
+    return {
+        "places_total": places_total,
+        "blocked_reason": blocked_reason,
+        "ok": blocked_reason is None,
+    }
+
+
 def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
@@ -216,9 +231,24 @@ def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> C
     job.current_step = "finding_addresses"
     job.started_at = datetime.utcnow()
     db.commit()
+    prerequisites = _enrichment_prerequisites(db, city=city)
+    if not prerequisites["ok"]:
+        job.step_details = {
+            **dict(job.step_details or {}),
+            "address_enrichment": {"scanned_places": 0, "updated": 0, "checked": 0, "blocked_reason": prerequisites["blocked_reason"]},
+            "prerequisites": prerequisites,
+        }
+        job.status = "failed"
+        job.finished_at = datetime.utcnow()
+        job.current_step = STEP_ERROR
+        job.last_error = f"Добор адресов заблокирован: {prerequisites['blocked_reason']}"
+        log_import_event(db, event="address_enrichment_blocked", city_slug=city.slug, actor_id=actor_id, level="warning", message=f"Добор адресов #{job.id} заблокирован: {prerequisites['blocked_reason']}", details={"job_id": job.id, "city_id": city.id, "source": SOURCE_ADDRESS_ENRICHMENT, "prerequisites": prerequisites})
+        db.commit()
+        db.refresh(job)
+        return job
     result = run_address_backfill(["--city", city.slug, "--limit", str(ADDRESS_LIMIT), "--apply"])
     auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=[])
-    job.step_details = {**dict(job.step_details or {}), "address_enrichment": result, "auto_repair": auto_repair}
+    job.step_details = {**dict(job.step_details or {}), "address_enrichment": result, "auto_repair": auto_repair, "prerequisites": prerequisites}
     job.status = "success"
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"
@@ -238,6 +268,23 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
     job.current_step = "finding_images"
     job.started_at = datetime.utcnow()
     db.commit()
+    prerequisites = _enrichment_prerequisites(db, city=city)
+    if not prerequisites["ok"]:
+        photo_diagnostics = build_photo_enrichment_diagnostics(db, city, enrichment_result=None, step_status="blocked", scan_limit=IMAGE_LIMIT)
+        job.step_details = {
+            **dict(job.step_details or {}),
+            "photo_enrichment": {"scanned_places": 0, "created": 0, "candidates_found": 0, "blocked_reason": prerequisites["blocked_reason"]},
+            "photo_diagnostics": photo_diagnostics,
+            "prerequisites": prerequisites,
+        }
+        job.status = "failed"
+        job.finished_at = datetime.utcnow()
+        job.current_step = STEP_ERROR
+        job.last_error = f"Добор фото заблокирован: {prerequisites['blocked_reason']}"
+        log_import_event(db, event="photo_enrichment_blocked", city_slug=city.slug, actor_id=actor_id, level="warning", message=f"Добор фото #{job.id} заблокирован: {prerequisites['blocked_reason']}", details={"job_id": job.id, "city_id": city.id, "source": SOURCE_PHOTO_ENRICHMENT, "prerequisites": prerequisites})
+        db.commit()
+        db.refresh(job)
+        return job
     result = run_image_enrich(["--city", city.slug, "--limit", str(IMAGE_LIMIT), "--apply"])
     if isinstance(result, dict) and "photo_diagnostics" not in result:
         result = attach_photo_diagnostics_to_summary(db, city, result, scan_limit=IMAGE_LIMIT)
@@ -253,7 +300,7 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
     job.processed_items = scanned
     job.successful_items = scanned
     job.failed_items = len(errors or []) if isinstance(errors, list) else 0
-    job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair}
+    job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair, "prerequisites": prerequisites}
     job.status = "success_with_warnings" if created <= 0 and str(photo_diagnostics.get("provider_status") or "") not in {"success", ""} else "success"
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"

@@ -153,6 +153,7 @@ class AdminImportJobRead(BaseModel):
     worker_progress: dict[str, Any] | None = None
     snapshot_warning: dict[str, Any] | None = None
     publication_consistency_warning: dict[str, Any] | None = None
+    enrichment_prerequisites: dict[str, Any] | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     created_at: datetime | None = None

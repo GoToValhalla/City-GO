@@ -15,6 +15,8 @@ def provider_state(
 ) -> tuple[str, str | None, str | None, str | None]:
     if step_status == "skipped":
         return "step_skipped_due_to_dependency_failure", "dependency_failed", f"Шаг пропущен: зависимость {dependency_step or 'collecting_places'} не выполнена.", None
+    if step_status == "blocked":
+        return "blocked", "prerequisites_not_met", "Добор фото не запущен: не выполнены предварительные условия (нет мест в городе).", None
     if not run and without_photo > 0:
         return "no_photo_enrichment_run", "photo_enrichment_not_run", "Добор фото ещё не запускался для текущего состояния города.", None
     if eligible <= 0 and without_photo > 0:
