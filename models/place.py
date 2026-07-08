@@ -112,7 +112,7 @@ class Place(Base):
     # PlaceDestination должен считаться через геометрию/полигон/corridor, а не через city_id.
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lng: Mapped[float] = mapped_column(Float, nullable=False)
-    category: Mapped[str | None] = mapped_column(String, nullable=True)
+    category: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     outdoor: Mapped[bool] = mapped_column(Boolean, default=False)
     indoor: Mapped[bool] = mapped_column(Boolean, default=False)
     dog_friendly: Mapped[bool] = mapped_column(Boolean, default=False)
