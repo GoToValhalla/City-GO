@@ -66,6 +66,7 @@ from routers.route_sessions import router as route_sessions_router
 from routers.routes import router as routes_router
 from routers.tags import router as tags_router
 from routers.telegram_bot_webhook import router as telegram_bot_webhook_router
+from routers.user_foundation import router as user_foundation_router
 from routers.user_routes import router as user_routes_router
 from routers.user_signals import router as user_signals_router
 from routers.verification import router as verification_router
@@ -136,6 +137,7 @@ _ROOT_ROUTERS = (
     taxonomy_diagnostics_router,
     place_verification_router,
     place_verification_admin_router,
+    user_foundation_router,
     places_router,
     route_analytics_router,
     route_feedback_router,
