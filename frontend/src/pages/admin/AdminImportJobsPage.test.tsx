@@ -140,4 +140,20 @@ describe('AdminImportJobsPage import-worker queue controls', () => {
     expect((await screen.findAllByText('Завис')).length).toBeGreaterThan(0)
     expect(screen.queryByText('Задач по выбранному фильтру нет')).toBeNull()
   })
+
+  it('explains why run-once was blocked instead of a generic "not started" message', async () => {
+    mockedAdminPost.mockResolvedValue({
+      scheduled: false,
+      result: 'blocked',
+      reason: 'manual in-web worker execution disabled; queued jobs are processed by import-worker',
+      queue: queueIdle,
+    })
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Запустить worker один раз' }))
+
+    const notice = await screen.findByText(/заблокирован намеренно/)
+    expect(notice.textContent).toContain('import-worker')
+  })
 })

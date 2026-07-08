@@ -11,4 +11,26 @@ describe('toAdminErrorMessage', () => {
     const msg = toAdminErrorMessage(422, '{"detail":"city_slug required"}')
     expect(msg).toBe('city_slug required')
   })
+
+  it('renders a structured duplicate-active-job 409 detail with job_id, not a raw JSON dump', () => {
+    const raw = JSON.stringify({
+      detail: {
+        result: 'blocked',
+        reason: 'duplicate_active_job',
+        message: 'Pipeline уже выполняется',
+        job_id: 5,
+        job_status: 'running',
+        source: 'admin_photo_enrichment',
+      },
+    })
+    const msg = toAdminErrorMessage(409, raw)
+    expect(msg).toBe('Pipeline уже выполняется (job_id: 5)')
+    expect(msg).not.toContain('{"detail"')
+  })
+
+  it('falls back to the reason field when message is absent from a structured detail', () => {
+    const raw = JSON.stringify({ detail: { reason: 'duplicate_active_job', job_id: 9 } })
+    const msg = toAdminErrorMessage(409, raw)
+    expect(msg).toBe('duplicate_active_job (job_id: 9)')
+  })
 })

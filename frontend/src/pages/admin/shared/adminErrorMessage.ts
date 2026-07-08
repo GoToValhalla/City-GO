@@ -24,6 +24,19 @@ export type AdminErrorDetails = {
   requestId?: string | null
 }
 
+/** Structured detail bodies like {result:"blocked", reason:"duplicate_active_job",
+ * message:"...", job_id:5, job_status:"running"} (e.g. admin duplicate-active-job
+ * 409, run-once blocked responses) must render their real message/reason instead
+ * of falling through to a raw JSON dump or a generic status-code message. */
+const messageFromStructuredDetail = (detail: Record<string, unknown>): string | null => {
+  const message = typeof detail.message === 'string' ? detail.message : null
+  const reason = typeof detail.reason === 'string' ? detail.reason : null
+  const jobId = typeof detail.job_id === 'number' || typeof detail.job_id === 'string' ? detail.job_id : null
+  if (!message && !reason) return null
+  const jobSuffix = jobId != null ? ` (job_id: ${jobId})` : ''
+  return message ? `${message}${jobSuffix}` : `${reason}${jobSuffix}`
+}
+
 const parseJsonDetail = (text: string): ParsedError => {
   try {
     const data = JSON.parse(text) as Record<string, unknown>
@@ -32,11 +45,13 @@ const parseJsonDetail = (text: string): ParsedError => {
       ? detail
       : Array.isArray(detail) && typeof detail[0]?.msg === 'string'
         ? detail[0].msg
-        : typeof data.message === 'string'
-          ? data.message
-          : typeof data.error === 'string'
-            ? data.error
-            : null
+        : detail && typeof detail === 'object'
+          ? messageFromStructuredDetail(detail as Record<string, unknown>)
+          : typeof data.message === 'string'
+            ? data.message
+            : typeof data.error === 'string'
+              ? data.error
+              : null
     const requestId = typeof data.request_id === 'string' ? data.request_id : null
     return { message, requestId, body: data }
   } catch {
