@@ -91,7 +91,7 @@ describe('AdminDiscoveryPage', () => {
     expect(within(confirm).getByLabelText(/Обновить существующие контуры/)).not.toBeChecked()
     fireEvent.click(within(confirm).getByRole('button', { name: 'Подтвердить создание' }))
     await waitFor(() => expect(mockBulk).toHaveBeenCalledWith('job-1', ['cand-1'], { update_existing_scopes: false }))
-    expect(screen.getByTestId('discovery-result-summary')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('discovery-result-summary')).toBeInTheDocument())
   })
 
   it('shows city geo-search fallback tab', () => {
