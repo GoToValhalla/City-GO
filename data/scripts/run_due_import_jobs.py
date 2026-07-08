@@ -97,6 +97,8 @@ def _run_target(target: dict[str, Any], args: argparse.Namespace, now: datetime)
     if locked_scope["status"] != "locked":
         return {**target, **locked_scope}
 
+    _mark_current_scope(target)
+
     try:
         import_result = run_osm_import(_import_args(target, args.apply))
         if args.apply and _saved_count(import_result) < MIN_SAVED_BEFORE_BBOX_FALLBACK:
@@ -155,6 +157,35 @@ def _run_target(target: dict[str, Any], args: argparse.Namespace, now: datetime)
 
     finally:
         unlock_target(target)
+
+
+def _mark_current_scope(target: dict[str, Any]) -> None:
+    """Best-effort progress write: which scope collecting_places is on right now.
+
+    Never blocks/fails the import on error — this is diagnostics only.
+    """
+    job_id = target.get("city_admin_import_job_id")
+    if job_id is None:
+        return
+    try:
+        from models.city import City
+        from models.city_admin_import_job import CityAdminImportJob
+        from models.city_import_scope import CityImportScope
+        from services.import_pipeline.progress import set_current_scope
+
+        with SessionLocal() as db:
+            job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
+            if job is None:
+                return
+            city = db.query(City).filter(City.slug == target["city"]).first()
+            scope_name = None
+            if city is not None:
+                scope = db.query(CityImportScope).filter(CityImportScope.city_id == city.id, CityImportScope.code == target["scope"]).first()
+                scope_name = scope.name if scope is not None else None
+            set_current_scope(job, scope_code=str(target["scope"]), scope_name=scope_name)
+            db.commit()
+    except Exception:  # noqa: BLE001 - diagnostics must never break the import run
+        pass
 
 
 def _import_args(target: dict[str, Any], apply: bool) -> list[str]:

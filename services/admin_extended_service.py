@@ -23,7 +23,7 @@ from services.admin_import_display import (
 )
 from services.admin_extra_service import admin_coverage
 from services.admin_platform_quality import city_quality_row
-from services.import_pipeline.progress import is_stalled, step_label
+from services.import_pipeline.progress import is_stalled, step_label, worker_progress_snapshot
 from services.import_pipeline.steps import STEP_QUEUED
 from services.place_service import get_place_by_id
 from services.route_service import get_route_by_id
@@ -153,6 +153,7 @@ def _import_job_list_payload(city: City, *, counters: CityCounters | None, job: 
         "snapshot_warning": snap_warn,
         "job_execution_failed": display["job_execution_failed"],
         "is_stalled": False if display["suppress_job_errors"] else (is_stalled(job) if job is not None else False),
+        "worker_progress": None if display["suppress_job_errors"] else worker_progress_snapshot(job),
         "started_at": job.started_at if job is not None else None, "finished_at": job.finished_at if job is not None else None, "created_at": job.created_at if job is not None else None, "updated_at": job.updated_at if job is not None else None,
         "last_error": None if display["suppress_job_errors"] else (job.last_error if job is not None else None),
         "can_run": False, "can_retry": False if active_job else bool(job is not None and job.status in {"failed", "stalled", "import_failed", "success", "success_with_warnings", "partial_success", "cancelled"}),

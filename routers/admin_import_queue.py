@@ -13,6 +13,7 @@ from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_tasks import run_queued_import_jobs
+from services.import_pipeline.progress import worker_progress_snapshot
 from services.import_pipeline.steps import STEP_ERROR
 
 router = APIRouter(prefix="/admin", tags=["admin-import-queue"])
@@ -64,6 +65,7 @@ def _summary(db: Session) -> dict[str, Any]:
         "longest_running_seconds": max(running_seconds, default=None),
         "running_job_ids": [job.id for job in running],
         "stale_job_ids": [job.id for job in stuck],
+        "running_jobs_progress": [{"job_id": job.id, "city_id": job.city_id, **(worker_progress_snapshot(job, now=now) or {})} for job in running],
         "next_job_ids": [job.id for job in sorted(queued, key=lambda item: (_utc_naive(item.created_at) or datetime.min, item.id))[:10]],
         "by_status": dict(Counter(str(job.status or "unknown") for job in active)),
         "by_source": dict(Counter(str(job.source or "unknown") for job in active)),

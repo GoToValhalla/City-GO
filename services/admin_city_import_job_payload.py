@@ -23,7 +23,7 @@ from services.admin_import_display import (
     snapshot_warning,
     stale_import_error,
 )
-from services.import_pipeline.progress import is_stalled, step_label
+from services.import_pipeline.progress import is_stalled, step_label, worker_progress_snapshot
 from services.photo_enrichment_diagnostics import build_photo_enrichment_diagnostics
 from services.import_pipeline.steps import STEP_QUEUED, STEP_READY_FOR_REVIEW, TERMINAL_STEPS
 
@@ -165,6 +165,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "stale_error": None if display["suppress_job_errors"] else stale_error,
         "snapshot_warning": snap_warn,
         "is_stalled": is_stalled(job) if job is not None else False,
+        "worker_progress": worker_progress_snapshot(job),
         "job_execution_failed": job_execution_failed(job),
         "started_at": job.started_at if job is not None else None,
         "finished_at": job.finished_at if job is not None else None,
