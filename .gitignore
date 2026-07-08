@@ -125,3 +125,8 @@ local-context/
 agent-context/
 prompts/private/
 prompts/local/
+
+# One-off/temporary diagnostic workflows (should never persist on main)
+.github/workflows/diagnose-*.yml
+.github/workflows/*-scratch.yml
+.github/workflows/tmp-*.yml
