@@ -136,6 +136,18 @@ export type AdminImportJob = {
   current_warnings?: Array<{ step?: string; error?: string; reason?: string }>
   stale_error?: string | null
   snapshot_warning?: { code?: string; message?: string } | null
+  worker_progress?: {
+    current_step?: string | null
+    current_scope_code?: string | null
+    current_scope_name?: string | null
+    step_started_at?: string | null
+    last_heartbeat_at?: string | null
+    running_for_seconds?: number | null
+    current_step_running_for_seconds?: number | null
+    stale_after_seconds?: number | null
+    is_stale?: boolean
+    admin_hint?: string
+  } | null
 }
 
 export type AdminImportJobsResponse = { items: AdminImportJob[]; total: number; limit: number; offset: number }

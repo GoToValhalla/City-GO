@@ -318,6 +318,61 @@ describe('AdminImportJobsPage', () => {
     expect(screen.queryByTestId('import-error-summary')).toBeNull()
   })
 
+  it('shows worker progress as alive with heartbeat details when not stale', async () => {
+    const aliveJob = job({
+      city_id: 23, city_slug: 'alive-city', city_name: 'Алайв Сити', job_id: 23, id: 'city-import-23',
+      status: 'running', job_execution_status: 'running', job_execution_failed: false,
+      worker_progress: {
+        current_step: 'collecting_places',
+        current_scope_code: 'tourist_core',
+        current_scope_name: 'Туристическое ядро',
+        running_for_seconds: 120,
+        current_step_running_for_seconds: 60,
+        is_stale: false,
+        admin_hint: 'Воркер активен: шаг «collecting_places», скоуп «tourist_core».',
+      },
+    })
+    installFetch({ items: [aliveJob], details: { 23: aliveJob } })
+    renderPage('/admin/imports?city=alive-city&job=23')
+    await screen.findByText('Алайв Сити · запуск #23')
+    const progressSection = screen.getByTestId('worker-progress')
+    expect(progressSection.textContent).toContain('Воркер активен')
+    expect(progressSection.textContent).toContain('tourist_core')
+    expect(progressSection.textContent).not.toContain('возможен стопор')
+  })
+
+  it('shows worker progress as stale when heartbeat is older than the threshold', async () => {
+    const staleWorkerJob = job({
+      city_id: 24, city_slug: 'stale-worker-city', city_name: 'Стейл Воркер Сити', job_id: 24, id: 'city-import-24',
+      status: 'running', job_execution_status: 'running', job_execution_failed: false,
+      worker_progress: {
+        current_step: 'collecting_places',
+        current_scope_code: null,
+        running_for_seconds: 6300,
+        current_step_running_for_seconds: 6300,
+        is_stale: true,
+        admin_hint: 'Воркер не обновлял прогресс дольше порога — возможен стопор, проверьте логи backend.',
+      },
+    })
+    installFetch({ items: [staleWorkerJob], details: { 24: staleWorkerJob } })
+    renderPage('/admin/imports?city=stale-worker-city&job=24')
+    await screen.findByText('Стейл Воркер Сити · запуск #24')
+    const progressSection = screen.getByTestId('worker-progress')
+    expect(progressSection.textContent).toContain('возможен стопор')
+  })
+
+  it('renders no worker progress section when the job has finished', async () => {
+    const finishedJob = job({
+      city_id: 25, city_slug: 'finished-city', city_name: 'Финишед Сити', job_id: 25, id: 'city-import-25',
+      status: 'success', job_execution_status: 'success', job_execution_failed: false,
+      worker_progress: null,
+    })
+    installFetch({ items: [finishedJob], details: { 25: finishedJob } })
+    renderPage('/admin/imports?city=finished-city&job=25')
+    await screen.findByText('Финишед Сити · запуск #25')
+    expect(screen.queryByTestId('worker-progress')).toBeNull()
+  })
+
   it('polling runs only for queued or running jobs and stops after success', async () => {
     vi.useFakeTimers()
     let listRequests = 0
