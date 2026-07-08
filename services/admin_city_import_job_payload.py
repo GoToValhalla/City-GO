@@ -120,7 +120,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
     error_summary = import_error_summary(job)
     current_warnings = pipeline_warnings(job)
     stale_error = stale_import_error(job)
-    snap_warn = snapshot_warning(snapshot, job=job)
+    snap_warn = snapshot_warning(snapshot, job=job, city=city)
     publication_warn = publication_consistency_warning(city, job)
     photo_diagnostics = _photo_diagnostics_for_city(db, city, job=job, details=details)
     details["photo_diagnostics"] = photo_diagnostics

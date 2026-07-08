@@ -86,8 +86,17 @@ def refresh_import_snapshot_now_endpoint(city_id: int, auth: AdminContext = Depe
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
         raise HTTPException(404, "Город не найден")
-    refresh_import_job_snapshot(db, city_id=city_id, source="admin_manual_refresh_now")
-    return AdminImportJobActionResponse(city_id=city_id, status="success", message="Snapshot обновлён.")
+    snapshot = refresh_import_job_snapshot(db, city_id=city_id, source="admin_manual_refresh_now")
+    coverage = snapshot.get("data_coverage") if isinstance(snapshot.get("data_coverage"), dict) else {}
+    places_count = int(coverage.get("places_total") or 0)
+    return AdminImportJobActionResponse(
+        city_id=city_id,
+        status="success",
+        message=f"Snapshot обновлён. Мест в городе: {places_count}.",
+        snapshot_source=str(snapshot.get("source") or "admin_manual_refresh_now"),
+        places_count=places_count,
+        reason=None,
+    )
 
 
 @router.post("/import-jobs/{city_id}/enrich-addresses", response_model=AdminImportJobActionResponse)

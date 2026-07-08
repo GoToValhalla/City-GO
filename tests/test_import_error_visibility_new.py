@@ -183,3 +183,75 @@ def test_admin_job_details_read_does_not_mutate_city_or_job_state_new(db_session
     assert city.launch_status == before_launch_status
     assert city.is_active == before_is_active
     assert job.status == before_job_status
+
+
+def test_published_city_with_missing_snapshot_is_repair_required_and_critical_new(db_session, city_factory) -> None:
+    """Reproduces the Kaliningrad prod evidence: a published city whose latest
+    finished job never produced a snapshot must not look like a routine warning —
+    it must be explicit that this is repair_required, with the existing safe
+    repair action named, and escalated to critical since the city is public."""
+    city = city_factory(slug="published-missing-snapshot-city", launch_status="published", is_active=True)
+    job = CityAdminImportJob(city_id=city.id, status="success", source="admin_city_import", current_step="ready_for_review", step_details={})
+    db_session.add(job)
+    db_session.commit()
+
+    payload = build_import_job_payload(db_session, city)
+    warning = payload["snapshot_warning"]
+
+    assert warning is not None
+    assert warning["code"] == "SNAPSHOT_MISSING"
+    assert warning["repair_required"] is True
+    assert warning["severity"] == "critical"
+    assert "refresh-now" in warning["recommended_action"]
+
+
+def test_draft_city_with_missing_snapshot_is_repair_required_but_not_critical_new(db_session, city_factory) -> None:
+    """Same missing-snapshot condition on a non-published (draft) city is still
+    repair_required — the action to take is the same — but must not be escalated
+    to critical, since no public-facing state is affected yet."""
+    city = city_factory(slug="draft-missing-snapshot-city", launch_status="importing", is_active=False)
+    job = CityAdminImportJob(city_id=city.id, status="success", source="admin_city_import", current_step="ready_for_review", step_details={})
+    db_session.add(job)
+    db_session.commit()
+
+    payload = build_import_job_payload(db_session, city)
+    warning = payload["snapshot_warning"]
+
+    assert warning is not None
+    assert warning["repair_required"] is True
+    assert warning["severity"] == "warning"
+
+
+def test_published_city_with_stale_snapshot_is_repair_required_critical_new(db_session, city_factory) -> None:
+    city = city_factory(slug="published-stale-snapshot-city", launch_status="published", is_active=True)
+    old_snapshot = {"taken_at": (datetime.utcnow() - timedelta(hours=48)).isoformat(), "data_coverage": {"places_total": 10}}
+
+    result = snapshot_warning(old_snapshot, city=city)
+
+    assert result is not None
+    assert result["code"] == "SNAPSHOT_STALE"
+    assert result["repair_required"] is True
+    assert result["severity"] == "critical"
+
+
+def test_snapshot_refresh_now_endpoint_returns_explicit_snapshot_state_new(client, db_session, city_factory, place_factory) -> None:
+    """The existing, already-wired repair action (refresh-now) must return
+    explicit snapshot_source/places_count, not just a generic success message —
+    so the caller can verify the repair actually worked."""
+    city = city_factory(slug="refresh-now-city", launch_status="published", is_active=True)
+    place_factory(city_id=city.id, slug="refresh-now-place", title="Refresh Now Place")
+    db_session.commit()
+
+    response = client.post(f"/admin/import-jobs/{city.id}/snapshot/refresh-now")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert body["snapshot_source"] == "admin_manual_refresh_now"
+    assert body["places_count"] == 1
+
+
+def test_snapshot_refresh_now_endpoint_404_for_missing_city_new(client) -> None:
+    response = client.post("/admin/import-jobs/999999999/snapshot/refresh-now")
+
+    assert response.status_code == 404

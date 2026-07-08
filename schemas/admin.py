@@ -172,6 +172,9 @@ class AdminImportJobActionResponse(BaseModel):
     city_id: int
     status: str
     message: str
+    snapshot_source: str | None = None
+    places_count: int | None = None
+    reason: str | None = None
 
 class AdminImportJobListResponse(BaseModel):
     items: list[AdminImportJobRead]

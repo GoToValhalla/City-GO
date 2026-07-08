@@ -201,11 +201,15 @@ def import_execution_summary(
 SNAPSHOT_STALE_HOURS = 24
 
 
+SNAPSHOT_REPAIR_ACTION = "POST /admin/import-jobs/{city_id}/snapshot/refresh-now"
+
+
 def snapshot_warning(
     snapshot: dict[str, object] | None,
     *,
     now: object | None = None,
     job: CityAdminImportJob | None = None,
+    city: City | None = None,
 ) -> dict[str, object] | None:
     """Report-only: never mutates state, only surfaces snapshot/coverage
     inconsistencies for admins to act on manually.
@@ -213,23 +217,35 @@ def snapshot_warning(
     SNAPSHOT_MISSING only applies once a job has actually finished (success,
     failed, or stalled) — a queued/running job has not had a chance to
     produce a snapshot yet, and flagging that as an inconsistency is just noise.
+
+    A published city with a missing/empty/stale snapshot is repair_required:
+    a safe, existing, non-destructive repair action already exists
+    (refresh_import_job_snapshot, wired at SNAPSHOT_REPAIR_ACTION) and should
+    always be surfaced so the admin/public-facing payload never silently
+    claims a healthy state for a published city in this condition.
     """
     from datetime import datetime
+
+    published = city is not None and is_published_city(city)
 
     if not snapshot:
         if job is not None and job.status in ACTIVE_IMPORT_STATUSES:
             return None
         return {
             "code": "SNAPSHOT_MISSING",
-            "severity": "warning",
+            "severity": "critical" if published else "warning",
             "message": "Snapshot не создан. Нажмите «Обновить snapshot» для coverage и отчёта изменений.",
+            "repair_required": True,
+            "recommended_action": SNAPSHOT_REPAIR_ACTION,
         }
     coverage = snapshot.get("data_coverage")
     if isinstance(coverage, dict) and int(coverage.get("places_total") or 0) <= 0:
         return {
             "code": "SNAPSHOT_EMPTY_COVERAGE",
-            "severity": "warning",
+            "severity": "critical" if published else "warning",
             "message": "Snapshot существует, но places_total = 0. Проверьте импорт перед публикацией.",
+            "repair_required": True,
+            "recommended_action": SNAPSHOT_REPAIR_ACTION,
         }
     taken_at_raw = snapshot.get("taken_at")
     if isinstance(taken_at_raw, str):
@@ -243,8 +259,10 @@ def snapshot_warning(
             if age_hours > SNAPSHOT_STALE_HOURS:
                 return {
                     "code": "SNAPSHOT_STALE",
-                    "severity": "warning",
+                    "severity": "critical" if published else "warning",
                     "message": f"Snapshot устарел ({int(age_hours)} ч). Нажмите «Обновить snapshot» для актуального coverage.",
+                    "repair_required": True,
+                    "recommended_action": SNAPSHOT_REPAIR_ACTION,
                 }
     return None
 
