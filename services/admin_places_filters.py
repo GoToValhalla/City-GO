@@ -24,8 +24,18 @@ MIN_DESCRIPTION_LENGTH = 40
 GENERIC_DESCRIPTION_MARKERS = ("описание будет добавлено", "нет описания", "description pending", "todo", "вставьте описание")
 
 
-def _search_terms(value: str) -> tuple[str, ...]:
+def _search_terms(value: str, *, dialect: str = "postgresql") -> tuple[str, ...]:
+    """PostgreSQL's ILIKE is already fully Unicode case-insensitive, so a single
+    term is correct and avoids multiplying leading-wildcard scan cost 6x across
+    3 columns. SQLite's LIKE/ILIKE only case-folds ASCII, so the test suite
+    (and any SQLite deployment) still needs the case-variant fallback to match
+    Cyrillic/mixed-case data regardless of search-term casing.
+    """
     text = value.strip()
+    if not text:
+        return ()
+    if dialect != "sqlite":
+        return (f"%{text}%",)
     variants = (text, text.casefold(), text.lower(), text.capitalize(), text.title(), text.upper())
     return tuple(dict.fromkeys(f"%{item}%" for item in variants if item))
 
@@ -117,7 +127,8 @@ def apply_place_filters(
     if category:
         query = query.filter(or_(Place.canonical_category == category, Place.category == category))
     if q:
-        clauses = tuple(or_(Place.title.ilike(term), Place.slug.ilike(term), Place.address.ilike(term)) for term in _search_terms(q))
+        dialect = db.get_bind().dialect.name
+        clauses = tuple(or_(Place.title.ilike(term), Place.slug.ilike(term), Place.address.ilike(term)) for term in _search_terms(q, dialect=dialect))
         query = query.filter(or_(*clauses))
     query = _presence_filter(query, Place.image_url, has_photo)
     query = _presence_filter(query, Place.address, has_address)

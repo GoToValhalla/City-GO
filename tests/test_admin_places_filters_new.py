@@ -12,6 +12,7 @@ from models.city import City
 from models.place import Place
 from services.admin_coverage_metrics import build_coverage_summary
 from services.admin_place_update_service import update_admin_place_fields
+from services.admin_places_filters import _search_terms
 from services.admin_service import get_admin_places
 from services.admin_taxonomy_service import admin_category_taxonomy
 
@@ -163,3 +164,72 @@ def test_coverage_summary_api_new(client) -> None:
     body = response.json()
     assert "items" in body
     assert "total" in body
+
+
+def test_search_terms_postgresql_does_not_multiply_case_variants_new() -> None:
+    """PostgreSQL ILIKE is already fully Unicode case-insensitive — the search
+    must issue a single %term% clause, not 6 redundant case-variant duplicates."""
+    terms = _search_terms("Советская", dialect="postgresql")
+    assert terms == ("%Советская%",)
+
+
+def test_search_terms_sqlite_keeps_case_variant_fallback_new() -> None:
+    """SQLite's LIKE/ILIKE only case-folds ASCII, so the test-only fallback
+    must still try multiple case variants to match stored Cyrillic/mixed-case data."""
+    terms = _search_terms("советская", dialect="sqlite")
+    assert "%советская%" in terms
+    assert "%Советская%" in terms
+    assert len(terms) > 1
+
+
+def test_search_terms_empty_value_returns_no_terms_new() -> None:
+    assert _search_terms("", dialect="postgresql") == ()
+    assert _search_terms("   ", dialect="sqlite") == ()
+
+
+def test_admin_places_search_matches_by_title_new(client, db_session) -> None:
+    city = _seed_city(db_session, slug="search-title-city")
+    _seed_place(db_session, city, slug="museum-place", title="Краеведческий музей", category="museum", address="ул. Музейная, 5")
+    _seed_place(db_session, city, slug="cafe-place", title="Кафе Морское", category="cafe", address="ул. Портовая, 2")
+    db_session.commit()
+
+    items, total = get_admin_places(db_session, city_slug="search-title-city", q="музей")
+
+    assert total == 1
+    assert items[0].slug == "museum-place"
+
+
+def test_admin_places_search_matches_by_slug_new(client, db_session) -> None:
+    city = _seed_city(db_session, slug="search-slug-city")
+    _seed_place(db_session, city, slug="unique-archeopark-slug", title="Место без совпадений в названии", category="park", address="ул. Парковая, 1")
+    db_session.commit()
+
+    items, total = get_admin_places(db_session, city_slug="search-slug-city", q="archeopark")
+
+    assert total == 1
+    assert items[0].slug == "unique-archeopark-slug"
+
+
+def test_admin_places_search_matches_by_address_new(client, db_session) -> None:
+    city = _seed_city(db_session, slug="search-address-city")
+    _seed_place(db_session, city, slug="address-match-place", title="Место", category="service", address="ул. Балтийская, 10")
+    db_session.commit()
+
+    items, total = get_admin_places(db_session, city_slug="search-address-city", q="Балтийская")
+
+    assert total == 1
+    assert items[0].slug == "address-match-place"
+
+
+def test_admin_places_search_cyrillic_case_insensitive_new(client, db_session) -> None:
+    city = _seed_city(db_session, slug="search-cyrillic-city")
+    _seed_place(db_session, city, slug="cyrillic-place", title="Ратуша", category="museum", address="Советская 1")
+    db_session.commit()
+
+    lower, lower_total = get_admin_places(db_session, city_slug="search-cyrillic-city", q="советская")
+    upper, upper_total = get_admin_places(db_session, city_slug="search-cyrillic-city", q="СОВЕТСКАЯ")
+
+    assert lower_total == 1
+    assert upper_total == 1
+    assert lower[0].slug == "cyrillic-place"
+    assert upper[0].slug == "cyrillic-place"
