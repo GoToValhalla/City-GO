@@ -1,28 +1,36 @@
+/*
+ * Obsidian Velora — premium dark token palette.
+ * Every --cg-* variable name is preserved so existing components/pages
+ * (place cards, admin pages, badges, skeletons) repaint automatically
+ * without needing per-component edits.
+ */
 :root {
-  --cg-bg-main: #F8F9FA;
-  --cg-bg-card: #FFFFFF;
-  --cg-bg-elevated: #FFFFFF;
-  --cg-bg-muted: #EDEFEF;
-  --cg-border-soft: #DCE2E9;
+  --cg-bg-main: #08090C;
+  --cg-bg-card: #0D0D11;
+  --cg-bg-elevated: #181A20;
+  --cg-bg-muted: #111318;
+  --cg-bg-panel: #1E2028;
+  --cg-border-soft: rgba(255, 255, 255, 0.08);
+  --cg-border-strong: rgba(255, 255, 255, 0.14);
 
-  --cg-text-main: #1A1C1E;
-  --cg-text-muted: #73777F;
-  --cg-text-soft: #43474E;
-  --cg-text-disabled: #E1E2E4;
+  --cg-text-main: #F5F5F7;
+  --cg-text-muted: #9899A4;
+  --cg-text-soft: #C2C3CB;
+  --cg-text-disabled: #5A5C66;
 
-  --cg-primary: #1C1E21;
-  --cg-primary-hover: #2D3135;
-  --cg-primary-soft: rgba(28, 30, 33, 0.08);
-  --cg-route: #D96B43;
-  --cg-route-future: #B0C4DE;
-  --cg-route-completed: #8793A1;
-  --cg-open: #2E7D32;
-  --cg-open-soft: rgba(46, 125, 50, 0.12);
-  --cg-warning: #D32F2F;
-  --cg-warning-soft: rgba(211, 47, 47, 0.12);
-  --cg-closed: #D32F2F;
-  --cg-closed-soft: rgba(211, 47, 47, 0.12);
-  --cg-rating: #43474E;
+  --cg-primary: #A78BFA;
+  --cg-primary-hover: #B8A9FE;
+  --cg-primary-soft: rgba(167, 139, 250, 0.14);
+  --cg-route: #FF5A00;
+  --cg-route-future: #5A5C66;
+  --cg-route-completed: #9899A4;
+  --cg-open: #86EFAC;
+  --cg-open-soft: rgba(134, 239, 172, 0.14);
+  --cg-warning: #FBBF24;
+  --cg-warning-soft: rgba(251, 191, 36, 0.14);
+  --cg-closed: #F87171;
+  --cg-closed-soft: rgba(248, 113, 113, 0.14);
+  --cg-rating: #FBBF24;
 
   --cg-radius-sm: 6px;
   --cg-radius-md: 12px;
@@ -30,9 +38,18 @@
   --cg-radius-xl: 20px;
   --cg-radius-pill: 999px;
 
-  --cg-shadow-card: 0 2px 4px rgba(0, 0, 0, 0.04);
-  --cg-shadow-sheet: 0 8px 24px rgba(0, 0, 0, 0.12);
-  --cg-shadow-primary: 0 2px 4px rgba(0, 0, 0, 0.08);
+  --cg-shadow-card: 0 2px 12px rgba(0, 0, 0, 0.4);
+  --cg-shadow-sheet: 0 16px 48px rgba(0, 0, 0, 0.56);
+  --cg-shadow-primary: 0 4px 16px rgba(167, 139, 250, 0.22);
+
+  --cg-glass-bg: rgba(18, 18, 24, 0.68);
+  --cg-glass-blur: 18px;
+  --cg-glass-border: rgba(255, 255, 255, 0.06);
+
+  --cg-motion-fast: 0.16s ease;
+  --cg-motion-base: 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  --cg-motion-slow: 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+  --cg-motion-reveal-distance: 14px;
 
   --cg-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
 
@@ -53,6 +70,7 @@
   color: var(--cg-text-main);
   background: var(--cg-bg-main);
   font-family: var(--cg-font-family);
+  color-scheme: dark;
 }
 
 html {
@@ -79,7 +97,14 @@ h1,
   font-size: 24px;
   font-weight: 700;
   line-height: 30px;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
+}
+
+.cg-text-display {
+  color: var(--cg-text-main);
+  font-family: var(--cg-font-family);
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 h2,
@@ -174,12 +199,12 @@ h2,
 .cg-button--secondary {
   color: var(--cg-text-main);
   background: var(--cg-primary-soft);
-  border-color: rgba(124,77,255,0.32);
+  border-color: rgba(167,139,250,0.32);
 }
 
 .cg-button--secondary:hover:not(:disabled) {
-  background: rgba(124,77,255,0.24);
-  border-color: rgba(139,92,246,0.48);
+  background: rgba(167,139,250,0.24);
+  border-color: rgba(167,139,250,0.48);
 }
 
 .cg-button--ghost {
@@ -224,7 +249,7 @@ h2,
 }
 
 .cg-card--interactive:hover {
-  border-color: rgba(124,77,255,0.42);
+  border-color: rgba(167,139,250,0.42);
   box-shadow: var(--cg-shadow-card);
   transform: translateY(-2px);
 }
@@ -332,7 +357,7 @@ h2,
   width: 100%;
   overflow: hidden;
   color: var(--cg-text-muted);
-  background: radial-gradient(circle at top left, rgba(124,77,255,0.22), transparent 34%), var(--cg-bg-elevated);
+  background: radial-gradient(circle at top left, rgba(167,139,250,0.22), transparent 34%), var(--cg-bg-elevated);
   border-radius: var(--cg-radius-md);
   isolation: isolate;
 }
@@ -394,4 +419,42 @@ h2,
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* Obsidian Velora — glass panel primitive (used sparingly: hero overlays, bottom sheets). */
+.cg-glass {
+  background: var(--cg-glass-bg);
+  backdrop-filter: blur(var(--cg-glass-blur));
+  -webkit-backdrop-filter: blur(var(--cg-glass-blur));
+  border: 1px solid var(--cg-glass-border);
+}
+
+/* Obsidian Velora — IntersectionObserver-driven scroll reveal. Toggle .is-visible via JS. */
+.cg-reveal {
+  opacity: 0;
+  transform: translateY(var(--cg-motion-reveal-distance)) scale(0.98);
+  transition: opacity var(--cg-motion-slow), transform var(--cg-motion-slow);
+}
+
+.cg-reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cg-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .cg-button,
+  .cg-card--interactive,
+  .cg-skeleton,
+  .cg-skeleton-line,
+  .cg-skeleton-circle,
+  .cg-skeleton-photo {
+    transition: none !important;
+    animation: none !important;
+  }
 }

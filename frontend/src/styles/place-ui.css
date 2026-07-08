@@ -48,7 +48,7 @@
 .cg-badge--brand {
   color: var(--cg-primary-hover);
   background: var(--cg-primary-soft);
-  border-color: rgba(124, 77, 255, 0.28);
+  border-color: rgba(167, 139, 250, 0.28);
 }
 
 .cg-badge--success {
@@ -219,7 +219,7 @@
 }
 
 .place-ui-card.is-active {
-  border-color: rgba(124,77,255,0.62);
+  border-color: rgba(167,139,250,0.62);
   box-shadow: var(--cg-shadow-primary);
 }
 
@@ -305,7 +305,7 @@
 }
 
 .place-search__field:focus-within {
-  border-color: rgba(124,77,255,0.52);
+  border-color: rgba(167,139,250,0.52);
   box-shadow: 0 0 0 3px var(--cg-primary-soft);
 }
 
