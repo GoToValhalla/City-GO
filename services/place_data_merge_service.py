@@ -29,6 +29,8 @@ class PlaceDataMergeService:
     def apply_safe(self, db: Session, place_id: int, changes: dict[str, object], source: str, confidence: float, actor: str, task_id: int | None = None) -> dict[str, object]:
         place = get_place(db, place_id)
         normalized = self._sanitized_changes(changes)
+        if not normalized:
+            return {"status": "skipped", "place_id": place_id, "reason": "no_safe_changes"}
         reasons = unsafe_reasons(db, place, normalized, source, confidence)
         if reasons:
             review = self.create_review_item(db, place, normalized, source, confidence, ",".join(sorted(set(reasons))), task_id, actor)
@@ -85,7 +87,15 @@ class PlaceDataMergeService:
         db.commit()
 
     def _sanitized_changes(self, changes: dict[str, object]) -> dict[str, object]:
-        return {field: sanitize_change(field, value) for field, value in normalize_changes(changes).items()}
+        sanitized: dict[str, object] = {}
+        for field, value in normalize_changes(changes).items():
+            try:
+                sanitized[field] = sanitize_change(field, value)
+            except ValueError as exc:
+                if str(exc) == "PLACEHOLDER_VALUE":
+                    continue
+                raise
+        return sanitized
 
     def _service_only_values(self, changes: dict[str, object]) -> dict[str, object]:
         category = changes.get("canonical_category") or changes.get("category")
