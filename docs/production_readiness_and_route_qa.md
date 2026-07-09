@@ -2,13 +2,14 @@
 
 ## Production database incident contract
 
-A production deploy is successful only when all of the following are true after backend, bot and import-worker have started:
+A production deploy is successful only when all of the following are true after backend and bot have started, and `import-worker` has been confirmed stopped:
 
 1. PostgreSQL container is `Up` and `pg_isready -U postgres -d city_guide` succeeds.
 2. Backend `GET /ready` executes `SELECT 1` and returns HTTP 200.
 3. Frontend proxy `GET /api/ready` returns HTTP 200.
 4. Authenticated smoke requests for admin places, taxonomy categories and import jobs complete within 15 seconds.
-5. Alembic reports the expected current revision.
+5. `import-worker` is not running; queued import jobs remain queued.
+6. Alembic reports the expected current revision.
 
 `GET /health` is only a process liveness check. It must not be used as a database readiness gate.
 
@@ -20,7 +21,7 @@ On failure, deployment and scheduled production health checks collect:
 - PostgreSQL connection count, active/waiting sessions and long-running queries;
 - `pg_isready` and Alembic state.
 
-Runtime connection pools are intentionally separated: the public backend receives the largest pool, while bot and import-worker use small pools so background processing cannot consume every PostgreSQL connection. PostgreSQL has `restart: unless-stopped`.
+Runtime connection pools are intentionally separated: the public backend receives the largest pool, while bot and import-worker use small pools so background processing cannot consume every PostgreSQL connection. Import-worker still must not auto-start on the current low-memory production host; heavy imports wait for a separate worker-safety fix. PostgreSQL has `restart: unless-stopped`.
 
 ## Immediate recovery
 

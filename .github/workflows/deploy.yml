@@ -353,30 +353,20 @@ jobs:
             exit "$UP_STATUS"
           fi
 
-          echo "=== docker compose up import-worker (bounded, explicit ops service only) ==="
-          set +e
-          timeout 120s docker compose up -d --no-deps import-worker
-          WORKER_UP_STATUS=$?
-          set -e
-          if [ "$WORKER_UP_STATUS" -ne 0 ]; then
-            echo "ERROR: import-worker compose up timed out or failed (exit code ${WORKER_UP_STATUS})" >&2
-            exit "$WORKER_UP_STATUS"
-          fi
-
+          echo "=== Ensure import-worker stays stopped after deploy ==="
+          docker compose stop import-worker || true
           WORKER_ID="$(docker compose ps -aq import-worker | head -n 1 || true)"
-          if [ -z "$WORKER_ID" ]; then
-            echo "ERROR: import-worker container is missing after deploy." >&2
-            docker compose ps || true
-            exit 1
+          WORKER_STATE="not_created"
+          if [ -n "$WORKER_ID" ]; then
+            WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
           fi
-          WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || true)"
-          if [ "$WORKER_STATE" != "running" ]; then
-            echo "ERROR: import-worker is not running after deploy; state=${WORKER_STATE:-unknown}." >&2
+          if [ "$WORKER_STATE" = "running" ]; then
+            echo "ERROR: import-worker is running after deploy; deploy must not start heavy imports on this host." >&2
             docker compose ps import-worker || true
             docker compose logs --tail=150 import-worker || true
             exit 1
           fi
-          echo "import-worker running: ${WORKER_ID}"
+          echo "import-worker not running after deploy; state=${WORKER_STATE}"
 
           echo "=== Docker compose status after deploy up ==="
           docker compose ps
@@ -487,21 +477,20 @@ jobs:
             exit 1
           fi
 
-          echo "=== Verifying import-worker runtime state ==="
+          echo "=== Verifying import-worker remains stopped ==="
+          docker compose stop import-worker || true
           WORKER_ID="$(docker compose ps -aq import-worker | head -n 1 || true)"
-          if [ -z "$WORKER_ID" ]; then
-            echo "ERROR: import-worker container is missing after backend readiness passed." >&2
-            docker compose ps || true
-            exit 1
+          WORKER_STATE="not_created"
+          if [ -n "$WORKER_ID" ]; then
+            WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
           fi
-          WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || true)"
-          if [ "$WORKER_STATE" != "running" ]; then
-            echo "ERROR: import-worker is not running after backend readiness passed; state=${WORKER_STATE:-unknown}." >&2
+          if [ "$WORKER_STATE" = "running" ]; then
+            echo "ERROR: import-worker is still running after backend readiness passed; deploy must keep it stopped." >&2
             docker compose ps import-worker || true
             show_logs import-worker 150
             exit 1
           fi
-          echo "Backend /ready and import-worker runtime checks passed."
+          echo "Backend /ready passed and import-worker is not running; state=${WORKER_STATE}."
           REMOTE
 
       - name: Cleanup old images after confirmed healthy deploy

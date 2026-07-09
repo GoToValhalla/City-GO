@@ -48,16 +48,17 @@ def test_ops_profile_services_are_known_and_not_all_deploy_safe_new() -> None:
     ]
 
 
-def test_deploy_restarts_import_worker_after_removing_it_new() -> None:
+def test_deploy_keeps_import_worker_stopped_after_app_up_new() -> None:
     text = _workflow()
     stop_idx = text.index("docker compose stop frontend backend import-worker bot")
     rm_idx = text.index("docker compose rm -f frontend backend import-worker bot")
-    start_idx = text.index("timeout 120s docker compose up -d --no-deps import-worker")
-    verify_idx = text.index("ERROR: import-worker is not running after deploy")
+    up_idx = text.index("timeout 180s docker compose up -d --remove-orphans")
+    ensure_idx = text.index("=== Ensure import-worker stays stopped after deploy ===")
+    verify_idx = text.index("ERROR: import-worker is running after deploy")
 
-    assert stop_idx < start_idx
-    assert rm_idx < start_idx
-    assert start_idx < verify_idx
+    assert stop_idx < up_idx
+    assert rm_idx < up_idx
+    assert up_idx < ensure_idx < verify_idx
 
 
 def test_deploy_does_not_start_whole_ops_profile_new() -> None:
@@ -67,16 +68,28 @@ def test_deploy_does_not_start_whole_ops_profile_new() -> None:
     deploy_section = text[deploy_start:verify_build_start]
 
     assert "--profile ops" not in deploy_section
-    assert "docker compose up -d --no-deps import-worker" in deploy_section
+    assert "timeout 120s docker compose up -d --no-deps import-worker" not in text
+    assert "docker compose up -d --no-deps import-worker" not in deploy_section
     assert "docker compose up -d seed" not in deploy_section
     assert "docker compose up -d address-backfill" not in deploy_section
     assert "docker compose up -d place-enrichment-export" not in deploy_section
 
 
-def test_deploy_verifies_import_worker_after_backend_ready_new() -> None:
+def test_deploy_explicitly_stops_import_worker_new() -> None:
+    text = _workflow()
+    deploy_start = text.index("name: Deploy on server")
+    cleanup_start = text.index("name: Cleanup old images after confirmed healthy deploy")
+    deploy_section = text[deploy_start:cleanup_start]
+
+    assert deploy_section.count("docker compose stop import-worker || true") == 2
+    assert 'if [ "$WORKER_STATE" = "running" ]; then' in deploy_section
+    assert 'if [ "$WORKER_STATE" != "running" ]; then' not in deploy_section
+
+
+def test_deploy_verifies_import_worker_stopped_after_backend_ready_new() -> None:
     text = _workflow()
     ready_idx = text.index("Backend ready check passed")
-    worker_verify_idx = text.index("=== Verifying import-worker runtime state ===")
-    success_idx = text.index("Backend /ready and import-worker runtime checks passed.")
+    worker_verify_idx = text.index("=== Verifying import-worker remains stopped ===")
+    success_idx = text.index("Backend /ready passed and import-worker is not running")
 
     assert ready_idx < worker_verify_idx < success_idx

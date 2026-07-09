@@ -193,7 +193,7 @@ curl -sf http://localhost:8000/health
 
 `import-worker` — отдельный consumer очереди `admin_city_import`; тяжёлые импорты не
 должны выполняться внутри backend/web/API. В `docker-compose.yml` сервис находится
-за profile `ops`, но production deploy не включает весь profile целиком.
+за profile `ops`, и production deploy не включает весь profile целиком.
 
 Сервисы в profile `ops`:
 
@@ -205,15 +205,27 @@ import-worker
 ```
 
 `seed`, `address-backfill` и `place-enrichment-export` — ручные/одноразовые ops-задачи,
-поэтому deploy явно стартует только сервис `import-worker`:
+поэтому deploy не должен использовать `--profile ops`.
+
+После инцидента CITYGO-276 deploy также не стартует `import-worker` автоматически.
+На текущем production host около 965 MiB RAM без swap; запуск worker на старой
+очереди full import привёл к pressure по памяти, `app-import-worker-1` завершился
+с `Exited (137)`, а backend стал недоступен через frontend/nginx с 502.
+
+Текущий deploy-контракт:
 
 ```bash
-docker compose up -d --no-deps import-worker
+docker compose stop import-worker || true
 ```
 
-После старта workflow проверяет, что container для `import-worker` существует и имеет
-Docker state `running`. Если container отсутствует, `exited` или `restarting`, deploy
-падает без постановки jobs в очередь и без запуска импорта вручную.
+Workflow проверяет, что backend `/ready` проходит, а `import-worker` после deploy
+не имеет Docker state `running`. Если worker всё ещё running, deploy падает с явной
+ошибкой. Очереди import jobs при этом не меняются: queued jobs остаются queued до
+отдельного future worker-safety fix.
+
+До реализации отдельной безопасности worker нельзя запускать full import/retry
+collection на production. Emergency stop/restart workflows существуют только для
+митигирования backend/API incident и не являются способом запуска import pipeline.
 
 ---
 
