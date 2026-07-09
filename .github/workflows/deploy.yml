@@ -362,9 +362,40 @@ jobs:
         run: |
           set -euo pipefail
           expected="${CITY_GO_BUILD_SHA:0:7}"
-          actual="$(ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "curl -fsS --max-time 10 http://localhost/build.json | python3 -c 'import json,sys; print(json.load(sys.stdin).get(\"sha\", \"\")[:7])'")"
-          test "$actual" = "$expected"
+          echo "Expected build sha prefix: ${expected}"
+
+          remote_out="$(ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash <<'REMOTE'
+            set -uo pipefail
+            status="$(curl -sS --max-time 10 -o /tmp/build.json -w '%{http_code}' \
+              --resolve citygo.autismishe.online:443:127.0.0.1 \
+              https://citygo.autismishe.online/build.json)"
+            echo "HTTP_STATUS=${status}"
+            echo "BODY_PREVIEW_BASE64=$(head -c 300 /tmp/build.json | base64 | tr -d '\n')"
+            actual_sha="$(python3 -c 'import json; print(json.load(open("/tmp/build.json")).get("sha", "")[:7])' 2>/dev/null || true)"
+            echo "ACTUAL_SHA=${actual_sha}"
+          REMOTE
+          )"
+
+          echo "$remote_out"
+
+          status="$(grep '^HTTP_STATUS=' <<<"$remote_out" | cut -d= -f2-)"
+          body_preview="$(grep '^BODY_PREVIEW_BASE64=' <<<"$remote_out" | cut -d= -f2- | base64 -d 2>/dev/null || true)"
+          actual="$(grep '^ACTUAL_SHA=' <<<"$remote_out" | cut -d= -f2-)"
+
+          echo "HTTP status: ${status}"
+          echo "Expected sha: ${expected}"
+          echo "Actual sha: ${actual}"
+
+          if [ -z "$actual" ]; then
+            echo "Failed to parse build.json as JSON. Body preview:"
+            echo "${body_preview}"
+            exit 1
+          fi
+
+          if [ "$actual" != "$expected" ]; then
+            echo "Deployed build sha does not match expected sha."
+            exit 1
+          fi
 
       - name: Verify backend ready
         shell: bash
