@@ -1,0 +1,120 @@
+name: CITY GO · EMERGENCY · Stop Import Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type exactly STOP_IMPORT_WORKER to confirm this emergency action.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  emergency-stop-import-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Require exact confirmation text
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirmation }}" != "STOP_IMPORT_WORKER" ]; then
+            echo "ERROR: confirmation input must be exactly STOP_IMPORT_WORKER (got: '${{ inputs.confirmation }}')." >&2
+            exit 1
+          fi
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Stop import-worker and collect evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/emergency-stop-import-worker
+          LOG=/tmp/emergency-stop-import-worker/report.log
+
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            -i ~/.ssh/deploy_key \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" bash <<'REMOTE_EOF' | tee "$LOG"
+            set -uo pipefail
+            cd /srv/app
+
+            section() { echo; echo "=== $1 ==="; }
+
+            section "docker compose stop import-worker"
+            docker compose stop import-worker 2>&1 || echo "(stop failed or already stopped)"
+
+            section "curl /api/health after stop"
+            curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
+              https://citygo.autismishe.online/api/health 2>&1 || echo "(curl failed)"
+
+            section "curl /api/ready after stop"
+            curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
+              https://citygo.autismishe.online/api/ready 2>&1 || echo "(curl failed)"
+
+            section "docker compose ps -a"
+            docker compose ps -a 2>&1 || echo "(docker compose ps failed)"
+
+            section "docker compose logs --tail=100 backend"
+            docker compose logs --tail=100 backend 2>&1 || echo "(no backend logs)"
+
+            section "docker compose logs --tail=100 import-worker"
+            docker compose logs --tail=100 import-worker 2>&1 || echo "(no import-worker logs)"
+
+            section "docker compose logs --tail=100 frontend"
+            docker compose logs --tail=100 frontend 2>&1 || echo "(no frontend logs)"
+
+            section "docker stats --no-stream"
+            docker stats --no-stream 2>&1 || echo "(docker stats failed)"
+
+            section "free -h"
+            free -h 2>&1 || echo "(free failed)"
+
+            echo
+            echo "=== emergency mitigation complete: import-worker stopped, no deploy/image-pull/DB-mutation/enqueue/restart performed ==="
+          REMOTE_EOF
+
+      - name: Upload evidence log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emergency-stop-import-worker-report
+          path: /tmp/emergency-stop-import-worker
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Telegram emergency notification
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            exit 0
+          fi
+          TEXT="🛑 City Go EMERGENCY: import-worker stop requested%0AStatus: ${{ job.status }}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
