@@ -1,0 +1,130 @@
+name: 92 · CITY GO · OPS · HTTPS Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  https-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DOMAIN: citygo.autismishe.online
+    steps:
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run read-only HTTPS/nginx diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/https-diagnostics
+          LOG=/tmp/https-diagnostics/report.log
+
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            -i ~/.ssh/deploy_key \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" DOMAIN="$DOMAIN" bash <<'REMOTE_EOF' | tee "$LOG"
+            set -uo pipefail
+
+            section() { echo; echo "=== $1 ==="; }
+
+            section "hostname/date/whoami"
+            hostname; date -u; whoami
+
+            section "public server IP"
+            curl -fsS --max-time 10 https://ifconfig.me 2>&1 || echo "(could not determine public IP)"
+            echo
+
+            section "DNS resolution for $DOMAIN"
+            getent hosts "$DOMAIN" 2>&1 || echo "(getent failed)"
+            command -v dig >/dev/null 2>&1 && dig +short "$DOMAIN" 2>&1 || echo "(dig not available)"
+
+            section "port 443 listening"
+            (sudo ss -tlnp 2>&1 || ss -tlnp 2>&1) | grep -E ':443|:80' || echo "(nothing listening on 80/443)"
+
+            section "nginx on host"
+            command -v nginx >/dev/null 2>&1 && nginx -v 2>&1 || echo "(no host nginx binary found)"
+            systemctl status nginx --no-pager 2>&1 | head -5 || echo "(no nginx systemd unit)"
+
+            section "nginx inside containers"
+            docker ps --format '{{.Names}}\t{{.Image}}\t{{.Ports}}' 2>&1 | grep -i nginx || echo "(no container with nginx in name/image)"
+
+            section "nginx config locations (host)"
+            sudo find /etc/nginx -iname '*.conf' 2>&1 || echo "(no /etc/nginx on host)"
+
+            section "server block for $DOMAIN (host nginx)"
+            sudo nginx -T 2>&1 | grep -B5 -A 25 "server_name.*${DOMAIN}" || echo "(no matching server_name block found in host nginx -T)"
+
+            section "config references to certbot cert/key paths"
+            sudo grep -rn "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" /etc/nginx 2>&1 || echo "(fullchain.pem path not referenced in /etc/nginx)"
+            sudo grep -rn "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" /etc/nginx 2>&1 || echo "(privkey.pem path not referenced in /etc/nginx)"
+
+            section "cert/key files existence"
+            sudo ls -la "/etc/letsencrypt/live/${DOMAIN}/" 2>&1 || echo "(cert directory not found)"
+
+            section "nginx -t (host nginx, if present)"
+            command -v nginx >/dev/null 2>&1 && sudo nginx -t 2>&1 || echo "(host nginx not present, skipped)"
+
+            section "docker ps"
+            docker ps 2>&1 || echo "(docker ps failed)"
+
+            section "docker compose ps (/srv/app)"
+            if [ -d /srv/app ]; then
+              (cd /srv/app && docker compose ps 2>&1) || echo "(docker compose ps failed)"
+            else
+              echo "(/srv/app does not exist)"
+            fi
+
+            section "curl -Iv http://$DOMAIN"
+            curl -Iv --max-time 15 "http://${DOMAIN}" 2>&1 || echo "(http curl failed)"
+
+            section "curl -Iv https://$DOMAIN"
+            curl -Iv --max-time 15 "https://${DOMAIN}" 2>&1 || echo "(https curl failed)"
+
+            echo
+            echo "=== diagnostics complete (read-only; no config, reload, certbot, container, or DB changes made) ==="
+          REMOTE_EOF
+
+      - name: Upload diagnostics log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: https-diagnostics-report
+          path: /tmp/https-diagnostics
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Telegram diagnostics summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            exit 0
+          fi
+          TEXT="🔎 City Go HTTPS diagnostics finished%0ADomain: ${DOMAIN}%0AStatus: ${{ job.status }}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
