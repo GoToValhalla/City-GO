@@ -1,0 +1,149 @@
+name: CITY GO · EMERGENCY · Restart Backend Only
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type exactly RESTART_BACKEND_ONLY to confirm this emergency action.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  emergency-restart-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Require exact confirmation text
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirmation }}" != "RESTART_BACKEND_ONLY" ]; then
+            echo "ERROR: confirmation input must be exactly RESTART_BACKEND_ONLY (got: '${{ inputs.confirmation }}')." >&2
+            exit 1
+          fi
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Restart backend only and collect evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/emergency-restart-backend
+          LOG=/tmp/emergency-restart-backend/report.log
+
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            -i ~/.ssh/deploy_key \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" bash <<'REMOTE_EOF' | tee "$LOG"
+            set -uo pipefail
+            cd /srv/app
+
+            section() { echo; echo "=== $1 ==="; }
+
+            section "before restart: docker compose ps -a"
+            docker compose ps -a 2>&1 || echo "(docker compose ps failed)"
+
+            section "before restart: docker compose logs --tail=150 backend"
+            docker compose logs --tail=150 backend 2>&1 || echo "(no backend logs)"
+
+            section "before restart: docker compose logs --tail=80 frontend"
+            docker compose logs --tail=80 frontend 2>&1 || echo "(no frontend logs)"
+
+            section "before restart: docker stats --no-stream"
+            docker stats --no-stream 2>&1 || echo "(docker stats failed)"
+
+            section "before restart: free -h"
+            free -h 2>&1 || echo "(free failed)"
+
+            section "ensure import-worker is not running"
+            docker compose stop import-worker 2>&1 || echo "(import-worker already stopped or stop failed)"
+
+            section "restart backend only"
+            docker compose restart backend 2>&1
+
+            section "wait 20 seconds after backend restart"
+            sleep 20
+
+            section "curl /api/health after restart"
+            HEALTH_HTTP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+              https://citygo.autismishe.online/api/health 2>/dev/null || echo "000")
+            echo "HTTP=${HEALTH_HTTP_CODE}"
+            echo "HEALTH_HTTP_CODE=${HEALTH_HTTP_CODE}"
+
+            section "curl /api/ready after restart"
+            READY_HTTP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 \
+              https://citygo.autismishe.online/api/ready 2>/dev/null || echo "000")
+            echo "HTTP=${READY_HTTP_CODE}"
+            echo "READY_HTTP_CODE=${READY_HTTP_CODE}"
+
+            section "after restart: docker compose ps -a"
+            docker compose ps -a 2>&1 || echo "(docker compose ps failed)"
+
+            section "after restart: docker compose logs --tail=150 backend"
+            docker compose logs --tail=150 backend 2>&1 || echo "(no backend logs)"
+
+            section "after restart: docker stats --no-stream"
+            docker stats --no-stream 2>&1 || echo "(docker stats failed)"
+
+            section "after restart: free -h"
+            free -h 2>&1 || echo "(free failed)"
+
+            echo
+            echo "=== emergency restart complete: backend restarted only; no deploy/image-pull/DB-mutation/enqueue/import-worker-start performed ==="
+
+            if [ "${HEALTH_HTTP_CODE}" != "200" ] || [ "${READY_HTTP_CODE}" != "200" ]; then
+              echo "ERROR: post-restart verification failed (health=${HEALTH_HTTP_CODE}, ready=${READY_HTTP_CODE})" >&2
+              exit 1
+            fi
+          REMOTE_EOF
+
+          HEALTH_CODE=$(grep '^HEALTH_HTTP_CODE=' "$LOG" | tail -1 | cut -d= -f2- || true)
+          READY_CODE=$(grep '^READY_HTTP_CODE=' "$LOG" | tail -1 | cut -d= -f2- || true)
+          echo "HEALTH_HTTP_CODE=${HEALTH_CODE:-unknown}" >> "$GITHUB_ENV"
+          echo "READY_HTTP_CODE=${READY_CODE:-unknown}" >> "$GITHUB_ENV"
+
+      - name: Upload evidence log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emergency-restart-backend-report
+          path: /tmp/emergency-restart-backend
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Telegram emergency notification
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            exit 0
+          fi
+          TEXT="🚨 City Go EMERGENCY: backend restart only%0AStatus: ${{ job.status }}%0AHealth: ${HEALTH_HTTP_CODE:-unknown}%0AReady: ${READY_HTTP_CODE:-unknown}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
