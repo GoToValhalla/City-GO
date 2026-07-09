@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 10
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     env:
-      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
+      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL || 'https://citygo.autismishe.online' }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha || '' }}
@@ -47,6 +47,7 @@ jobs:
           set -euo pipefail
           if [ -n "${PRODUCTION_BASE_URL:-}" ]; then
             echo "production_smoke_target=PRODUCTION_BASE_URL"
+            echo "production_smoke_base_url=${PRODUCTION_BASE_URL}"
           elif [ -n "${SSH_HOST:-}" ]; then
             echo "production_smoke_target=SSH_HOST_HTTP_FALLBACK"
           else
@@ -83,4 +84,3 @@ jobs:
           else
             printf '❌ CITY GO · PRODUCTION SMOKE\nCommit: %s\nFailed checks:\n- smoke workflow did not produce summary\n%s\n' "${EXPECTED_SHA:0:7}" "$GITHUB_RUN_URL" > /tmp/production-smoke-fallback.txt
             python scripts/send_telegram_notification.py --text-file /tmp/production-smoke-fallback.txt --allow-missing
-          fi
