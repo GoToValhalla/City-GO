@@ -35,13 +35,11 @@ def enrich_destination_places(db: Session, places: list[Place], counters: dict[s
 
 
 def _missing_changes(place: Place) -> dict[str, object]:
-    changes: dict[str, object] = {}
-    if not place.short_description:
-        changes["short_description"] = f"{place.title} — место в направлении City GO."
-    if not place.address:
-        changes["address"] = "Адрес уточнён по контуру направления"
-    if not place.opening_hours:
-        changes["opening_hours"] = {"text": "Время работы уточняется"}
-    if not place.average_visit_duration_minutes:
-        changes["average_visit_duration_minutes"] = 25
-    return changes
+    """Return deterministic enrichment changes for genuinely known missing data.
+
+    Stage 0 data-foundation rule: missing data must stay missing. This function must
+    never invent address, opening-hours, description, or visit-duration placeholders
+    just to increase downstream coverage/readiness metrics.
+    """
+
+    return {}
