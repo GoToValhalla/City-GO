@@ -22,19 +22,10 @@ jobs:
         id: resolve-url
         shell: bash
         env:
-          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
+          PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL || 'https://citygo.autismishe.online' }}
         run: |
           set -euo pipefail
-          BASE_URL="${PRODUCTION_BASE_URL:-}"
-          if [ -z "$BASE_URL" ] && [ -n "${SSH_HOST:-}" ]; then
-            BASE_URL="http://${SSH_HOST}"
-          fi
-          if [ -z "$BASE_URL" ]; then
-            echo "No PRODUCTION_BASE_URL or SSH_HOST secret configured" >&2
-            exit 2
-          fi
-          BASE_URL="${BASE_URL%/}"
+          BASE_URL="${PRODUCTION_BASE_URL%/}"
           echo "base_url=$BASE_URL" >> "$GITHUB_OUTPUT"
 
       - name: Check public and admin edge status codes
