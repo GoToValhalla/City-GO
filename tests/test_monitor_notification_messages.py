@@ -166,7 +166,7 @@ def test_catalog_monitor_uses_trailing_slash_for_places_api(monkeypatch) -> None
 
     assert exit_code == 0
     assert "публичный каталог доступен" in text
-    assert calls[1] == "http://2.27.4.31/api/places/?city_slug=arkhangelsk&limit=1&offset=0"
+    assert calls[1] == "https://2.27.4.31/api/places/?city_slug=arkhangelsk&limit=1&offset=0"
 
 
 def test_known_missing_poi_seed_contains_kutaisi_regression_set() -> None:

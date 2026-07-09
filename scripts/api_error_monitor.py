@@ -43,8 +43,10 @@ class CheckResult:
 
 
 def _base_url(host: str) -> str:
-    host = host.strip().removeprefix("http://").removeprefix("https://").rstrip("/")
-    return f"http://{host}"
+    stripped = host.strip()
+    if stripped.startswith("https://") or stripped.startswith("http://"):
+        return stripped.rstrip("/")
+    return f"https://{stripped.rstrip('/')}"
 
 
 def _run_url() -> str:

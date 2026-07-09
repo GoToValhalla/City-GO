@@ -33,9 +33,11 @@ def test_production_smoke_validates_base_url() -> None:
         normalize_base_url("example.com")
 
 
-@title("Production smoke falls back to SSH_HOST when base URL secret is absent")
-def test_production_smoke_falls_back_to_ssh_host_when_base_url_secret_absent(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert resolve_base_url("", "203.0.113.10") == "http://203.0.113.10"
+@title("Production smoke never uses SSH_HOST/raw IP as the public HTTPS target")
+def test_production_smoke_ignores_ssh_host_and_defaults_to_domain(monkeypatch: pytest.MonkeyPatch) -> None:
+    # SSH_HOST is the raw production IP, used for SSH/deploy — the TLS cert is
+    # issued for the domain, so it must never become the public smoke target.
+    assert resolve_base_url("", "203.0.113.10") == "https://citygo.autismishe.online"
     assert resolve_base_url("https://city.example", "203.0.113.10") == "https://city.example"
 
     monkeypatch.setenv("SSH_HOST", "203.0.113.10")
@@ -49,7 +51,7 @@ def test_production_smoke_falls_back_to_ssh_host_when_base_url_secret_absent(mon
         route_lng=None,
     )
 
-    assert config_from_env(args).base_url == "http://203.0.113.10"
+    assert config_from_env(args).base_url == "https://citygo.autismishe.online"
 
 
 @title("Production smoke reports missing target as skipped")

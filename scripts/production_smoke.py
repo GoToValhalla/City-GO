@@ -156,13 +156,22 @@ def normalize_base_url(value: str) -> str:
     return url
 
 
+DEFAULT_PRODUCTION_BASE_URL = "https://citygo.autismishe.online"
+
+
 def resolve_base_url(candidate: str, ssh_host: str = "") -> str:
+    """Resolve the public HTTPS base URL for smoke checks.
+
+    ssh_host (the raw production IP) must never become the public HTTPS
+    target: the TLS certificate is issued for the domain, not the IP, so an
+    http://<ip> fallback either fails TLS verification once redirected to
+    HTTPS, or silently skips certificate validation over plain HTTP. If no
+    explicit base URL is configured, default to the known-valid domain
+    instead of guessing a scheme for the IP.
+    """
     if candidate.strip():
         return normalize_base_url(candidate)
-    host = ssh_host.strip()
-    if host:
-        return normalize_base_url(f"http://{host}")
-    return normalize_base_url("")
+    return normalize_base_url(DEFAULT_PRODUCTION_BASE_URL)
 
 
 def config_from_env(args: argparse.Namespace) -> ProductionSmokeConfig:

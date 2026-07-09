@@ -22,8 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     env:
-      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL }}
-      SSH_HOST: ${{ secrets.SSH_HOST }}
+      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL || 'https://citygo.autismishe.online' }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
     steps:
       - name: Run admin screen diagnostics
@@ -32,11 +31,7 @@ jobs:
           set -euo pipefail
           mkdir -p /tmp/admin-diagnostics
 
-          BASE_URL="${PRODUCTION_BASE_URL:-}"
-          BASE_URL="${BASE_URL%/}"
-          if [ -z "$BASE_URL" ]; then
-            BASE_URL="http://${SSH_HOST}"
-          fi
+          BASE_URL="${PRODUCTION_BASE_URL%/}"
           if [ -z "${ADMIN_API_TOKEN:-}" ]; then
             echo "ADMIN_API_TOKEN secret is required" >&2
             exit 1

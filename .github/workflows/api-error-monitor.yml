@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      PROD_HOST: ${{ secrets.SSH_HOST }}
+      PROD_HOST: ${{ secrets.PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL || 'https://citygo.autismishe.online' }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

@@ -45,11 +45,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # PRODUCTION_BASE_URL always resolves to a value (secret, var, or the
+          # https://citygo.autismishe.online default in env: above) — SSH_HOST
+          # (the raw production IP) is never used as the public HTTPS smoke
+          # target, since the TLS cert is issued for the domain, not the IP.
           if [ -n "${PRODUCTION_BASE_URL:-}" ]; then
             echo "production_smoke_target=PRODUCTION_BASE_URL"
             echo "production_smoke_base_url=${PRODUCTION_BASE_URL}"
-          elif [ -n "${SSH_HOST:-}" ]; then
-            echo "production_smoke_target=SSH_HOST_HTTP_FALLBACK"
           else
             echo "production_smoke_target=not_configured"
           fi
