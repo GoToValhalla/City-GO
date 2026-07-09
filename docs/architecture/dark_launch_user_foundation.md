@@ -53,6 +53,10 @@ Disabled API shape:
 { "detail": { "code": "feature_disabled", "feature": "<flag>" } }
 ```
 
+Endpoints are also hidden from `/openapi.json` and `/docs` (`include_in_schema=False` on the router) while flags are OFF, so the skeleton surface is not publicly discoverable. Direct calls still resolve and return the structured 404 above.
+
+`core/feature_flags.py:validate_feature_flag_configuration()` checks configured (not effective) flag values against the dependency rules above and raises `ValueError` on startup if an operator enables a flag without its required dependency — this catches contradictory config early instead of silently no-oping.
+
 ## Schema foundation
 
 Migration: `migrations/versions/b2c3d4e5f6a7_dark_launch_user_foundation.py`.
@@ -79,6 +83,8 @@ New additive tables only:
 - `user_foundation_audit_logs`
 
 No hot public table is altered.
+
+Deploy warning: this migration adds FKs to `places` and `routes`. Before running it against production, validate migration timing on a staging/prod-like database (lock duration under real table size and concurrent traffic). Do not run it against production automatically as part of this fix.
 
 ## Telegram identity model
 

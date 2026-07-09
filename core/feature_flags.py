@@ -101,3 +101,24 @@ def require_feature(flag: FeatureFlag | str) -> None:
 
 def effective_feature_matrix(flags: Iterable[FeatureFlag] | None = None) -> dict[str, bool]:
     return {flag.value: is_feature_enabled(flag) for flag in (tuple(flags) if flags is not None else all_feature_flags())}
+
+
+def validate_feature_flag_configuration() -> None:
+    """Raise if a configured (raw settings) flag depends on a flag configured False.
+
+    This checks configured state, not effective state: is_feature_enabled() already
+    cascades dependency gating at runtime, so a misconfigured flag never leaks behavior.
+    This validator instead catches contradictory config at startup (e.g. public_reviews
+    turned on while moderation is off), which would otherwise silently no-op forever.
+    """
+
+    errors: list[str] = []
+    for flag, dependencies in _FLAG_DEPENDENCIES.items():
+        if not bool(getattr(settings, feature_flag_setting_name(flag), False)):
+            continue
+        for dependency in dependencies:
+            if not bool(getattr(settings, feature_flag_setting_name(dependency), False)):
+                errors.append(f"{flag.value} requires {dependency.value} to be enabled")
+
+    if errors:
+        raise ValueError("Invalid feature flag configuration: " + "; ".join(errors))

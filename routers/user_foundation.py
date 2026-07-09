@@ -15,7 +15,12 @@ from schemas.user_foundation import (
     TelegramVerifyRequest,
 )
 
-router = APIRouter(tags=["user-foundation"])
+# Dark-launch endpoints must not appear in /openapi.json or /docs while the
+# corresponding feature flags are OFF by default. include_in_schema=False hides
+# them from schema generation; require_feature() still gates every handler at
+# call time regardless of schema visibility, so a direct request still returns
+# a structured 404 (feature_disabled).
+router = APIRouter(tags=["user-foundation"], include_in_schema=False)
 
 
 def _auth_not_implemented() -> None:

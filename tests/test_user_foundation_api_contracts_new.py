@@ -58,3 +58,35 @@ def test_no_reviews_leak_when_public_reviews_flag_off_new(client) -> None:
     response = client.get("/places/1/reviews")
     assert response.status_code == 404
     assert response.json() == {"detail": {"code": "feature_disabled", "feature": "public_reviews.enabled"}}
+
+
+def test_dark_launch_endpoints_hidden_from_openapi_new(client) -> None:
+    schema = client.get("/openapi.json").json()
+    paths = schema["paths"]
+
+    hidden_paths = [
+        "/me",
+        "/me/profile",
+        "/identity/telegram/verify",
+        "/identity/link",
+        "/identity/links",
+        "/me/favorites",
+        "/me/saved-routes",
+        "/places/{place_id}/reviews",
+        "/reviews/{review_id}/vote",
+        "/places/{place_id}/suggestions",
+        "/admin/moderation",
+    ]
+    for path in hidden_paths:
+        assert path not in paths, f"{path} must not be present in OpenAPI schema while flags are OFF"
+
+
+def test_place_detail_route_not_shadowed_by_reviews_route_new(client, place_factory) -> None:
+    place = place_factory()
+
+    detail_response = client.get(f"/places/{place.id}")
+    assert detail_response.status_code == 200
+
+    reviews_response = client.get(f"/places/{place.id}/reviews")
+    assert reviews_response.status_code == 404
+    assert reviews_response.json() == {"detail": {"code": "feature_disabled", "feature": "public_reviews.enabled"}}
