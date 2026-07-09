@@ -4,6 +4,7 @@ from unittest.mock import patch
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.city_import_scope import CityImportScope
+from models.system_log import SystemLog
 from services.admin_city_import_job_payload import build_import_job_payload
 from services.admin_city_import_job_service import queue_city_import_job, run_city_import_job
 from services.admin_city_import_runner import summarize_import_results
@@ -107,6 +108,15 @@ def test_stalled_running_job_is_marked_failed_and_retryable_new(db_session) -> N
     assert city.launch_status == "import_failed"
     assert payload["can_retry"] is True
     assert payload["last_error"]
+
+    log = db_session.query(SystemLog).filter_by(level="error", request_id=str(job.id)).one()
+    assert log.details["event"] == "worker_job_stalled"
+    assert log.details["job_id"] == job.id
+    assert log.details["city_id"] == city.id
+    assert log.details["previous_status"] == "running"
+    assert log.details["new_status"] == "stalled"
+    assert log.details["last_error"] == job.last_error
+    assert log.city_slug == city.slug
 
 
 def test_import_queue_summary_counts_active_jobs_only_new(db_session) -> None:

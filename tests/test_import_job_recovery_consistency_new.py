@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.place import Place
+from models.system_log import SystemLog
 from services.admin_city_import_job_payload import build_import_job_payload
 from services.admin_city_import_tasks import mark_stalled_import_jobs
 from services.admin_import_display import job_execution_failed, resolve_import_display
@@ -57,6 +58,15 @@ def test_stuck_running_job_recovery_leaves_queue_and_job_card_agreeing_new(clien
     assert payload["job_execution_failed"] is True
     assert payload["status"] != "running"
     assert payload["current_step_label"] != "Выполняется"
+
+    log = db_session.query(SystemLog).filter_by(level="error", request_id=str(job.id)).one()
+    assert log.details["event"] == "manual_stalled_recovery"
+    assert log.details["job_id"] == job.id
+    assert log.details["city_id"] == city.id
+    assert log.details["previous_status"] == "running"
+    assert log.details["new_status"] == "stalled"
+    assert log.details["last_error"] == job.last_error
+    assert log.city_slug == city.slug
 
 
 def test_second_recovery_call_is_idempotent_and_does_not_corrupt_state_new(client, db_session, city_factory) -> None:

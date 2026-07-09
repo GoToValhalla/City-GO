@@ -201,6 +201,7 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
     alerts: list[dict[str, object]] = []
     for job in stalled:
         city = db.query(City).filter(City.id == job.city_id).first()
+        previous_status = job.status
         job.status = "stalled"
         job.finished_at = current
         job.last_error = job.last_error or "Import job stalled: no heartbeat before timeout"
@@ -209,6 +210,25 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
         if city is not None and city.launch_status == "importing":
             city.launch_status = "import_failed"
             city.is_active = False
+        write_system_log(
+            db,
+            level="error",
+            module="import_worker",
+            message=f"Import worker marked job #{job.id} as stalled: {job.last_error}",
+            details={
+                "event": "worker_job_stalled",
+                "job_id": int(job.id),
+                "city_id": int(job.city_id),
+                "source": job.source,
+                "previous_status": previous_status,
+                "new_status": "stalled",
+                "last_error": job.last_error,
+            },
+            city_slug=city_slug,
+            request_id=str(job.id),
+            actor_id=actor_id,
+            commit=False,
+        )
         try:
             refresh_import_job_snapshot(db, city_id=int(job.city_id), source="stalled_job_recovery")
         except Exception:

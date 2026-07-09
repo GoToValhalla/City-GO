@@ -162,6 +162,7 @@ def mark_stuck_import_jobs(auth: AdminContext = Depends(admin_required), db: Ses
     marked: list[int] = []
     for job in stuck:
         city = db.query(City).filter(City.id == job.city_id).first()
+        previous_status = job.status
         details = dict(job.step_details or {})
         details["manual_stalled_recovery"] = {
             "marked_at": now.isoformat(),
@@ -174,9 +175,29 @@ def mark_stuck_import_jobs(auth: AdminContext = Depends(admin_required), db: Ses
         job.last_error = job.last_error or "Import job manually marked as stalled after exceeding runtime timeout"
         job.finished_at = now
         job.updated_at = now
+        city_slug = city.slug if city is not None else None
         if city is not None and city.launch_status != "published":
             city.launch_status = "import_failed"
             city.is_active = False
+        write_system_log(
+            db,
+            level="error",
+            module="city_import",
+            message=f"Admin manually marked job #{job.id} as stalled: {job.last_error}",
+            details={
+                "event": "manual_stalled_recovery",
+                "job_id": int(job.id),
+                "city_id": int(job.city_id),
+                "source": job.source,
+                "previous_status": previous_status,
+                "new_status": "stalled",
+                "last_error": job.last_error,
+            },
+            city_slug=city_slug,
+            request_id=str(job.id),
+            actor_id=auth.actor_id,
+            commit=False,
+        )
         marked.append(int(job.id))
     if marked:
         db.commit()
