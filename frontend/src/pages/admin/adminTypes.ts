@@ -136,6 +136,15 @@ export type AdminImportJob = {
   current_warnings?: Array<{ step?: string; error?: string; reason?: string }>
   stale_error?: string | null
   snapshot_warning?: { code?: string; message?: string } | null
+  background_task?: {
+    job_id?: number
+    source?: string
+    status?: string
+    current_step?: string | null
+    last_error?: string | null
+    is_stalled?: boolean
+    job_execution_failed?: boolean
+  } | null
   worker_progress?: {
     current_step?: string | null
     current_scope_code?: string | null

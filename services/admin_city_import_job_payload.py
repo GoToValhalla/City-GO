@@ -35,12 +35,53 @@ REVIEWABLE_CITY_STATUSES = {"review_required", "imported"}
 PIPELINE_MODE = "legacy_osm_plus_foundation"
 PIPELINE_MODE_LABEL = "OSM сбор + foundation quality layer"
 SNAPSHOT_KEY = "admin_import_snapshot"
+SOURCE_FULL_IMPORT = "admin_city_import"
+SOURCE_ENRICHMENT_ONLY = "admin_city_enrichment"
 SOURCE_PHOTO_ENRICHMENT = "admin_photo_enrichment"
 SOURCE_ADDRESS_ENRICHMENT = "admin_address_enrichment"
+SOURCE_SNAPSHOT_REFRESH = "admin_snapshot_refresh"
+
+# Main data-foundation pipeline sources: their status/snapshot/errors represent
+# the city's actual import health (coordinates, address, taxonomy, route
+# eligibility). Sources not in this set are optional background side-tasks
+# (photo enrichment, standalone address backfill, snapshot refresh) that must
+# never flip the city-level status_group to failed on their own — see
+# BACKGROUND_TASK_SOURCES below and _latest_main_pipeline_job().
+MAIN_PIPELINE_SOURCES = {SOURCE_FULL_IMPORT, SOURCE_ENRICHMENT_ONLY}
+BACKGROUND_TASK_SOURCES = {SOURCE_PHOTO_ENRICHMENT, SOURCE_ADDRESS_ENRICHMENT, SOURCE_SNAPSHOT_REFRESH}
 
 
 def _latest_job(db: Session, city_id: int) -> CityAdminImportJob | None:
     return db.query(CityAdminImportJob).filter(CityAdminImportJob.city_id == city_id).order_by(CityAdminImportJob.created_at.desc()).first()
+
+
+def _latest_main_pipeline_job(db: Session, city_id: int) -> CityAdminImportJob | None:
+    return (
+        db.query(CityAdminImportJob)
+        .filter(CityAdminImportJob.city_id == city_id, CityAdminImportJob.source.in_(MAIN_PIPELINE_SOURCES))
+        .order_by(CityAdminImportJob.created_at.desc())
+        .first()
+    )
+
+
+def _background_task_status(overall_latest: CityAdminImportJob | None, main_job: CityAdminImportJob | None) -> dict[str, object] | None:
+    """Surface an optional side-task's own status separately from the main
+    pipeline status, so a stalled/failed background job (photo, standalone
+    address backfill, snapshot refresh) is never silently hidden — it just
+    must not be conflated with the main import pipeline's health."""
+    if overall_latest is None or overall_latest.source not in BACKGROUND_TASK_SOURCES:
+        return None
+    if main_job is not None and overall_latest.id == main_job.id:
+        return None
+    return {
+        "job_id": overall_latest.id,
+        "source": overall_latest.source,
+        "status": overall_latest.status,
+        "current_step": overall_latest.current_step,
+        "last_error": overall_latest.last_error,
+        "is_stalled": is_stalled(overall_latest),
+        "job_execution_failed": job_execution_failed(overall_latest),
+    }
 
 
 def _latest_job_by_source(db: Session, city_id: int, source: str) -> CityAdminImportJob | None:
@@ -89,7 +130,16 @@ def _sync_reviewable_job_counts(job: CityAdminImportJob, places_total: int) -> N
 
 
 def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
-    job = _latest_job(db, city.id)
+    overall_latest = _latest_job(db, city.id)
+    main_job = _latest_main_pipeline_job(db, city.id)
+    # A background side-task (photo/address/snapshot-refresh) becoming the
+    # overall-latest job must not hijack the city's main status/snapshot/error
+    # display — fall back to the latest main-pipeline job for that, while still
+    # surfacing the side-task's own state via background_task below. If there
+    # is no main-pipeline job at all yet, the side-task is all we have to show.
+    is_background_latest = overall_latest is not None and overall_latest.source in BACKGROUND_TASK_SOURCES
+    job = main_job if (is_background_latest and main_job is not None) else overall_latest
+    background_task = _background_task_status(overall_latest, main_job)
     snapshot = _snapshot(job)
     coverage = _snapshot_coverage(snapshot)
     changes = _snapshot_changes(snapshot)
@@ -101,7 +151,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         places_published = db.query(Place).filter(Place.city_id == city.id, Place.is_published.is_(True)).count()
         pending_photos = db.query(PlaceImage).join(Place, Place.id == PlaceImage.place_id).filter(Place.city_id == city.id, PlaceImage.status == PLACE_IMAGE_STATUS_NEEDS_REVIEW).count()
     city_published = _is_published(city)
-    active_job = _is_active_job(job)
+    active_job = _is_active_job(overall_latest)
     display = resolve_import_display(city, job)
     status = display["display_status"]
     current_step = display["display_step"]
@@ -124,6 +174,8 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
     publication_warn = publication_consistency_warning(city, job)
     photo_diagnostics = _photo_diagnostics_for_city(db, city, job=job, details=details)
     details["photo_diagnostics"] = photo_diagnostics
+    if background_task is not None:
+        details["background_task"] = background_task
     enrichment_prerequisites = (job.step_details or {}).get("prerequisites") if job is not None else None
     return {
         "id": f"city-import-{city.id}",
@@ -141,6 +193,7 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "pipeline_mode": PIPELINE_MODE,
         "pipeline_mode_label": PIPELINE_MODE_LABEL,
         "status_group": display["status_group"],
+        "background_task": background_task,
         "action_hint": _action_hint(job, city, places_total),
         "auto_refresh_seconds": 7 if active_job else None,
         "data_coverage": coverage,
@@ -177,9 +230,9 @@ def build_import_job_payload(db: Session, city: City) -> dict[str, object]:
         "created_at": job.created_at if job is not None else None,
         "updated_at": job.updated_at if job is not None else None,
         "last_error": None if display["suppress_job_errors"] else (job.last_error if job is not None else None),
-        "can_run": False if city_published else _can_run(job, city),
-        "can_retry": False if active_job else _can_retry(job, str(display["job_execution_status"])),
-        "can_cancel": active_job and _can_cancel(job, str(display["job_execution_status"])),
+        "can_run": False if city_published else _can_run(overall_latest, city),
+        "can_retry": False if active_job else _can_retry(overall_latest, str(display["job_execution_status"])),
+        "can_cancel": active_job and _can_cancel(overall_latest, str(display["job_execution_status"])),
         "can_publish": False if active_job or (city_published and not job_execution_failed(job)) else _can_publish(city, places_total),
         "can_unpublish": _can_unpublish(city),
         "report_url": f"/admin/routes/data-quality/{city.slug}",

@@ -74,9 +74,10 @@ const failedStalledImportJobs = {
 const mockedAdminGet = adminGet as unknown as Mock
 const mockedAdminPost = adminPost as unknown as Mock
 
-const mockAdminGet = (queue = queueIdle, importJobs = emptyImportJobs) => {
+const mockAdminGet = (queue = queueIdle, importJobs = emptyImportJobs, detail: unknown = null) => {
   mockedAdminGet.mockImplementation((path: string) => {
     if (path === '/admin/import-queue') return Promise.resolve(queue)
+    if (/^\/admin\/import-jobs\/\d+$/.test(path) && detail) return Promise.resolve(detail)
     if (path.startsWith('/admin/import-jobs')) return Promise.resolve(importJobs)
     return Promise.reject(new Error(`Unexpected GET ${path}`))
   })
@@ -139,6 +140,47 @@ describe('AdminImportJobsPage import-worker queue controls', () => {
     expect((await screen.findAllByText('Ошибка')).length).toBeGreaterThan(0)
     expect((await screen.findAllByText('Завис')).length).toBeGreaterThan(0)
     expect(screen.queryByText('Задач по выбранному фильтру нет')).toBeNull()
+  })
+
+  it('shows a stalled background photo task without hiding the healthy main import status', async () => {
+    const publishedCityImportJob = {
+      id: 'kaliningrad-like',
+      city_id: 201,
+      city_slug: 'kaliningrad-like',
+      city_name: 'Kaliningrad Like',
+      status: 'success',
+      status_group: 'published',
+      source: 'admin_city_import',
+      places_total: 3095,
+      places_published: 1324,
+      places_unpublished: 1771,
+      pending_photos: 0,
+      next_step: 'Город опубликован и доступен на сайте.',
+      failed_items: 0,
+      job_id: 4,
+      step_details: {},
+      background_task: {
+        job_id: 5,
+        source: 'admin_photo_enrichment',
+        status: 'stalled',
+        current_step: 'error',
+        last_error: 'Import job stalled: no heartbeat before timeout',
+        is_stalled: true,
+        job_execution_failed: true,
+      },
+    }
+    mockAdminGet(queueIdle, { items: [publishedCityImportJob], total: 1, limit: 50, offset: 0 }, publishedCityImportJob)
+
+    renderPage()
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Детали' }))[0])
+
+    const backgroundSection = await screen.findByTestId('background-task-status')
+    expect(backgroundSection.textContent).toContain('фото')
+    expect(backgroundSection.textContent).toContain('#5')
+    expect(backgroundSection.textContent).toContain('stalled')
+    expect(backgroundSection.textContent).toContain('Import job stalled: no heartbeat before timeout')
+    expect(screen.queryByTestId('snapshot-missing-warning')).toBeNull()
   })
 
   it('explains why run-once was blocked instead of a generic "not started" message', async () => {

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_city_import_job_payload import build_import_job_payload
 from services.admin_extended_service import get_admin_import_jobs
+from services.admin_import_display import job_execution_failed, resolve_import_display
 
 
 def _published_city_with_failed_job(db_session):
@@ -175,6 +178,121 @@ def test_no_stale_section_when_there_is_no_stale_error_new(db_session) -> None:
     assert payload["stale_error"] is None
     assert payload["import_error_summary"] is None
     assert payload["current_warnings"] == []
+
+
+def test_stalled_photo_side_task_does_not_flip_published_city_to_failed_new(db_session) -> None:
+    """Reproduces the Kaliningrad shape: a published city's main import
+    (admin_city_import) succeeded and produced a real snapshot, but a later,
+    unrelated standalone photo-enrichment job stalled. The city-level status
+    must still reflect the healthy main pipeline, the snapshot must come from
+    the main job (not be reported missing), and the stalled photo job's own
+    state must still be visible via background_task."""
+
+    city = City(name="Калининград", slug="kaliningrad-like", country="Россия", launch_status="published", is_active=True)
+    db_session.add(city)
+    db_session.flush()
+
+    main_job = CityAdminImportJob(
+        city_id=city.id,
+        status="success",
+        source="admin_city_import",
+        current_step="ready_for_review",
+        scopes_total=3,
+        scopes_succeeded=3,
+        places_found=3095,
+        places_saved=3095,
+        step_details={
+            "import_diff": {"status": "success", "scopes_total": 3, "scopes_succeeded": 3, "places_found": 3095, "places_saved": 3095},
+            "admin_import_snapshot": {
+                "version": 1,
+                "source": "import_worker_finished",
+                "taken_at": datetime.utcnow().isoformat(),
+                "city_id": city.id,
+                "city_slug": city.slug,
+                "job_id": None,
+                "data_coverage": {"places_total": 3095, "places_published": 1324, "pending_photos": 0},
+                "change_summary": {},
+            },
+        },
+    )
+    db_session.add(main_job)
+    db_session.flush()
+    main_job.step_details["admin_import_snapshot"]["job_id"] = main_job.id
+    db_session.commit()
+
+    photo_job = CityAdminImportJob(
+        city_id=city.id,
+        status="stalled",
+        source="admin_photo_enrichment",
+        current_step="error",
+        last_error="Import job stalled: no heartbeat before timeout",
+        created_at=main_job.created_at + timedelta(hours=1),
+        step_details={"photo_enrichment": {"provider_status": "no_photo_enrichment_run"}},
+    )
+    db_session.add(photo_job)
+    db_session.commit()
+
+    payload = build_import_job_payload(db_session, city)
+
+    assert payload["status_group"] != "failed"
+    assert payload["job_execution_failed"] is False
+    assert payload["snapshot_warning"] is None
+    assert payload["data_coverage"]["places_total"] == 3095
+    assert payload["job_id"] == main_job.id
+    assert payload["background_task"] is not None
+    assert payload["background_task"]["job_id"] == photo_job.id
+    assert payload["background_task"]["source"] == "admin_photo_enrichment"
+    assert payload["background_task"]["status"] == "stalled"
+    assert payload["background_task"]["job_execution_failed"] is True
+
+
+def test_stalled_main_import_job_still_produces_failed_status_new(db_session) -> None:
+    """A stalled admin_city_import job (the actual main pipeline) must still
+    flip the city to failed — source-awareness must not hide a real main
+    pipeline failure, only prevent side-tasks from masquerading as one."""
+
+    city = City(name="Main Failure City", slug="main-failure-city", country="Россия", launch_status="published", is_active=True)
+    db_session.add(city)
+    db_session.flush()
+    main_job = CityAdminImportJob(
+        city_id=city.id,
+        status="stalled",
+        source="admin_city_import",
+        current_step="collecting_places",
+        last_error="tourist_core: DNS failure",
+        step_details={"warnings": [{"step": "collecting_places", "error": "tourist_core: DNS failure"}]},
+    )
+    db_session.add(main_job)
+    db_session.commit()
+
+    payload = build_import_job_payload(db_session, city)
+
+    assert payload["status_group"] == "failed"
+    assert payload["job_execution_failed"] is True
+    assert payload["background_task"] is None
+
+
+def test_job_execution_failed_is_source_aware_new(db_session) -> None:
+    """Direct unit-level check: job_execution_failed/resolve_import_display
+    must be driven by the job actually passed in — the source-based routing
+    happens in build_import_job_payload's job selection, not by inspecting
+    job.source inside job_execution_failed itself. A stalled photo job passed
+    directly still reports its own failure (used for background_task), while
+    a stalled main job passed directly also reports failure."""
+
+    city = City(name="Source Aware City", slug="source-aware-city", country="Россия", launch_status="published", is_active=True)
+    db_session.add(city)
+    db_session.flush()
+
+    stalled_photo = CityAdminImportJob(city_id=city.id, status="stalled", source="admin_photo_enrichment", current_step="error")
+    stalled_main = CityAdminImportJob(city_id=city.id, status="stalled", source="admin_city_import", current_step="error")
+    db_session.add_all([stalled_photo, stalled_main])
+    db_session.commit()
+
+    assert job_execution_failed(stalled_photo) is True
+    assert job_execution_failed(stalled_main) is True
+    assert resolve_import_display(city, stalled_photo)["status_group"] == "failed"
+    assert resolve_import_display(city, stalled_main)["status_group"] == "failed"
 
 
 def test_discovery_bulk_create_does_not_create_import_job_new(client, monkeypatch, db_session) -> None:
