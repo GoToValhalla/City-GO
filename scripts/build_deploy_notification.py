@@ -33,8 +33,8 @@ def build_message(*, build_result: str, deploy_result: str, run_attempt: str, lo
     repo = os.getenv("GITHUB_REPOSITORY", "GoToValhalla/City-GO")
     run_id = os.getenv("GITHUB_RUN_ID", "")
     run_number = os.getenv("GITHUB_RUN_NUMBER", "")
-    sha = os.getenv("GITHUB_SHA", "")
-    ref = os.getenv("GITHUB_REF_NAME", "main")
+    sha = os.getenv("CITY_GO_DEPLOY_SHA") or os.getenv("GITHUB_SHA", "")
+    ref = os.getenv("CITY_GO_DEPLOY_REF") or os.getenv("GITHUB_REF_NAME", "main")
     run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if run_id else ""
     status = "success" if build_result == "success" and deploy_result == "success" else "failure"
     lines = [
