@@ -83,7 +83,7 @@ const ImportStatusBadges = ({ job }: { job: AdminImportJob }) => (
     {isDestinationPublished(job) ? <span className="admin-badge pub-published" data-testid="destination-publication-badge">Направление опубликовано</span> : null}
   </div>
 )
-const scrollToDetail = () => window.setTimeout(() => document.getElementById('admin-import-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+const scrollToDetail = () => window.setTimeout(() => { const element = document.getElementById('admin-import-detail'); if (element && typeof element.scrollIntoView === 'function') element.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, 0)
 
 const CoverageSummary = ({ job }: { job: AdminImportJob }) => {
   const coverage = coverageOf(job)
