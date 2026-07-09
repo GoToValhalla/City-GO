@@ -189,6 +189,34 @@ curl -sf http://localhost:8000/health
 
 ---
 
+## Import-worker на production deploy
+
+`import-worker` — отдельный consumer очереди `admin_city_import`; тяжёлые импорты не
+должны выполняться внутри backend/web/API. В `docker-compose.yml` сервис находится
+за profile `ops`, но production deploy не включает весь profile целиком.
+
+Сервисы в profile `ops`:
+
+```text
+seed
+address-backfill
+place-enrichment-export
+import-worker
+```
+
+`seed`, `address-backfill` и `place-enrichment-export` — ручные/одноразовые ops-задачи,
+поэтому deploy явно стартует только сервис `import-worker`:
+
+```bash
+docker compose up -d --no-deps import-worker
+```
+
+После старта workflow проверяет, что container для `import-worker` существует и имеет
+Docker state `running`. Если container отсутствует, `exited` или `restarting`, deploy
+падает без постановки jobs в очередь и без запуска импорта вручную.
+
+---
+
 ## Почему «0 мест» при живом frontend
 
 1. **502 на `/api/*`** — backend в crash-loop. UI показывает «Загрузка…» и пустой список.
