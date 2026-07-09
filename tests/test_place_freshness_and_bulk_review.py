@@ -71,6 +71,40 @@ def test_bulk_reject_change_reviews_restores_every_selected_place(db_session, ci
     assert all(review.resolution == "rejected" for review in reviews)
 
 
+def test_bulk_approve_reports_per_place_gate_failure_without_hiding_it(db_session, city_factory) -> None:
+    """Bulk approve must not report a uniform success: a place that currently
+    fails the publication hard gates (e.g. flagged duplicate since the review
+    was queued) must be visibly blocked in its own result entry, while an
+    unrelated healthy place in the same batch still publishes normally."""
+
+    city = city_factory(slug="rostov-bulk-gate", name="Ростов", is_active=True, launch_status="published")
+    healthy_place = _changed_place(city.id, "rostov-bulk-healthy")
+    healthy_place.category = "museum"
+    blocked_place = _changed_place(city.id, "rostov-bulk-blocked")
+    blocked_place.category = "museum"
+    blocked_place.is_duplicate_suspected = True
+    db_session.add_all([healthy_place, blocked_place])
+    db_session.flush()
+    reviews = [_review(city.id, healthy_place.id), _review(city.id, blocked_place.id)]
+    db_session.add_all(reviews)
+    db_session.commit()
+
+    resolved, missing = bulk_resolve_place_change_reviews(
+        db_session,
+        [review.id for review in reviews],
+        action="approve",
+        actor="admin",
+    )
+
+    assert missing == []
+    assert len(resolved) == 2
+    by_place_id = {item["place_id"]: item for item in resolved}
+    assert healthy_place.is_published is True
+    assert blocked_place.is_published is False
+    assert by_place_id[healthy_place.id]["blocked_by_publication_gate"] == []
+    assert "duplicate_suspected" in by_place_id[blocked_place.id]["blocked_by_publication_gate"]
+
+
 def test_stale_critical_fields_are_queued_with_provenance(db_session, place_factory) -> None:
     place = place_factory(title="Кафе", category="cafe")
     place.phone = "+70000000000"

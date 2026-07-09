@@ -11,6 +11,7 @@ from models.city import City
 from models.place import Place
 from models.review_queue_item import ReviewQueueItem
 from services.admin_audit_service import write_admin_audit_log
+from services.publication_policy import run_hard_gates
 from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 OPEN_STATUS = "open"
@@ -136,12 +137,22 @@ def _resolve_place_change_review(
     payload = _payload(item)
     old_value = _place_state(place)
 
+    blocked_gates: list[str] = []
     if action == "approve":
         if payload.get("decision") != "hidden":
             place.status = "active"
             place.is_active = True
             if city.is_active and city.launch_status == "published":
-                _publish_place(place, reason=reason)
+                # The review item's "decision" was computed when the change was
+                # first queued and may now be stale (e.g. a data-quality scan
+                # since flagged the place as a duplicate, or a mandatory field
+                # went missing). Re-validate against the current place/city
+                # state at approval time instead of trusting that stale decision.
+                blocked_gates = run_hard_gates(place, city=city)
+                if blocked_gates:
+                    _keep_approved_place_private(place, reason=reason)
+                else:
+                    _publish_place(place, reason=reason)
             else:
                 _keep_approved_place_private(place, reason=reason)
         resolution = "approved"
@@ -162,7 +173,7 @@ def _resolve_place_change_review(
         new_value=_place_state(place),
         reason=reason,
     )
-    return _review_payload(item, place, city)
+    return _review_payload(item, place, city, blocked_gates=blocked_gates)
 
 
 def _open_review_row(db: Session, review_id: int) -> tuple[ReviewQueueItem, Place, City] | None:
@@ -233,7 +244,7 @@ def _resolve(item: ReviewQueueItem, *, actor: str, resolution: str) -> None:
     item.updated_at = datetime.utcnow()
 
 
-def _review_payload(item: ReviewQueueItem, place: Place, city: City) -> dict[str, object]:
+def _review_payload(item: ReviewQueueItem, place: Place, city: City, *, blocked_gates: list[str] | None = None) -> dict[str, object]:
     payload = _payload(item)
     return {
         "id": item.id,
@@ -252,6 +263,7 @@ def _review_payload(item: ReviewQueueItem, place: Place, city: City) -> dict[str
         "created_at": item.created_at,
         "resolved_at": item.resolved_at,
         "resolution": item.resolution,
+        "blocked_by_publication_gate": list(blocked_gates) if blocked_gates else [],
     }
 
 

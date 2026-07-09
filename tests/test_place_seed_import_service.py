@@ -68,6 +68,23 @@ def test_import_place_seed_items_writes_and_updates_by_slug() -> None:
     assert place.last_verified_at is not None
 
 
+def test_import_place_seed_items_dry_run_does_not_touch_existing_place_new() -> None:
+    db = _db()
+    import_place_seed_items(db, [_item()], dry_run=False)
+    place = db.query(Place).filter(Place.slug == "coffee-place").first()
+    original_updated_at = place.updated_at
+    original_title = place.title
+
+    changed_item = _item().model_copy(update={"title": "Changed Title Dry Run"})
+    result = import_place_seed_items(db, [changed_item], dry_run=True)
+
+    db.refresh(place)
+    assert result.updated == 1
+    assert place.title == original_title
+    assert place.updated_at == original_updated_at
+    assert db.query(Place).count() == 1
+
+
 def test_import_place_seed_items_reports_duplicate_slug() -> None:
     db = _db()
     result = import_place_seed_items(db, [_item(), _item()], dry_run=True)

@@ -47,6 +47,35 @@ ADDRESS_LIMIT = 5000
 IMAGE_LIMIT = 2000
 AUTO_REPAIR_CITY_SCAN_LIMIT = 1000
 
+# Severity order (least to most severe) for combining the terminal status of
+# independent pipeline stages (legacy collection/enrichment + foundation
+# source-enrichment) into one truthful job status. A stage's status must
+# never be silently widened back to "success" once any stage reported a
+# worse outcome.
+_STATUS_SEVERITY = {
+    "success": 0,
+    "success_with_warnings": 1,
+    "partial_success": 2,
+    "failed": 3,
+}
+
+
+def _combine_status(*statuses: str) -> str:
+    """Return the most severe of the given terminal statuses.
+
+    Unknown/blank statuses are treated as "success" so a stage that didn't
+    report anything doesn't spuriously downgrade the combined result.
+    """
+
+    worst = "success"
+    worst_rank = 0
+    for status in statuses:
+        rank = _STATUS_SEVERITY.get(status, 0)
+        if rank > worst_rank:
+            worst = status
+            worst_rank = rank
+    return worst
+
 
 def queue_city_import_job(db: Session, *, city_id: int, actor_id: str | None = None) -> CityAdminImportJob:
     city = db.query(City).filter(City.id == city_id).first()
@@ -157,6 +186,7 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
         legacy = run_enrichment_pipeline(db, job=job, city=city, actor_id=actor_id, force=True, notify_completion=False)
         db.refresh(job)
         db.refresh(city)
+        legacy_status = job.status
         ids = [int(v) for v in legacy.get("changed_place_ids", [])]
         warnings = list((job.step_details or {}).get("warnings") or [])
         saved = (job.places_found, job.places_saved, job.scopes_succeeded)
@@ -172,8 +202,11 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
         record_place_changes(db, job=job, places=places, since=job.started_at or datetime.utcnow())
         if source_status in {"partial_success", "success_with_warnings", "failed"} or int(source.get("failed") or 0) > 0:
             warnings.append({"step": "source_enrichment", "error": f"Ошибок этапов обогащения: {int(source.get('failed') or 0)}"})
+        if legacy_status in {"partial_success", "failed"}:
+            warnings.append({"step": "collection_and_legacy_enrichment", "error": f"Статус этапа сбора/обогащения: {legacy_status}", "last_error": job.last_error})
         job.step_details = {**dict(job.step_details or {}), "warnings": warnings, "changed_place_ids": ids, "has_changes": bool(ids), "auto_repair": auto_repair, "unified_pipeline": {"collection_and_legacy_enrichment": legacy, "source_enrichment": source, "readiness_score": readiness.get("readiness_score"), "auto_repair": auto_repair, "completed": True}}
-        job.status = "success_with_warnings" if warnings else "success"
+        combined_status = _combine_status(legacy_status, source_status, "success_with_warnings" if warnings else "success")
+        job.status = combined_status
         job.finished_at = datetime.utcnow()
         city.last_import_at = job.finished_at
         _refresh_snapshot_light(db, city=city, job=job, source="import_worker_finished")
@@ -187,7 +220,11 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
         total = db.query(Place).filter(Place.city_id == city_id).count()
         ids = [int(v) for v in ((job.step_details or {}).get("changed_place_ids") or [])] if job else []
         if job:
-            job.status = "partial_success" if total > 0 else "failed"
+            # This run's own changed_place_ids (recorded before the crash) is the
+            # only truthful signal that *this* run made meaningful progress.
+            # total > 0 (city has any place, possibly from a prior run) must not
+            # by itself downgrade a hard failure of this run to partial_success.
+            job.status = "partial_success" if ids else "failed"
             job.last_error = str(exc)[:2000]
             job.finished_at = datetime.utcnow()
         if city is not None:
@@ -428,11 +465,13 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str) -> City
     try:
         run_enrichment_only_pipeline(db, job=job, city=city, actor_id=actor_id)
         db.refresh(job)
+        enrichment_only_status = job.status
         ids = [int(v) for v in ((job.step_details or {}).get("changed_place_ids") or [])]
         _foundation(db, city, job, actor_id, ids)
+        source_status = job.status
         auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=ids)
         job.step_details = {**dict(job.step_details or {}), "auto_repair": auto_repair}
-        job.status = "success"
+        job.status = _combine_status(enrichment_only_status, source_status, "success")
         job.finished_at = datetime.utcnow()
         _refresh_snapshot_light(db, city=city, job=job, source="enrichment_only_finished")
     except Exception as exc:

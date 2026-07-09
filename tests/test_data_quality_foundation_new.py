@@ -32,6 +32,30 @@ def test_missing_photo_refresh_is_idempotent_new(db_session, place_factory):
     assert db_session.query(DataQualityIssue).filter_by(issue_type=ISSUE_MISSING_PHOTO).count() == 1
 
 
+def test_refresh_dry_run_persists_no_issue_rows_new(db_session, place_factory):
+    place = place_factory(address="ул. Дальняя, 3", is_published=True, image_url=None)
+
+    summary = refresh_data_quality_issues(db_session, city_id=place.city_id, dry_run=True)
+
+    assert sum(summary.by_issue_type.values()) >= 1
+    assert summary.created == 0
+    assert db_session.query(DataQualityIssue).count() == 0
+
+
+def test_refresh_dry_run_does_not_resolve_existing_issues_new(db_session, place_factory):
+    place = place_factory(address="ул. Дальняя, 4", is_published=True, image_url=None)
+    refresh_data_quality_issues(db_session, city_id=place.city_id)
+    before_count = db_session.query(DataQualityIssue).count()
+    assert before_count >= 1
+    place.image_url = "https://example.test/fixed.jpg"
+    db_session.commit()
+
+    refresh_data_quality_issues(db_session, city_id=place.city_id, dry_run=True)
+
+    after_count = db_session.query(DataQualityIssue).filter_by(status="open").count()
+    assert after_count == before_count
+
+
 def test_refresh_resolves_stale_issue_when_current_state_is_fixed_new(db_session, place_factory):
     place = place_factory(address=None, image_url="https://example.test/photo.jpg")
     refresh_data_quality_issues(db_session, city_id=place.city_id)
