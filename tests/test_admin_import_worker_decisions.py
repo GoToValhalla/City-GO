@@ -56,6 +56,98 @@ def test_import_worker_logs_no_queued_jobs(
     assert _events(db_session) == ["worker_no_queued_jobs"]
 
 
+def test_import_worker_blocks_full_import_in_safe_mode_on_low_memory_host(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """Post-OOM-incident invariant: a full-import job must not run in safe mode
+    on a host where the low-memory threshold forbids heavy imports outright.
+    The job must be marked failed with a truthful reason, not left queued
+    forever and not silently reported as success."""
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
+    monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 0)
+    city = city_factory(slug="worker-safe-mode-block", name="Worker Safe Mode Block")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("run_city_import_job must not be called when safe mode blocks the job")
+
+    monkeypatch.setattr(tasks, "run_city_import_job", fail_if_called)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 0
+    db_session.refresh(job)
+    assert job.status == "failed"
+    assert job.last_error is not None
+    assert "safety guard" in job.last_error
+    assert "low-memory" in job.last_error
+    assert job.finished_at is not None
+    assert _events(db_session) == ["worker_job_blocked_safe_mode"]
+
+
+def test_import_worker_allows_light_jobs_in_safe_mode(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """Safe mode must only block heavy/full-import sources — a light side-task
+    (e.g. address enrichment) must still be processed normally."""
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
+    monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 0)
+    city = city_factory(slug="worker-safe-mode-allow", name="Worker Safe Mode Allow")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_address_enrichment")
+
+    def fake_run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+        queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
+        queued_job.status = "success"
+        queued_job.finished_at = datetime.utcnow()
+        db.commit()
+        db.refresh(queued_job)
+        return queued_job
+
+    monkeypatch.setattr(tasks, "run_address_enrichment_job", fake_run_address_enrichment_job)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 1
+    db_session.refresh(job)
+    assert job.status == "success"
+
+
+def test_import_worker_safe_mode_off_allows_full_import(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """When safe mode is disabled (e.g. local/CI default), full-import jobs
+    must run exactly as before — this framework must not change default
+    non-production behavior."""
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", False)
+    city = city_factory(slug="worker-safe-mode-off", name="Worker Safe Mode Off")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
+
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+        queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
+        queued_job.status = "success"
+        queued_job.finished_at = datetime.utcnow()
+        db.commit()
+        db.refresh(queued_job)
+        return queued_job
+
+    monkeypatch.setattr(tasks, "run_city_import_job", fake_run_city_import_job)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 1
+    db_session.refresh(job)
+    assert job.status == "success"
+
+
 def test_import_worker_logs_claim_and_finish_for_queued_job(
     db_session: Session,
     city_factory: Callable[..., Any],

@@ -39,3 +39,89 @@ def test_worker_alerts_on_outer_failure_and_recovery(monkeypatch) -> None:
     with then("после успешной итерации отправляется уведомление о восстановлении"):
         assert alerts[1]["title"] == "Import-worker восстановлен"
         assert alerts[1]["details"]["previous_failures"] == 1
+
+
+def test_worker_stops_when_backend_health_check_fails(monkeypatch) -> None:
+    """Post-OOM-incident invariant: the worker must never keep claiming jobs
+    once backend is confirmed unhealthy — it must stop immediately and exit,
+    not silently keep running against a dead backend."""
+    calls = []
+    alerts = []
+
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: calls.append(1) or {"queue": {}})
+    monkeypatch.setattr(worker, "send_admin_alert", lambda **kwargs: alerts.append(kwargs) or {"sent": True})
+    monkeypatch.setattr(worker, "backend_is_healthy", lambda *_a, **_k: False)
+    monkeypatch.setattr(worker.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(worker, "_STOP", False)
+
+    worker.run_worker_loop(limit=1, sleep_seconds=5, max_iterations=5, health_url="http://backend:8000/ready")
+
+    assert calls == []
+    assert alerts[0]["title"] == "Import-worker остановлен: backend недоступен"
+    assert alerts[0]["level"] == "error"
+
+
+def test_worker_processes_jobs_when_backend_is_healthy(monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: calls.append(1) or {"queue": {}})
+    monkeypatch.setattr(worker, "send_admin_alert", lambda **kwargs: {"sent": True})
+    monkeypatch.setattr(worker, "backend_is_healthy", lambda *_a, **_k: True)
+    monkeypatch.setattr(worker.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(worker, "_STOP", False)
+
+    worker.run_worker_loop(limit=1, sleep_seconds=5, max_iterations=2, health_url="http://backend:8000/ready")
+
+    assert len(calls) == 2
+
+
+def test_backend_is_healthy_true_for_2xx_response(monkeypatch) -> None:
+    class _FakeResponse:
+        status = 200
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(worker.urllib.request, "urlopen", lambda *_a, **_k: _FakeResponse())
+
+    assert worker.backend_is_healthy("http://backend:8000/ready") is True
+
+
+def test_backend_is_healthy_false_on_connection_error(monkeypatch) -> None:
+    def raise_connection_error(*_args, **_kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(worker.urllib.request, "urlopen", raise_connection_error)
+
+    assert worker.backend_is_healthy("http://backend:8000/ready") is False
+
+
+def test_backend_is_healthy_true_when_no_url_configured() -> None:
+    assert worker.backend_is_healthy("") is True
+
+
+def test_worker_stops_after_max_runtime_seconds(monkeypatch) -> None:
+    """The worker must not run unbounded — a configured max runtime must stop
+    the loop even if the backend stays healthy and jobs keep succeeding."""
+    calls = []
+    alerts = []
+    fake_time = {"now": 0.0}
+
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: calls.append(1) or {"queue": {}})
+    monkeypatch.setattr(worker, "send_admin_alert", lambda **kwargs: alerts.append(kwargs) or {"sent": True})
+    monkeypatch.setattr(worker, "backend_is_healthy", lambda *_a, **_k: True)
+    monkeypatch.setattr(worker, "_STOP", False)
+
+    def fake_monotonic():
+        return fake_time["now"]
+
+    def fake_sleep(seconds):
+        fake_time["now"] += seconds
+
+    monkeypatch.setattr(worker.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(worker.time, "sleep", fake_sleep)
+
+    worker.run_worker_loop(limit=1, sleep_seconds=100, max_iterations=50, max_runtime_seconds=250)
+
+    assert len(calls) <= 3
+    assert alerts[-1]["title"] == "Import-worker остановлен по таймауту"

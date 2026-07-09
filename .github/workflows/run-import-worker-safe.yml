@@ -1,0 +1,193 @@
+name: CITY GO · OPS · Run Import Worker Safely
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type exactly RUN_IMPORT_WORKER_SAFELY to confirm this action.
+        required: true
+        type: string
+      max_runtime_seconds:
+        description: Maximum worker runtime before automatic stop, in seconds.
+        required: false
+        type: string
+        default: "300"
+
+permissions:
+  contents: read
+
+jobs:
+  run-import-worker-safe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      MAX_RUNTIME_SECONDS: ${{ inputs.max_runtime_seconds || '300' }}
+    steps:
+      - name: Require exact confirmation text
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirmation }}" != "RUN_IMPORT_WORKER_SAFELY" ]; then
+            echo "ERROR: confirmation input must be exactly RUN_IMPORT_WORKER_SAFELY (got: '${{ inputs.confirmation }}')." >&2
+            exit 1
+          fi
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Preflight, run, monitor, and always stop import-worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/safe-import-worker-run
+          LOG=/tmp/safe-import-worker-run/report.log
+
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            -i ~/.ssh/deploy_key \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS" bash <<'REMOTE_EOF' | tee "$LOG"
+            set -uo pipefail
+            cd /srv/app
+
+            section() { echo; echo "=== $1 ==="; }
+            MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-300}"
+            FAIL=0
+
+            section "preflight: public health/ready"
+            HEALTH_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://citygo.autismishe.online/api/health || echo "000")
+            READY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://citygo.autismishe.online/api/ready || echo "000")
+            echo "health=${HEALTH_CODE} ready=${READY_CODE}"
+            if [ "$HEALTH_CODE" != "200" ] || [ "$READY_CODE" != "200" ]; then
+              echo "ERROR: preflight failed — backend is not healthy (health=${HEALTH_CODE}, ready=${READY_CODE}). Refusing to start import-worker." >&2
+              FAIL=1
+            fi
+
+            section "preflight: free memory"
+            free -h
+            AVAILABLE_MB=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+            echo "available_mb=${AVAILABLE_MB}"
+            if [ "$AVAILABLE_MB" -lt 256 ]; then
+              echo "ERROR: preflight failed — available memory (${AVAILABLE_MB} MB) is below the safety threshold (256 MB). Refusing to start import-worker." >&2
+              FAIL=1
+            fi
+
+            section "preflight: import-worker must not already be running"
+            EXISTING_ID="$(docker compose ps -q import-worker 2>/dev/null || true)"
+            if [ -n "$EXISTING_ID" ]; then
+              EXISTING_STATE="$(docker inspect -f '{{.State.Status}}' "$EXISTING_ID" 2>/dev/null || echo unknown)"
+              if [ "$EXISTING_STATE" = "running" ]; then
+                echo "ERROR: preflight failed — import-worker is already running (state=${EXISTING_STATE}). Refusing to start a second instance." >&2
+                FAIL=1
+              fi
+            fi
+
+            if [ "$FAIL" -ne 0 ]; then
+              echo
+              echo "=== PREFLIGHT FAILED — import-worker was NOT started ==="
+              exit 1
+            fi
+            echo "preflight passed"
+
+            section "starting import-worker (bounded, explicit ops service only)"
+            timeout 60s docker compose up -d --no-deps import-worker
+            echo "import-worker start requested"
+
+            section "monitor loop (every 10s, up to ${MAX_RUNTIME_SECONDS}s)"
+            ELAPSED=0
+            STOP_REASON="timeout"
+            while [ "$ELAPSED" -lt "$MAX_RUNTIME_SECONDS" ]; do
+              sleep 10
+              ELAPSED=$((ELAPSED + 10))
+
+              WORKER_ID="$(docker compose ps -aq import-worker 2>/dev/null || true)"
+              WORKER_STATE="not_created"
+              if [ -n "$WORKER_ID" ]; then
+                WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
+              fi
+
+              HEALTH_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 https://citygo.autismishe.online/api/health || echo "000")
+              READY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 https://citygo.autismishe.online/api/ready || echo "000")
+              echo "t=${ELAPSED}s worker_state=${WORKER_STATE} health=${HEALTH_CODE} ready=${READY_CODE}"
+
+              if [ "$WORKER_STATE" != "running" ]; then
+                STOP_REASON="worker_exited_state_${WORKER_STATE}"
+                echo "import-worker is no longer running (state=${WORKER_STATE}); stopping monitor loop."
+                break
+              fi
+              if [ "$HEALTH_CODE" != "200" ] || [ "$READY_CODE" != "200" ]; then
+                STOP_REASON="backend_unhealthy"
+                echo "ERROR: backend health degraded during worker run (health=${HEALTH_CODE}, ready=${READY_CODE}); stopping worker immediately." >&2
+                break
+              fi
+            done
+            echo "monitor loop ended: reason=${STOP_REASON} elapsed=${ELAPSED}s"
+
+            section "cleanup: always stop import-worker"
+            docker compose stop import-worker 2>&1 || echo "(stop failed or already stopped)"
+
+            section "final: docker compose ps -a"
+            docker compose ps -a 2>&1 || echo "(docker compose ps failed)"
+
+            section "final: docker compose logs --tail=200 import-worker"
+            docker compose logs --tail=200 import-worker 2>&1 || echo "(no import-worker logs)"
+
+            section "final: docker compose logs --tail=100 backend"
+            docker compose logs --tail=100 backend 2>&1 || echo "(no backend logs)"
+
+            section "final: docker compose logs --tail=100 frontend"
+            docker compose logs --tail=100 frontend 2>&1 || echo "(no frontend logs)"
+
+            section "final: docker stats --no-stream"
+            docker stats --no-stream 2>&1 || echo "(docker stats failed)"
+
+            section "final: free -h"
+            free -h 2>&1 || echo "(free failed)"
+
+            echo
+            echo "STOP_REASON=${STOP_REASON}"
+            echo "=== run complete: import-worker stopped, no deploy/image-pull/DB-mutation/queue-mutation/backend-restart performed ==="
+          REMOTE_EOF
+
+      - name: Upload run report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: safe-import-worker-run-report
+          path: /tmp/safe-import-worker-run
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Telegram run summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            exit 0
+          fi
+          STOP_REASON="$(grep '^STOP_REASON=' /tmp/safe-import-worker-run/report.log 2>/dev/null | tail -n1 | cut -d= -f2- || echo unknown)"
+          LAST_HEALTH="$(grep -o 'health=[0-9]*' /tmp/safe-import-worker-run/report.log 2>/dev/null | tail -n1 || echo 'health=unknown')"
+          LAST_READY="$(grep -o 'ready=[0-9]*' /tmp/safe-import-worker-run/report.log 2>/dev/null | tail -n1 || echo 'ready=unknown')"
+          TEXT="🧰 City Go safe import-worker run finished%0AStatus: ${{ job.status }}%0AStop reason: ${STOP_REASON}%0A${LAST_HEALTH} ${LAST_READY}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"

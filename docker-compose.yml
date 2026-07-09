@@ -143,12 +143,26 @@ services:
       LOCAL_CACHE_DIR: /app/.cache/city-go
       IMPORT_WORKER_BATCH_LIMIT: 1
       IMPORT_WORKER_SLEEP_SECONDS: 60
+      # Safety framework after the 2026-07-10 OOM incident (host has ~1GB RAM,
+      # no swap). Manual-only execution via the guarded workflow; deploy must
+      # never auto-start this service (enforced separately in deploy.yml).
+      IMPORT_WORKER_SAFE_MODE: "true"
+      IMPORT_WORKER_MAX_RUNTIME_SECONDS: 300
+      IMPORT_WORKER_BACKEND_HEALTH_URL: http://backend:8000/ready
+      IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 256
+      IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY: 0
     volumes:
       - local_cache:/app/.cache/city-go
     depends_on:
       backend:
         condition: service_healthy
-    restart: unless-stopped
+    # restart: "no" — a crashing worker (e.g. OOM-killed, exit 137) must never
+    # crash-loop and repeatedly compete for host memory/CPU; manual re-run only,
+    # via the guarded run-import-worker-safe.yml workflow.
+    restart: "no"
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: "0.50"
 
   bot:
     image: ghcr.io/gotovalhalla/city-go-backend:latest

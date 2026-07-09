@@ -10,12 +10,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
+from core.config import settings
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_job_service import (
     SOURCE_ADDRESS_ENRICHMENT,
     SOURCE_ENRICHMENT_ONLY,
+    SOURCE_FULL_IMPORT,
     SOURCE_PHOTO_ENRICHMENT,
     SOURCE_SNAPSHOT_REFRESH,
     run_address_enrichment_job,
@@ -28,6 +30,53 @@ from services.import_pipeline.progress import is_stalled, set_step
 from services.import_pipeline.steps import STEP_ERROR
 from services.admin_city_import_job_payload import refresh_import_job_snapshot
 from services.system_log_service import write_system_log
+
+# Sources that run the heavy OSM collection/foundation pipeline. These are the
+# only sources the low-memory safety guard blocks — address/photo/snapshot-
+# refresh side-tasks are already bounded and per-place, not full-city scans.
+HEAVY_IMPORT_SOURCES = {SOURCE_FULL_IMPORT, SOURCE_ENRICHMENT_ONLY}
+
+
+def _available_memory_mb() -> int | None:
+    """Best-effort available memory reading from /proc/meminfo (Linux only).
+
+    Returns None if unavailable (e.g. non-Linux dev machine) — safe mode then
+    cannot verify memory headroom and treats that as insufficient, matching
+    the "truthful refusal over risking OOM" requirement.
+    """
+    try:
+        with open("/proc/meminfo") as handle:
+            for line in handle:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) // 1024
+    except OSError:
+        return None
+    return None
+
+
+def _safe_mode_block_reason(job: CityAdminImportJob) -> str | None:
+    """Return a truthful blocking reason if safe mode forbids running this job
+    now, or None if it may proceed. Never silently allows a heavy job through
+    when memory cannot be confirmed safe."""
+    if not settings.import_worker_safe_mode:
+        return None
+    source = str(job.source or "")
+    if source not in HEAVY_IMPORT_SOURCES:
+        return None
+    if settings.import_worker_max_full_import_places_low_memory <= 0:
+        return (
+            "import-worker safety guard: low-memory host — full/heavy import jobs "
+            f"(source={source}) are blocked in safe mode on this host until infrastructure "
+            "is upgraded or this threshold is raised. Job not processed."
+        )
+    available = _available_memory_mb()
+    if available is None or available < settings.import_worker_min_available_memory_mb:
+        return (
+            "import-worker safety guard: low-memory host — available memory "
+            f"({available if available is not None else 'unknown'} MB) is below the configured "
+            f"minimum ({settings.import_worker_min_available_memory_mb} MB). Job not processed."
+        )
+    return None
 
 
 def run_import_job_background(city_id: int, *, actor_id: str) -> None:
@@ -87,6 +136,29 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                     details={"reason": "status_not_queued", "status": job.status, "limit": limit},
                 )
                 db.commit()
+                continue
+            block_reason = _safe_mode_block_reason(job)
+            if block_reason is not None:
+                job.status = "failed"
+                job.last_error = block_reason
+                job.finished_at = datetime.utcnow()
+                _log_worker_decision(
+                    db,
+                    event="worker_job_blocked_safe_mode",
+                    actor_id=actor_id,
+                    level="error",
+                    message=f"Import worker blocked job #{job_id}: {block_reason}",
+                    job=job,
+                    details={"reason": "safe_mode_low_memory", "source": source, "limit": limit},
+                )
+                db.commit()
+                send_admin_alert(
+                    title="Import worker job blocked (safe mode)",
+                    message=block_reason,
+                    level="error",
+                    job_id=job_id,
+                    details={"city_id": city_id, "source": source},
+                )
                 continue
             try:
                 _log_worker_decision(

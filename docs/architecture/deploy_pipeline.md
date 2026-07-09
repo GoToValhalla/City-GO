@@ -221,11 +221,32 @@ docker compose stop import-worker || true
 Workflow проверяет, что backend `/ready` проходит, а `import-worker` после deploy
 не имеет Docker state `running`. Если worker всё ещё running, deploy падает с явной
 ошибкой. Очереди import jobs при этом не меняются: queued jobs остаются queued до
-отдельного future worker-safety fix.
+ручного safe-запуска.
 
-До реализации отдельной безопасности worker нельзя запускать full import/retry
-collection на production. Emergency stop/restart workflows существуют только для
-митигирования backend/API incident и не являются способом запуска import pipeline.
+### Worker safety framework (CITYGO-277)
+
+После инцидента добавлен минимальный safety framework — подробности и kill criteria
+в `docs/operations/import_worker_safety.md`. Кратко:
+
+- `import-worker` в `docker-compose.yml` имеет `mem_limit: 384m`, `cpus: "0.50"`,
+  `restart: "no"` (никогда не crash-loop) и `IMPORT_WORKER_SAFE_MODE=true`.
+- В safe mode тяжёлые источники (`admin_city_import`, `admin_city_enrichment`)
+  блокируются на текущем low-memory host целиком
+  (`IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY=0`) — job получает статус
+  `failed` с честным `last_error`, без fake success и без вечного `running`.
+- Worker-цикл проверяет `backend /ready` перед каждой итерацией и имеет
+  `IMPORT_WORKER_MAX_RUNTIME_SECONDS` — при недоступном backend или превышении
+  лимита процесс останавливается сам.
+- Единственный способ вручную запустить worker — guarded workflow
+  `.github/workflows/run-import-worker-safe.yml`
+  (`CITY GO · OPS · Run Import Worker Safely`), с обязательным подтверждением,
+  preflight-проверками (health/ready/memory/not-already-running) и
+  безусловной остановкой worker в конце запуска.
+
+До подтверждения на реальном инфраструктурном апгрейде **нельзя** запускать full
+import/retry collection на Kaliningrad-масштабе на production. Emergency
+stop/restart workflows существуют только для митигирования backend/API incident
+и не являются способом запуска import pipeline.
 
 ---
 

@@ -114,6 +114,20 @@ class Settings(BaseSettings):
     # emergency/local override, not a general execution mode.
     admin_allow_in_web_worker_run_once: bool = False
 
+    # Import-worker safety framework (added after the 2026-07-10 OOM incident:
+    # a full Kaliningrad import ran on a ~1GB host with no swap, the worker was
+    # OOM-killed, and the backend became unreachable behind nginx). Defaults are
+    # local-dev-permissive (safe_mode off, no full-import block) so existing
+    # local/CI workflows are unaffected; production compose sets these explicitly.
+    import_worker_safe_mode: bool = False
+    import_worker_max_runtime_seconds: int = 300
+    import_worker_backend_health_url: str = "http://backend:8000/ready"
+    import_worker_min_available_memory_mb: int = 256
+    # 0 means: block ALL full-import/heavy jobs in safe mode on this host,
+    # regardless of the target city's actual place count — the current
+    # production host cannot safely run a full import at any size.
+    import_worker_max_full_import_places_low_memory: int = 0
+
     # Destination-first foundation (phased rollout; defaults keep legacy city flow).
     destination_foundation_enabled: bool = False
     destination_catalog_reads_enabled: bool = False
