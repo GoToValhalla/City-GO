@@ -208,13 +208,13 @@ def test_image_digest_is_recorded_before_transport_new() -> None:
     assert "RepoDigests" in text
 
 
-def test_archive_uses_gzip_level_6_new() -> None:
+def test_archive_uses_gzip_level_1_new() -> None:
     text = _read()
     save_idx = text.index('docker save "$BACKEND_IMAGE:latest" "$FRONTEND_IMAGE:latest"')
     line_end = text.index("\n", save_idx)
-    assert "gzip -6" in text[save_idx:line_end]
-    assert "gzip -1 " not in text[save_idx:line_end]
-    assert "gzip -1>" not in text[save_idx:line_end]
+    assert "gzip -1" in text[save_idx:line_end]
+    assert "gzip -6 " not in text[save_idx:line_end]
+    assert "gzip -6>" not in text[save_idx:line_end]
 
 
 def test_archive_size_is_recorded_and_kept_separate_from_transfer_timing_new() -> None:
