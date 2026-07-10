@@ -2,7 +2,8 @@ from datetime import datetime
 
 from data.scripts import import_cron_db
 from data.scripts.city_coverage_report import parse_args as coverage_args
-from data.scripts.import_city_osm import _apply_import, _normalize_osm_object, parse_args as import_args
+from data.scripts.import_city_osm import _apply_import, _normalize_osm_object, _save_source_observation, parse_args as import_args
+from services.import_job_service import create_batch
 from data.scripts.import_cron_config import load_targets, select_targets, split_csv
 from data.scripts.run_due_import_jobs import parse_args as cron_args
 from models.city import City
@@ -85,6 +86,116 @@ def test_apply_import_marks_scope_sources_missing(db_session):
 
     assert result["missing_from_source"] == 1
     assert missing.presence_status == "missing_once"
+
+
+def _city_scope_batch(db_session, *, mode="apply"):
+    city = City(slug="gdansk", name="Гданьск", country="Польша")
+    db_session.add(city)
+    db_session.commit()
+    scope = CityImportScope(city_id=city.id, code="tourist_core", name="Core", enabled=True, status="enabled")
+    db_session.add(scope)
+    db_session.commit()
+    batch = create_batch(db_session, scope, mode=mode)
+    return city, scope, batch
+
+
+def _osm_item(source_external_id="osm:node:1"):
+    return {
+        "source_external_id": source_external_id,
+        "source_url": "https://www.openstreetmap.org/node/1",
+        "raw_name": "Cafe",
+        "raw_category": "cafe",
+        "raw_lat": 54.35,
+        "raw_lng": 18.65,
+        "raw_payload": {"tags": {"amenity": "cafe"}},
+        "payload_hash": "hash1",
+        "accepted": True,
+        "rejection_reason": None,
+    }
+
+
+def test_save_source_observation_same_batch_same_item_produces_one_row_new(db_session):
+    city, scope, batch = _city_scope_batch(db_session)
+    item = _osm_item()
+
+    first = _save_source_observation(db_session, city, scope, batch, item)
+    second = _save_source_observation(db_session, city, scope, batch, item)
+    db_session.commit()
+
+    assert first.id == second.id
+    rows = db_session.query(SourceObservation).filter_by(import_batch_id=batch.id).all()
+    assert len(rows) == 1
+
+
+def test_save_source_observation_different_batches_produce_two_rows_new(db_session):
+    city, scope, batch_one = _city_scope_batch(db_session)
+    batch_two = create_batch(db_session, scope, mode="apply")
+    item = _osm_item()
+
+    first = _save_source_observation(db_session, city, scope, batch_one, item)
+    second = _save_source_observation(db_session, city, scope, batch_two, item)
+    db_session.commit()
+
+    assert first.id != second.id
+    rows = db_session.query(SourceObservation).filter(
+        SourceObservation.source_external_id == item["source_external_id"]
+    ).all()
+    assert len(rows) == 2
+
+
+def test_save_source_observation_sets_correct_idempotency_key_new(db_session):
+    city, scope, batch = _city_scope_batch(db_session)
+    item = _osm_item()
+
+    observation = _save_source_observation(db_session, city, scope, batch, item)
+    db_session.commit()
+
+    assert observation.idempotency_key == f"{batch.id}:{item['source_external_id']}"
+
+
+def test_save_source_observation_duplicate_conflict_does_not_crash_new(db_session, monkeypatch):
+    """Simulates a concurrent writer winning the race: the pre-insert lookup
+    misses (as it would under real concurrency), a row with the same
+    idempotency_key is already committed by the time the insert executes,
+    and the IntegrityError path must recover instead of propagating."""
+    city, scope, batch = _city_scope_batch(db_session)
+    item = _osm_item()
+    key = f"{batch.id}:{item['source_external_id']}"
+
+    winner = SourceObservation(
+        import_batch_id=batch.id,
+        city_id=city.id,
+        scope_id=scope.id,
+        source_type="osm",
+        source_external_id=item["source_external_id"],
+        idempotency_key=key,
+        payload_hash="concurrent-writer-hash",
+        match_status="new_source_object",
+        normalization_status="raw_only",
+    )
+    db_session.add(winner)
+    db_session.commit()
+
+    import data.scripts.import_city_osm as import_city_osm
+
+    real_query = db_session.query
+    call_count = {"n": 0}
+
+    def _query_that_misses_once(model, *args, **kwargs):
+        call_count["n"] += 1
+        query = real_query(model, *args, **kwargs)
+        if model is import_city_osm.SourceObservation and call_count["n"] == 1:
+            return query.filter(SourceObservation.id == -1)
+        return query
+
+    monkeypatch.setattr(db_session, "query", _query_that_misses_once)
+
+    result = _save_source_observation(db_session, city, scope, batch, item)
+    db_session.commit()
+
+    assert result.id == winner.id
+    rows = db_session.query(SourceObservation).filter_by(idempotency_key=key).all()
+    assert len(rows) == 1
 
 
 def test_osm_import_creates_private_park_with_safe_name_without_photo_or_address_new(db_session):

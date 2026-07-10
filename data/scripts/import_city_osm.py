@@ -14,6 +14,8 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from sqlalchemy.exc import IntegrityError
+
 from db.session import SessionLocal
 from models.category import Category
 from models.city import City
@@ -846,6 +848,30 @@ def _save_source_observation(
     batch: ImportBatch,
     item: dict[str, Any],
 ) -> SourceObservation:
+    idempotency_key = f"{batch.id}:{item['source_external_id']}"
+
+    existing = (
+        db.query(SourceObservation)
+        .filter(SourceObservation.idempotency_key == idempotency_key)
+        .first()
+    )
+    if existing is not None:
+        existing.source_url = item.get("source_url")
+        existing.raw_name = item.get("raw_name")
+        existing.raw_category = item.get("raw_category")
+        existing.raw_lat = item.get("raw_lat")
+        existing.raw_lng = item.get("raw_lng")
+        existing.raw_payload = item.get("raw_payload") or {}
+        existing.payload_hash = item["payload_hash"]
+        existing.last_seen_at = datetime.utcnow()
+        existing.seen_in_batch_id = batch.id
+        existing.match_status = "new_source_object" if item["accepted"] else "rejected"
+        existing.normalization_status = "normalized" if item["accepted"] else "rejected"
+        existing.rejection_reason = item.get("rejection_reason")
+        existing.confidence = 0.7 if item["accepted"] else 0.0
+        db.flush()
+        return existing
+
     observation = SourceObservation(
         import_batch_id=batch.id,
         city_id=city.id,
@@ -860,14 +886,29 @@ def _save_source_observation(
         raw_lng=item.get("raw_lng"),
         raw_payload=item.get("raw_payload") or {},
         payload_hash=item["payload_hash"],
+        idempotency_key=idempotency_key,
         seen_in_batch_id=batch.id,
         match_status="new_source_object" if item["accepted"] else "rejected",
         normalization_status="normalized" if item["accepted"] else "rejected",
         rejection_reason=item.get("rejection_reason"),
         confidence=0.7 if item["accepted"] else 0.0,
     )
-    db.add(observation)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(observation)
+            db.flush()
+    except IntegrityError:
+        # The nested SAVEPOINT above is rolled back automatically on
+        # exception exit; only the failed insert is undone, not the batch's
+        # outer transaction. A concurrent writer won the race for this key.
+        existing = (
+            db.query(SourceObservation)
+            .filter(SourceObservation.idempotency_key == idempotency_key)
+            .first()
+        )
+        if existing is None:
+            raise
+        return existing
     return observation
 
 
