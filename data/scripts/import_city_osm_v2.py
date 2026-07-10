@@ -63,7 +63,7 @@ COVERAGE_AWARE_PROFILE_FILTERS: dict[str, list[tuple[str, str | None]]] = {
         ("wikipedia", None),
     ],
     "useful_services": [
-        ("amenity", "toilets|pharmacy|atm|parking|shelter|bank|clinic|hospital|police"),
+        ("amenity", "toilets|pharmacy|atm|shelter|clinic|hospital|police"),
     ],
 }
 COVERAGE_AWARE_PROFILE_FILTERS.update(COVERAGE_PROFILE_FILTERS)

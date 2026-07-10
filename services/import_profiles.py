@@ -110,7 +110,7 @@ IMPORT_PROFILES: dict[str, tuple[str, ...]] = {
     ),
     "service_infra": ("toilets", "parking", "drinking_water", "shelter", "information"),
     "transport_hub": ("airport", "railway_station", "bus_station", "ferry_terminal"),
-    "useful_services": ("toilets", "pharmacy", "atm", "parking", "bus_stop", "shelter"),
+    "useful_services": ("toilets", "pharmacy", "atm", "shelter", "clinic", "hospital", "police"),
     "manual_seed": ("curated", "wikidata", "osm", "official_source"),
     "full_osm": ("debug_only",),
 }
