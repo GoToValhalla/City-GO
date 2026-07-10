@@ -143,3 +143,76 @@ def test_worker_cannot_complete_an_already_recovered_job_new(db_session, city_fa
 
     display = resolve_import_display(city, job)
     assert display["status_group"] == "failed"
+
+
+def test_fresh_running_job_is_not_recovered_new(client, db_session, city_factory) -> None:
+    """A job that started recently (well under the stale threshold) must be
+    left alone — recovery must only touch genuinely stale jobs."""
+    city = city_factory(slug="recovery-fresh-city", launch_status="importing", is_active=False)
+    job = _stuck_job(db_session, city, hours_ago=0.01)  # ~36 seconds ago
+
+    response = client.post("/admin/import-queue/mark-stalled")
+
+    assert response.status_code == 200
+    assert response.json()["marked"] == 0
+    assert response.json()["job_ids"] == []
+    db_session.refresh(job)
+    assert job.status == "running"
+    assert job.finished_at is None
+
+
+def test_already_terminal_job_is_not_recovered_new(client, db_session, city_factory) -> None:
+    """A job that already finished (any terminal status) must be a no-op —
+    recovery only ever applies to status == 'running'."""
+    city = city_factory(slug="recovery-terminal-city", launch_status="review_required", is_active=False)
+    job = CityAdminImportJob(
+        city_id=city.id,
+        status="success",
+        source="admin_city_import",
+        started_at=datetime.utcnow() - timedelta(hours=4),
+        finished_at=datetime.utcnow() - timedelta(hours=3),
+    )
+    db_session.add(job)
+    db_session.commit()
+
+    response = client.post("/admin/import-queue/mark-stalled")
+
+    assert response.status_code == 200
+    assert response.json()["marked"] == 0
+    db_session.refresh(job)
+    assert job.status == "success"
+
+
+def test_recovered_job_gets_truthful_error_and_finished_at_new(client, db_session, city_factory) -> None:
+    city = city_factory(slug="recovery-truthful-city", launch_status="importing", is_active=False)
+    job = _stuck_job(db_session, city, hours_ago=8.2)
+    before = datetime.utcnow()
+
+    response = client.post("/admin/import-queue/mark-stalled")
+
+    assert response.status_code == 200
+    assert response.json()["marked"] == 1
+    assert response.json()["job_ids"] == [job.id]
+    db_session.refresh(job)
+    assert job.status == "stalled"
+    assert job.status != "success"
+    assert job.last_error == "Recovered stale import job: no active worker heartbeat / worker process absent"
+    assert job.finished_at is not None
+    assert job.finished_at >= before
+
+
+def test_recovery_sends_admin_alert_new(client, db_session, city_factory, monkeypatch) -> None:
+    from routers import admin_import_queue
+
+    alerts = []
+    monkeypatch.setattr(admin_import_queue, "send_admin_alert", lambda **kwargs: alerts.append(kwargs))
+    city = city_factory(slug="recovery-alert-city", launch_status="importing", is_active=False)
+    _stuck_job(db_session, city, hours_ago=4)
+
+    response = client.post("/admin/import-queue/mark-stalled")
+
+    assert response.status_code == 200
+    assert response.json()["marked"] == 1
+    assert len(alerts) == 1
+    assert alerts[0]["title"] == "Import queue recovered stuck jobs"
+    assert alerts[0]["level"] == "warning"

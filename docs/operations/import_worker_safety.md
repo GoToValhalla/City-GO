@@ -101,6 +101,47 @@ GitHub Actions → `CITY GO · OPS · Run Import Worker Safely`
 The workflow never deploys, pulls images, mutates the DB directly, or starts
 any other `ops` service.
 
+## Recovering a stale running job
+
+If `import-worker` does not exist (confirmed via `docker compose ps -a` or the
+read-only verification workflow) but the queue still shows a job stuck in
+`status="running"` — e.g. from before this framework existed, or from a worker
+that was stopped/killed mid-job — use the existing manual recovery endpoint:
+
+```
+POST /admin/import-queue/mark-stalled
+```
+
+(`routers/admin_import_queue.py::mark_stuck_import_jobs`). This is the same
+endpoint the admin UI's "Пометить зависшие" button calls.
+
+**What it does:**
+
+- Only affects jobs with `status == "running"` that have exceeded
+  `MAX_RUNNING_SECONDS` (1 hour) since `started_at`/`updated_at`/`created_at`.
+- Transitions each matched job to `status="stalled"` (an existing terminal
+  status — no new enum, no migration), sets `current_step="error"`,
+  `finished_at=now`, and `last_error="Recovered stale import job: no active
+  worker heartbeat / worker process absent"` (only if the job doesn't already
+  have a more specific error).
+- Records a `manual_stalled_recovery` system log entry and sends an admin
+  alert (`"Import queue recovered stuck jobs"`).
+- **Does not requeue or re-run the job.** Recovery only marks the current
+  stuck attempt as terminal; if a fresh attempt is wanted, that is a separate,
+  explicit retry action the operator takes afterward — never automatic.
+- Is idempotent: a job already recovered (now `stalled`, not `running`) is not
+  touched by a second call; a job that finished normally (`success`,
+  `failed`, etc.) was never a candidate and is never touched.
+- Determines staleness purely from the job's own timestamps — it does not
+  inspect Docker/container state itself. The operator is responsible for
+  separately confirming (e.g. via the read-only verification workflow) that no
+  worker is actually still processing the job before recovering it.
+
+**After recovery:** re-check `GET /admin/import-queue` to confirm `running`
+and `stalled_running` both return to `0` for that job, then re-run the
+read-only verification workflow before considering any manual worker
+execution — see "What NOT to do" below.
+
 ## Kill criteria (stop immediately if any of these are true)
 
 - Public backend health is not `200` on `/api/health` or `/api/ready`.
@@ -129,6 +170,12 @@ manually outside that workflow, apply the same criteria by hand.
   disable `IMPORT_WORKER_SAFE_MODE` on the current host without first
   confirming a real memory/CPU upgrade — this document's thresholds are a
   starting point, not a target to routinely override.
+- Do not run the safe manual worker workflow while the queue state is not
+  truthful (e.g. a stuck `running` job with no corresponding worker) — recover
+  it first via `POST /admin/import-queue/mark-stalled`, re-confirm
+  `GET /admin/import-queue` shows `running`/`stalled_running` at `0`, and only
+  then re-run the read-only verification workflow to confirm the effective
+  compose config still matches expectations before considering any worker run.
 
 ## Out of scope for this framework
 

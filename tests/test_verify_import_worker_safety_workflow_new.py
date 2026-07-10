@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import re
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -110,3 +115,117 @@ def test_workflow_uploads_verification_artifact_new() -> None:
     assert len(upload_steps) == 1
     assert upload_steps[0]["with"]["name"] == "import-worker-safety-verification-report"
     assert upload_steps[0].get("if") == "always()"
+
+
+def test_workflow_uses_robust_json_compose_config_extraction_new() -> None:
+    """The fragile sed-based section-boundary extraction must be replaced with
+    a robust `docker compose config --format json` + Python parse, since sed
+    boundary matching against arbitrary YAML formatting produced an empty
+    section in production."""
+    text = _workflow_text()
+
+    assert "docker compose config --format json" in text
+    assert "sed -n '/^  import-worker:/" not in text
+
+
+def test_workflow_validates_all_required_safety_fields_new() -> None:
+    text = _workflow_text()
+
+    for expected_field in (
+        "mem_limit",
+        "memswap_limit",
+        "cpus",
+        "restart",
+        "profiles",
+        "IMPORT_WORKER_SAFE_MODE",
+        "IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY",
+        "IMPORT_WORKER_MAX_RUNTIME_SECONDS",
+        "IMPORT_WORKER_BACKEND_HEALTH_URL",
+        "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB",
+    ):
+        assert expected_field in text, f"missing validation for {expected_field}"
+
+
+def test_workflow_fails_clearly_on_config_mismatch_new() -> None:
+    """The remote script must propagate a non-zero exit when validation fails,
+    so the GitHub Actions step (and therefore the whole run) fails clearly —
+    not just print an error and continue as if everything passed."""
+    text = _workflow_text()
+
+    assert 'if [ "$CONFIG_FAIL" -ne 0 ]; then' in text
+    assert "exit 1" in text
+    # The failure must happen inside the remote heredoc (so it propagates
+    # through the local `ssh ... | tee` pipeline via `pipefail`), not only
+    # as a local echo with no effect on the step's exit code.
+    remote_start = text.index("bash <<'REMOTE_EOF'")
+    remote_end = text.index("REMOTE_EOF", remote_start + len("bash <<'REMOTE_EOF'"))
+    remote_body = text[remote_start:remote_end]
+    assert 'if [ "$CONFIG_FAIL" -ne 0 ]; then' in remote_body
+
+
+def _extract_embedded_validation_script() -> str:
+    text = _workflow_text()
+    match = re.search(r"python3 - <<'PYEOF'.*?\n(.*?)\n(\s*)PYEOF", text, re.S)
+    assert match is not None, "embedded PYEOF python block not found"
+    body, indent = match.group(1), match.group(2)
+    lines = body.split("\n")
+    dedented = "\n".join(line[len(indent):] if line.startswith(indent) else line for line in lines)
+    return dedented
+
+
+def _run_validation_against_fixture(service_config: dict) -> subprocess.CompletedProcess:
+    script = _extract_embedded_validation_script()
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = Path(tmp) / "compose-config.json"
+        config_path.write_text(json.dumps({"services": {"import-worker": service_config}}), encoding="utf-8")
+        patched = script.replace("/tmp/compose-config.json", str(config_path))
+        script_path = Path(tmp) / "check.py"
+        script_path.write_text(patched, encoding="utf-8")
+        return subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True)
+
+
+def test_embedded_validation_passes_for_correct_production_config_new() -> None:
+    result = _run_validation_against_fixture({
+        "profiles": ["ops"],
+        "restart": "no",
+        "mem_limit": 384 * 1024 * 1024,
+        "memswap_limit": 384 * 1024 * 1024,
+        "cpus": 0.5,
+        "environment": {
+            "IMPORT_WORKER_SAFE_MODE": "true",
+            "IMPORT_WORKER_MAX_RUNTIME_SECONDS": "300",
+            "IMPORT_WORKER_BACKEND_HEALTH_URL": "http://backend:8000/ready",
+            "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "256",
+            "IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY": "0",
+        },
+    })
+
+    assert result.returncode == 0, result.stderr
+    assert "All import-worker safety config checks passed." in result.stdout
+
+
+def test_embedded_validation_fails_for_wrong_config_new() -> None:
+    result = _run_validation_against_fixture({
+        "profiles": ["ops"],
+        "restart": "unless-stopped",
+        "environment": {"IMPORT_WORKER_SAFE_MODE": "false"},
+    })
+
+    assert result.returncode != 0
+    assert "MISMATCH: restart" in result.stdout
+    assert "MISMATCH: mem_limit" in result.stdout
+    assert "MISMATCH: IMPORT_WORKER_SAFE_MODE" in result.stdout
+
+
+def test_embedded_validation_fails_when_service_missing_new() -> None:
+    script = _extract_embedded_validation_script()
+    with tempfile.TemporaryDirectory() as tmp:
+        config_path = Path(tmp) / "compose-config.json"
+        config_path.write_text(json.dumps({"services": {}}), encoding="utf-8")
+        patched = script.replace("/tmp/compose-config.json", str(config_path))
+        script_path = Path(tmp) / "check.py"
+        script_path.write_text(patched, encoding="utf-8")
+        result = subprocess.run([sys.executable, str(script_path)], capture_output=True, text=True)
+
+    assert result.returncode != 0
+    assert "import-worker service not found" in result.stderr
