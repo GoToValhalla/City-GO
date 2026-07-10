@@ -339,7 +339,11 @@ jobs:
           echo "Frontend image digest: ${FRONTEND_DIGEST}"
           docker tag "$BACKEND_IMAGE:${DEPLOY_TARGET_SHA}" "$BACKEND_IMAGE:latest"
           docker tag "$FRONTEND_IMAGE:${DEPLOY_TARGET_SHA}" "$FRONTEND_IMAGE:latest"
-          docker save "$BACKEND_IMAGE:latest" "$FRONTEND_IMAGE:latest" | gzip -1 > /tmp/city-go-images.tar.gz
+          docker save "$BACKEND_IMAGE:latest" "$FRONTEND_IMAGE:latest" | gzip -6 > /tmp/city-go-images.tar.gz
+          ARCHIVE_BYTES=$(stat -c%s /tmp/city-go-images.tar.gz 2>/dev/null || stat -f%z /tmp/city-go-images.tar.gz)
+          echo "Archive size: ${ARCHIVE_BYTES} bytes ($(awk -v b="$ARCHIVE_BYTES" 'BEGIN { printf "%.2f", b/1048576 }') MiB)"
+          echo "archive_size_bytes=${ARCHIVE_BYTES}" >> "$GITHUB_ENV"
+          echo "archive_size_mib=$(awk -v b="$ARCHIVE_BYTES" 'BEGIN { printf "%.2f", b/1048576 }')" >> "$GITHUB_ENV"
           echo "timing_download_save_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
 
       - name: Copy compose file to server
@@ -603,6 +607,7 @@ jobs:
             echo "### deploy timing (seconds)"
             echo "- image download/save/compress: ${timing_download_save_seconds:-not separately measurable in the previous workflow}"
             echo "- image transfer (scp): ${timing_transfer_seconds:-not separately measurable in the previous workflow}"
+            echo "- archive size: ${archive_size_bytes:-unknown} bytes (${archive_size_mib:-unknown} MiB)"
             echo "- remote load + compose up: ${timing_remote_deploy_seconds:-not separately measurable in the previous workflow}"
             echo "- build.json verify: ${timing_build_json_verify_seconds:-not separately measurable in the previous workflow}"
             echo "- readiness + final invariants: ${timing_readiness_seconds:-not separately measurable in the previous workflow}"

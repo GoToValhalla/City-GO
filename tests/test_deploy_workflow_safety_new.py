@@ -206,3 +206,36 @@ def test_build_backend_and_frontend_use_gha_cache_new() -> None:
 def test_image_digest_is_recorded_before_transport_new() -> None:
     text = _read()
     assert "RepoDigests" in text
+
+
+def test_archive_uses_gzip_level_6_new() -> None:
+    text = _read()
+    save_idx = text.index('docker save "$BACKEND_IMAGE:latest" "$FRONTEND_IMAGE:latest"')
+    line_end = text.index("\n", save_idx)
+    assert "gzip -6" in text[save_idx:line_end]
+    assert "gzip -1 " not in text[save_idx:line_end]
+    assert "gzip -1>" not in text[save_idx:line_end]
+
+
+def test_archive_size_is_recorded_and_kept_separate_from_transfer_timing_new() -> None:
+    text = _read()
+    save_start = text.index("name: Download images from GHCR on runner")
+    copy_compose_start = text.index("name: Copy compose file to server")
+    save_section = text[save_start:copy_compose_start]
+
+    assert "archive_size_bytes=" in save_section
+    assert "archive_size_mib=" in save_section
+    assert "timing_download_save_seconds=" in save_section
+
+    transfer_start = text.index("name: Copy images archive to server")
+    transfer_section = text[transfer_start:transfer_start + 900]
+    assert "archive_size_bytes=" not in transfer_section
+    assert "timing_transfer_seconds=" in transfer_section
+
+
+def test_timing_summary_includes_archive_size_new() -> None:
+    text = _read()
+    summary_idx = text.rindex("name: Timing summary")
+    section = text[summary_idx:summary_idx + 900]
+    assert "archive_size_bytes" in section
+    assert "archive_size_mib" in section
