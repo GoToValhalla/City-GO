@@ -45,6 +45,12 @@ class SourceObservation(Base):
     # source presence, provenance). NULL means the item never reached the
     # end of its processing block — e.g. a crash mid-item — and must not be
     # treated as a completed outcome by any resume/skip logic.
+    # Allowed values: created, updated, unchanged, needs_review, rejected,
+    # hidden_needs_review, hidden_rejected, duplicate (currently unreachable).
+    # Legacy rows may still contain the older, ambiguous "hidden" value —
+    # readers must treat it as equivalent to hidden_needs_review OR
+    # hidden_rejected being unknown, never crash on it. New writes never use
+    # the ambiguous "hidden" value.
     processing_outcome: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)

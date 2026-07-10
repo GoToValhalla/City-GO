@@ -502,7 +502,7 @@ def _apply_import(
                         item=item,
                         before_public=before_public,
                     )
-                    observation.processing_outcome = "hidden"
+                    observation.processing_outcome = "hidden_rejected"
                 else:
                     observation.processing_outcome = "rejected"
                 continue
@@ -591,7 +591,7 @@ def _apply_import(
                         item=item,
                         before_public=before_public,
                     )
-                    item_outcome = "hidden"
+                    item_outcome = "hidden_needs_review"
                 else:
                     updated += 1
                     item_outcome = "updated"

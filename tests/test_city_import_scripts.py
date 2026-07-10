@@ -264,6 +264,136 @@ def test_crash_after_source_observation_creation_leaves_outcome_null_new(db_sess
     assert observation.canonical_place_id is None
 
 
+def test_apply_import_sets_hidden_rejected_outcome_new(db_session):
+    """Rejected item (e.g. closed source) whose existing matching Place gets
+    hidden must persist the distinct hidden_rejected outcome, not the
+    ambiguous legacy 'hidden' value."""
+    city, scope, batch = _city_scope_batch(db_session)
+    raw_first = [{"type": "node", "id": 105, "lat": 54.35, "lon": 18.65, "tags": {"name": "Closing Cafe", "amenity": "cafe"}}]
+    _apply_import(db_session, city, scope, "tourist_core", raw_first, [_normalize_osm_object(raw_first[0], city.slug)])
+
+    raw_closed = [{"type": "node", "id": 105, "lat": 54.35, "lon": 18.65, "tags": {"name": "Closing Cafe", "amenity": "cafe", "disused:amenity": "cafe"}}]
+    normalized_closed = [_normalize_osm_object(raw_closed[0], city.slug)]
+    assert normalized_closed[0]["accepted"] is False
+
+    _apply_import(db_session, city, scope, "tourist_core", raw_closed, normalized_closed)
+
+    observation = db_session.query(SourceObservation).filter_by(
+        source_external_id="osm:node:105"
+    ).order_by(SourceObservation.id.desc()).first()
+    assert observation.processing_outcome == "hidden_rejected"
+
+
+def test_apply_import_sets_hidden_needs_review_outcome_new(db_session, monkeypatch):
+    """decision.action == 'hidden' for an accepted item matched to an
+    existing Place (e.g. bad incoming title, source_closed, etc.) must
+    persist the distinct hidden_needs_review outcome, not the ambiguous
+    legacy 'hidden' value. apply_accepted_import_to_place's own 'hidden'
+    triggers are unreachable through this OSM caller today (normalization
+    already filters bad titles/closed lifecycle before this point — same
+    latent-unreachable-branch pattern as the 'duplicate' outcome), so this
+    test forces the decision via monkeypatch to prove _apply_import's own
+    outcome-mapping is correct independent of that upstream reachability gap."""
+    city, scope, batch = _city_scope_batch(db_session)
+    raw_first = [{"type": "node", "id": 106, "lat": 54.35, "lon": 18.65, "tags": {"name": "Real Cafe Name", "amenity": "cafe"}}]
+    _apply_import(db_session, city, scope, "tourist_core", raw_first, [_normalize_osm_object(raw_first[0], city.slug)])
+
+    raw_second = [{"type": "node", "id": 106, "lat": 54.35, "lon": 18.65, "tags": {"name": "Real Cafe Name Updated", "amenity": "cafe"}}]
+    normalized_second = [_normalize_osm_object(raw_second[0], city.slug)]
+    assert normalized_second[0]["accepted"] is True
+
+    import data.scripts.import_city_osm as import_city_osm
+    from services.place_import_lifecycle_service import PlaceImportDecision
+
+    def _force_hidden_decision(*, place, item, category_id, visit_duration_minutes):
+        return PlaceImportDecision(
+            action="hidden",
+            status="draft",
+            is_active=False,
+            changed_fields=["title"],
+            review_reasons=["forced_for_test"],
+        )
+
+    monkeypatch.setattr(import_city_osm, "apply_accepted_import_to_place", _force_hidden_decision)
+
+    _apply_import(db_session, city, scope, "tourist_core", raw_second, normalized_second)
+
+    observation = db_session.query(SourceObservation).filter_by(
+        source_external_id="osm:node:106"
+    ).order_by(SourceObservation.id.desc()).first()
+    assert observation.processing_outcome == "hidden_needs_review"
+
+
+def test_hidden_outcomes_are_distinguishable_and_map_to_correct_counters_new(db_session, monkeypatch):
+    """Exact counter mapping must be able to tell the two hidden paths apart:
+    hidden_rejected contributes to rejected_count semantics, hidden_needs_review
+    contributes to published/needs_review semantics — never the ambiguous
+    ex-'hidden' value for either."""
+    city, scope, batch = _city_scope_batch(db_session)
+
+    raw_a = [{"type": "node", "id": 107, "lat": 54.35, "lon": 18.65, "tags": {"name": "Cafe A", "amenity": "cafe"}}]
+    _apply_import(db_session, city, scope, "tourist_core", raw_a, [_normalize_osm_object(raw_a[0], city.slug)])
+    raw_a_closed = [{"type": "node", "id": 107, "lat": 54.35, "lon": 18.65, "tags": {"name": "Cafe A", "amenity": "cafe", "disused:amenity": "cafe"}}]
+    _apply_import(db_session, city, scope, "tourist_core", raw_a_closed, [_normalize_osm_object(raw_a_closed[0], city.slug)])
+
+    raw_b = [{"type": "node", "id": 108, "lat": 54.36, "lon": 18.66, "tags": {"name": "Cafe B", "amenity": "cafe"}}]
+    _apply_import(db_session, city, scope, "tourist_core", raw_b, [_normalize_osm_object(raw_b[0], city.slug)])
+    raw_b_updated = [{"type": "node", "id": 108, "lat": 54.36, "lon": 18.66, "tags": {"name": "Cafe B Updated", "amenity": "cafe"}}]
+    normalized_b_updated = [_normalize_osm_object(raw_b_updated[0], city.slug)]
+
+    import data.scripts.import_city_osm as import_city_osm
+    from services.place_import_lifecycle_service import PlaceImportDecision
+
+    def _force_hidden_decision(*, place, item, category_id, visit_duration_minutes):
+        return PlaceImportDecision(
+            action="hidden",
+            status="draft",
+            is_active=False,
+            changed_fields=["title"],
+            review_reasons=["forced_for_test"],
+        )
+
+    monkeypatch.setattr(import_city_osm, "apply_accepted_import_to_place", _force_hidden_decision)
+    _apply_import(db_session, city, scope, "tourist_core", raw_b_updated, normalized_b_updated)
+
+    hidden_rejected_count = db_session.query(SourceObservation).filter_by(
+        source_external_id="osm:node:107", processing_outcome="hidden_rejected"
+    ).count()
+    hidden_needs_review_count = db_session.query(SourceObservation).filter_by(
+        source_external_id="osm:node:108", processing_outcome="hidden_needs_review"
+    ).count()
+    ambiguous_legacy_count = db_session.query(SourceObservation).filter(
+        SourceObservation.processing_outcome == "hidden"
+    ).count()
+
+    assert hidden_rejected_count == 1
+    assert hidden_needs_review_count == 1
+    assert ambiguous_legacy_count == 0
+
+
+def test_legacy_ambiguous_hidden_rows_do_not_crash_readers_new(db_session):
+    """A pre-existing row with the old ambiguous 'hidden' value (written
+    before this disambiguation) must remain readable without error."""
+    city, scope, batch = _city_scope_batch(db_session)
+    legacy = SourceObservation(
+        import_batch_id=batch.id,
+        city_id=city.id,
+        scope_id=scope.id,
+        source_type="osm",
+        source_external_id="osm:node:legacy",
+        idempotency_key=f"{batch.id}:osm:node:legacy",
+        payload_hash="legacy-hash",
+        match_status="matched_existing_place",
+        normalization_status="linked_to_place",
+        processing_outcome="hidden",
+    )
+    db_session.add(legacy)
+    db_session.commit()
+
+    reread = db_session.query(SourceObservation).filter_by(source_external_id="osm:node:legacy").first()
+    assert reread.processing_outcome == "hidden"
+
+
 def test_osm_import_creates_private_park_with_safe_name_without_photo_or_address_new(db_session):
     city = City(slug="park-city", name="Park City", country="Россия")
     db_session.add(city)
