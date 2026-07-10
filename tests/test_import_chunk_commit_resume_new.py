@@ -11,12 +11,17 @@ depending on item order.
 
 from __future__ import annotations
 
+import os
 import random
+import tempfile
+import uuid
 
 import pytest
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from data.scripts.import_city_osm import _apply_import, _normalize_osm_object
+from db.base import Base
 from models.city import City
 from models.city_import_scope import CityImportScope
 from models.place import Place
@@ -27,8 +32,37 @@ from models.source_observation import SourceObservation
 from services.import_job_service import create_batch
 
 
+@pytest.fixture
+def isolated_engine():
+    """A private, function-scoped SQLite file engine — NOT the shared
+    session-scoped `engine` fixture. Crash/resume tests here perform real,
+    separate-session commits to model independent process attempts, and the
+    shared `engine` fixture lives for the whole pytest session, so any real
+    commit against it leaks rows (e.g. Category.code, unique) into every
+    other test that reuses that same fixture for the rest of the run. This
+    fixture gives each test its own on-disk DB, fully disposed and deleted
+    on teardown, so real commits stay contained to one test."""
+    db_path = os.path.join(tempfile.gettempdir(), f"citygo-chunk-resume-{uuid.uuid4().hex}.db")
+    db_url = f"sqlite:///{db_path}"
+    test_engine = create_engine(db_url, connect_args={"check_same_thread": False})
+
+    @event.listens_for(test_engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    Base.metadata.create_all(test_engine)
+    try:
+        yield test_engine
+    finally:
+        test_engine.dispose()
+        if os.path.exists(db_path):
+            os.remove(db_path)
+
+
 def _new_session(engine):
-    """A fresh session bound directly to the shared test engine, modeling an
+    """A fresh session bound directly to the given engine, modeling an
     independent process attempt — unlike db_session, whose single connection/
     transaction makes an internal commit-then-rollback within one test lose
     previously committed rows (SQLAlchemy session-on-Connection semantics),
@@ -105,10 +139,10 @@ def test_boundary_51_items_two_chunks_new(db_session):
     assert completed == 51
 
 
-def test_crash_before_first_commit_then_resume_produces_same_result_new(engine, monkeypatch):
+def test_crash_before_first_commit_then_resume_produces_same_result_new(isolated_engine, monkeypatch):
     """A crash immediately after the batch row exists (zero items processed)
     must allow a full, clean resume against the same batch_id."""
-    setup = _new_session(engine)
+    setup = _new_session(isolated_engine)
     city_id, scope_id = _city_scope(setup, slug="riga-crash-before-first-commit")
     batch_id = create_batch(setup, setup.query(CityImportScope).filter(CityImportScope.id == scope_id).one(), mode="apply").id
     setup.close()
@@ -129,7 +163,7 @@ def test_crash_before_first_commit_then_resume_produces_same_result_new(engine, 
 
     monkeypatch.setattr(import_city_osm, "_process_one_item", _crash_on_first_call)
 
-    attempt_one = _new_session(engine)
+    attempt_one = _new_session(isolated_engine)
     city = attempt_one.query(City).filter(City.id == city_id).one()
     scope = attempt_one.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
     with pytest.raises(RuntimeError):
@@ -138,7 +172,7 @@ def test_crash_before_first_commit_then_resume_produces_same_result_new(engine, 
 
     monkeypatch.setattr(import_city_osm, "_process_one_item", real_process)
 
-    attempt_two = _new_session(engine)
+    attempt_two = _new_session(isolated_engine)
     city = attempt_two.query(City).filter(City.id == city_id).one()
     scope = attempt_two.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
     result = _apply_import(attempt_two, city, scope, "tourist_core", raw, normalized, batch_id=batch_id)
@@ -149,10 +183,10 @@ def test_crash_before_first_commit_then_resume_produces_same_result_new(engine, 
     attempt_two.close()
 
 
-def test_crash_after_first_chunk_then_resume_no_duplicates_new(engine, monkeypatch):
+def test_crash_after_first_chunk_then_resume_no_duplicates_new(isolated_engine, monkeypatch):
     """A crash after chunk 1 (50 items committed) but before chunk 2 finishes
     must resume only the remaining, not-yet-completed items."""
-    setup = _new_session(engine)
+    setup = _new_session(isolated_engine)
     city_id, scope_id = _city_scope(setup, slug="riga-crash-after-first-chunk")
     batch_id = create_batch(setup, setup.query(CityImportScope).filter(CityImportScope.id == scope_id).one(), mode="apply").id
     setup.close()
@@ -173,14 +207,14 @@ def test_crash_after_first_chunk_then_resume_no_duplicates_new(engine, monkeypat
 
     monkeypatch.setattr(import_city_osm, "_process_one_item", _crash_after_60)
 
-    attempt_one = _new_session(engine)
+    attempt_one = _new_session(isolated_engine)
     city = attempt_one.query(City).filter(City.id == city_id).one()
     scope = attempt_one.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
     with pytest.raises(RuntimeError):
         _apply_import(attempt_one, city, scope, "tourist_core", raw, normalized, batch_id=batch_id)
     attempt_one.close()
 
-    verify = _new_session(engine)
+    verify = _new_session(isolated_engine)
     completed_before_resume = verify.query(SourceObservation).filter(
         SourceObservation.import_batch_id == batch_id,
         SourceObservation.processing_outcome.isnot(None),
@@ -189,7 +223,7 @@ def test_crash_after_first_chunk_then_resume_no_duplicates_new(engine, monkeypat
     verify.close()
 
     monkeypatch.setattr(import_city_osm, "_process_one_item", real_process)
-    attempt_two = _new_session(engine)
+    attempt_two = _new_session(isolated_engine)
     city = attempt_two.query(City).filter(City.id == city_id).one()
     scope = attempt_two.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
     result = _apply_import(attempt_two, city, scope, "tourist_core", raw, normalized, batch_id=batch_id)
@@ -276,11 +310,11 @@ def test_same_input_different_order_produces_identical_result_new(db_session):
     assert result_a["rejected"] == result_b["rejected"]
 
 
-def test_resume_produces_no_duplicate_review_queue_items_new(engine, monkeypatch):
+def test_resume_produces_no_duplicate_review_queue_items_new(isolated_engine, monkeypatch):
     """Items that end up in the review queue (needs_review/hidden paths)
     must not get a second ReviewQueueItem row when a crash+resume causes
     _save_source_observation's update path to run twice for the same item."""
-    setup = _new_session(engine)
+    setup = _new_session(isolated_engine)
     city_id, scope_id = _city_scope(setup, slug="riga-review-dup")
     city = setup.query(City).filter(City.id == city_id).one()
     scope = setup.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
@@ -310,7 +344,7 @@ def test_resume_produces_no_duplicate_review_queue_items_new(engine, monkeypatch
         return real_process(*args, **kwargs)
 
     monkeypatch.setattr(import_city_osm, "_process_one_item", _crash_first_time)
-    attempt_one = _new_session(engine)
+    attempt_one = _new_session(isolated_engine)
     city = attempt_one.query(City).filter(City.id == city_id).one()
     scope = attempt_one.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
     with pytest.raises(RuntimeError):
@@ -318,7 +352,7 @@ def test_resume_produces_no_duplicate_review_queue_items_new(engine, monkeypatch
     attempt_one.close()
 
     monkeypatch.setattr(import_city_osm, "_process_one_item", real_process)
-    attempt_two = _new_session(engine)
+    attempt_two = _new_session(isolated_engine)
     city = attempt_two.query(City).filter(City.id == city_id).one()
     scope = attempt_two.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
     _apply_import(attempt_two, city, scope, "tourist_core", raw_v2, normalized_v2, batch_id=batch_two_id)
@@ -329,8 +363,8 @@ def test_resume_produces_no_duplicate_review_queue_items_new(engine, monkeypatch
     attempt_two.close()
 
 
-def test_exact_counters_after_resume_match_uninterrupted_run_new(engine, monkeypatch):
-    baseline = _new_session(engine)
+def test_exact_counters_after_resume_match_uninterrupted_run_new(isolated_engine, monkeypatch):
+    baseline = _new_session(isolated_engine)
     baseline_city_id, baseline_scope_id = _city_scope(baseline, slug="riga-baseline")
     baseline_city = baseline.query(City).filter(City.id == baseline_city_id).one()
     baseline_scope = baseline.query(CityImportScope).filter(CityImportScope.id == baseline_scope_id).one()
@@ -339,7 +373,7 @@ def test_exact_counters_after_resume_match_uninterrupted_run_new(engine, monkeyp
     baseline_result = _apply_import(baseline, baseline_city, baseline_scope, "tourist_core", raw, baseline_normalized)
     baseline.close()
 
-    setup = _new_session(engine)
+    setup = _new_session(isolated_engine)
     city_id, scope_id = _city_scope(setup, slug="riga-resume")
     batch_id = create_batch(setup, setup.query(CityImportScope).filter(CityImportScope.id == scope_id).one(), mode="apply").id
     setup.close()
@@ -358,7 +392,7 @@ def test_exact_counters_after_resume_match_uninterrupted_run_new(engine, monkeyp
         return real_process(*args, **kwargs)
 
     monkeypatch.setattr(import_city_osm, "_process_one_item", _crash_at_55)
-    attempt_one = _new_session(engine)
+    attempt_one = _new_session(isolated_engine)
     city = attempt_one.query(City).filter(City.id == city_id).one()
     scope = attempt_one.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
     with pytest.raises(RuntimeError):
@@ -366,7 +400,7 @@ def test_exact_counters_after_resume_match_uninterrupted_run_new(engine, monkeyp
     attempt_one.close()
 
     monkeypatch.setattr(import_city_osm, "_process_one_item", real_process)
-    attempt_two = _new_session(engine)
+    attempt_two = _new_session(isolated_engine)
     city = attempt_two.query(City).filter(City.id == city_id).one()
     scope = attempt_two.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
     result = _apply_import(attempt_two, city, scope, "tourist_core", raw, normalized, batch_id=batch_id)
@@ -380,11 +414,11 @@ def test_exact_counters_after_resume_match_uninterrupted_run_new(engine, monkeyp
     assert result["hidden"] == baseline_result["hidden"]
 
 
-def test_missing_source_and_bad_place_final_steps_run_once_after_resume_new(engine, monkeypatch):
+def test_missing_source_and_bad_place_final_steps_run_once_after_resume_new(isolated_engine, monkeypatch):
     """_hide_bad_existing_places and _mark_missing_sources must run exactly
     once per _apply_import call, after all item chunks — including the
     resumed call, not duplicated across the crashed+resumed pair."""
-    setup = _new_session(engine)
+    setup = _new_session(isolated_engine)
     city_id, scope_id = _city_scope(setup, slug="riga-missing-final-steps")
     city = setup.query(City).filter(City.id == city_id).one()
     scope = setup.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
@@ -427,7 +461,7 @@ def test_missing_source_and_bad_place_final_steps_run_once_after_resume_new(engi
     monkeypatch.setattr(import_city_osm, "_hide_bad_existing_places", _counting_hide_bad)
     monkeypatch.setattr(import_city_osm, "_mark_missing_sources", _counting_mark_missing)
 
-    attempt_one = _new_session(engine)
+    attempt_one = _new_session(isolated_engine)
     city = attempt_one.query(City).filter(City.id == city_id).one()
     scope = attempt_one.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
     with pytest.raises(RuntimeError):
@@ -438,7 +472,7 @@ def test_missing_source_and_bad_place_final_steps_run_once_after_resume_new(engi
     assert mark_missing_calls["n"] == 0
 
     monkeypatch.setattr(import_city_osm, "_process_one_item", real_process)
-    attempt_two = _new_session(engine)
+    attempt_two = _new_session(isolated_engine)
     city = attempt_two.query(City).filter(City.id == city_id).one()
     scope = attempt_two.query(CityImportScope).filter(CityImportScope.id == scope_id).one()
     result = _apply_import(attempt_two, city, scope, "tourist_core", raw, normalized, batch_id=batch_id)
