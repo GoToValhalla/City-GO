@@ -41,6 +41,11 @@ class SourceObservation(Base):
     canonical_place_id: Mapped[int | None] = mapped_column(ForeignKey("places.id"), nullable=True, index=True)
     match_status: Mapped[str] = mapped_column(String(64), nullable=False, default="new_source_object")
     normalization_status: Mapped[str] = mapped_column(String(64), nullable=False, default="raw_only")
+    # Set only after ALL writes for this OSM item finish (Place, scope link,
+    # source presence, provenance). NULL means the item never reached the
+    # end of its processing block — e.g. a crash mid-item — and must not be
+    # treated as a completed outcome by any resume/skip logic.
+    processing_outcome: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rejection_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

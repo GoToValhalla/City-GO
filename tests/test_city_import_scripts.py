@@ -198,6 +198,72 @@ def test_save_source_observation_duplicate_conflict_does_not_crash_new(db_sessio
     assert len(rows) == 1
 
 
+def test_apply_import_sets_created_outcome_for_new_place_new(db_session):
+    city, scope, batch = _city_scope_batch(db_session)
+    raw = [{"type": "node", "id": 100, "lat": 54.35, "lon": 18.65, "tags": {"name": "New Cafe", "amenity": "cafe"}}]
+    normalized = [_normalize_osm_object(raw[0], city.slug)]
+
+    _apply_import(db_session, city, scope, "tourist_core", raw, normalized)
+
+    observation = db_session.query(SourceObservation).filter_by(
+        source_external_id="osm:node:100"
+    ).first()
+    assert observation.processing_outcome == "created"
+
+
+def test_apply_import_sets_unchanged_outcome_on_second_identical_run_new(db_session):
+    city, scope, batch = _city_scope_batch(db_session)
+    raw = [{"type": "node", "id": 101, "lat": 54.35, "lon": 18.65, "tags": {"name": "Same Cafe", "amenity": "cafe"}}]
+    normalized = [_normalize_osm_object(raw[0], city.slug)]
+
+    _apply_import(db_session, city, scope, "tourist_core", raw, normalized)
+    _apply_import(db_session, city, scope, "tourist_core", raw, [_normalize_osm_object(raw[0], city.slug)])
+
+    observation = db_session.query(SourceObservation).filter_by(
+        source_external_id="osm:node:101"
+    ).order_by(SourceObservation.id.desc()).first()
+    assert observation.processing_outcome == "unchanged"
+
+
+def test_apply_import_sets_rejected_outcome_new(db_session):
+    city, scope, batch = _city_scope_batch(db_session)
+    raw = [{"type": "node", "id": 102, "lat": 54.35, "lon": 18.65, "tags": {}}]
+    normalized = [_normalize_osm_object(raw[0], city.slug)]
+    assert normalized[0]["accepted"] is False
+
+    _apply_import(db_session, city, scope, "tourist_core", raw, normalized)
+
+    observation = db_session.query(SourceObservation).filter_by(
+        source_external_id="osm:node:102"
+    ).first()
+    assert observation.processing_outcome == "rejected"
+
+
+def test_completed_item_has_non_null_outcome_new(db_session):
+    city, scope, batch = _city_scope_batch(db_session)
+    raw = [{"type": "node", "id": 103, "lat": 54.35, "lon": 18.65, "tags": {"name": "Complete Cafe", "amenity": "cafe"}}]
+    normalized = [_normalize_osm_object(raw[0], city.slug)]
+
+    _apply_import(db_session, city, scope, "tourist_core", raw, normalized)
+
+    observation = db_session.query(SourceObservation).filter_by(
+        source_external_id="osm:node:103"
+    ).first()
+    assert observation.processing_outcome is not None
+    assert observation.canonical_place_id is not None
+
+
+def test_crash_after_source_observation_creation_leaves_outcome_null_new(db_session, monkeypatch):
+    city, scope, batch = _city_scope_batch(db_session)
+    item = _osm_item(source_external_id="osm:node:104")
+
+    observation = _save_source_observation(db_session, city, scope, batch, item)
+    db_session.commit()
+
+    assert observation.processing_outcome is None
+    assert observation.canonical_place_id is None
+
+
 def test_osm_import_creates_private_park_with_safe_name_without_photo_or_address_new(db_session):
     city = City(slug="park-city", name="Park City", country="Россия")
     db_session.add(city)

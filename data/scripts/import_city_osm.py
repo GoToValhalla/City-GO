@@ -502,12 +502,16 @@ def _apply_import(
                         item=item,
                         before_public=before_public,
                     )
+                    observation.processing_outcome = "hidden"
+                else:
+                    observation.processing_outcome = "rejected"
                 continue
 
             category = _get_or_create_category(db, item["category"])
             place = _find_existing_place(db, city.id, item)
             matched_existing = place is not None
             before_public = _public_state_snapshot(place) if matched_existing else None
+            item_outcome = None
 
             if place is None:
                 _gate = assess_import_quality(
@@ -548,6 +552,7 @@ def _apply_import(
                 db.add(place)
                 db.flush()
                 created += 1
+                item_outcome = "created"
 
             decision = apply_accepted_import_to_place(
                 place=place,
@@ -569,8 +574,10 @@ def _apply_import(
                         item=item,
                         before_public=before_public,
                     )
+                    item_outcome = "needs_review"
                 elif decision.action == "unchanged":
                     unchanged += 1
+                    item_outcome = "unchanged"
                 elif decision.action == "hidden":
                     hidden += 1
                     needs_review += 1
@@ -584,8 +591,10 @@ def _apply_import(
                         item=item,
                         before_public=before_public,
                     )
+                    item_outcome = "hidden"
                 else:
                     updated += 1
+                    item_outcome = "updated"
 
             observation.canonical_place_id = place.id
             observation.match_status = "matched_existing_place" if matched_existing else "new_source_object"
@@ -612,6 +621,8 @@ def _apply_import(
                     "lng": item["raw_lng"],
                 },
             )
+
+            observation.processing_outcome = item_outcome
 
         deactivated_bad_places = _hide_bad_existing_places(db, city.id, scope.id)
         missing_stats = _mark_missing_sources(db, scope.id, batch.id, normalized, city_admin_import_job_id)
