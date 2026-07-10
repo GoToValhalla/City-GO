@@ -100,96 +100,96 @@ jobs:
               CONFIG_FAIL=1
             else
               python3 - <<'PYEOF' || CONFIG_FAIL=1
-              import json
-              import sys
+          import json
+          import sys
 
-              with open("/tmp/compose-config.json", encoding="utf-8") as handle:
-                  config = json.load(handle)
+          with open("/tmp/compose-config.json", encoding="utf-8") as handle:
+              config = json.load(handle)
 
-              service = config.get("services", {}).get("import-worker")
-              if service is None:
-                  print("ERROR: import-worker service not found in effective compose config", file=sys.stderr)
-                  raise SystemExit(1)
+          service = config.get("services", {}).get("import-worker")
+          if service is None:
+              print("ERROR: import-worker service not found in effective compose config", file=sys.stderr)
+              raise SystemExit(1)
 
-              print(json.dumps(service, indent=2, default=str))
+          print(json.dumps(service, indent=2, default=str))
 
-              env = service.get("environment") or {}
-              if isinstance(env, list):
-                  env = dict((item.split("=", 1) + [""])[:2] if "=" in item else (item, "") for item in env)
+          env = service.get("environment") or {}
+          if isinstance(env, list):
+              env = dict((item.split("=", 1) + [""])[:2] if "=" in item else (item, "") for item in env)
 
-              def norm_bytes(value):
-                  # docker compose config normalizes mem_limit to a raw byte count.
-                  if value is None:
-                      return None
-                  if isinstance(value, (int, float)):
-                      return int(value)
-                  text = str(value).strip().lower()
-                  units = {"b": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
-                  if text and text[-1] in units:
-                      return int(float(text[:-1]) * units[text[-1]])
-                  return int(text)
+          def norm_bytes(value):
+              # docker compose config normalizes mem_limit to a raw byte count.
+              if value is None:
+                  return None
+              if isinstance(value, (int, float)):
+                  return int(value)
+              text = str(value).strip().lower()
+              units = {"b": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
+              if text and text[-1] in units:
+                  return int(float(text[:-1]) * units[text[-1]])
+              return int(text)
 
-              expected_bytes = 384 * 1024 * 1024
-              checks = []
+          expected_bytes = 384 * 1024 * 1024
+          checks = []
 
-              def check(label, actual, expected, ok):
-                  checks.append((label, actual, expected, ok))
+          def check(label, actual, expected, ok):
+              checks.append((label, actual, expected, ok))
 
-              mem_limit = norm_bytes(service.get("mem_limit"))
-              check("mem_limit", service.get("mem_limit"), "384m (402653184 bytes)", mem_limit == expected_bytes)
+          mem_limit = norm_bytes(service.get("mem_limit"))
+          check("mem_limit", service.get("mem_limit"), "384m (402653184 bytes)", mem_limit == expected_bytes)
 
-              memswap_limit = norm_bytes(service.get("memswap_limit"))
-              check("memswap_limit", service.get("memswap_limit"), "384m (402653184 bytes)", memswap_limit == expected_bytes)
+          memswap_limit = norm_bytes(service.get("memswap_limit"))
+          check("memswap_limit", service.get("memswap_limit"), "384m (402653184 bytes)", memswap_limit == expected_bytes)
 
-              cpus_raw = service.get("cpus")
-              cpus_value = float(cpus_raw) if cpus_raw is not None else None
-              check("cpus", cpus_raw, "0.50", cpus_value == 0.5)
+          cpus_raw = service.get("cpus")
+          cpus_value = float(cpus_raw) if cpus_raw is not None else None
+          check("cpus", cpus_raw, "0.50", cpus_value == 0.5)
 
-              restart = service.get("restart")
-              check("restart", restart, "no", str(restart) == "no")
+          restart = service.get("restart")
+          check("restart", restart, "no", str(restart) == "no")
 
-              profiles = service.get("profiles") or []
-              check("profiles", profiles, "contains 'ops'", "ops" in profiles)
+          profiles = service.get("profiles") or []
+          check("profiles", profiles, "contains 'ops'", "ops" in profiles)
 
-              check("IMPORT_WORKER_SAFE_MODE", env.get("IMPORT_WORKER_SAFE_MODE"), "true", str(env.get("IMPORT_WORKER_SAFE_MODE")).lower() == "true")
-              check(
-                  "IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY",
-                  env.get("IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY"),
-                  "0",
-                  str(env.get("IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY")) == "0",
-              )
-              check(
-                  "IMPORT_WORKER_MAX_RUNTIME_SECONDS",
-                  env.get("IMPORT_WORKER_MAX_RUNTIME_SECONDS"),
-                  "present",
-                  env.get("IMPORT_WORKER_MAX_RUNTIME_SECONDS") not in (None, ""),
-              )
-              check(
-                  "IMPORT_WORKER_BACKEND_HEALTH_URL",
-                  env.get("IMPORT_WORKER_BACKEND_HEALTH_URL"),
-                  "present",
-                  bool(env.get("IMPORT_WORKER_BACKEND_HEALTH_URL")),
-              )
-              check(
-                  "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB",
-                  env.get("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB"),
-                  "present",
-                  env.get("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB") not in (None, ""),
-              )
+          check("IMPORT_WORKER_SAFE_MODE", env.get("IMPORT_WORKER_SAFE_MODE"), "true", str(env.get("IMPORT_WORKER_SAFE_MODE")).lower() == "true")
+          check(
+              "IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY",
+              env.get("IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY"),
+              "0",
+              str(env.get("IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY")) == "0",
+          )
+          check(
+              "IMPORT_WORKER_MAX_RUNTIME_SECONDS",
+              env.get("IMPORT_WORKER_MAX_RUNTIME_SECONDS"),
+              "present",
+              env.get("IMPORT_WORKER_MAX_RUNTIME_SECONDS") not in (None, ""),
+          )
+          check(
+              "IMPORT_WORKER_BACKEND_HEALTH_URL",
+              env.get("IMPORT_WORKER_BACKEND_HEALTH_URL"),
+              "present",
+              bool(env.get("IMPORT_WORKER_BACKEND_HEALTH_URL")),
+          )
+          check(
+              "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB",
+              env.get("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB"),
+              "present",
+              env.get("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB") not in (None, ""),
+          )
 
-              print()
-              print("=== validation results ===")
-              failed = False
-              for label, actual, expected, ok in checks:
-                  status = "OK" if ok else "MISMATCH"
-                  print(f"{status}: {label} actual={actual!r} expected={expected}")
-                  if not ok:
-                      failed = True
+          print()
+          print("=== validation results ===")
+          failed = False
+          for label, actual, expected, ok in checks:
+              status = "OK" if ok else "MISMATCH"
+              print(f"{status}: {label} actual={actual!r} expected={expected}")
+              if not ok:
+                  failed = True
 
-              if failed:
-                  print("ERROR: one or more expected import-worker safety values did not match.", file=sys.stderr)
-                  raise SystemExit(1)
-              print("All import-worker safety config checks passed.")
+          if failed:
+              print("ERROR: one or more expected import-worker safety values did not match.", file=sys.stderr)
+              raise SystemExit(1)
+          print("All import-worker safety config checks passed.")
           PYEOF
             fi
             if [ "$CONFIG_FAIL" -ne 0 ]; then

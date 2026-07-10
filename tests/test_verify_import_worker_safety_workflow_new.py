@@ -239,3 +239,69 @@ def test_embedded_validation_fails_when_service_missing_new() -> None:
 
     assert result.returncode != 0
     assert "import-worker service not found" in result.stderr
+
+
+def test_end_to_end_parsed_run_script_nested_python_has_no_indentation_error_new() -> None:
+    """Execute the EXACT script as YAML parses it (both heredocs still
+    nested exactly as written), not an independently re-dedented Python
+    fragment. `ssh ...` is swapped for a local `bash` (same heredoc
+    document) and `docker compose config --format json` is swapped for a
+    `cat` of a pre-seeded fixture file, so the full chain — outer REMOTE_EOF
+    heredoc, then the nested PYEOF python heredoc exactly as bash/YAML
+    deliver it — runs for real, proving `import json` lands at column 0
+    with no IndentationError anywhere in the pipeline."""
+    data = _workflow_yaml()
+    steps = data["jobs"]["verify-import-worker-safety"]["steps"]
+    script = next(step["run"] for step in steps if step.get("name") == "Collect read-only verification evidence")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        fixture_path = Path(tmp) / "compose-config.json"
+        fixture_path.write_text(
+            json.dumps({
+                "services": {
+                    "import-worker": {
+                        "profiles": ["ops"],
+                        "restart": "no",
+                        "mem_limit": 384 * 1024 * 1024,
+                        "memswap_limit": 384 * 1024 * 1024,
+                        "cpus": 0.5,
+                        "environment": {
+                            "IMPORT_WORKER_SAFE_MODE": "true",
+                            "IMPORT_WORKER_MAX_RUNTIME_SECONDS": "300",
+                            "IMPORT_WORKER_BACKEND_HEALTH_URL": "http://backend:8000/ready",
+                            "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "256",
+                            "IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY": "0",
+                        },
+                    }
+                }
+            }),
+            encoding="utf-8",
+        )
+
+        # Neutralize the real docker producer command FIRST (while the path
+        # is still the literal /tmp/compose-config.json), replacing it with
+        # a no-op that succeeds without touching the file, so the
+        # subsequent path substitution points every *reader* at the
+        # pre-seeded fixture while the fixture itself is never overwritten.
+        patched = script.replace(
+            "docker compose config --format json > /tmp/compose-config.json 2>/tmp/compose-config.err",
+            "true 2>/tmp/compose-config.err",
+        )
+        patched = patched.replace("/tmp/compose-config.json", str(fixture_path))
+        # Replace only the ssh invocation with a local bash — the heredoc
+        # document (REMOTE_EOF ... including the nested PYEOF block) is
+        # left completely untouched, exactly as GitHub Actions would feed it.
+        ssh_start = patched.index("ssh \\")
+        ssh_end = patched.index("bash <<'REMOTE_EOF'")
+        patched = patched[:ssh_start] + patched[ssh_end:]
+
+        script_path = Path(tmp) / "run_script.sh"
+        script_path.write_text(patched, encoding="utf-8")
+        result = subprocess.run(["bash", str(script_path)], capture_output=True, text=True)
+
+    assert "IndentationError" not in result.stdout
+    assert "IndentationError" not in result.stderr
+    assert "import json" not in result.stderr
+    assert "All import-worker safety config checks passed." in result.stdout
+    assert "=== verification complete:" in result.stdout
+    assert result.returncode == 0, result.stderr
