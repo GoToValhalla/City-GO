@@ -1,0 +1,158 @@
+name: CITY GO · DIAG · Verify Import Worker Safety
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type exactly VERIFY_IMPORT_WORKER_SAFETY to confirm this read-only check.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify-import-worker-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - name: Require exact confirmation text
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirmation }}" != "VERIFY_IMPORT_WORKER_SAFETY" ]; then
+            echo "ERROR: confirmation input must be exactly VERIFY_IMPORT_WORKER_SAFETY (got: '${{ inputs.confirmation }}')." >&2
+            exit 1
+          fi
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Collect read-only verification evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/import-worker-safety-verification
+          LOG=/tmp/import-worker-safety-verification/report.log
+
+          ssh \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=2 \
+            -i ~/.ssh/deploy_key \
+            -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" ADMIN_API_TOKEN="$ADMIN_API_TOKEN" bash <<'REMOTE_EOF' | tee "$LOG"
+            set -uo pipefail
+            cd /srv/app
+
+            section() { echo; echo "=== $1 ==="; }
+
+            section "public: /build.json"
+            curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
+              https://citygo.autismishe.online/build.json 2>&1 || echo "(curl failed)"
+
+            section "public: /api/health"
+            curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
+              https://citygo.autismishe.online/api/health 2>&1 || echo "(curl failed)"
+
+            section "public: /api/ready"
+            curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
+              https://citygo.autismishe.online/api/ready 2>&1 || echo "(curl failed)"
+
+            section "docker compose ps -a"
+            docker compose ps -a 2>&1 || echo "(docker compose ps failed)"
+
+            section "import-worker container state (must NOT be running)"
+            WORKER_ID="$(docker compose ps -aq import-worker 2>/dev/null || true)"
+            if [ -z "$WORKER_ID" ]; then
+              echo "import-worker: no container found (not created)"
+            else
+              WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
+              WORKER_EXIT_CODE="$(docker inspect -f '{{.State.ExitCode}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
+              echo "import-worker: state=${WORKER_STATE} exit_code=${WORKER_EXIT_CODE}"
+              if [ "$WORKER_STATE" = "running" ]; then
+                echo "WARNING: import-worker is RUNNING — this diagnostic does not stop it; investigate manually." >&2
+              fi
+            fi
+
+            section "effective docker compose config: import-worker"
+            docker compose config --services >/dev/null 2>&1 && \
+              docker compose config 2>/dev/null | sed -n '/^  import-worker:/,/^  [a-zA-Z0-9_.-]*:$/p' | sed '$d' \
+              || echo "(docker compose config unavailable)"
+
+            section "runtime resources: docker stats --no-stream"
+            docker stats --no-stream 2>&1 || echo "(docker stats failed)"
+
+            section "runtime resources: free -h"
+            free -h 2>&1 || echo "(free failed)"
+
+            section "runtime resources: df -h"
+            df -h 2>&1 || echo "(df failed)"
+
+            section "queue state (read-only GET /admin/import-queue)"
+            if [ -n "${ADMIN_API_TOKEN:-}" ]; then
+              curl -sS --max-time 15 \
+                -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+                http://localhost:8000/admin/import-queue 2>&1 || echo "(queue GET failed)"
+              echo
+            else
+              echo "(ADMIN_API_TOKEN not configured; skipping queue GET — no fallback DB query performed)"
+            fi
+
+            section "logs: backend (tail 100)"
+            docker compose logs --tail=100 backend 2>&1 || echo "(no backend logs)"
+
+            section "logs: import-worker (tail 100)"
+            docker compose logs --tail=100 import-worker 2>&1 || echo "(no import-worker logs)"
+
+            section "logs: frontend (tail 100)"
+            docker compose logs --tail=100 frontend 2>&1 || echo "(no frontend logs)"
+
+            echo
+            echo "=== verification complete: strictly read-only — no compose up/start/restart/stop, no docker pull, no image change, no DB command, no queue mutation, no job claim, no import enqueue, no worker execution, no backend restart ==="
+          REMOTE_EOF
+
+      - name: Upload verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: import-worker-safety-verification-report
+          path: /tmp/import-worker-safety-verification
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Telegram verification summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            exit 0
+          fi
+          LOG=/tmp/import-worker-safety-verification/report.log
+          HEALTH_CODE="$(grep -A1 'public: /api/health' "$LOG" 2>/dev/null | grep -o 'HTTP=[0-9]*' | head -n1 || echo 'HTTP=unknown')"
+          READY_CODE="$(grep -A1 'public: /api/ready' "$LOG" 2>/dev/null | grep -o 'HTTP=[0-9]*' | head -n1 || echo 'HTTP=unknown')"
+          WORKER_STATE_LINE="$(grep '^import-worker: state=' "$LOG" 2>/dev/null | head -n1 || echo 'import-worker: state=unknown')"
+          QUEUE_LINE="$(grep -o '"queued":[0-9]*,"running":[0-9]*,"stalled_running":[0-9]*' "$LOG" 2>/dev/null | head -n1 || echo 'queue: unavailable')"
+          TEXT="🔍 City Go import-worker safety verification finished%0AStatus: ${{ job.status }}%0Ahealth ${HEALTH_CODE} · ready ${READY_CODE}%0A${WORKER_STATE_LINE}%0A${QUEUE_LINE}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            -d "chat_id=${TELEGRAM_CHAT_ID}" \
+            -d "text=${TEXT}" \
+            -d "disable_web_page_preview=true"
