@@ -164,13 +164,23 @@ def test_workflow_fails_clearly_on_config_mismatch_new() -> None:
 
 
 def _extract_embedded_validation_script() -> str:
-    text = _workflow_text()
-    match = re.search(r"python3 - <<'PYEOF'.*?\n(.*?)\n(\s*)PYEOF", text, re.S)
+    # Extract via the parsed YAML `run: |` block scalar value, not the raw
+    # file text — YAML has already stripped the block's common leading
+    # indentation from every line (including both heredoc terminators,
+    # which sit at exactly that common indentation so bash receives them
+    # at column 0). The nested Python body still carries its own remaining
+    # indentation relative to the surrounding bash `if/else`, so dedent it
+    # by its own common leading-space prefix before running it standalone.
+    data = _workflow_yaml()
+    steps = data["jobs"]["verify-import-worker-safety"]["steps"]
+    script = next(step["run"] for step in steps if step.get("name") == "Collect read-only verification evidence")
+    match = re.search(r"python3 - <<'PYEOF'.*?\n(.*?)\nPYEOF", script, re.S)
     assert match is not None, "embedded PYEOF python block not found"
-    body, indent = match.group(1), match.group(2)
+    body = match.group(1)
     lines = body.split("\n")
-    dedented = "\n".join(line[len(indent):] if line.startswith(indent) else line for line in lines)
-    return dedented
+    non_blank = [line for line in lines if line.strip()]
+    indent = min((len(line) - len(line.lstrip(" ")) for line in non_blank), default=0)
+    return "\n".join(line[indent:] if line.startswith(" " * indent) else line for line in lines)
 
 
 def _run_validation_against_fixture(service_config: dict) -> subprocess.CompletedProcess:

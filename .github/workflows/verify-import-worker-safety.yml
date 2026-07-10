@@ -190,7 +190,7 @@ jobs:
                   print("ERROR: one or more expected import-worker safety values did not match.", file=sys.stderr)
                   raise SystemExit(1)
               print("All import-worker safety config checks passed.")
-              PYEOF
+          PYEOF
             fi
             if [ "$CONFIG_FAIL" -ne 0 ]; then
               echo "ERROR: import-worker effective compose config validation failed." >&2
