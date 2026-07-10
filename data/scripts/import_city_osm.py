@@ -457,6 +457,21 @@ def _category(tags: dict[str, Any]) -> str | None:
     return None
 
 
+CHUNK_SIZE = 50
+
+# processing_outcome -> which running tallies it contributes to.
+_OUTCOME_COUNTER_FIELDS: dict[str, tuple[str, ...]] = {
+    "created": ("created",),
+    "updated": ("updated",),
+    "unchanged": ("unchanged",),
+    "needs_review": ("needs_review",),
+    "rejected": ("rejected",),
+    "hidden_needs_review": ("hidden_needs_review", "needs_review"),
+    "hidden_rejected": ("hidden_rejected", "rejected"),
+    "duplicate": ("duplicate",),
+}
+
+
 def _apply_import(
     db,
     city: City,
@@ -465,184 +480,92 @@ def _apply_import(
     raw_objects: list[dict[str, Any]],
     normalized: list[dict[str, Any]],
     city_admin_import_job_id: int | None = None,
+    *,
+    batch_id: int | None = None,
 ) -> dict[str, object]:
-    batch = create_batch(db, scope, mode="apply")
-    batch.source_type = "osm"
-    batch.raw_count = len(raw_objects)
+    if batch_id is not None:
+        batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).one()
+    else:
+        batch = create_batch(db, scope, mode="apply")
+        batch.source_type = "osm"
+        batch.raw_count = len(raw_objects)
+        db.commit()
+    resolved_batch_id = batch.id
 
-    created = 0
-    updated = 0
-    unchanged = 0
-    needs_review = 0
-    rejected = 0
-    hidden = 0
-    duplicate = 0
+    counters = {
+        "created": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "needs_review": 0,
+        "rejected": 0,
+        "hidden_needs_review": 0,
+        "hidden_rejected": 0,
+        "duplicate": 0,
+    }
     rejection_reasons: Counter[str] = Counter()
 
     try:
+        completed_since_commit = 0
         for item in normalized:
-            observation = _save_source_observation(db, city, scope, batch, item)
-
-            if not item["accepted"]:
-                rejected += 1
-                rejection_reasons[str(item.get("rejection_reason") or "unknown")] += 1
-                hidden_place = _find_existing_place(db, city.id, item)
-                before_public = _public_state_snapshot(hidden_place) if hidden_place is not None else None
-                decision = _hide_existing_rejected_place(db, city.id, item)
-                if decision is not None:
-                    hidden += 1
-                    needs_review += 1
-                    _enqueue_place_change_review(
-                        db,
-                        city=city,
-                        batch=batch,
-                        city_admin_import_job_id=city_admin_import_job_id,
-                        place=hidden_place,
-                        decision=decision,
-                        item=item,
-                        before_public=before_public,
-                    )
-                    observation.processing_outcome = "hidden_rejected"
-                else:
-                    observation.processing_outcome = "rejected"
+            idempotency_key = f"{batch.id}:{item['source_external_id']}"
+            already_done = (
+                db.query(SourceObservation)
+                .filter(SourceObservation.idempotency_key == idempotency_key)
+                .filter(SourceObservation.processing_outcome.isnot(None))
+                .first()
+            )
+            if already_done is not None:
+                for field in _OUTCOME_COUNTER_FIELDS.get(already_done.processing_outcome, ()):
+                    counters[field] += 1
+                if already_done.rejection_reason and already_done.processing_outcome in {"rejected", "hidden_rejected"}:
+                    rejection_reasons[str(item.get("rejection_reason") or "unknown")] += 1
                 continue
 
-            category = _get_or_create_category(db, item["category"])
-            place = _find_existing_place(db, city.id, item)
-            matched_existing = place is not None
-            before_public = _public_state_snapshot(place) if matched_existing else None
-            item_outcome = None
-
-            if place is None:
-                _gate = assess_import_quality(
-                    title=item["title"],
-                    lat=item["raw_lat"],
-                    lng=item["raw_lng"],
-                    category=item["category"],
-                    confidence=0.7,
-                    source="osm",
-                    address=item.get("address"),
-                )
-                place = Place(
-                    city_id=city.id,
-                    category_id=category.id,
-                    slug=item["slug"],
-                    title=item["title"],
-                    short_description=item["short_description"],
-                    category=item["category"],
-                    address=item["address"],
-                    lat=item["raw_lat"],
-                    lng=item["raw_lng"],
-                    source="osm",
-                    source_url=item["source_url"],
-                    confidence=0.7,
-                    status="active",
-                    is_active=True,
-                    # Imported places stay private until an admin publishes the city.
-                    is_published=False,
-                    is_visible_in_catalog=False,
-                    is_route_eligible=False,
-                    is_searchable=False,
-                    publication_status="needs_review" if _gate.decision != "hidden" else _gate.publication_status,
-                    price_level=_price_level(item["category"]),
-                    average_visit_duration_minutes=_visit_duration(item["category"]),
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
-                )
-                db.add(place)
-                db.flush()
-                created += 1
-                item_outcome = "created"
-
-            decision = apply_accepted_import_to_place(
-                place=place,
-                item=item,
-                category_id=category.id,
-                visit_duration_minutes=_visit_duration(item["category"]),
-            )
-
-            if matched_existing:
-                if decision.action == "needs_review":
-                    needs_review += 1
-                    _enqueue_place_change_review(
-                        db,
-                        city=city,
-                        batch=batch,
-                        city_admin_import_job_id=city_admin_import_job_id,
-                        place=place,
-                        decision=decision,
-                        item=item,
-                        before_public=before_public,
-                    )
-                    item_outcome = "needs_review"
-                elif decision.action == "unchanged":
-                    unchanged += 1
-                    item_outcome = "unchanged"
-                elif decision.action == "hidden":
-                    hidden += 1
-                    needs_review += 1
-                    _enqueue_place_change_review(
-                        db,
-                        city=city,
-                        batch=batch,
-                        city_admin_import_job_id=city_admin_import_job_id,
-                        place=place,
-                        decision=decision,
-                        item=item,
-                        before_public=before_public,
-                    )
-                    item_outcome = "hidden_needs_review"
-                else:
-                    updated += 1
-                    item_outcome = "updated"
-
-            observation.canonical_place_id = place.id
-            observation.match_status = "matched_existing_place" if matched_existing else "new_source_object"
-            observation.normalization_status = "linked_to_place"
-
-            if decision.review_reasons:
-                observation.rejection_reason = ",".join(decision.review_reasons)
-
-            _ensure_scope_link(db, place.id, scope.id, batch.id)
-            _ensure_source_presence(db, place.id, item["source_external_id"], observation.id, batch.id)
-            record_place_field_provenance(
+            _process_one_item(
                 db,
-                place=place,
-                source="osm",
-                source_url=item["source_url"],
-                values={
-                    "title": item["title"],
-                    "category": item["category"],
-                    "address": item.get("address"),
-                    "opening_hours": item.get("opening_hours"),
-                    "website": item.get("website"),
-                    "phone": item.get("phone"),
-                    "lat": item["raw_lat"],
-                    "lng": item["raw_lng"],
-                },
+                city=city,
+                scope=scope,
+                batch=batch,
+                item=item,
+                city_admin_import_job_id=city_admin_import_job_id,
+                counters=counters,
+                rejection_reasons=rejection_reasons,
             )
 
-            observation.processing_outcome = item_outcome
+            completed_since_commit += 1
+            if completed_since_commit >= CHUNK_SIZE:
+                db.commit()
+                db.expire_all()
+                completed_since_commit = 0
+
+        if completed_since_commit:
+            db.commit()
+            db.expire_all()
 
         deactivated_bad_places = _hide_bad_existing_places(db, city.id, scope.id)
         missing_stats = _mark_missing_sources(db, scope.id, batch.id, normalized, city_admin_import_job_id)
-        needs_review += missing_stats["needs_review"]
 
-        batch.normalized_count = created + updated + unchanged + needs_review
-        batch.published_count = created + updated + unchanged
-        batch.needs_review_count = needs_review
-        batch.rejected_count = rejected
-        batch.duplicate_count = duplicate
+        published_total = counters["created"] + counters["updated"] + counters["unchanged"]
+        normalized_total = published_total + counters["needs_review"] + counters["hidden_needs_review"]
+        needs_review_total = counters["needs_review"] + counters["hidden_needs_review"] + counters["hidden_rejected"] + missing_stats["needs_review"]
+        rejected_total = counters["rejected"] + counters["hidden_rejected"]
+        hidden_total = counters["hidden_needs_review"] + counters["hidden_rejected"]
+
+        batch.normalized_count = normalized_total
+        batch.published_count = published_total
+        batch.needs_review_count = needs_review_total
+        batch.rejected_count = rejected_total
+        batch.duplicate_count = counters["duplicate"]
         batch.errors_count = 0
         batch.diff_summary = {
             "profile": profile,
-            "created": created,
-            "updated": updated,
-            "unchanged": unchanged,
-            "needs_review": needs_review,
-            "rejected": rejected,
-            "hidden": hidden,
-            "duplicate": duplicate,
+            "created": counters["created"],
+            "updated": counters["updated"],
+            "unchanged": counters["unchanged"],
+            "needs_review": needs_review_total,
+            "rejected": rejected_total,
+            "hidden": hidden_total,
+            "duplicate": counters["duplicate"],
             "rejection_reasons": dict(rejection_reasons),
             "deactivated_bad_places": deactivated_bad_places,
             "missing_from_source": missing_stats["missing_from_source"],
@@ -663,13 +586,13 @@ def _apply_import(
             "profile": profile,
             "batch_id": batch.id,
             "raw_count": batch.raw_count,
-            "created": created,
-            "updated": updated,
-            "unchanged": unchanged,
-            "needs_review": needs_review,
-            "rejected": rejected,
+            "created": counters["created"],
+            "updated": counters["updated"],
+            "unchanged": counters["unchanged"],
+            "needs_review": needs_review_total,
+            "rejected": rejected_total,
             "rejection_reasons": dict(rejection_reasons),
-            "hidden": hidden,
+            "hidden": hidden_total,
             "deactivated_bad_places": deactivated_bad_places,
             "missing_from_source": missing_stats["missing_from_source"],
             "hidden_missing_places": missing_stats["hidden_missing_places"],
@@ -678,11 +601,160 @@ def _apply_import(
 
     except Exception as exc:
         db.rollback()
-        batch = db.query(ImportBatch).filter(ImportBatch.id == batch.id).first()
+        batch = db.query(ImportBatch).filter(ImportBatch.id == resolved_batch_id).first()
         if batch:
             finish_batch(db, batch, "failed", error_count=1)
             update_import_state(db, batch, "failed", str(exc))
         raise
+
+
+def _process_one_item(
+    db,
+    *,
+    city: City,
+    scope: CityImportScope,
+    batch: ImportBatch,
+    item: dict[str, Any],
+    city_admin_import_job_id: int | None,
+    counters: dict[str, int],
+    rejection_reasons: Counter[str],
+) -> None:
+    observation = _save_source_observation(db, city, scope, batch, item)
+
+    if not item["accepted"]:
+        rejection_reasons[str(item.get("rejection_reason") or "unknown")] += 1
+        hidden_place = _find_existing_place(db, city.id, item)
+        before_public = _public_state_snapshot(hidden_place) if hidden_place is not None else None
+        decision = _hide_existing_rejected_place(db, city.id, item)
+        if decision is not None:
+            _enqueue_place_change_review(
+                db,
+                city=city,
+                batch=batch,
+                city_admin_import_job_id=city_admin_import_job_id,
+                place=hidden_place,
+                decision=decision,
+                item=item,
+                before_public=before_public,
+            )
+            observation.processing_outcome = "hidden_rejected"
+            counters["hidden_rejected"] += 1
+        else:
+            observation.processing_outcome = "rejected"
+            counters["rejected"] += 1
+        return
+
+    category = _get_or_create_category(db, item["category"])
+    place = _find_existing_place(db, city.id, item)
+    matched_existing = place is not None
+    before_public = _public_state_snapshot(place) if matched_existing else None
+    item_outcome = None
+
+    if place is None:
+        _gate = assess_import_quality(
+            title=item["title"],
+            lat=item["raw_lat"],
+            lng=item["raw_lng"],
+            category=item["category"],
+            confidence=0.7,
+            source="osm",
+            address=item.get("address"),
+        )
+        place = Place(
+            city_id=city.id,
+            category_id=category.id,
+            slug=item["slug"],
+            title=item["title"],
+            short_description=item["short_description"],
+            category=item["category"],
+            address=item["address"],
+            lat=item["raw_lat"],
+            lng=item["raw_lng"],
+            source="osm",
+            source_url=item["source_url"],
+            confidence=0.7,
+            status="active",
+            is_active=True,
+            # Imported places stay private until an admin publishes the city.
+            is_published=False,
+            is_visible_in_catalog=False,
+            is_route_eligible=False,
+            is_searchable=False,
+            publication_status="needs_review" if _gate.decision != "hidden" else _gate.publication_status,
+            price_level=_price_level(item["category"]),
+            average_visit_duration_minutes=_visit_duration(item["category"]),
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(place)
+        db.flush()
+        item_outcome = "created"
+
+    decision = apply_accepted_import_to_place(
+        place=place,
+        item=item,
+        category_id=category.id,
+        visit_duration_minutes=_visit_duration(item["category"]),
+    )
+
+    if matched_existing:
+        if decision.action == "needs_review":
+            _enqueue_place_change_review(
+                db,
+                city=city,
+                batch=batch,
+                city_admin_import_job_id=city_admin_import_job_id,
+                place=place,
+                decision=decision,
+                item=item,
+                before_public=before_public,
+            )
+            item_outcome = "needs_review"
+        elif decision.action == "unchanged":
+            item_outcome = "unchanged"
+        elif decision.action == "hidden":
+            _enqueue_place_change_review(
+                db,
+                city=city,
+                batch=batch,
+                city_admin_import_job_id=city_admin_import_job_id,
+                place=place,
+                decision=decision,
+                item=item,
+                before_public=before_public,
+            )
+            item_outcome = "hidden_needs_review"
+        else:
+            item_outcome = "updated"
+
+    observation.canonical_place_id = place.id
+    observation.match_status = "matched_existing_place" if matched_existing else "new_source_object"
+    observation.normalization_status = "linked_to_place"
+
+    if decision.review_reasons:
+        observation.rejection_reason = ",".join(decision.review_reasons)
+
+    _ensure_scope_link(db, place.id, scope.id, batch.id)
+    _ensure_source_presence(db, place.id, item["source_external_id"], observation.id, batch.id)
+    record_place_field_provenance(
+        db,
+        place=place,
+        source="osm",
+        source_url=item["source_url"],
+        values={
+            "title": item["title"],
+            "category": item["category"],
+            "address": item.get("address"),
+            "opening_hours": item.get("opening_hours"),
+            "website": item.get("website"),
+            "phone": item.get("phone"),
+            "lat": item["raw_lat"],
+            "lng": item["raw_lng"],
+        },
+    )
+
+    observation.processing_outcome = item_outcome
+    counters[item_outcome] += 1
 
 
 
