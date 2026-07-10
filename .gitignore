@@ -109,19 +109,25 @@ agent-transcripts/
 deploy.local/
 *.local.sh
 
-# Local AI agent context / private project notes
+# Local AI agent context — private, never commit
 cotext.md
 context.md
 CLAUDE.md
+AGENTS.local.md
+local-context/
+local-context/AI_WORKFLOW_RULES.md
+local-context/PROJECT_CONTEXT.md
+local-context/REPOSITORY_MAP.md
+local-context/ARCHITECTURE_INVARIANTS.md
+local-context/FEATURE_FLAGS.md
+.cursor/rules/05-local-shared-project-context.mdc
 GEMINI.md
 GROK.md
-AGENTS.local.md
 AGENTS.private.md
 *.private.md
 *.local.md
 .private/
 private/
-local-context/
 agent-context/
 prompts/private/
 prompts/local/
