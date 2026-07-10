@@ -49,16 +49,20 @@ def test_ops_profile_services_are_known_and_not_all_deploy_safe_new() -> None:
 
 
 def test_deploy_keeps_import_worker_stopped_after_app_up_new() -> None:
+    """As of the Phase 1 CI/deploy/smoke optimization, the import-worker
+    invariant is enforced once, at the final post-readiness check, rather
+    than immediately after `docker compose up` — see
+    test_import_worker_final_invariant_check_appears_once_new in
+    test_deploy_workflow_safety_new.py for the single-checkpoint contract."""
     text = _workflow()
     stop_idx = text.index("docker compose stop frontend backend import-worker bot")
     rm_idx = text.index("docker compose rm -f frontend backend import-worker bot")
     up_idx = text.index("timeout 180s docker compose up -d --remove-orphans")
-    ensure_idx = text.index("=== Ensure import-worker stays stopped after deploy ===")
-    verify_idx = text.index("ERROR: import-worker is running after deploy")
+    final_check_idx = text.index("Final invariant: import-worker must not be running")
 
     assert stop_idx < up_idx
     assert rm_idx < up_idx
-    assert up_idx < ensure_idx < verify_idx
+    assert up_idx < final_check_idx
 
 
 def test_deploy_does_not_start_whole_ops_profile_new() -> None:
@@ -76,21 +80,25 @@ def test_deploy_does_not_start_whole_ops_profile_new() -> None:
 
 
 def test_deploy_explicitly_stops_import_worker_new() -> None:
+    """The pre-load stop (unconditional cleanup before image replacement) and
+    the final post-readiness invariant stop (only if unexpectedly running)
+    are different, intentional checkpoints — the first always runs, the
+    second is a corrective action. Both must be present exactly once."""
     text = _workflow()
     deploy_start = text.index("name: Deploy on server")
     cleanup_start = text.index("name: Cleanup old images after confirmed healthy deploy")
     deploy_section = text[deploy_start:cleanup_start]
 
-    assert deploy_section.count("docker compose stop import-worker || true") == 2
+    assert deploy_section.count("docker compose stop frontend backend import-worker bot || true") == 1
+    assert deploy_section.count("docker compose stop import-worker || true") == 1
     assert 'if [ "$WORKER_STATE" = "running" ]; then' in deploy_section
-    assert 'if [ "$WORKER_STATE" != "running" ]; then' not in deploy_section
 
 
 def test_deploy_verifies_import_worker_stopped_after_backend_ready_new() -> None:
     text = _workflow()
     ready_idx = text.index("Backend ready check passed")
-    worker_verify_idx = text.index("=== Verifying import-worker remains stopped ===")
-    success_idx = text.index("Backend /ready passed and import-worker is not running")
+    worker_verify_idx = text.index("Final invariant: import-worker must not be running")
+    success_idx = text.index("import-worker invariant holds")
 
     assert ready_idx < worker_verify_idx < success_idx
 

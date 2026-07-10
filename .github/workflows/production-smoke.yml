@@ -7,17 +7,12 @@ on:
         description: Expected production commit SHA. Leave empty for manual availability-only smoke.
         required: false
         type: string
-  workflow_run:
-    workflows:
-      - 01 · CITY GO · Production Deploy
-    types:
-      - completed
 
 permissions:
   contents: read
 
 concurrency:
-  group: production-smoke-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: production-smoke-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -25,12 +20,10 @@ jobs:
     name: Production smoke checks
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     env:
       PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL || 'https://citygo.autismishe.online' }}
-      SSH_HOST: ${{ secrets.SSH_HOST }}
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
-      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha || '' }}
+      EXPECTED_SHA: ${{ inputs.expected_sha || '' }}
       CITY_GO_ROUTE_SMOKE_ENABLED: true
       CITY_GO_ROUTE_SMOKE_CITY_ID: ${{ vars.CITY_GO_ROUTE_SMOKE_CITY_ID || 'yerevan' }}
       CITY_GO_ROUTE_SMOKE_LAT: ${{ vars.CITY_GO_ROUTE_SMOKE_LAT || '40.1792' }}
@@ -49,20 +42,34 @@ jobs:
           # https://citygo.autismishe.online default in env: above) — SSH_HOST
           # (the raw production IP) is never used as the public HTTPS smoke
           # target, since the TLS cert is issued for the domain, not the IP.
-          if [ -n "${PRODUCTION_BASE_URL:-}" ]; then
-            echo "production_smoke_target=PRODUCTION_BASE_URL"
-            echo "production_smoke_base_url=${PRODUCTION_BASE_URL}"
-          else
-            echo "production_smoke_target=not_configured"
-          fi
+          echo "production_smoke_target=PRODUCTION_BASE_URL"
+          echo "production_smoke_base_url=${PRODUCTION_BASE_URL}"
 
       - name: Run production smoke
+        id: run_smoke
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
+          STAGE_START=$(date +%s)
           python scripts/production_smoke.py \
             --summary-file /tmp/production-smoke/summary.txt \
             --json-report /tmp/production-smoke/report.json
+          SMOKE_EXIT=$?
+          STAGE_END=$(date +%s)
+          set -e
+          echo "smoke_seconds=$((STAGE_END - STAGE_START))" >> "$GITHUB_OUTPUT"
+          if [ "$SMOKE_EXIT" -eq 0 ]; then
+            echo "smoke_status=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "smoke_status=failed" >> "$GITHUB_OUTPUT"
+          fi
+          echo "smoke_exit_code=${SMOKE_EXIT}" >> "$GITHUB_OUTPUT"
+          # Intentionally exit 0 here: the smoke result is recorded above and
+          # enforced by a dedicated final step, so artifact upload and the
+          # Telegram notification attempt are never skipped by this step
+          # failing early. The workflow still fails overall — see the final
+          # "Enforce smoke result" step.
+          exit 0
 
       - name: Upload production smoke artifacts
         if: always()
@@ -74,15 +81,76 @@ jobs:
           retention-days: 7
 
       - name: Send Telegram smoke notification
+        id: telegram
         if: always()
         shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SMOKE_STATUS: ${{ steps.run_smoke.outputs.smoke_status }}
         run: |
-          set -euo pipefail
+          set +e
           if [ -s /tmp/production-smoke/summary.txt ]; then
-            python scripts/send_telegram_notification.py --text-file /tmp/production-smoke/summary.txt --allow-missing
+            NOTIFY_FILE=/tmp/production-smoke/summary.txt
           else
-            printf '❌ CITY GO · PRODUCTION SMOKE\nCommit: %s\nFailed checks:\n- smoke workflow did not produce summary\n%s\n' "${EXPECTED_SHA:0:7}" "$GITHUB_RUN_URL" > /tmp/production-smoke-fallback.txt
-            python scripts/send_telegram_notification.py --text-file /tmp/production-smoke-fallback.txt --allow-missing
+            NOTIFY_FILE=/tmp/production-smoke-fallback.txt
+            printf '❌ CITY GO · PRODUCTION SMOKE\nCommit: %s\nStatus: %s\nFailed checks:\n- smoke workflow did not produce a summary file (see workflow logs)\nArtifact: production-smoke-report\n%s\n' \
+              "${EXPECTED_SHA:0:7}" "${SMOKE_STATUS:-unknown}" "$GITHUB_RUN_URL" > "$NOTIFY_FILE"
+          fi
+
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "telegram_notification_status=not_configured" >> "$GITHUB_OUTPUT"
+            echo "Telegram credentials are not configured; skipping delivery."
+            exit 0
+          fi
+
+          python scripts/send_telegram_notification.py --text-file "$NOTIFY_FILE"
+          TELEGRAM_EXIT=$?
+          if [ "$TELEGRAM_EXIT" -eq 0 ]; then
+            echo "telegram_notification_status=success" >> "$GITHUB_OUTPUT"
+          else
+            echo "telegram_notification_status=failed" >> "$GITHUB_OUTPUT"
+            echo "WARNING: Telegram delivery failed (exit ${TELEGRAM_EXIT}); this does not affect the smoke result." >&2
+          fi
+          # Telegram delivery failure must never fail this step/job — the
+          # actual smoke result (captured separately) is the only thing that
+          # determines workflow success/failure.
+          exit 0
+
+      - name: Write result summary
+        if: always()
+        shell: bash
+        env:
+          SMOKE_STATUS: ${{ steps.run_smoke.outputs.smoke_status }}
+          SMOKE_SECONDS: ${{ steps.run_smoke.outputs.smoke_seconds }}
+          TELEGRAM_STATUS: ${{ steps.telegram.outputs.telegram_notification_status }}
+        run: |
+          {
+            echo "### Production smoke result"
+            echo ""
+            echo "- smoke_status: \`${SMOKE_STATUS:-unknown}\`"
+            echo "- smoke_seconds: \`${SMOKE_SECONDS:-not separately measurable in the previous workflow}\`"
+            echo "- telegram_notification_status: \`${TELEGRAM_STATUS:-unknown}\`"
+            echo "- artifact: \`production-smoke-report\`"
+            echo "- run: ${GITHUB_RUN_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${TELEGRAM_STATUS:-}" = "failed" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "⚠️ Telegram delivery failed — this is independent of the smoke result above and does not affect workflow success/failure." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Enforce smoke result
+        if: always()
+        shell: bash
+        env:
+          SMOKE_STATUS: ${{ steps.run_smoke.outputs.smoke_status }}
+          SMOKE_EXIT_CODE: ${{ steps.run_smoke.outputs.smoke_exit_code }}
+        run: |
+          # This is the single point where the real smoke result determines
+          # the workflow's final outcome — independent of Telegram delivery,
+          # which never reaches this step's exit code.
+          if [ "${SMOKE_STATUS:-failed}" != "success" ]; then
+            echo "Production smoke failed (exit code ${SMOKE_EXIT_CODE:-unknown}). See production-smoke-report artifact and logs above." >&2
+            exit 1
+          fi
+          echo "Production smoke passed."

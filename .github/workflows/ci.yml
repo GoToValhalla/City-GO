@@ -2,17 +2,88 @@ name: 00 · CITY GO · CI
 
 on:
   workflow_dispatch:
+    inputs:
+      regression_scope:
+        description: auto = run only what changed paths require; full = always run everything.
+        required: false
+        type: choice
+        options:
+          - auto
+          - full
+        default: auto
+      generate_allure_html:
+        description: Generate the full Allure HTML report even on a successful run.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  resolve-base:
+    name: Resolve safe comparison base
+    runs-on: ubuntu-latest
+    outputs:
+      base_sha: ${{ steps.resolve.outputs.base_sha }}
+      selection_mode: ${{ steps.resolve.outputs.selection_mode }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve base SHA for path comparison
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REGRESSION_SCOPE: ${{ inputs.regression_scope || 'auto' }}
+        run: |
+          set -euo pipefail
+          if [ "$REGRESSION_SCOPE" = "full" ]; then
+            echo "base_sha=" >> "$GITHUB_OUTPUT"
+            echo "selection_mode=full_explicit" >> "$GITHUB_OUTPUT"
+            echo "regression_scope=full (explicit input) — comparison base not needed"
+            exit 0
+          fi
+
+          TARGET_SHA="${GITHUB_SHA}"
+          WORKFLOW_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml" --jq .id)"
+          # Look at recent completed CI runs on main and pick the newest whose
+          # head_sha is a real ancestor of the target commit and which itself
+          # succeeded — this is the only SHA we trust as "already validated"
+          # for path-comparison purposes. A run that isn't an ancestor (e.g.
+          # from a since-abandoned branch state) must never be used as a base.
+          CANDIDATES="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WORKFLOW_ID}/runs?branch=main&status=completed&per_page=20" \
+            --jq '[.workflow_runs[] | select(.name == "00 · CITY GO · CI") | select(.conclusion == "success")] | .[].head_sha')"
+
+          BASE_SHA=""
+          for CANDIDATE in $CANDIDATES; do
+            if [ "$CANDIDATE" = "$TARGET_SHA" ]; then
+              continue
+            fi
+            if git cat-file -e "${CANDIDATE}^{commit}" 2>/dev/null && git merge-base --is-ancestor "$CANDIDATE" "$TARGET_SHA" 2>/dev/null; then
+              BASE_SHA="$CANDIDATE"
+              break
+            fi
+          done
+
+          if [ -n "$BASE_SHA" ]; then
+            echo "base_sha=${BASE_SHA}" >> "$GITHUB_OUTPUT"
+            echo "selection_mode=auto_ancestor" >> "$GITHUB_OUTPUT"
+            echo "Resolved trusted base: ${BASE_SHA}"
+          else
+            echo "base_sha=" >> "$GITHUB_OUTPUT"
+            echo "selection_mode=auto_no_trusted_base" >> "$GITHUB_OUTPUT"
+            echo "No trusted ancestor base found — falling back to full regression."
+          fi
+
   changes:
     name: Detect changed paths
+    needs: resolve-base
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
@@ -21,13 +92,29 @@ jobs:
       workflows: ${{ steps.filter.outputs.workflows }}
       docker: ${{ steps.filter.outputs.docker }}
       smoke: ${{ steps.filter.outputs.smoke }}
+      changed_files: ${{ steps.changed-files.outputs.list }}
+      force_full: ${{ steps.force-full.outputs.value }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Determine effective diff base
+        id: force-full
+        env:
+          BASE_SHA: ${{ needs.resolve-base.outputs.base_sha }}
+          SELECTION_MODE: ${{ needs.resolve-base.outputs.selection_mode }}
+        run: |
+          set -euo pipefail
+          if [ "$SELECTION_MODE" = "full_explicit" ] || [ -z "$BASE_SHA" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: dorny/paths-filter@v3
         id: filter
+        if: steps.force-full.outputs.value != 'true'
         with:
+          base: ${{ needs.resolve-base.outputs.base_sha }}
           filters: |
             workflows:
               - '.github/workflows/**'
@@ -65,11 +152,32 @@ jobs:
             smoke:
               - 'scripts/production_smoke.py'
               - 'tests/test_production_smoke*.py'
+      - name: Record changed file list
+        id: changed-files
+        env:
+          BASE_SHA: ${{ needs.resolve-base.outputs.base_sha }}
+          FORCE_FULL: ${{ steps.force-full.outputs.value }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/coverage
+          if [ "$FORCE_FULL" = "true" ] || [ -z "$BASE_SHA" ]; then
+            git ls-files > artifacts/coverage/changed-files.txt
+          else
+            git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" > artifacts/coverage/changed-files.txt
+          fi
+          echo "list<<CHANGED_EOF" >> "$GITHUB_OUTPUT"
+          cat artifacts/coverage/changed-files.txt >> "$GITHUB_OUTPUT"
+          echo "CHANGED_EOF" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-changed-files
+          path: artifacts/coverage/changed-files.txt
+          if-no-files-found: ignore
 
   workflow-validate:
     name: Validate workflow YAML
     needs: changes
-    if: github.event_name != 'workflow_dispatch' && needs.changes.outputs.workflows == 'true'
+    if: needs.changes.outputs.workflows == 'true' || needs.changes.outputs.force_full == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,7 +203,7 @@ jobs:
     name: Docs-only change gate
     needs: changes
     if: |
-      github.event_name != 'workflow_dispatch' &&
+      needs.changes.outputs.force_full != 'true' &&
       needs.changes.outputs.docs == 'true' &&
       needs.changes.outputs.workflows != 'true' &&
       needs.changes.outputs.backend != 'true' &&
@@ -110,7 +218,7 @@ jobs:
     name: Backend full regression
     needs: changes
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.force_full == 'true' ||
       needs.changes.outputs.backend == 'true' ||
       needs.changes.outputs.workflows == 'true' ||
       needs.changes.outputs.docker == 'true' ||
@@ -124,6 +232,7 @@ jobs:
       ADMIN_API_TOKEN: ci-admin-token
       APP_ENV: test
       CITY_GO_TEST_RUN_TYPE: regression
+      GENERATE_ALLURE_HTML: ${{ inputs.generate_allure_html || 'false' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -137,11 +246,14 @@ jobs:
             requirements-dev.txt
       - name: Install backend dependencies
         run: |
+          STAGE_START=$(date +%s)
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+          echo "timing_install_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
       - name: Backend import smoke
         run: |
+          STAGE_START=$(date +%s)
           python - <<'PY'
           import main
           from core.router_setup import include_app_routers
@@ -149,6 +261,7 @@ jobs:
           print(main.app.title)
           print(include_app_routers.__name__)
           PY
+          echo "timing_import_smoke_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
       - name: Backend tests and coverage
         shell: bash
         run: |
@@ -159,6 +272,7 @@ jobs:
           else
             git ls-files > artifacts/coverage/changed-files.txt
           fi
+          PYTEST_START=$(date +%s)
           python -m pytest -q \
             --cov=core --cov=routers --cov=services --cov=models --cov=scripts \
             --cov-report=term-missing:skip-covered \
@@ -166,6 +280,8 @@ jobs:
             --junitxml=artifacts/junit/backend.xml \
             --alluredir=artifacts/allure-results/backend
           TEST_EXIT=$?
+          echo "timing_pytest_seconds=$(( $(date +%s) - PYTEST_START ))" >> "$GITHUB_ENV"
+          REPORT_START=$(date +%s)
           python scripts/ci_coverage_summary.py \
             --suite backend \
             --format cobertura \
@@ -177,21 +293,28 @@ jobs:
             --target backend_admin=90 \
             --target backend_overall=90
           COVERAGE_EXIT=$?
+          HTML_HINT="raw Allure results only (artifacts/allure-results/backend) — HTML not generated on this successful run"
           python scripts/ci_test_summary.py \
             --junit artifacts/junit/backend.xml \
             --output artifacts/messages/backend.txt \
             --job-name "Backend full regression" \
             --run-type "Full Autotests" \
-            --artifact-hint "backend-test-artifacts/allure-report/backend/index.html" \
+            --artifact-hint "backend-test-artifacts/${HTML_HINT}" \
             --exit-code "$TEST_EXIT" || true
+          echo "timing_report_seconds=$(( $(date +%s) - REPORT_START ))" >> "$GITHUB_ENV"
+          if [ "$TEST_EXIT" != "0" ]; then
+            echo "GENERATE_ALLURE_HTML=true" >> "$GITHUB_ENV"
+          fi
           [ "$TEST_EXIT" = "0" ] && exit "$COVERAGE_EXIT"
           exit "$TEST_EXIT"
-      - name: Generate backend Allure report
-        if: always()
+      - name: Generate backend Allure HTML (failure or explicit request only)
+        if: failure() || env.GENERATE_ALLURE_HTML == 'true'
         run: |
+          STAGE_START=$(date +%s)
           if [ -d artifacts/allure-results/backend ]; then
             npx --yes allure-commandline@2.32.0 generate artifacts/allure-results/backend -o artifacts/allure-report/backend --clean || true
           fi
+          echo "timing_allure_html_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
       - name: Upload backend artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -207,12 +330,23 @@ jobs:
             artifacts/messages/backend.txt
             artifacts/messages/backend-coverage.txt
           if-no-files-found: warn
+      - name: Timing summary
+        if: always()
+        run: |
+          {
+            echo "### Backend stage timing (seconds)"
+            echo "- dependency install: ${timing_install_seconds:-not separately measurable in the previous workflow}"
+            echo "- import smoke: ${timing_import_smoke_seconds:-not separately measurable in the previous workflow}"
+            echo "- pytest: ${timing_pytest_seconds:-not separately measurable in the previous workflow}"
+            echo "- coverage/report processing: ${timing_report_seconds:-not separately measurable in the previous workflow}"
+            echo "- allure html: ${timing_allure_html_seconds:-skipped}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   frontend-tests:
     name: Frontend lint, tests and build
     needs: changes
     if: |
-      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.force_full == 'true' ||
       needs.changes.outputs.frontend == 'true' ||
       needs.changes.outputs.workflows == 'true' ||
       needs.changes.outputs.docker == 'true' ||
@@ -237,18 +371,27 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
         shell: bash
-        run: npm ci
+        run: |
+          STAGE_START=$(date +%s)
+          npm ci
+          echo "timing_npm_ci_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
       - name: Frontend lint, tests and build
         shell: bash
         run: |
           set +e
           mkdir -p ../artifacts/junit ../artifacts/messages
+          LINT_START=$(date +%s)
           npm run lint
           LINT_EXIT=$?
+          echo "timing_lint_seconds=$(( $(date +%s) - LINT_START ))" >> "$GITHUB_ENV"
+          TEST_START=$(date +%s)
           timeout 8m npm run test:ci 2>&1 | tee ../artifacts/messages/frontend-vitest.log
           TEST_EXIT=${PIPESTATUS[0]}
+          echo "timing_test_seconds=$(( $(date +%s) - TEST_START ))" >> "$GITHUB_ENV"
+          BUILD_START=$(date +%s)
           npm run build
           BUILD_EXIT=$?
+          echo "timing_build_seconds=$(( $(date +%s) - BUILD_START ))" >> "$GITHUB_ENV"
           python - <<PY
           import json
           from pathlib import Path
@@ -286,6 +429,80 @@ jobs:
             artifacts/messages/frontend-vitest.log
             artifacts/messages/frontend-stages.json
           if-no-files-found: warn
+      - name: Timing summary
+        if: always()
+        run: |
+          {
+            echo "### Frontend stage timing (seconds)"
+            echo "- npm ci: ${timing_npm_ci_seconds:-not separately measurable in the previous workflow}"
+            echo "- lint: ${timing_lint_seconds:-not separately measurable in the previous workflow}"
+            echo "- tests: ${timing_test_seconds:-not separately measurable in the previous workflow}"
+            echo "- build: ${timing_build_seconds:-not separately measurable in the previous workflow}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  validation-manifest:
+    name: Build CI validation manifest
+    runs-on: ubuntu-latest
+    needs:
+      - resolve-base
+      - changes
+      - workflow-validate
+      - backend-tests
+      - frontend-tests
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build manifest
+        shell: bash
+        env:
+          TARGET_SHA: ${{ github.sha }}
+          BASE_SHA: ${{ needs.resolve-base.outputs.base_sha }}
+          SELECTION_MODE: ${{ needs.resolve-base.outputs.selection_mode }}
+          BACKEND_NEEDED: ${{ needs.backend-tests.result != 'skipped' }}
+          FRONTEND_NEEDED: ${{ needs.frontend-tests.result != 'skipped' }}
+          WORKFLOW_VALIDATE_NEEDED: ${{ needs.workflow-validate.result != 'skipped' }}
+          BACKEND_JOB_RESULT: ${{ needs.backend-tests.result }}
+          FRONTEND_JOB_RESULT: ${{ needs.frontend-tests.result }}
+          WORKFLOW_VALIDATE_JOB_RESULT: ${{ needs.workflow-validate.result }}
+        run: |
+          set -euo pipefail
+          map_result() {
+            case "$1" in
+              success) echo "success" ;;
+              skipped) echo "skipped_not_required" ;;
+              *) echo "failed" ;;
+            esac
+          }
+          BACKEND_RESULT="$(map_result "$BACKEND_JOB_RESULT")"
+          FRONTEND_RESULT="$(map_result "$FRONTEND_JOB_RESULT")"
+          WORKFLOW_VALIDATE_RESULT="$(map_result "$WORKFLOW_VALIDATE_JOB_RESULT")"
+
+          ARGS=(write
+            --target-sha "$TARGET_SHA"
+            --base-sha "${BASE_SHA:-none}"
+            --selection-mode "$SELECTION_MODE"
+            --changed-files-file artifacts/coverage/changed-files.txt
+            --backend-result "$BACKEND_RESULT"
+            --frontend-result "$FRONTEND_RESULT"
+            --workflow-validation-result "$WORKFLOW_VALIDATE_RESULT"
+            --output artifacts/ci-validation-manifest.json
+          )
+          [ "$BACKEND_NEEDED" = "true" ] && ARGS+=(--backend-required)
+          [ "$FRONTEND_NEEDED" = "true" ] && ARGS+=(--frontend-required)
+          [ "$WORKFLOW_VALIDATE_NEEDED" = "true" ] && ARGS+=(--workflow-validation-required)
+
+          python scripts/ci_validate_manifest.py "${ARGS[@]}"
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-changed-files
+          path: artifacts/coverage
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ci-validation-manifest
+          path: artifacts/ci-validation-manifest.json
+          if-no-files-found: warn
+          retention-days: 30
 
   notify:
     name: Notify CI result
@@ -296,6 +513,7 @@ jobs:
       - docs-only-check
       - backend-tests
       - frontend-tests
+      - validation-manifest
     if: |
       always() &&
       (

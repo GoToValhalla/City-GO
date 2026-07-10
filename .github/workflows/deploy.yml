@@ -22,11 +22,15 @@ env:
   DEPLOY_TARGET_REF: ${{ github.ref_name }}
 
 jobs:
-  build:
-    name: Build production images
+  resolve-and-gate:
+    name: Resolve SHA and gate on CI validation
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     if: github.ref == 'refs/heads/main'
+    outputs:
+      backend_image: ${{ steps.image-names.outputs.backend_image }}
+      frontend_image: ${{ steps.image-names.outputs.frontend_image }}
+      build_time: ${{ steps.build-metadata.outputs.build_time }}
     steps:
       - name: Checkout deploy target
         uses: actions/checkout@v4
@@ -38,33 +42,77 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          STAGE_START=$(date +%s)
           SHA="${DEPLOY_TARGET_SHA}"
           WORKFLOW_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml" --jq .id)"
-          CONCLUSION="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WORKFLOW_ID}/runs?branch=main&head_sha=${SHA}&status=completed&per_page=20" --jq '[.workflow_runs[] | select(.name == "00 · CITY GO · CI")] | map(.conclusion) | .[0] // empty')"
-          if [ "$CONCLUSION" != "success" ]; then
-            echo "Deploy blocked: no successful full CI regression for ${SHA} on main." >&2
+          RUN_ID="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${WORKFLOW_ID}/runs?branch=main&head_sha=${SHA}&status=completed&per_page=20" --jq '[.workflow_runs[] | select(.name == "00 · CITY GO · CI") | select(.conclusion == "success")] | .[0].id // empty')"
+          if [ -z "$RUN_ID" ]; then
+            echo "Deploy blocked: no successful full CI run for ${SHA} on main." >&2
             echo "Run '00 · CITY GO · CI' for this commit before production deploy." >&2
             exit 1
           fi
-          echo "CI regression success confirmed for ${SHA}"
+          echo "CI regression success confirmed for ${SHA} (run ${RUN_ID})"
+          echo "CI_RUN_ID=${RUN_ID}" >> "$GITHUB_ENV"
+          echo "timing_ci_check_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Download and verify CI validation manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          STAGE_START=$(date +%s)
+          mkdir -p /tmp/ci-manifest
+          if ! gh run download "$CI_RUN_ID" --name ci-validation-manifest --dir /tmp/ci-manifest --repo "$GITHUB_REPOSITORY"; then
+            echo "ERROR: ci-validation-manifest artifact could not be downloaded for CI run ${CI_RUN_ID}." >&2
+            echo "Deploy fails closed: an exact-SHA CI run without a validation manifest cannot be trusted." >&2
+            exit 1
+          fi
+          MANIFEST_FILE="/tmp/ci-manifest/ci-validation-manifest.json"
+          if [ ! -f "$MANIFEST_FILE" ]; then
+            echo "ERROR: ci-validation-manifest.json missing from downloaded artifact." >&2
+            exit 1
+          fi
+          python scripts/ci_validate_manifest.py verify \
+            --manifest-file "$MANIFEST_FILE" \
+            --expected-sha "${DEPLOY_TARGET_SHA}"
+          cat "$MANIFEST_FILE"
+          echo "timing_manifest_check_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
 
       - name: Set image names
+        id: image-names
         shell: bash
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "BACKEND_IMAGE=ghcr.io/${OWNER}/city-go-backend" >> "$GITHUB_ENV"
-          echo "FRONTEND_IMAGE=ghcr.io/${OWNER}/city-go-frontend" >> "$GITHUB_ENV"
+          echo "backend_image=ghcr.io/${OWNER}/city-go-backend" >> "$GITHUB_OUTPUT"
+          echo "frontend_image=ghcr.io/${OWNER}/city-go-frontend" >> "$GITHUB_OUTPUT"
 
       - name: Set build metadata
+        id: build-metadata
         shell: bash
         run: |
-          echo "CITY_GO_BUILD_SHA=${DEPLOY_TARGET_SHA}" >> "$GITHUB_ENV"
-          echo "CITY_GO_BUILD_RUN_ID=${GITHUB_RUN_ID}" >> "$GITHUB_ENV"
-          echo "CITY_GO_BUILD_RUN_NUMBER=${GITHUB_RUN_NUMBER}" >> "$GITHUB_ENV"
-          echo "CITY_GO_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_ENV"
+          echo "build_time=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Timing summary
+        if: always()
+        run: |
+          {
+            echo "### resolve-and-gate timing (seconds)"
+            echo "- CI success check: ${timing_ci_check_seconds:-not separately measurable in the previous workflow}"
+            echo "- CI validation manifest check: ${timing_manifest_check_seconds:-not separately measurable in the previous workflow}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-backend:
+    name: Build backend image
+    runs-on: ubuntu-latest
+    needs: resolve-and-gate
+    timeout-minutes: 20
+    steps:
+      - name: Checkout deploy target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_TARGET_SHA }}
+
+      - uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -75,17 +123,18 @@ jobs:
 
       - name: Build backend image
         uses: docker/build-push-action@v6
-        id: backend-image
         with:
           context: .
           load: true
           push: false
-          tags: ${{ env.BACKEND_IMAGE }}:latest
+          tags: |
+            ${{ needs.resolve-and-gate.outputs.backend_image }}:latest
+            ${{ needs.resolve-and-gate.outputs.backend_image }}:${{ env.DEPLOY_TARGET_SHA }}
           build-args: |
-            CITY_GO_BUILD_SHA=${{ env.CITY_GO_BUILD_SHA }}
-            CITY_GO_BUILD_RUN_ID=${{ env.CITY_GO_BUILD_RUN_ID }}
-            CITY_GO_BUILD_RUN_NUMBER=${{ env.CITY_GO_BUILD_RUN_NUMBER }}
-            CITY_GO_BUILD_TIME=${{ env.CITY_GO_BUILD_TIME }}
+            CITY_GO_BUILD_SHA=${{ env.DEPLOY_TARGET_SHA }}
+            CITY_GO_BUILD_RUN_ID=${{ github.run_id }}
+            CITY_GO_BUILD_RUN_NUMBER=${{ github.run_number }}
+            CITY_GO_BUILD_TIME=${{ needs.resolve-and-gate.outputs.build_time }}
           cache-from: type=gha,scope=city-go-backend
           cache-to: type=gha,mode=max,scope=city-go-backend
 
@@ -93,13 +142,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          STAGE_START=$(date +%s)
           mkdir -p /tmp/city-go-build-smoke
           set +e
           docker run --rm -i \
             -e DATABASE_URL='sqlite:///./ci_import_smoke.db' \
             -e ADMIN_API_TOKEN='ci-admin-token' \
             -e APP_ENV='test' \
-            "$BACKEND_IMAGE:latest" \
+            "${{ needs.resolve-and-gate.outputs.backend_image }}:latest" \
             python - <<'PY' > /tmp/city-go-build-smoke/backend-import-smoke.log 2>&1
           import importlib
           import traceback
@@ -130,6 +180,7 @@ jobs:
           status=$?
           set -e
           cat /tmp/city-go-build-smoke/backend-import-smoke.log
+          echo "timing_import_smoke_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
           if [ "$status" -ne 0 ]; then
             echo "Backend import smoke failed with exit code $status" >&2
             exit "$status"
@@ -148,27 +199,64 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker push "$BACKEND_IMAGE:latest"
+          STAGE_START=$(date +%s)
+          docker push "${{ needs.resolve-and-gate.outputs.backend_image }}:latest"
+          docker push "${{ needs.resolve-and-gate.outputs.backend_image }}:${{ env.DEPLOY_TARGET_SHA }}"
+          echo "timing_publish_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
+
+      - name: Timing summary
+        if: always()
+        run: |
+          {
+            echo "### build-backend timing (seconds)"
+            echo "- import smoke: ${timing_import_smoke_seconds:-not separately measurable in the previous workflow}"
+            echo "- publish: ${timing_publish_seconds:-not separately measurable in the previous workflow}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-frontend:
+    name: Build frontend image
+    runs-on: ubuntu-latest
+    needs: resolve-and-gate
+    timeout-minutes: 20
+    steps:
+      - name: Checkout deploy target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_TARGET_SHA }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
           push: true
-          tags: ${{ env.FRONTEND_IMAGE }}:latest
+          tags: |
+            ${{ needs.resolve-and-gate.outputs.frontend_image }}:latest
+            ${{ needs.resolve-and-gate.outputs.frontend_image }}:${{ env.DEPLOY_TARGET_SHA }}
           build-args: |
             VITE_ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}
-            VITE_BUILD_SHA=${{ env.CITY_GO_BUILD_SHA }}
-            VITE_BUILD_RUN_ID=${{ env.CITY_GO_BUILD_RUN_ID }}
-            VITE_BUILD_RUN_NUMBER=${{ env.CITY_GO_BUILD_RUN_NUMBER }}
-            VITE_BUILD_TIME=${{ env.CITY_GO_BUILD_TIME }}
+            VITE_BUILD_SHA=${{ env.DEPLOY_TARGET_SHA }}
+            VITE_BUILD_RUN_ID=${{ github.run_id }}
+            VITE_BUILD_RUN_NUMBER=${{ github.run_number }}
+            VITE_BUILD_TIME=${{ needs.resolve-and-gate.outputs.build_time }}
           cache-from: type=gha,scope=city-go-frontend
           cache-to: type=gha,mode=max,scope=city-go-frontend
 
   deploy:
     name: Deploy production
     runs-on: ubuntu-latest
-    needs: build
+    needs:
+      - resolve-and-gate
+      - build-backend
+      - build-frontend
     if: github.ref == 'refs/heads/main'
     timeout-minutes: 30
     steps:
@@ -229,28 +317,6 @@ jobs:
             } | tee /tmp/city-go-deploy/ssh-preflight-warning.log
           fi
 
-          echo "=== SSH remote shell preflight ===" | tee /tmp/city-go-deploy/ssh-shell-preflight.log
-          SHELL_OK=0
-          for attempt in 1 2 3; do
-            if timeout 20s ssh \
-              -o ConnectTimeout=10 \
-              -o StrictHostKeyChecking=accept-new \
-              -i ~/.ssh/deploy_key \
-              -p "$SSH_PORT" \
-              "$SSH_USER@$SSH_HOST" \
-              'echo ssh_ok' >> /tmp/city-go-deploy/ssh-shell-preflight.log 2>&1; then
-              SHELL_OK=1
-              echo "SSH remote shell preflight succeeded attempt=${attempt}" | tee -a /tmp/city-go-deploy/ssh-shell-preflight.log
-              break
-            fi
-            echo "WARN: SSH remote shell preflight failed attempt=${attempt}/3" | tee -a /tmp/city-go-deploy/ssh-shell-preflight.log
-            sleep "$attempt"
-          done
-          if [ "$SHELL_OK" != "1" ]; then
-            echo "ERROR: SSH remote shell preflight failed" | tee -a /tmp/city-go-deploy/ssh-shell-preflight.log
-            exit 1
-          fi
-
       - name: Set image names
         shell: bash
         run: |
@@ -262,9 +328,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker pull "$BACKEND_IMAGE:latest"
-          docker pull "$FRONTEND_IMAGE:latest"
+          STAGE_START=$(date +%s)
+          # Exact-SHA tags, not just mutable :latest — this is the artifact
+          # actually deployed, verified by digest below before transport.
+          docker pull "$BACKEND_IMAGE:${DEPLOY_TARGET_SHA}"
+          docker pull "$FRONTEND_IMAGE:${DEPLOY_TARGET_SHA}"
+          BACKEND_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$BACKEND_IMAGE:${DEPLOY_TARGET_SHA}")"
+          FRONTEND_DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$FRONTEND_IMAGE:${DEPLOY_TARGET_SHA}")"
+          echo "Backend image digest: ${BACKEND_DIGEST}"
+          echo "Frontend image digest: ${FRONTEND_DIGEST}"
+          docker tag "$BACKEND_IMAGE:${DEPLOY_TARGET_SHA}" "$BACKEND_IMAGE:latest"
+          docker tag "$FRONTEND_IMAGE:${DEPLOY_TARGET_SHA}" "$FRONTEND_IMAGE:latest"
           docker save "$BACKEND_IMAGE:latest" "$FRONTEND_IMAGE:latest" | gzip -1 > /tmp/city-go-images.tar.gz
+          echo "timing_download_save_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
 
       - name: Copy compose file to server
         shell: bash
@@ -286,9 +362,11 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
           set -euo pipefail
+          STAGE_START=$(date +%s)
           scp -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -P "$SSH_PORT" \
             /tmp/city-go-images.tar.gz "$SSH_USER@$SSH_HOST:/tmp/city-go-images.tar.gz"
+          echo "timing_transfer_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
 
       - name: Deploy on server
         shell: bash
@@ -299,6 +377,7 @@ jobs:
           DEPLOY_SHA: ${{ env.DEPLOY_TARGET_SHA }}
         run: |
           set -euo pipefail
+          STAGE_START=$(date +%s)
           ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             "DEPLOY_SHA='${DEPLOY_SHA}' bash -s" <<'REMOTE'
@@ -308,17 +387,11 @@ jobs:
           echo "=== Refresh docker-compose.yml from deployed artifact ==="
           install -m 0644 /tmp/city-go-docker-compose.yml /srv/app/docker-compose.yml
           docker compose config --quiet
-          grep -n "WEB_CONCURRENCY\|uvicorn main:app" docker-compose.yml || true
-
-          echo "=== Production disk before deploy cleanup ==="
-          df -h /
-          docker system df || true
 
           echo "=== Recording rollback metadata (previous deployed image IDs) ==="
           PREVIOUS_SHA="$(cat /srv/app/.last_deployed_sha 2>/dev/null || echo unknown)"
           echo "Previous deployed SHA: ${PREVIOUS_SHA}"
-          echo "Attempted SHA: ${DEPLOY_SHA}" || true
-          docker compose images 2>/dev/null || true
+          echo "Attempted SHA: ${DEPLOY_SHA}"
 
           echo "=== Stop and remove app containers before image replacement ==="
           docker compose stop frontend backend import-worker bot || true
@@ -329,10 +402,6 @@ jobs:
           docker builder prune -f || true
           rm -rf /tmp/city-go-build-* /tmp/city-go-deploy-* || true
 
-          echo "=== Production disk after deploy cleanup ==="
-          df -h /
-          docker system df || true
-
           echo "=== docker load (bounded) ==="
           set +e
           timeout 300s docker load -i /tmp/city-go-images.tar.gz
@@ -340,6 +409,9 @@ jobs:
           set -e
           if [ "$LOAD_STATUS" -ne 0 ]; then
             echo "ERROR: docker load timed out or failed (exit code ${LOAD_STATUS})" >&2
+            echo "=== Production disk at failure ===" >&2
+            df -h / >&2 || true
+            docker system df >&2 || true
             exit "$LOAD_STATUS"
           fi
 
@@ -350,23 +422,12 @@ jobs:
           set -e
           if [ "$UP_STATUS" -ne 0 ]; then
             echo "ERROR: docker compose up timed out or failed (exit code ${UP_STATUS})" >&2
+            echo "=== Production disk at failure ===" >&2
+            df -h / >&2 || true
+            docker system df >&2 || true
+            docker compose ps >&2 || true
             exit "$UP_STATUS"
           fi
-
-          echo "=== Ensure import-worker stays stopped after deploy ==="
-          docker compose stop import-worker || true
-          WORKER_ID="$(docker compose ps -aq import-worker | head -n 1 || true)"
-          WORKER_STATE="not_created"
-          if [ -n "$WORKER_ID" ]; then
-            WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
-          fi
-          if [ "$WORKER_STATE" = "running" ]; then
-            echo "ERROR: import-worker is running after deploy; deploy must not start heavy imports on this host." >&2
-            docker compose ps import-worker || true
-            docker compose logs --tail=150 import-worker || true
-            exit 1
-          fi
-          echo "import-worker not running after deploy; state=${WORKER_STATE}"
 
           echo "=== Docker compose status after deploy up ==="
           docker compose ps
@@ -374,11 +435,8 @@ jobs:
           rm -f /tmp/city-go-images.tar.gz /tmp/city-go-docker-compose.yml || true
 
           echo "${DEPLOY_SHA}" > /srv/app/.last_deployed_sha || true
-
-          echo "=== Production disk after deploy ==="
-          df -h /
-          docker system df || true
           REMOTE
+          echo "timing_remote_deploy_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
 
       - name: Verify build.json
         shell: bash
@@ -389,6 +447,7 @@ jobs:
           CITY_GO_BUILD_SHA: ${{ env.DEPLOY_TARGET_SHA }}
         run: |
           set -euo pipefail
+          STAGE_START=$(date +%s)
           expected="${CITY_GO_BUILD_SHA:0:7}"
           echo "Expected build sha prefix: ${expected}"
 
@@ -424,8 +483,9 @@ jobs:
             echo "Deployed build sha does not match expected sha."
             exit 1
           fi
+          echo "timing_build_json_verify_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
 
-      - name: Verify backend ready
+      - name: Verify backend ready and final invariants
         shell: bash
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
@@ -434,6 +494,7 @@ jobs:
           DEPLOY_SHA: ${{ env.DEPLOY_TARGET_SHA }}
         run: |
           set -euo pipefail
+          STAGE_START=$(date +%s)
           ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             "DEPLOY_SHA='${DEPLOY_SHA}' bash -s" <<'REMOTE'
           set -euo pipefail
@@ -477,21 +538,31 @@ jobs:
             exit 1
           fi
 
-          echo "=== Verifying import-worker remains stopped ==="
-          docker compose stop import-worker || true
+          # Single, final post-readiness invariant check: import-worker must
+          # not be running. Enforced once here rather than repeatedly at every
+          # deploy step — if it is unexpectedly running, stop it, collect
+          # bounded evidence, and fail the deploy truthfully.
+          echo "=== Final invariant: import-worker must not be running ==="
           WORKER_ID="$(docker compose ps -aq import-worker | head -n 1 || true)"
           WORKER_STATE="not_created"
           if [ -n "$WORKER_ID" ]; then
             WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
           fi
           if [ "$WORKER_STATE" = "running" ]; then
-            echo "ERROR: import-worker is still running after backend readiness passed; deploy must keep it stopped." >&2
+            echo "ERROR: import-worker is running after deploy; stopping it now and failing deploy." >&2
+            docker compose stop import-worker || true
             docker compose ps import-worker || true
             show_logs import-worker 150
             exit 1
           fi
-          echo "Backend /ready passed and import-worker is not running; state=${WORKER_STATE}."
+          echo "import-worker invariant holds; state=${WORKER_STATE}."
+
+          echo "=== Final application state ==="
+          docker compose ps
+          echo "=== Concise disk summary ==="
+          df -h / | tail -n 1
           REMOTE
+          echo "timing_readiness_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
 
       - name: Cleanup old images after confirmed healthy deploy
         shell: bash
@@ -501,20 +572,19 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
         run: |
           set -euo pipefail
-          # Only reached after "Verify build.json" and "Verify backend ready" both
-          # succeeded, so the new image is confirmed running and healthy. Safe to
-          # prune older unused images now — the previous deployed image is no
-          # longer needed for an emergency rollback via `docker compose up` on a
-          # prior tag, since this deploy is already verified good.
+          # Only reached after "Verify build.json" and "Verify backend ready"
+          # both succeeded, so the new image is confirmed running and
+          # healthy. Safe to prune older unused images now — the previous
+          # deployed image is no longer needed for an emergency rollback via
+          # `docker compose up` on a prior tag, since this deploy is already
+          # verified good.
           ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" <<'REMOTE'
           set -euo pipefail
           cd /srv/app
-          echo "=== Pruning unused images after confirmed healthy deploy ==="
           docker image prune -af || true
           docker builder prune -af || true
-          echo "=== Production disk after post-deploy cleanup ==="
-          df -h /
-          docker system df || true
+          echo "=== Concise disk summary after cleanup ==="
+          df -h / | tail -n 1
           REMOTE
 
       - name: Upload deploy log
@@ -526,11 +596,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Timing summary
+        if: always()
+        run: |
+          {
+            echo "### deploy timing (seconds)"
+            echo "- image download/save/compress: ${timing_download_save_seconds:-not separately measurable in the previous workflow}"
+            echo "- image transfer (scp): ${timing_transfer_seconds:-not separately measurable in the previous workflow}"
+            echo "- remote load + compose up: ${timing_remote_deploy_seconds:-not separately measurable in the previous workflow}"
+            echo "- build.json verify: ${timing_build_json_verify_seconds:-not separately measurable in the previous workflow}"
+            echo "- readiness + final invariants: ${timing_readiness_seconds:-not separately measurable in the previous workflow}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   notify:
     name: Notify deploy result
     runs-on: ubuntu-latest
     needs:
-      - build
+      - resolve-and-gate
+      - build-backend
+      - build-frontend
       - deploy
     if: always() && github.ref == 'refs/heads/main'
     steps:
@@ -547,7 +631,7 @@ jobs:
       - name: Build deploy notification
         shell: bash
         env:
-          BUILD_RESULT: ${{ needs.build.result }}
+          BUILD_RESULT: ${{ needs.build-backend.result == 'success' && needs.build-frontend.result == 'success' && 'success' || 'failure' }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
           CITY_GO_DEPLOY_SHA: ${{ env.DEPLOY_TARGET_SHA }}
