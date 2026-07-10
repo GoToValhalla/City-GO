@@ -30,13 +30,15 @@ def test_ci_keeps_route_public_contract_gate_inside_backend_pytest_regression_ne
     assert "test_route_public_contract_gate_sample_payloads_are_clean_new" in test_file
 
 
-def test_production_smoke_runs_after_successful_deploy_or_manual_dispatch_new() -> None:
+def test_production_smoke_is_manual_dispatch_only_new() -> None:
+    """Production smoke is manual-only: no workflow_run auto-trigger after
+    deploy. See tests/test_production_smoke_workflow_new.py for the full
+    manual-only/independent-result contract."""
     workflow = _read(".github/workflows/production-smoke.yml")
 
     assert "workflow_dispatch:" in workflow
-    assert "workflow_run:" in workflow
-    assert "01 · CITY GO · Production Deploy" in workflow
-    assert "github.event.workflow_run.conclusion == 'success'" in workflow
+    assert "workflow_run:" not in workflow
+    assert "01 · CITY GO · Production Deploy" not in workflow
 
 
 def test_production_smoke_route_check_is_enabled_by_default_new() -> None:
@@ -48,10 +50,11 @@ def test_production_smoke_route_check_is_enabled_by_default_new() -> None:
     assert "CITY_GO_ROUTE_SMOKE_LNG" in workflow
 
 
-def test_production_smoke_expected_sha_comes_from_deploy_head_or_manual_input_new() -> None:
+def test_production_smoke_expected_sha_comes_from_manual_input_only_new() -> None:
     workflow = _read(".github/workflows/production-smoke.yml")
 
-    assert "EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || inputs.expected_sha || '' }}" in workflow
+    assert "EXPECTED_SHA: ${{ inputs.expected_sha || '' }}" in workflow
+    assert "github.event.workflow_run" not in workflow
 
 
 def test_production_smoke_uses_frontend_api_proxy_for_backend_and_admin_checks_new() -> None:
