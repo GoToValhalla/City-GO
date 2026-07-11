@@ -83,11 +83,13 @@ def test_workflow_fails_closed_on_timeout_and_bad_exit_state_new() -> None:
 
 def test_workflow_always_stops_worker_in_cleanup_new() -> None:
     text = _workflow_text()
-    cleanup_idx = text.index("cleanup: always stop import-worker")
-    stop_idx = text.index("docker compose stop -t 30 import-worker", cleanup_idx)
     monitor_loop_start = text.index('section "monitor loop"')
+    cleanup_call_idx = text.index("\n          cleanup\n", monitor_loop_start)
+    trap_clear_idx = text.index("trap - EXIT", cleanup_call_idx)
 
-    assert monitor_loop_start < cleanup_idx < stop_idx
+    assert monitor_loop_start < cleanup_call_idx < trap_clear_idx
+    assert "cleanup: always stop import-worker" in text
+    assert "docker compose stop -t 30 import-worker" in text
     assert "trap cleanup EXIT" in text
 
 
