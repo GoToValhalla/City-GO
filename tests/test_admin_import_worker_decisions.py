@@ -4,8 +4,10 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.system_log import SystemLog
 from services import admin_city_import_tasks as tasks
@@ -226,3 +228,148 @@ def test_import_worker_logs_claim_and_finish_for_queued_job(
     assert logs[0].actor_id == "test-worker"
     assert logs[0].details["job_id"] == job.id
     assert logs[0].details["queued_seconds"] is not None
+
+
+def test_generic_runtime_exception_marks_job_failed_with_one_event_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """A plain Python exception from job logic (no DB-level failure) must
+    still leave the job durably failed with exactly one worker_job_failed
+    event, and must not roll back anything committed before this job started
+    (e.g. the city row created in this same session just above)."""
+    _patch_session_local(monkeypatch, db_session)
+    city = city_factory(slug="worker-generic-exception", name="Worker Generic Exception")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_enrichment")
+
+    monkeypatch.setattr(
+        tasks,
+        "run_enrichment_only_job",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("worker boom")),
+    )
+    monkeypatch.setattr(tasks, "send_admin_alert", lambda **_kwargs: {"sent": True})
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 0
+    assert result["failed"] == 1
+    assert result["errors"] == [{"job_id": job.id, "city_id": city.id, "source": "admin_city_enrichment", "error": "worker boom"}]
+
+    db_session.refresh(job)
+    assert job.status == "failed"
+    assert job.current_step == "error"
+    assert job.last_error == "worker boom"
+    assert job.failed_items >= 1
+    assert job.finished_at is not None
+    assert job.updated_at is not None
+    assert job.step_details["worker_exception"]["error"] == "worker boom"
+
+    # The city row committed before run_queued_import_jobs was even called
+    # must survive — proving the exception path does not destroy the
+    # caller's own already-committed transaction state.
+    survived_city = db_session.query(City).filter_by(id=city.id).one()
+    assert survived_city.slug == "worker-generic-exception"
+
+    events = _events(db_session)
+    assert events == ["worker_job_claimed", "worker_job_failed"]
+    failed_log = db_session.query(SystemLog).filter(SystemLog.module == "import_worker", SystemLog.level == "error").one()
+    assert failed_log.details["event"] == "worker_job_failed"
+    assert failed_log.details["job_id"] == job.id
+    assert failed_log.details["city_id"] == city.id
+    assert failed_log.details["source"] == "admin_city_enrichment"
+    assert failed_log.details["error"] == "worker boom"
+
+
+def test_sqlalchemy_error_recovers_and_marks_job_failed_once_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """A real SQLAlchemy failure (not just a generic exception) must still be
+    recovered — the session must remain usable afterward, the job must end
+    up failed, and only one worker_job_failed event must be written (no
+    duplicate from a retry or from the recovery path itself)."""
+    _patch_session_local(monkeypatch, db_session)
+    city = city_factory(slug="worker-sqlalchemy-error", name="Worker SQLAlchemy Error")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_enrichment")
+
+    def _raise_integrity_error(*args, **kwargs):
+        raise IntegrityError("INSERT INTO x", {}, Exception("duplicate key"))
+
+    monkeypatch.setattr(tasks, "run_enrichment_only_job", _raise_integrity_error)
+    monkeypatch.setattr(tasks, "send_admin_alert", lambda **_kwargs: {"sent": True})
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["failed"] == 1
+
+    # The session must still be usable after recovering from the aborted
+    # transaction — a bare query must succeed with no lingering error state.
+    db_session.refresh(job)
+    assert job.status == "failed"
+    assert job.current_step == "error"
+    assert "duplicate key" in job.last_error
+
+    events = _events(db_session)
+    assert events.count("worker_job_failed") == 1
+    assert events == ["worker_job_claimed", "worker_job_failed"]
+
+
+def test_failed_job_does_not_leak_system_log_into_next_worker_call_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """A failed job's worker_job_failed log must be scoped to that job only
+    — a second, unrelated run_queued_import_jobs call (e.g. a later poll
+    with nothing queued) must not see it mixed into its own event list."""
+    _patch_session_local(monkeypatch, db_session)
+    city = city_factory(slug="worker-no-leak", name="Worker No Leak")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_enrichment")
+
+    monkeypatch.setattr(
+        tasks,
+        "run_enrichment_only_job",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("worker boom")),
+    )
+    monkeypatch.setattr(tasks, "send_admin_alert", lambda **_kwargs: {"sent": True})
+
+    first_result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+    assert first_result["failed"] == 1
+    assert _events(db_session) == ["worker_job_claimed", "worker_job_failed"]
+
+    second_result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert second_result["failed"] == 0
+    assert second_result["processed"] == 0
+    assert second_result["queue"]["queued"] == 0
+    # Only one NEW event (no_queued_jobs) must be appended — the earlier
+    # worker_job_failed from the first call is real history, not a leak,
+    # but it must not be duplicated or repeated by the second call.
+    events = _events(db_session)
+    assert events == ["worker_job_claimed", "worker_job_failed", "worker_no_queued_jobs"]
+    assert events.count("worker_job_failed") == 1
+
+
+def test_failed_job_is_not_left_queued_or_running_in_queue_summary_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    _patch_session_local(monkeypatch, db_session)
+    city = city_factory(slug="worker-queue-summary-after-fail", name="Worker Queue Summary After Fail")
+    _create_import_job(db_session, city_id=city.id, source="admin_city_enrichment")
+
+    monkeypatch.setattr(
+        tasks,
+        "run_enrichment_only_job",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("worker boom")),
+    )
+    monkeypatch.setattr(tasks, "send_admin_alert", lambda **_kwargs: {"sent": True})
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["queue"]["queued"] == 0
+    assert result["queue"]["running"] == 0
+    assert result["queue"]["active_total"] == 0

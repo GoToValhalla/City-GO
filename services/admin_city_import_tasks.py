@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
@@ -146,15 +147,34 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                     details={"city_id": city_id, "source": source},
                 )
                 continue
+            # The claim decision is committed durably BEFORE any SAVEPOINT
+            # begins: it is a truthful record that the worker claimed this
+            # job, and must survive even if the job's own work later fails
+            # and is rolled back.
+            _log_worker_decision(
+                db,
+                event="worker_job_claimed",
+                actor_id=actor_id,
+                message=f"Import worker claiming job #{job_id} (city_id={city_id}, source={source})",
+                job=job,
+                details={"limit": limit, "queued_seconds": _queued_seconds(job), "stalled_marked": stalled},
+            )
+            db.commit()
+            # A SAVEPOINT taken before this job's own work: runners commit
+            # internally on their own success paths (closing this SAVEPOINT
+            # early, which is fine — nothing to roll back then), but never
+            # commit right before raising. On failure we roll back to this
+            # SAVEPOINT specifically, never the caller's own outer
+            # transaction — production: the request-scoped SessionLocal();
+            # tests: a shared fixture session whose already-committed setup
+            # rows must survive. db.rollback() on that outer transaction
+            # would instead discard it entirely, which is the prior defect.
+            # Managed manually (not as a `with` block) because a runner's
+            # own internal db.commit() closes the SAVEPOINT out from under
+            # a context manager's __exit__, breaking any code — including
+            # our own — that still expects to operate on it afterward.
+            savepoint = db.begin_nested()
             try:
-                _log_worker_decision(
-                    db,
-                    event="worker_job_claimed",
-                    actor_id=actor_id,
-                    message=f"Import worker claiming job #{job_id} (city_id={city_id}, source={source})",
-                    job=job,
-                    details={"limit": limit, "queued_seconds": _queued_seconds(job), "stalled_marked": stalled},
-                )
                 if source == SOURCE_ENRICHMENT_ONLY:
                     run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id)
                 elif source == SOURCE_SNAPSHOT_REFRESH:
@@ -176,7 +196,21 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                 )
                 db.commit()
             except Exception as exc:  # noqa: BLE001
-                db.rollback()
+                # Roll back only to the SAVEPOINT if it is still open (a
+                # runner that already committed internally closes it, in
+                # which case there is nothing uncommitted left to discard).
+                if savepoint.is_active:
+                    savepoint.rollback()
+                # A flush/commit failure can additionally leave the whole
+                # session pending-rollback at the SQLAlchemy level even
+                # after the SAVEPOINT itself is gone; only then does the
+                # outer transaction need releasing too, and by that point
+                # nothing from this job was ever durably committed, so nothing
+                # legitimate is lost — only this job's own uncommitted work.
+                try:
+                    db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
+                except SQLAlchemyError:
+                    db.rollback()
                 failed += 1
                 error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
                 errors.append(error)
