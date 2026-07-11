@@ -84,7 +84,6 @@ _DESTRUCTIVE_REJECTION_REASONS = {
 
 
 def _install_coverage_taxonomy(profile: str) -> None:
-    _CURRENT_PROFILE.set(profile)
     legacy_import.PROFILE_FILTERS = COVERAGE_AWARE_PROFILE_FILTERS
     legacy_import._category = category_from_osm_tags
     legacy_import._ensure_source_presence = _ensure_source_presence_profile_safe
@@ -119,8 +118,8 @@ def _ensure_source_presence_profile_safe(
     db,
     place_id: int,
     source_external_id: str,
-    source_observation_id: int,
-    batch_id: int,
+    source_observation_id: int | None,
+    batch_id: int | None,
 ) -> None:
     profile = _CURRENT_PROFILE.get()
     if not profile:
