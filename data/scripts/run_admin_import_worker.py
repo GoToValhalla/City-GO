@@ -1,4 +1,4 @@
-"""Persistent import worker loop with rate-limited failure and recovery alerts."""
+"""Persistent import worker loop with bounded health and shutdown behavior."""
 
 from __future__ import annotations
 
@@ -17,23 +17,24 @@ from services.admin_city_import_tasks import run_queued_import_jobs
 _STOP = False
 
 
-def _stop(_signum, _frame) -> None:
+class WorkerStopRequested(RuntimeError):
+    """Raised from SIGTERM/SIGINT so an active job reaches failure handling."""
+
+
+def _stop(signum, _frame) -> None:
     global _STOP
     _STOP = True
+    raise WorkerStopRequested(f"import-worker stop requested by signal {signum}")
 
 
 def backend_is_healthy(health_url: str, *, timeout_seconds: float = 5.0) -> bool:
-    """Deterministic, single-request backend readiness check.
-
-    Never spams: one bounded request, no retries here — the worker loop
-    already re-checks on its normal sleep cadence.
-    """
+    """Deterministic, single-request backend readiness check."""
     if not health_url:
         return True
     try:
-        with urllib.request.urlopen(health_url, timeout=timeout_seconds) as response:  # noqa: S310 - internal backend URL, not user input
+        with urllib.request.urlopen(health_url, timeout=timeout_seconds) as response:  # noqa: S310
             return 200 <= response.status < 300
-    except Exception:  # noqa: BLE001 - any failure (timeout, connection refused, 5xx) means unhealthy
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -79,6 +80,15 @@ def run_worker_loop(
                     details={"status": "recovered", "previous_failures": consecutive_failures, "queue": result.get("queue")},
                 )
             consecutive_failures = 0
+        except WorkerStopRequested as exc:
+            print(str(exc), file=sys.stderr, flush=True)
+            send_admin_alert(
+                title="Import-worker остановлен безопасно",
+                message=str(exc),
+                level="error",
+                details={"status": "stop_requested"},
+            )
+            break
         except Exception as exc:  # noqa: BLE001
             consecutive_failures += 1
             if consecutive_failures in {1, 3} or consecutive_failures % 10 == 0:
@@ -96,13 +106,16 @@ def run_worker_loop(
 def main() -> int:
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
-    run_worker_loop(
-        limit=max(1, int(os.getenv("IMPORT_WORKER_BATCH_LIMIT", "1"))),
-        sleep_seconds=max(5, int(os.getenv("IMPORT_WORKER_SLEEP_SECONDS", "60"))),
-        actor_id=os.getenv("IMPORT_WORKER_ACTOR", "import-worker"),
-        health_url=os.getenv("IMPORT_WORKER_BACKEND_HEALTH_URL", "http://backend:8000/ready"),
-        max_runtime_seconds=int(os.getenv("IMPORT_WORKER_MAX_RUNTIME_SECONDS", "300")) or None,
-    )
+    try:
+        run_worker_loop(
+            limit=max(1, int(os.getenv("IMPORT_WORKER_BATCH_LIMIT", "1"))),
+            sleep_seconds=max(5, int(os.getenv("IMPORT_WORKER_SLEEP_SECONDS", "60"))),
+            actor_id=os.getenv("IMPORT_WORKER_ACTOR", "import-worker"),
+            health_url=os.getenv("IMPORT_WORKER_BACKEND_HEALTH_URL", "http://backend:8000/ready"),
+            max_runtime_seconds=int(os.getenv("IMPORT_WORKER_MAX_RUNTIME_SECONDS", "300")) or None,
+        )
+    except WorkerStopRequested as exc:
+        print(str(exc), file=sys.stderr, flush=True)
     return 0
 
 

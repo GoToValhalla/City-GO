@@ -59,177 +59,180 @@ jobs:
             -i ~/.ssh/deploy_key \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" ADMIN_API_TOKEN="$ADMIN_API_TOKEN" bash <<'REMOTE_EOF' | tee "$LOG"
-            set -uo pipefail
-            cd /srv/app
+          set -uo pipefail
+          cd /srv/app
 
-            section() { echo; echo "=== $1 ==="; }
+          section() { echo; echo "=== $1 ==="; }
 
-            section "public: /build.json"
-            curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
-              https://citygo.autismishe.online/build.json 2>&1 || echo "(curl failed)"
+          section "public: /build.json"
+          curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
+            https://citygo.autismishe.online/build.json 2>&1 || echo "(curl failed)"
 
-            section "public: /api/health"
-            curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
-              https://citygo.autismishe.online/api/health 2>&1 || echo "(curl failed)"
+          section "public: /api/health"
+          curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
+            https://citygo.autismishe.online/api/health 2>&1 || echo "(curl failed)"
 
-            section "public: /api/ready"
-            curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
-              https://citygo.autismishe.online/api/ready 2>&1 || echo "(curl failed)"
+          section "public: /api/ready"
+          curl -sS -o /dev/null -w 'HTTP=%{http_code}\n' --max-time 15 \
+            https://citygo.autismishe.online/api/ready 2>&1 || echo "(curl failed)"
 
-            section "docker compose ps -a"
-            docker compose ps -a 2>&1 || echo "(docker compose ps failed)"
+          section "docker compose ps -a"
+          docker compose ps -a 2>&1 || echo "(docker compose ps failed)"
 
-            section "import-worker container state (must NOT be running)"
-            WORKER_ID="$(docker compose ps -aq import-worker 2>/dev/null || true)"
-            if [ -z "$WORKER_ID" ]; then
-              echo "import-worker: no container found (not created)"
-            else
-              WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
-              WORKER_EXIT_CODE="$(docker inspect -f '{{.State.ExitCode}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
-              echo "import-worker: state=${WORKER_STATE} exit_code=${WORKER_EXIT_CODE}"
-              if [ "$WORKER_STATE" = "running" ]; then
-                echo "WARNING: import-worker is RUNNING — this diagnostic does not stop it; investigate manually." >&2
-              fi
+          section "import-worker container state (must NOT be running)"
+          WORKER_ID="$(docker compose ps -aq import-worker 2>/dev/null || true)"
+          if [ -z "$WORKER_ID" ]; then
+            echo "import-worker: no container found (not created)"
+          else
+            WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
+            WORKER_EXIT_CODE="$(docker inspect -f '{{.State.ExitCode}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
+            WORKER_OOM="$(docker inspect -f '{{.State.OOMKilled}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
+            echo "import-worker: state=${WORKER_STATE} exit_code=${WORKER_EXIT_CODE} oom_killed=${WORKER_OOM}"
+            if [ "$WORKER_STATE" = "running" ]; then
+              echo "WARNING: import-worker is RUNNING — this diagnostic does not stop it; investigate manually." >&2
             fi
+          fi
 
-            section "effective docker compose config: import-worker"
-            CONFIG_FAIL=0
-            if ! docker compose config --format json > /tmp/compose-config.json 2>/tmp/compose-config.err; then
-              echo "ERROR: docker compose config --format json failed:" >&2
-              cat /tmp/compose-config.err >&2 || true
-              CONFIG_FAIL=1
-            else
-              python3 - <<'PYEOF' || CONFIG_FAIL=1
-          import json
-          import sys
+          section "effective docker compose config: import-worker"
+          CONFIG_FAIL=0
+          if ! docker compose config --format json > /tmp/compose-config.json 2>/tmp/compose-config.err; then
+            echo "ERROR: docker compose config --format json failed:" >&2
+            cat /tmp/compose-config.err >&2 || true
+            CONFIG_FAIL=1
+          else
+            python3 - <<'PYEOF' || CONFIG_FAIL=1
+import json
+import sys
 
-          with open("/tmp/compose-config.json", encoding="utf-8") as handle:
-              config = json.load(handle)
+with open("/tmp/compose-config.json", encoding="utf-8") as handle:
+    config = json.load(handle)
 
-          service = config.get("services", {}).get("import-worker")
-          if service is None:
-              print("ERROR: import-worker service not found in effective compose config", file=sys.stderr)
-              raise SystemExit(1)
+service = config.get("services", {}).get("import-worker")
+if service is None:
+    print("ERROR: import-worker service not found in effective compose config", file=sys.stderr)
+    raise SystemExit(1)
 
-          print(json.dumps(service, indent=2, default=str))
+print(json.dumps(service, indent=2, default=str))
 
-          env = service.get("environment") or {}
-          if isinstance(env, list):
-              env = dict((item.split("=", 1) + [""])[:2] if "=" in item else (item, "") for item in env)
+env = service.get("environment") or {}
+if isinstance(env, list):
+    env = dict((item.split("=", 1) + [""])[:2] if "=" in item else (item, "") for item in env)
 
-          def norm_bytes(value):
-              # docker compose config normalizes mem_limit to a raw byte count.
-              if value is None:
-                  return None
-              if isinstance(value, (int, float)):
-                  return int(value)
-              text = str(value).strip().lower()
-              units = {"b": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
-              if text and text[-1] in units:
-                  return int(float(text[:-1]) * units[text[-1]])
-              return int(text)
+def norm_bytes(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    text = str(value).strip().lower()
+    units = {"b": 1, "k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
+    if text and text[-1] in units:
+        return int(float(text[:-1]) * units[text[-1]])
+    return int(text)
 
-          expected_bytes = 384 * 1024 * 1024
-          checks = []
+expected_bytes = 512 * 1024 * 1024
+checks = []
 
-          def check(label, actual, expected, ok):
-              checks.append((label, actual, expected, ok))
+def check(label, actual, expected, ok):
+    checks.append((label, actual, expected, ok))
 
-          mem_limit = norm_bytes(service.get("mem_limit"))
-          check("mem_limit", service.get("mem_limit"), "384m (402653184 bytes)", mem_limit == expected_bytes)
+mem_limit = norm_bytes(service.get("mem_limit"))
+check("mem_limit", service.get("mem_limit"), "512m (536870912 bytes)", mem_limit == expected_bytes)
 
-          memswap_limit = norm_bytes(service.get("memswap_limit"))
-          check("memswap_limit", service.get("memswap_limit"), "384m (402653184 bytes)", memswap_limit == expected_bytes)
+memswap_limit = norm_bytes(service.get("memswap_limit"))
+check("memswap_limit", service.get("memswap_limit"), "512m (536870912 bytes)", memswap_limit == expected_bytes)
 
-          cpus_raw = service.get("cpus")
-          cpus_value = float(cpus_raw) if cpus_raw is not None else None
-          check("cpus", cpus_raw, "0.50", cpus_value == 0.5)
+cpus_raw = service.get("cpus")
+cpus_value = float(cpus_raw) if cpus_raw is not None else None
+check("cpus", cpus_raw, "0.50", cpus_value == 0.5)
 
-          restart = service.get("restart")
-          check("restart", restart, "no", str(restart) == "no")
+restart = service.get("restart")
+check("restart", restart, "no", str(restart) == "no")
 
-          profiles = service.get("profiles") or []
-          check("profiles", profiles, "contains 'ops'", "ops" in profiles)
+profiles = service.get("profiles") or []
+check("profiles", profiles, "contains 'ops'", "ops" in profiles)
 
-          check("IMPORT_WORKER_SAFE_MODE", env.get("IMPORT_WORKER_SAFE_MODE"), "true", str(env.get("IMPORT_WORKER_SAFE_MODE")).lower() == "true")
-          check(
-              "IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY",
-              env.get("IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY"),
-              "0",
-              str(env.get("IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY")) == "0",
-          )
-          check(
-              "IMPORT_WORKER_MAX_RUNTIME_SECONDS",
-              env.get("IMPORT_WORKER_MAX_RUNTIME_SECONDS"),
-              "present",
-              env.get("IMPORT_WORKER_MAX_RUNTIME_SECONDS") not in (None, ""),
-          )
-          check(
-              "IMPORT_WORKER_BACKEND_HEALTH_URL",
-              env.get("IMPORT_WORKER_BACKEND_HEALTH_URL"),
-              "present",
-              bool(env.get("IMPORT_WORKER_BACKEND_HEALTH_URL")),
-          )
-          check(
-              "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB",
-              env.get("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB"),
-              "present",
-              env.get("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB") not in (None, ""),
-          )
+command = service.get("command")
+command_text = " ".join(command) if isinstance(command, list) else str(command or "")
+check(
+    "command",
+    command,
+    "resource preflight then worker",
+    "check_import_worker_resources.py" in command_text and "run_admin_import_worker.py" in command_text,
+)
 
-          print()
-          print("=== validation results ===")
-          failed = False
-          for label, actual, expected, ok in checks:
-              status = "OK" if ok else "MISMATCH"
-              print(f"{status}: {label} actual={actual!r} expected={expected}")
-              if not ok:
-                  failed = True
+expected_env = {
+    "IMPORT_WORKER_SAFE_MODE": "true",
+    "IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY": "1",
+    "IMPORT_WORKER_MAX_RUNTIME_SECONDS": "300",
+    "IMPORT_WORKER_BACKEND_HEALTH_URL": "http://backend:8000/ready",
+    "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "650",
+    "IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB": "512",
+    "IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB": "400",
+    "IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB": "256",
+    "IMPORT_WORKER_RUNTIME_CGROUP_PERCENT": "85",
+    "IMPORT_WORKER_BATCH_LIMIT": "1",
+}
+for name, expected in expected_env.items():
+    actual = env.get(name)
+    if name == "IMPORT_WORKER_SAFE_MODE":
+        ok = str(actual).lower() == expected
+    else:
+        ok = str(actual) == expected
+    check(name, actual, expected, ok)
 
-          if failed:
-              print("ERROR: one or more expected import-worker safety values did not match.", file=sys.stderr)
-              raise SystemExit(1)
-          print("All import-worker safety config checks passed.")
-          PYEOF
-            fi
-            if [ "$CONFIG_FAIL" -ne 0 ]; then
-              echo "ERROR: import-worker effective compose config validation failed." >&2
-            fi
+print()
+print("=== validation results ===")
+failed = False
+for label, actual, expected, ok in checks:
+    status = "OK" if ok else "MISMATCH"
+    print(f"{status}: {label} actual={actual!r} expected={expected}")
+    if not ok:
+        failed = True
 
-            section "runtime resources: docker stats --no-stream"
-            docker stats --no-stream 2>&1 || echo "(docker stats failed)"
+if failed:
+    print("ERROR: one or more expected import-worker safety values did not match.", file=sys.stderr)
+    raise SystemExit(1)
+print("All import-worker safety config checks passed.")
+PYEOF
+          fi
+          if [ "$CONFIG_FAIL" -ne 0 ]; then
+            echo "ERROR: import-worker effective compose config validation failed." >&2
+          fi
 
-            section "runtime resources: free -h"
-            free -h 2>&1 || echo "(free failed)"
+          section "runtime resources: docker stats --no-stream"
+          docker stats --no-stream 2>&1 || echo "(docker stats failed)"
 
-            section "runtime resources: df -h"
-            df -h 2>&1 || echo "(df failed)"
+          section "runtime resources: free -h"
+          free -h 2>&1 || echo "(free failed)"
 
-            section "queue state (read-only GET /admin/import-queue)"
-            if [ -n "${ADMIN_API_TOKEN:-}" ]; then
-              curl -sS --max-time 15 \
-                -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
-                http://localhost:8000/admin/import-queue 2>&1 || echo "(queue GET failed)"
-              echo
-            else
-              echo "(ADMIN_API_TOKEN not configured; skipping queue GET — no fallback DB query performed)"
-            fi
+          section "runtime resources: df -h"
+          df -h 2>&1 || echo "(df failed)"
 
-            section "logs: backend (tail 100)"
-            docker compose logs --tail=100 backend 2>&1 || echo "(no backend logs)"
-
-            section "logs: import-worker (tail 100)"
-            docker compose logs --tail=100 import-worker 2>&1 || echo "(no import-worker logs)"
-
-            section "logs: frontend (tail 100)"
-            docker compose logs --tail=100 frontend 2>&1 || echo "(no frontend logs)"
-
+          section "queue state (read-only GET /admin/import-queue)"
+          if [ -n "${ADMIN_API_TOKEN:-}" ]; then
+            curl -sS --max-time 15 \
+              -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+              http://localhost:8000/admin/import-queue 2>&1 || echo "(queue GET failed)"
             echo
-            echo "=== verification complete: strictly read-only — no compose up/start/restart/stop, no docker pull, no image change, no DB command, no queue mutation, no job claim, no import enqueue, no worker execution, no backend restart ==="
-            if [ "$CONFIG_FAIL" -ne 0 ]; then
-              echo "FAIL: import-worker effective compose config did not match expected safety values." >&2
-              exit 1
-            fi
+          else
+            echo "(ADMIN_API_TOKEN not configured; skipping queue GET — no fallback DB query performed)"
+          fi
+
+          section "logs: backend (tail 100)"
+          docker compose logs --tail=100 backend 2>&1 || echo "(no backend logs)"
+
+          section "logs: import-worker (tail 100)"
+          docker compose logs --tail=100 import-worker 2>&1 || echo "(no import-worker logs)"
+
+          section "logs: frontend (tail 100)"
+          docker compose logs --tail=100 frontend 2>&1 || echo "(no frontend logs)"
+
+          echo
+          echo "=== verification complete: strictly read-only — no compose up/start/restart/stop, no docker pull, no image change, no DB command, no queue mutation, no job claim, no import enqueue, no worker execution, no backend restart ==="
+          if [ "$CONFIG_FAIL" -ne 0 ]; then
+            echo "FAIL: import-worker effective compose config did not match expected safety values." >&2
+            exit 1
+          fi
           REMOTE_EOF
 
       - name: Upload verification report

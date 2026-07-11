@@ -1,185 +1,198 @@
-# Import-Worker Safety Framework (CITYGO-277)
+# Import-Worker Safety Framework (CITYGO-277 / CITYGO-280)
 
 ## Why this exists
 
-On 2026-07-10 (CITYGO-276), production deploy briefly auto-started
-`import-worker`. It claimed a queued Kaliningrad full-import job (~3095 places)
-on a ~965 MiB host with no swap. The worker was OOM-killed (`Exited (137)`),
-and the backend became unreachable behind frontend/nginx (502 on
-`/api/health`, `/api/ready`, and every admin endpoint) until `import-worker`
-was stopped and backend was restarted.
+On 2026-07-10, production deploy briefly auto-started `import-worker` on the
+former ~965 MiB/no-swap host. A heavy import ended with worker exit code `137`,
+public backend/API 502 responses, and recovery only after the worker stopped and
+the backend restarted.
 
-## Contract
+The production VM now exposes approximately 1.8 GiB RAM, with an observed idle
+`MemAvailable` around 711 MiB. The upgrade removes the stale unconditional
+heavy-job block, but it does not remove the need for hard isolation and
+fail-closed resource checks.
 
-- **Deploy never starts `import-worker`.** `docker-compose.yml` keeps it
-  behind the `ops` Compose profile; `deploy.yml` explicitly stops it and
-  verifies it is not `running` after every deploy, failing the deploy if it is.
-- **`import-worker` is manual-only**, via the guarded workflow described below.
-  There is no automatic scheduler, no in-web fallback, and
-  `admin_allow_in_web_worker_run_once` remains disabled — heavy import work
-  must never run inside the backend/web process.
-- **Full Kaliningrad-scale imports are blocked on the current host.**
-  `IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY=0` means safe mode refuses
-  *any* full-import/heavy job (`admin_city_import`, `admin_city_enrichment`)
-  outright, regardless of the target city's actual place count — the host
-  cannot safely run one at any size today.
-- **Queued jobs stay queued.** A blocked job is not silently dropped: it is
-  marked `failed` with a truthful `last_error` explaining why, and remains
-  retryable through the existing admin retry action once the host is upgraded
-  or the threshold is raised. No job is ever reported as a fake success.
+## Immutable operating contract
 
-## Resource isolation
+- Deploy never starts `import-worker`.
+- `import-worker` remains behind the `ops` profile.
+- Execution is manual-only through `CITY GO · OPS · Run Import Worker Safely`.
+- One queued job is processed per controlled run (`IMPORT_WORKER_BATCH_LIMIT=1`).
+- Heavy work never runs inside the backend/web process.
+- Safe mode remains enabled.
+- Unknown host or cgroup memory state fails closed.
+- `restart: "no"` remains mandatory.
+- No all-city APPLY is permitted while the new envelope is under validation.
+- A failed or blocked worker run must never be reported as success.
 
-`docker-compose.yml`, `import-worker` service:
+## Production resource envelope
+
+Observed idle baseline after the VM upgrade:
+
+| Resource | Observed value |
+|---|---:|
+| Host RAM visible to Linux | ~1.8 GiB |
+| Host `MemAvailable` | ~711 MiB |
+| Backend container | ~515 MiB |
+| PostgreSQL container | ~181 MiB |
+| Frontend container | ~8 MiB |
+| Swap | 0 |
+
+These values are a measurement baseline, not guaranteed free capacity.
+
+## Worker Compose contract
 
 ```yaml
-mem_limit: 384m
-memswap_limit: 384m
-cpus: "0.50"
+profiles: ["ops"]
 restart: "no"
+mem_limit: 512m
+memswap_limit: 512m
+cpus: "0.50"
+stop_grace_period: 30s
 ```
 
-Plain `docker compose` service keys (not Swarm-only `deploy.resources`), since
-this deployment does not use Swarm. `restart: "no"` is deliberate: a crashing
-worker must never crash-loop and repeatedly compete for host memory/CPU.
+The worker command runs a read-only resource preflight before queue processing:
 
-## Worker safe-mode settings
+```text
+python data/scripts/check_import_worker_resources.py
+```
 
-Set on the `import-worker` service in `docker-compose.yml` (see
-`core/config.py` for typed defaults, which are permissive for local/CI):
+## Startup resource guard
 
-| Setting | Production value | Meaning |
-|---|---|---|
-| `IMPORT_WORKER_SAFE_MODE` | `true` | Enables all guards below. |
-| `IMPORT_WORKER_MAX_RUNTIME_SECONDS` | `300` | Worker process stops itself after this many seconds. |
-| `IMPORT_WORKER_BACKEND_HEALTH_URL` | `http://backend:8000/ready` | Checked before every claim iteration. |
-| `IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB` | `256` | Used by the manual workflow's preflight check. |
-| `IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY` | `0` | `0` = block all heavy jobs on this host. |
+Production values:
 
-## Oversized/heavy job behavior
+| Setting | Value | Meaning |
+|---|---:|---|
+| `IMPORT_WORKER_SAFE_MODE` | `true` | Keeps heavy-job and runtime guards enabled. |
+| `IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB` | `650` | Heavy-run host startup floor. |
+| `IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB` | `512` | Minimum finite cgroup limit. |
+| `IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB` | `400` | Minimum cgroup headroom before worker start. |
+| `IMPORT_WORKER_MAX_RUNTIME_SECONDS` | `300` | Maximum controlled run duration. |
+| `IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB` | `256` | Runtime emergency host-memory floor. |
+| `IMPORT_WORKER_RUNTIME_CGROUP_PERCENT` | `85` | Runtime cgroup soft-stop threshold. |
+| `IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY` | `1` | Explicit heavy-job enable switch after resource preflight. |
 
-In `services/admin_city_import_tasks.py::run_queued_import_jobs`, before
-processing a claimed job:
+`IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY` is legacy-named. In the
+current implementation it is an enable/disable gate, not a trustworthy live
+place-count cap. `0` blocks all heavy jobs; a positive value only permits the
+job to continue to the independent resource guards.
 
-1. If safe mode is off (local/CI default) — no change, jobs run exactly as
-   before this framework.
-2. If safe mode is on and the job's source is heavy
-   (`admin_city_import`/`admin_city_enrichment`) and the threshold is `0` —
-   the job is marked `status="failed"`, `last_error` explains the safety
-   guard and low-memory host, `finished_at` is set, and a `worker_job_blocked_safe_mode`
-   system log entry plus an admin alert are recorded. The job is **not**
-   processed, **not** left running, **not** reported as success.
-3. Light side-tasks (`admin_address_enrichment`, `admin_photo_enrichment`,
-   `admin_snapshot_refresh`) are never blocked by this guard — they are
-   already bounded, per-place operations, not full-city scans.
+The preflight reads:
 
-## Backend health guard
+- host `MemAvailable` from `/proc/meminfo`;
+- cgroup v2 `memory.max` and `memory.current`, or;
+- cgroup v1 `memory.limit_in_bytes` and `memory.usage_in_bytes`.
 
-`data/scripts/run_admin_import_worker.py::run_worker_loop` checks
-`backend_is_healthy(health_url)` before every iteration. On failure, the loop
-breaks immediately (no job is claimed), an admin alert is sent, and the
-process exits — it does not keep retrying against a dead backend. A
-`max_runtime_seconds` bound stops the loop even if backend stays healthy.
+Startup is refused when:
 
-## How to run the safe workflow
+- host memory cannot be read;
+- host `MemAvailable < 650 MiB`;
+- cgroup limit or usage cannot be read;
+- cgroup limit is `max`, unbounded, invalid, or below 512 MiB;
+- cgroup headroom is below 400 MiB;
+- the heavy-job enable switch remains `0`;
+- public `/api/health` or `/api/ready` is not 200;
+- another worker instance is already running.
 
-GitHub Actions → `CITY GO · OPS · Run Import Worker Safely`
-(`.github/workflows/run-import-worker-safe.yml`), `workflow_dispatch` only.
+## Heavy and light jobs
 
-1. Set `confirmation` to exactly `RUN_IMPORT_WORKER_SAFELY`.
-2. Optionally set `max_runtime_seconds` (default `300`).
-3. The workflow: preflights (public `/api/health` and `/api/ready` must both
-   be `200`; available host memory must be ≥256 MB; `import-worker` must not
-   already be running) → starts only `import-worker`
-   (`docker compose up -d --no-deps import-worker`, never the whole `ops`
-   profile) → monitors every 10 seconds, stopping on worker exit, backend
-   health failure, or timeout → **always** stops `import-worker` in cleanup,
-   even on failure → collects `docker compose ps -a`, worker/backend/frontend
-   logs, `docker stats --no-stream`, `free -h` → uploads
-   `safe-import-worker-run-report` as an artifact → sends a Telegram summary.
+Heavy sources remain:
 
-The workflow never deploys, pulls images, mutates the DB directly, or starts
-any other `ops` service.
+- `admin_city_import`;
+- `admin_city_enrichment`.
+
+The static safe-mode gate applies only to these sources. Bounded side tasks
+(address, photo and snapshot work) keep their existing behavior. The guarded
+production workflow is currently intended for the controlled heavy Job #9 run;
+it applies the conservative 650 MiB host startup floor before starting the
+container.
+
+## Runtime guard
+
+The manual workflow samples every 5 seconds and records:
+
+- worker container state;
+- public `/api/health` and `/api/ready` status;
+- host `MemAvailable`;
+- worker cgroup usage percentage and human-readable usage;
+- final exit code and Docker `OOMKilled` state.
+
+The workflow stops the worker with a 30-second SIGTERM grace period when:
+
+- public health or readiness is non-200;
+- host `MemAvailable < 256 MiB`;
+- worker cgroup usage reaches 85%;
+- the 300-second runtime expires;
+- the worker exits on its own.
+
+`run_admin_import_worker.py` converts SIGTERM/SIGINT into an exception while an
+active job is running. The existing per-job failure handler then records a
+truthful terminal failure instead of leaving the job silently running. If the
+process is hard-killed before Python can handle the signal, Docker exit code,
+`OOMKilled`, queue state and the existing stalled-job recovery path remain the
+operator evidence.
+
+## Manual execution procedure
+
+1. Confirm exact deployed SHA and green CI for that SHA.
+2. Confirm production deploy and smoke are green.
+3. Confirm queue truth: one intended queued job, no running/stalled worker job.
+4. Confirm `import-worker` is not running.
+5. Confirm idle `MemAvailable >= 650 MiB`.
+6. Run GitHub Actions workflow `CITY GO · OPS · Run Import Worker Safely`.
+7. Enter confirmation exactly `RUN_IMPORT_WORKER_SAFELY`.
+8. Keep runtime at 300 seconds for the first Job #9 measurement run.
+9. Monitor the workflow artifact and Telegram summary.
+10. After the run, verify worker exit state, queue state, job terminal state,
+    backend/DB health and data-regression indicators.
+
+The workflow starts only `import-worker` with
+`docker compose up -d --no-deps import-worker`. It does not deploy, pull images,
+run SQL, start the whole `ops` profile, restart backend/DB, or enqueue work.
+
+## Production kill criteria
+
+Stop and do not retry automatically if any occurs:
+
+- `/api/health` or `/api/ready` becomes non-200;
+- any public API begins returning 502;
+- host `MemAvailable` falls below 256 MiB;
+- worker reaches 85% of its 512 MiB cgroup limit;
+- worker exits 137 or Docker reports `OOMKilled=true`;
+- backend or PostgreSQL restarts;
+- queue state and DB job state diverge;
+- job remains `running` after the worker is gone;
+- runtime expires without a truthful terminal or retryable state;
+- source errors are followed by destructive reconciliation;
+- address, photo, publication or visibility counts regress unexpectedly.
 
 ## Recovering a stale running job
 
-If `import-worker` does not exist (confirmed via `docker compose ps -a` or the
-read-only verification workflow) but the queue still shows a job stuck in
-`status="running"` — e.g. from before this framework existed, or from a worker
-that was stopped/killed mid-job — use the existing manual recovery endpoint:
+Only after independently confirming that no worker process exists, use the
+existing supported recovery action:
 
-```
+```text
 POST /admin/import-queue/mark-stalled
 ```
 
-(`routers/admin_import_queue.py::mark_stuck_import_jobs`). This is the same
-endpoint the admin UI's "Пометить зависшие" button calls.
+This marks eligible stale running jobs terminal and records operational logs.
+It does not requeue or rerun the job. Do not mutate job rows directly.
 
-**What it does:**
+## Restrictions
 
-- Only affects jobs with `status == "running"` that have exceeded
-  `MAX_RUNNING_SECONDS` (1 hour) since `started_at`/`updated_at`/`created_at`.
-- Transitions each matched job to `status="stalled"` (an existing terminal
-  status — no new enum, no migration), sets `current_step="error"`,
-  `finished_at=now`, and `last_error="Recovered stale import job: no active
-  worker heartbeat / worker process absent"` (only if the job doesn't already
-  have a more specific error).
-- Records a `manual_stalled_recovery` system log entry and sends an admin
-  alert (`"Import queue recovered stuck jobs"`).
-- **Does not requeue or re-run the job.** Recovery only marks the current
-  stuck attempt as terminal; if a fresh attempt is wanted, that is a separate,
-  explicit retry action the operator takes afterward — never automatic.
-- Is idempotent: a job already recovered (now `stalled`, not `running`) is not
-  touched by a second call; a job that finished normally (`success`,
-  `failed`, etc.) was never a candidate and is never touched.
-- Determines staleness purely from the job's own timestamps — it does not
-  inspect Docker/container state itself. The operator is responsible for
-  separately confirming (e.g. via the read-only verification workflow) that no
-  worker is actually still processing the job before recovering it.
+- Do not disable safe mode.
+- Do not raise the worker cap or lower floors based on a single successful run.
+- Do not add swap without explicit approval.
+- Do not use in-web worker execution.
+- Do not start the worker from deploy.
+- Do not run all-city APPLY.
+- Do not treat the first Job #9 run as proof that every city/payload fits the
+  same envelope.
 
-**After recovery:** re-check `GET /admin/import-queue` to confirm `running`
-and `stalled_running` both return to `0` for that job, then re-run the
-read-only verification workflow before considering any manual worker
-execution — see "What NOT to do" below.
+## Remaining known risk
 
-## Kill criteria (stop immediately if any of these are true)
-
-- Public backend health is not `200` on `/api/health` or `/api/ready`.
-- Available host memory drops below the configured minimum (256 MB).
-- `import-worker` container exits with code `137` (OOM-killed) or any
-  non-`running` state.
-- API latency degrades noticeably or any `/api/*` route returns 502.
-
-The safe workflow already enforces these automatically; if running anything
-manually outside that workflow, apply the same criteria by hand.
-
-## What NOT to do
-
-- Do not trigger a full import or "retry collection" from the admin UI while
-  this framework is the only mitigation in place — queued jobs will simply be
-  marked `failed` by the safety guard (truthfully, not silently), and no
-  heavy job will actually run on this host.
-- Do not manually update job rows/status in the database to force a job
-  through.
-- Do not re-enable `admin_allow_in_web_worker_run_once` to work around a
-  stopped worker — this reintroduces the original in-process contention risk
-  it was built to prevent.
-- Do not deploy just to start `import-worker` — deploy must keep it stopped;
-  use the guarded manual workflow instead.
-- Do not raise `IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY` above `0` or
-  disable `IMPORT_WORKER_SAFE_MODE` on the current host without first
-  confirming a real memory/CPU upgrade — this document's thresholds are a
-  starting point, not a target to routinely override.
-- Do not run the safe manual worker workflow while the queue state is not
-  truthful (e.g. a stuck `running` job with no corresponding worker) — recover
-  it first via `POST /admin/import-queue/mark-stalled`, re-confirm
-  `GET /admin/import-queue` shows `running`/`stalled_running` at `0`, and only
-  then re-run the read-only verification workflow to confirm the effective
-  compose config still matches expectations before considering any worker run.
-
-## Out of scope for this framework
-
-Running the safe workflow, deploying, performing the actual Kaliningrad full
-import, real resource profiling under load, a host upgrade, a streaming
-parser rewrite, or a Celery/queue architecture migration are all explicitly
-out of scope here — they are separate, later decisions.
+Full HTTP response, parsed JSON and normalized lists can still be materialized
+before chunked ORM processing. Chunk commits reduce transaction/session growth
+but do not eliminate that peak. If Job #9 approaches the 512 MiB cap, the next
+engineering step is collection/normalization streaming or bounded source
+partitioning—not a blind memory-limit increase.
