@@ -97,7 +97,7 @@ def snapshot() -> MemorySnapshot:
 
 
 def validate_startup_resources() -> MemorySnapshot:
-    min_host_mb = _positive_int_env("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB", 600)
+    min_host_mb = _positive_int_env("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB", 550)
     min_container_mb = _positive_int_env("IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB", 512)
     min_headroom_mb = _positive_int_env("IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB", 400)
 

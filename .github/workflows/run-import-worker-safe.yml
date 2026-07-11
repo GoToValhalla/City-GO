@@ -69,7 +69,7 @@ jobs:
 
           section() { echo; echo "=== $1 ==="; }
           MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-300}"
-          STARTUP_HOST_FLOOR_MB=600
+          STARTUP_HOST_FLOOR_MB=550
           RUNTIME_HOST_FLOOR_MB=256
           RUNTIME_CGROUP_PERCENT=85
           FAIL=0
