@@ -13,6 +13,7 @@ class PlaceSourcePresence(Base):
     place_id: Mapped[int | None] = mapped_column(ForeignKey("places.id"), nullable=True, index=True)
     source_observation_id: Mapped[int | None] = mapped_column(ForeignKey("source_observations.id"), nullable=True)
     source_type: Mapped[str] = mapped_column(String(64), nullable=False, default="osm")
+    source_profile: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     source_external_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
