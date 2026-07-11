@@ -207,21 +207,21 @@ def test_legacy_unscoped_presence_is_skipped_fail_closed_new(db_session):
 
 
 def test_overlapping_osm_object_gets_independent_profile_presence_new(db_session):
-    city, scope = _city_scope(db_session)
+    city, _scope = _city_scope(db_session)
     place = _place(city.id, slug="overlap", source_url="https://www.openstreetmap.org/node/14")
     db_session.add(place)
     db_session.commit()
 
     tourist_token = safe_import._CURRENT_PROFILE.set("tourist_core")
     try:
-        safe_import._ensure_source_presence_profile_safe(db_session, place.id, "osm:node:14", 1, 1)
+        safe_import._ensure_source_presence_profile_safe(db_session, place.id, "osm:node:14", None, None)
         db_session.commit()
     finally:
         safe_import._CURRENT_PROFILE.reset(tourist_token)
 
     food_token = safe_import._CURRENT_PROFILE.set("food_and_coffee")
     try:
-        safe_import._ensure_source_presence_profile_safe(db_session, place.id, "osm:node:14", 2, 2)
+        safe_import._ensure_source_presence_profile_safe(db_session, place.id, "osm:node:14", None, None)
         db_session.commit()
     finally:
         safe_import._CURRENT_PROFILE.reset(food_token)
