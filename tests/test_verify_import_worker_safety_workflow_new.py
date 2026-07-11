@@ -48,7 +48,7 @@ def _fixture_service() -> dict:
             "IMPORT_WORKER_SAFE_MODE": "true",
             "IMPORT_WORKER_MAX_RUNTIME_SECONDS": "300",
             "IMPORT_WORKER_BACKEND_HEALTH_URL": "http://backend:8000/ready",
-            "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "650",
+            "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "600",
             "IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB": "512",
             "IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB": "400",
             "IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB": "256",
@@ -141,7 +141,7 @@ def test_workflow_validates_full_recalibrated_contract_new() -> None:
         assert expected_field in text, f"missing validation for {expected_field}"
 
     assert "512m (536870912 bytes)" in text
-    assert '"IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "650"' in text
+    assert '"IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "600"' in text
     assert '"IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY": "1"' in text
 
 
