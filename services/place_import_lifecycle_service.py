@@ -44,7 +44,12 @@ def apply_accepted_import_to_place(
     category_id: int,
     visit_duration_minutes: int,
 ) -> PlaceImportDecision:
-    """Apply only a real source diff and require review for every changed place."""
+    """Apply only a real source diff and require review for every changed place.
+
+    Import payloads are sparse. A missing, null, or blank optional field is not
+    an authoritative deletion signal and therefore must never erase a known-good
+    value already stored on the place.
+    """
     incoming_title = str(item["title"])
     incoming_category = str(item["category"])
     incoming_lat = float(item["raw_lat"])
@@ -65,18 +70,15 @@ def apply_accepted_import_to_place(
         "title": incoming_title,
         "short_description": item.get("short_description"),
         "category": incoming_category,
-        "address": item.get("address"),
         "lat": incoming_lat,
         "lng": incoming_lng,
         "source": "osm",
         "source_url": item.get("source_url"),
     }
-    if item.get("opening_hours"):
-        proposed["opening_hours"] = item["opening_hours"]
-    if item.get("website"):
-        proposed["website"] = item["website"]
-    if item.get("phone"):
-        proposed["phone"] = item["phone"]
+    _set_proposed_if_non_empty(proposed, "address", item.get("address"))
+    _set_proposed_if_non_empty(proposed, "opening_hours", item.get("opening_hours"))
+    _set_proposed_if_non_empty(proposed, "website", item.get("website"))
+    _set_proposed_if_non_empty(proposed, "phone", item.get("phone"))
     if place.average_visit_duration_minutes is None:
         proposed["average_visit_duration_minutes"] = visit_duration_minutes
 
@@ -120,6 +122,14 @@ def apply_accepted_import_to_place(
         review_reasons=review_reasons,
         change_set=change_set,
     )
+
+
+def _set_proposed_if_non_empty(proposed: dict[str, Any], field_name: str, value: Any) -> None:
+    if value is None:
+        return
+    if isinstance(value, str) and not value.strip():
+        return
+    proposed[field_name] = value
 
 
 def mark_place_for_review(place: Place, *, reason: str = "enrichment_changed") -> PlaceImportDecision:
@@ -200,7 +210,6 @@ def mark_missing_place(place: Place, missing_count: int) -> PlaceImportDecision:
             review_reasons=["missing_from_source"],
         )
     return hide_place(place=place, reason="missing_from_source_repeatedly", status=REMOVED_FROM_SOURCE_STATUS)
-
 
 
 def _snapshot_review_state(place: Place) -> dict[str, Any]:
