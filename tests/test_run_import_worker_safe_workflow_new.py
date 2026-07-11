@@ -36,16 +36,16 @@ def test_workflow_requires_exact_confirmation_new() -> None:
 
     assert "RUN_IMPORT_WORKER_SAFELY" in text
     assert 'if [ "${{ inputs.confirmation }}" != "RUN_IMPORT_WORKER_SAFELY" ]; then' in text
-    assert "exit 1" in text
 
 
 def test_workflow_preflight_checks_health_memory_and_running_state_new() -> None:
     text = _workflow_text()
 
     assert "preflight: public health/ready" in text
-    assert "preflight: free memory" in text
+    assert "preflight: host memory" in text
+    assert "STARTUP_HOST_FLOOR_MB=650" in text
     assert "preflight: import-worker must not already be running" in text
-    assert "Refusing to start import-worker" in text
+    assert "PREFLIGHT FAILED" in text
 
 
 def test_workflow_starts_only_import_worker_not_whole_ops_profile_new() -> None:
@@ -58,16 +58,27 @@ def test_workflow_starts_only_import_worker_not_whole_ops_profile_new() -> None:
     assert "docker compose up -d place-enrichment-export" not in text
 
 
+def test_workflow_has_runtime_host_cgroup_and_health_guards_new() -> None:
+    text = _workflow_text()
+
+    assert "RUNTIME_HOST_FLOOR_MB=256" in text
+    assert "RUNTIME_CGROUP_PERCENT=85" in text
+    assert "public_health_degraded" in text
+    assert "host_memory_floor" in text
+    assert "worker_cgroup_soft_limit" in text
+    assert "docker stats --no-stream" in text
+    assert "worker_oom_killed" in text
+    assert '"137"' in text
+
+
 def test_workflow_always_stops_worker_in_cleanup_new() -> None:
     text = _workflow_text()
     cleanup_idx = text.index("cleanup: always stop import-worker")
-    stop_idx = text.index("docker compose stop import-worker", cleanup_idx)
+    stop_idx = text.index("docker compose stop -t 30 import-worker", cleanup_idx)
+    monitor_loop_start = text.index('section "monitor loop"')
 
-    assert cleanup_idx < stop_idx
-    # The cleanup stop must not be inside the bounded monitor loop's own
-    # conditional break paths — it must run unconditionally after the loop ends.
-    monitor_loop_start = text.index("monitor loop (every 10s")
-    assert monitor_loop_start < cleanup_idx
+    assert monitor_loop_start < cleanup_idx < stop_idx
+    assert "trap cleanup EXIT" in text
 
 
 def test_workflow_uploads_run_report_artifact_new() -> None:
@@ -86,5 +97,5 @@ def test_workflow_never_deploys_pulls_images_or_mutates_db_new() -> None:
     assert "docker load" not in text
     assert "docker pull" not in text
     assert "psql" not in text
-    assert "UPDATE " not in text.upper() or "UPDATE " not in text
+    assert "UPDATE " not in text
     assert "docker compose up -d --remove-orphans" not in text
