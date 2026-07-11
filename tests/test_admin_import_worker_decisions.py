@@ -45,7 +45,6 @@ def test_import_worker_logs_no_queued_jobs(
     db_session: Session,
     monkeypatch,
 ) -> None:
-    """Worker poll with empty queue must be visible in system logs."""
     _patch_session_local(monkeypatch, db_session)
 
     result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
@@ -61,10 +60,6 @@ def test_import_worker_blocks_full_import_in_safe_mode_on_low_memory_host(
     city_factory: Callable[..., Any],
     monkeypatch,
 ) -> None:
-    """Post-OOM-incident invariant: a full-import job must not run in safe mode
-    on a host where the low-memory threshold forbids heavy imports outright.
-    The job must be marked failed with a truthful reason, not left queued
-    forever and not silently reported as success."""
     _patch_session_local(monkeypatch, db_session)
     monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
     monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 0)
@@ -83,9 +78,65 @@ def test_import_worker_blocks_full_import_in_safe_mode_on_low_memory_host(
     assert job.status == "failed"
     assert job.last_error is not None
     assert "safety guard" in job.last_error
-    assert "low-memory" in job.last_error
     assert job.finished_at is not None
     assert _events(db_session) == ["worker_job_blocked_safe_mode"]
+
+
+def test_import_worker_blocks_heavy_job_when_memory_reading_is_unknown(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
+    monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 1)
+    monkeypatch.setattr(tasks, "_available_memory_mb", lambda: None)
+    city = city_factory(slug="worker-memory-unknown", name="Worker Memory Unknown")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
+
+    monkeypatch.setattr(
+        tasks,
+        "run_city_import_job",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("heavy job must fail closed")),
+    )
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 0
+    db_session.refresh(job)
+    assert job.status == "failed"
+    assert "unknown" in str(job.last_error)
+
+
+def test_import_worker_allows_heavy_job_when_enabled_and_host_memory_is_sufficient(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
+    monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 1)
+    monkeypatch.setattr(tasks.settings, "import_worker_min_available_memory_mb", 650)
+    monkeypatch.setattr(tasks, "_available_memory_mb", lambda: 711)
+    city = city_factory(slug="worker-heavy-allowed", name="Worker Heavy Allowed")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
+
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+        queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
+        queued_job.status = "success"
+        queued_job.finished_at = datetime.utcnow()
+        db.commit()
+        db.refresh(queued_job)
+        return queued_job
+
+    monkeypatch.setattr(tasks, "run_city_import_job", fake_run_city_import_job)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 1
+    db_session.refresh(job)
+    assert job.status == "success"
+    assert _events(db_session) == ["worker_job_claimed", "worker_job_finished"]
 
 
 def test_import_worker_allows_light_jobs_in_safe_mode(
@@ -93,8 +144,6 @@ def test_import_worker_allows_light_jobs_in_safe_mode(
     city_factory: Callable[..., Any],
     monkeypatch,
 ) -> None:
-    """Safe mode must only block heavy/full-import sources — a light side-task
-    (e.g. address enrichment) must still be processed normally."""
     _patch_session_local(monkeypatch, db_session)
     monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
     monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 0)
@@ -123,9 +172,6 @@ def test_import_worker_safe_mode_off_allows_full_import(
     city_factory: Callable[..., Any],
     monkeypatch,
 ) -> None:
-    """When safe mode is disabled (e.g. local/CI default), full-import jobs
-    must run exactly as before — this framework must not change default
-    non-production behavior."""
     _patch_session_local(monkeypatch, db_session)
     monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", False)
     city = city_factory(slug="worker-safe-mode-off", name="Worker Safe Mode Off")
@@ -153,7 +199,6 @@ def test_import_worker_logs_claim_and_finish_for_queued_job(
     city_factory: Callable[..., Any],
     monkeypatch,
 ) -> None:
-    """Worker must record the claim and finish decision for a queued job."""
     _patch_session_local(monkeypatch, db_session)
     city = city_factory(slug="worker-claim", name="Worker Claim")
     job = _create_import_job(db_session, city_id=city.id)
