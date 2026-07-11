@@ -66,9 +66,19 @@ def test_workflow_has_runtime_host_cgroup_and_health_guards_new() -> None:
     assert "public_health_degraded" in text
     assert "host_memory_floor" in text
     assert "worker_cgroup_soft_limit" in text
+    assert "worker_memory_reading_unknown" in text
     assert "docker stats --no-stream" in text
     assert "worker_oom_killed" in text
     assert '"137"' in text
+
+
+def test_workflow_fails_closed_on_timeout_and_bad_exit_state_new() -> None:
+    text = _workflow_text()
+
+    assert "max_runtime_reached" in text
+    assert "worker exit code is unknown; failing closed" in text
+    assert 'if [ "$WORKER_EXIT_CODE" -ne 0 ]; then' in text
+    assert "worker run ended by safety guard" in text
 
 
 def test_workflow_always_stops_worker_in_cleanup_new() -> None:
