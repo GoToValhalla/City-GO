@@ -106,13 +106,16 @@ def run_worker_loop(
 def main() -> int:
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
-    run_worker_loop(
-        limit=max(1, int(os.getenv("IMPORT_WORKER_BATCH_LIMIT", "1"))),
-        sleep_seconds=max(5, int(os.getenv("IMPORT_WORKER_SLEEP_SECONDS", "60"))),
-        actor_id=os.getenv("IMPORT_WORKER_ACTOR", "import-worker"),
-        health_url=os.getenv("IMPORT_WORKER_BACKEND_HEALTH_URL", "http://backend:8000/ready"),
-        max_runtime_seconds=int(os.getenv("IMPORT_WORKER_MAX_RUNTIME_SECONDS", "300")) or None,
-    )
+    try:
+        run_worker_loop(
+            limit=max(1, int(os.getenv("IMPORT_WORKER_BATCH_LIMIT", "1"))),
+            sleep_seconds=max(5, int(os.getenv("IMPORT_WORKER_SLEEP_SECONDS", "60"))),
+            actor_id=os.getenv("IMPORT_WORKER_ACTOR", "import-worker"),
+            health_url=os.getenv("IMPORT_WORKER_BACKEND_HEALTH_URL", "http://backend:8000/ready"),
+            max_runtime_seconds=int(os.getenv("IMPORT_WORKER_MAX_RUNTIME_SECONDS", "300")) or None,
+        )
+    except WorkerStopRequested as exc:
+        print(str(exc), file=sys.stderr, flush=True)
     return 0
 
 
