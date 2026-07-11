@@ -64,106 +64,130 @@ jobs:
             -i ~/.ssh/deploy_key \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS" bash <<'REMOTE_EOF' | tee "$LOG"
-            set -uo pipefail
-            cd /srv/app
+          set -uo pipefail
+          cd /srv/app
 
-            section() { echo; echo "=== $1 ==="; }
-            MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-300}"
-            FAIL=0
+          section() { echo; echo "=== $1 ==="; }
+          MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-300}"
+          STARTUP_HOST_FLOOR_MB=650
+          RUNTIME_HOST_FLOOR_MB=256
+          RUNTIME_CGROUP_PERCENT=85
+          FAIL=0
 
-            section "preflight: public health/ready"
-            HEALTH_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://citygo.autismishe.online/api/health || echo "000")
-            READY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://citygo.autismishe.online/api/ready || echo "000")
-            echo "health=${HEALTH_CODE} ready=${READY_CODE}"
-            if [ "$HEALTH_CODE" != "200" ] || [ "$READY_CODE" != "200" ]; then
-              echo "ERROR: preflight failed — backend is not healthy (health=${HEALTH_CODE}, ready=${READY_CODE}). Refusing to start import-worker." >&2
-              FAIL=1
-            fi
-
-            section "preflight: free memory"
-            free -h
-            AVAILABLE_MB=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
-            echo "available_mb=${AVAILABLE_MB}"
-            if [ "$AVAILABLE_MB" -lt 256 ]; then
-              echo "ERROR: preflight failed — available memory (${AVAILABLE_MB} MB) is below the safety threshold (256 MB). Refusing to start import-worker." >&2
-              FAIL=1
-            fi
-
-            section "preflight: import-worker must not already be running"
-            EXISTING_ID="$(docker compose ps -q import-worker 2>/dev/null || true)"
-            if [ -n "$EXISTING_ID" ]; then
-              EXISTING_STATE="$(docker inspect -f '{{.State.Status}}' "$EXISTING_ID" 2>/dev/null || echo unknown)"
-              if [ "$EXISTING_STATE" = "running" ]; then
-                echo "ERROR: preflight failed — import-worker is already running (state=${EXISTING_STATE}). Refusing to start a second instance." >&2
-                FAIL=1
-              fi
-            fi
-
-            if [ "$FAIL" -ne 0 ]; then
-              echo
-              echo "=== PREFLIGHT FAILED — import-worker was NOT started ==="
-              exit 1
-            fi
-            echo "preflight passed"
-
-            section "starting import-worker (bounded, explicit ops service only)"
-            timeout 60s docker compose up -d --no-deps import-worker
-            echo "import-worker start requested"
-
-            section "monitor loop (every 10s, up to ${MAX_RUNTIME_SECONDS}s)"
-            ELAPSED=0
-            STOP_REASON="timeout"
-            while [ "$ELAPSED" -lt "$MAX_RUNTIME_SECONDS" ]; do
-              sleep 10
-              ELAPSED=$((ELAPSED + 10))
-
-              WORKER_ID="$(docker compose ps -aq import-worker 2>/dev/null || true)"
-              WORKER_STATE="not_created"
-              if [ -n "$WORKER_ID" ]; then
-                WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
-              fi
-
-              HEALTH_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 https://citygo.autismishe.online/api/health || echo "000")
-              READY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 https://citygo.autismishe.online/api/ready || echo "000")
-              echo "t=${ELAPSED}s worker_state=${WORKER_STATE} health=${HEALTH_CODE} ready=${READY_CODE}"
-
-              if [ "$WORKER_STATE" != "running" ]; then
-                STOP_REASON="worker_exited_state_${WORKER_STATE}"
-                echo "import-worker is no longer running (state=${WORKER_STATE}); stopping monitor loop."
-                break
-              fi
-              if [ "$HEALTH_CODE" != "200" ] || [ "$READY_CODE" != "200" ]; then
-                STOP_REASON="backend_unhealthy"
-                echo "ERROR: backend health degraded during worker run (health=${HEALTH_CODE}, ready=${READY_CODE}); stopping worker immediately." >&2
-                break
-              fi
-            done
-            echo "monitor loop ended: reason=${STOP_REASON} elapsed=${ELAPSED}s"
-
+          cleanup() {
             section "cleanup: always stop import-worker"
-            docker compose stop import-worker 2>&1 || echo "(stop failed or already stopped)"
+            docker compose stop -t 30 import-worker 2>&1 || echo "(stop failed or already stopped)"
+          }
+          trap cleanup EXIT
 
-            section "final: docker compose ps -a"
-            docker compose ps -a 2>&1 || echo "(docker compose ps failed)"
+          section "preflight: public health/ready"
+          HEALTH_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://citygo.autismishe.online/api/health || echo "000")
+          READY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://citygo.autismishe.online/api/ready || echo "000")
+          echo "health=${HEALTH_CODE} ready=${READY_CODE}"
+          if [ "$HEALTH_CODE" != "200" ] || [ "$READY_CODE" != "200" ]; then
+            echo "ERROR: backend is not healthy; refusing to start import-worker." >&2
+            FAIL=1
+          fi
 
-            section "final: docker compose logs --tail=200 import-worker"
-            docker compose logs --tail=200 import-worker 2>&1 || echo "(no import-worker logs)"
+          section "preflight: host memory"
+          free -h
+          AVAILABLE_MB=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+          echo "available_mb=${AVAILABLE_MB} startup_floor_mb=${STARTUP_HOST_FLOOR_MB}"
+          if [ "$AVAILABLE_MB" -lt "$STARTUP_HOST_FLOOR_MB" ]; then
+            echo "ERROR: available memory is below the heavy-job startup floor; refusing to start import-worker." >&2
+            FAIL=1
+          fi
 
-            section "final: docker compose logs --tail=100 backend"
-            docker compose logs --tail=100 backend 2>&1 || echo "(no backend logs)"
+          section "preflight: import-worker must not already be running"
+          EXISTING_ID="$(docker compose ps -q import-worker 2>/dev/null || true)"
+          if [ -n "$EXISTING_ID" ]; then
+            EXISTING_STATE="$(docker inspect -f '{{.State.Status}}' "$EXISTING_ID" 2>/dev/null || echo unknown)"
+            if [ "$EXISTING_STATE" = "running" ]; then
+              echo "ERROR: import-worker is already running; refusing a second instance." >&2
+              FAIL=1
+            fi
+          fi
 
-            section "final: docker compose logs --tail=100 frontend"
-            docker compose logs --tail=100 frontend 2>&1 || echo "(no frontend logs)"
+          if [ "$FAIL" -ne 0 ]; then
+            echo "=== PREFLIGHT FAILED — import-worker was NOT started ==="
+            exit 1
+          fi
 
-            section "final: docker stats --no-stream"
-            docker stats --no-stream 2>&1 || echo "(docker stats failed)"
+          section "starting import-worker"
+          timeout 60s docker compose up -d --no-deps import-worker
+          WORKER_ID="$(docker compose ps -q import-worker)"
+          test -n "$WORKER_ID" || (echo "ERROR: worker container was not created" >&2; exit 1)
 
-            section "final: free -h"
-            free -h 2>&1 || echo "(free failed)"
+          section "effective worker limits"
+          docker inspect -f 'memory_limit={{.HostConfig.Memory}} memory_swap={{.HostConfig.MemorySwap}} nano_cpus={{.HostConfig.NanoCpus}} restart={{.HostConfig.RestartPolicy.Name}}' "$WORKER_ID"
 
-            echo
-            echo "STOP_REASON=${STOP_REASON}"
-            echo "=== run complete: import-worker stopped, no deploy/image-pull/DB-mutation/queue-mutation/backend-restart performed ==="
+          section "monitor loop"
+          ELAPSED=0
+          STOP_REASON="timeout"
+          while [ "$ELAPSED" -lt "$MAX_RUNTIME_SECONDS" ]; do
+            sleep 5
+            ELAPSED=$((ELAPSED + 5))
+
+            WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
+            HEALTH_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 https://citygo.autismishe.online/api/health || echo "000")
+            READY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 https://citygo.autismishe.online/api/ready || echo "000")
+            AVAILABLE_MB=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
+            MEM_USAGE=$(docker stats --no-stream --format '{{.MemUsage}}' "$WORKER_ID" 2>/dev/null | head -n1 || true)
+            MEM_PERCENT_RAW=$(docker stats --no-stream --format '{{.MemPerc}}' "$WORKER_ID" 2>/dev/null | head -n1 | tr -d '%' || true)
+            MEM_PERCENT=${MEM_PERCENT_RAW%.*}
+            MEM_PERCENT=${MEM_PERCENT:-999}
+
+            echo "t=${ELAPSED}s worker_state=${WORKER_STATE} health=${HEALTH_CODE} ready=${READY_CODE} host_available_mb=${AVAILABLE_MB} worker_mem='${MEM_USAGE}' worker_mem_percent=${MEM_PERCENT}"
+
+            if [ "$WORKER_STATE" != "running" ]; then
+              STOP_REASON="worker_exited_state_${WORKER_STATE}"
+              break
+            fi
+            if [ "$HEALTH_CODE" != "200" ] || [ "$READY_CODE" != "200" ]; then
+              STOP_REASON="public_health_degraded"
+              echo "ERROR: public health degraded; stopping worker." >&2
+              break
+            fi
+            if [ "$AVAILABLE_MB" -lt "$RUNTIME_HOST_FLOOR_MB" ]; then
+              STOP_REASON="host_memory_floor"
+              echo "ERROR: host memory crossed runtime floor; stopping worker." >&2
+              break
+            fi
+            if [ "$MEM_PERCENT" -ge "$RUNTIME_CGROUP_PERCENT" ]; then
+              STOP_REASON="worker_cgroup_soft_limit"
+              echo "ERROR: worker reached cgroup soft limit; stopping worker." >&2
+              break
+            fi
+          done
+
+          if [ "$ELAPSED" -ge "$MAX_RUNTIME_SECONDS" ]; then
+            STOP_REASON="max_runtime_reached"
+          fi
+          echo "monitor loop ended: reason=${STOP_REASON} elapsed=${ELAPSED}s"
+
+          cleanup
+          trap - EXIT
+
+          section "final diagnostics"
+          docker compose ps -a 2>&1 || true
+          docker compose logs --tail=250 import-worker 2>&1 || true
+          docker compose logs --tail=100 backend 2>&1 || true
+          docker compose logs --tail=100 db 2>&1 || true
+          docker stats --no-stream 2>&1 || true
+          free -h 2>&1 || true
+
+          WORKER_EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' "$WORKER_ID" 2>/dev/null || echo unknown)
+          WORKER_OOM=$(docker inspect -f '{{.State.OOMKilled}}' "$WORKER_ID" 2>/dev/null || echo unknown)
+          echo "worker_exit_code=${WORKER_EXIT_CODE} worker_oom_killed=${WORKER_OOM}"
+          echo "STOP_REASON=${STOP_REASON}"
+
+          if [ "$WORKER_OOM" = "true" ] || [ "$WORKER_EXIT_CODE" = "137" ]; then
+            echo "ERROR: worker was OOM-killed." >&2
+            exit 1
+          fi
+          if [ "$STOP_REASON" = "public_health_degraded" ] || [ "$STOP_REASON" = "host_memory_floor" ] || [ "$STOP_REASON" = "worker_cgroup_soft_limit" ]; then
+            exit 1
+          fi
           REMOTE_EOF
 
       - name: Upload run report
@@ -184,9 +208,8 @@ jobs:
             exit 0
           fi
           STOP_REASON="$(grep '^STOP_REASON=' /tmp/safe-import-worker-run/report.log 2>/dev/null | tail -n1 | cut -d= -f2- || echo unknown)"
-          LAST_HEALTH="$(grep -o 'health=[0-9]*' /tmp/safe-import-worker-run/report.log 2>/dev/null | tail -n1 || echo 'health=unknown')"
-          LAST_READY="$(grep -o 'ready=[0-9]*' /tmp/safe-import-worker-run/report.log 2>/dev/null | tail -n1 || echo 'ready=unknown')"
-          TEXT="🧰 City Go safe import-worker run finished%0AStatus: ${{ job.status }}%0AStop reason: ${STOP_REASON}%0A${LAST_HEALTH} ${LAST_READY}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          LAST_MEMORY="$(grep -o 'host_available_mb=[0-9]*' /tmp/safe-import-worker-run/report.log 2>/dev/null | tail -n1 || echo 'host_available_mb=unknown')"
+          TEXT="🧰 City Go safe import-worker run finished%0AStatus: ${{ job.status }}%0AStop reason: ${STOP_REASON}%0A${LAST_MEMORY}%0ARun: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           curl -sf "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             -d "text=${TEXT}" \
