@@ -426,7 +426,14 @@ def test_missing_source_and_bad_place_final_steps_run_once_after_resume_new(isol
     setup.add(old_place)
     setup.commit()
     setup.add(PlaceScopeLink(place_id=old_place.id, scope_id=scope.id, relation_type="imported_from_scope"))
-    setup.add(PlaceSourcePresence(place_id=old_place.id, source_type="osm", source_external_id="osm:node:old-missing"))
+    setup.add(
+        PlaceSourcePresence(
+            place_id=old_place.id,
+            source_type="osm",
+            source_profile="tourist_core",
+            source_external_id="osm:node:old-missing",
+        )
+    )
     setup.commit()
     batch_id = create_batch(setup, scope, mode="apply").id
     setup.close()

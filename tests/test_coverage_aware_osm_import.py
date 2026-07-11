@@ -5,7 +5,7 @@ from services.osm_import_taxonomy import classify_osm_place
 
 
 def test_coverage_aware_import_installs_extended_profiles_and_taxonomy() -> None:
-    coverage_import._install_coverage_taxonomy()
+    coverage_import._install_coverage_taxonomy("tourist_core")
 
     tourist_filters = coverage_import.COVERAGE_AWARE_PROFILE_FILTERS["tourist_core"]
 

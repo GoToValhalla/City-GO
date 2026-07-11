@@ -12,10 +12,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from data.scripts import import_city_osm as legacy_import
 from db.session import SessionLocal
 from models.city import City
+from models.city_import_scope import CityImportScope
 from models.import_batch import ImportBatch
 from models.place import Place
 from models.place_scope_link import PlaceScopeLink
 from models.place_source_presence import PlaceSourcePresence
+from models.source_observation import SourceObservation
 from services.coverage_profile_filters import COVERAGE_PROFILE_FILTERS
 from services.data_coverage_assurance import run_data_coverage_assurance
 from services.osm_import_taxonomy import category_from_osm_tags
@@ -91,6 +93,42 @@ def _install_coverage_taxonomy(profile: str) -> None:
     legacy_import._hide_existing_rejected_place = _hide_existing_rejected_place_safe
 
 
+def _resolve_profile(
+    db,
+    *,
+    source_observation_id: int | None = None,
+    scope_id: int | None = None,
+) -> str | None:
+    """Resolve profile from request context, then from durable import state.
+
+    Direct callers of the legacy importer do not establish the wrapper's
+    ContextVar, but their SourceObservation/CityImportScope rows still contain
+    the authoritative profile ownership. Falling back to those rows keeps the
+    fail-closed profile contract without depending on test or call ordering.
+    """
+    profile = _CURRENT_PROFILE.get()
+    if profile:
+        return profile
+
+    resolved_scope_id = scope_id
+    if resolved_scope_id is None and source_observation_id is not None:
+        observation = (
+            db.query(SourceObservation)
+            .filter(SourceObservation.id == source_observation_id)
+            .first()
+        )
+        if observation is not None:
+            resolved_scope_id = observation.scope_id
+
+    if resolved_scope_id is None:
+        return None
+
+    scope = db.query(CityImportScope).filter(CityImportScope.id == resolved_scope_id).first()
+    if scope is None:
+        return None
+    return str(scope.import_profile or scope.code or "").strip() or None
+
+
 def _hide_existing_rejected_place_safe(db, city_id: int, item: dict[str, Any]):
     """Only an explicit source lifecycle signal may hide an existing place.
 
@@ -121,7 +159,7 @@ def _ensure_source_presence_profile_safe(
     source_observation_id: int | None,
     batch_id: int | None,
 ) -> None:
-    profile = _CURRENT_PROFILE.get()
+    profile = _resolve_profile(db, source_observation_id=source_observation_id)
     if not profile:
         raise RuntimeError("OSM source profile context is missing; refusing unscoped presence write")
 
@@ -185,7 +223,7 @@ def _mark_missing_sources_profile_safe(
     object-limit check passed. Legacy rows without profile ownership are skipped
     fail-closed until a successful observation assigns them to a profile.
     """
-    profile = _CURRENT_PROFILE.get()
+    profile = _resolve_profile(db, scope_id=scope_id)
     if not profile:
         raise RuntimeError("OSM source profile context is missing; refusing absence reconciliation")
 
