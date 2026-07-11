@@ -6,7 +6,6 @@ from collections import Counter
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
@@ -55,9 +54,7 @@ def _available_memory_mb() -> int | None:
 
 
 def _safe_mode_block_reason(job: CityAdminImportJob) -> str | None:
-    """Return a truthful blocking reason if safe mode forbids running this job
-    now, or None if it may proceed. Never silently allows a heavy job through
-    when memory cannot be confirmed safe."""
+    """Return a truthful blocking reason if safe mode forbids this job now."""
     if not settings.import_worker_safe_mode:
         return None
     source = str(job.source or "")
@@ -65,14 +62,13 @@ def _safe_mode_block_reason(job: CityAdminImportJob) -> str | None:
         return None
     if settings.import_worker_max_full_import_places_low_memory <= 0:
         return (
-            "import-worker safety guard: low-memory host — full/heavy import jobs "
-            f"(source={source}) are blocked in safe mode on this host until infrastructure "
-            "is upgraded or this threshold is raised. Job not processed."
+            "import-worker safety guard: full/heavy import jobs "
+            f"(source={source}) are explicitly disabled in safe mode. Job not processed."
         )
     available = _available_memory_mb()
     if available is None or available < settings.import_worker_min_available_memory_mb:
         return (
-            "import-worker safety guard: low-memory host — available memory "
+            "import-worker safety guard: available host memory "
             f"({available if available is not None else 'unknown'} MB) is below the configured "
             f"minimum ({settings.import_worker_min_available_memory_mb} MB). Job not processed."
         )
@@ -149,7 +145,7 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                     level="error",
                     message=f"Import worker blocked job #{job_id}: {block_reason}",
                     job=job,
-                    details={"reason": "safe_mode_low_memory", "source": source, "limit": limit},
+                    details={"reason": "safe_mode_resource_guard", "source": source, "limit": limit},
                 )
                 db.commit()
                 send_admin_alert(
@@ -190,23 +186,33 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                 )
                 db.commit()
             except Exception as exc:  # noqa: BLE001
-                if isinstance(exc, SQLAlchemyError):
-                    db.rollback()
+                # Always release the active transaction before a separate session
+                # writes the terminal state. This is required for SIGTERM/resource
+                # aborts as well as SQLAlchemy failures; otherwise row/DB locks can
+                # prevent truthful failure persistence until Docker hard-kills us.
+                db.rollback()
                 failed += 1
                 error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
                 errors.append(error)
                 _mark_worker_exception(job_id=job_id, error=str(exc))
+                refreshed_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
                 _log_worker_decision(
                     db,
                     event="worker_job_failed",
                     actor_id=actor_id,
                     level="error",
                     message=f"Import worker failed job #{job_id}: {str(exc)[:300]}",
-                    job=job,
+                    job=refreshed_job,
                     details=error,
                 )
                 db.commit()
-                send_admin_alert(title="Import worker job failed", message=str(exc)[:1000], level="error", job_id=job_id, details=error)
+                send_admin_alert(
+                    title="Import worker job failed",
+                    message=str(exc)[:1000],
+                    level="error",
+                    job_id=job_id,
+                    details=error,
+                )
         queue = import_queue_summary(db)
     return {"processed": processed, "failed": failed, "stalled_marked": stalled, "errors": errors, "queue": queue}
 
@@ -309,7 +315,14 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
     if stalled:
         db.commit()
         for alert in alerts:
-            send_admin_alert(title="Import job stalled", message="Import job stopped sending heartbeat and was marked as stalled.", level="error", city_slug=str(alert.get("city_slug") or "") or None, job_id=int(alert["job_id"]), details=alert)
+            send_admin_alert(
+                title="Import job stalled",
+                message="Import job stopped sending heartbeat and was marked as stalled.",
+                level="error",
+                city_slug=str(alert.get("city_slug") or "") or None,
+                job_id=int(alert["job_id"]),
+                details=alert,
+            )
     return len(stalled)
 
 
