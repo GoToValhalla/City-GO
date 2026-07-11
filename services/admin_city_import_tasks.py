@@ -30,19 +30,10 @@ from services.import_pipeline.steps import STEP_ERROR
 from services.admin_city_import_job_payload import refresh_import_job_snapshot
 from services.system_log_service import write_system_log
 
-# Sources that run the heavy OSM collection/foundation pipeline. These are the
-# only sources the low-memory safety guard blocks — address/photo/snapshot-
-# refresh side-tasks are already bounded and per-place, not full-city scans.
 HEAVY_IMPORT_SOURCES = {SOURCE_FULL_IMPORT, SOURCE_ENRICHMENT_ONLY}
 
 
 def _available_memory_mb() -> int | None:
-    """Best-effort available memory reading from /proc/meminfo (Linux only).
-
-    Returns None if unavailable (e.g. non-Linux dev machine) — safe mode then
-    cannot verify memory headroom and treats that as insufficient, matching
-    the "truthful refusal over risking OOM" requirement.
-    """
     try:
         with open("/proc/meminfo") as handle:
             for line in handle:
@@ -54,7 +45,6 @@ def _available_memory_mb() -> int | None:
 
 
 def _safe_mode_block_reason(job: CityAdminImportJob) -> str | None:
-    """Return a truthful blocking reason if safe mode forbids this job now."""
     if not settings.import_worker_safe_mode:
         return None
     source = str(job.source or "")
@@ -186,23 +176,18 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                 )
                 db.commit()
             except Exception as exc:  # noqa: BLE001
-                # Always release the active transaction before a separate session
-                # writes the terminal state. This is required for SIGTERM/resource
-                # aborts as well as SQLAlchemy failures; otherwise row/DB locks can
-                # prevent truthful failure persistence until Docker hard-kills us.
                 db.rollback()
                 failed += 1
                 error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
                 errors.append(error)
-                _mark_worker_exception(job_id=job_id, error=str(exc))
-                refreshed_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
+                failed_job = _mark_worker_exception(db, job_id=job_id, error=str(exc))
                 _log_worker_decision(
                     db,
                     event="worker_job_failed",
                     actor_id=actor_id,
                     level="error",
                     message=f"Import worker failed job #{job_id}: {str(exc)[:300]}",
-                    job=refreshed_job,
+                    job=failed_job,
                     details=error,
                 )
                 db.commit()
@@ -255,21 +240,20 @@ def _log_worker_decision(
     )
 
 
-def _mark_worker_exception(*, job_id: int, error: str) -> None:
-    with SessionLocal() as db:
-        job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
-        if job is None:
-            return
-        job.status = "failed"
-        job.current_step = STEP_ERROR
-        job.last_error = error[:2000]
-        job.failed_items = max(int(job.failed_items or 0), 1)
-        job.finished_at = datetime.utcnow()
-        job.updated_at = job.finished_at
-        details = dict(job.step_details or {})
-        details["worker_exception"] = {"error": error[:1000], "failed_at": job.finished_at.isoformat()}
-        job.step_details = details
-        db.commit()
+def _mark_worker_exception(db: Session, *, job_id: int, error: str) -> CityAdminImportJob | None:
+    job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
+    if job is None:
+        return None
+    job.status = "failed"
+    job.current_step = STEP_ERROR
+    job.last_error = error[:2000]
+    job.failed_items = max(int(job.failed_items or 0), 1)
+    job.finished_at = datetime.utcnow()
+    job.updated_at = job.finished_at
+    details = dict(job.step_details or {})
+    details["worker_exception"] = {"error": error[:1000], "failed_at": job.finished_at.isoformat()}
+    job.step_details = details
+    return job
 
 
 def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: datetime | None = None) -> int:

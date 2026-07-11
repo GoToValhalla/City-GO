@@ -109,11 +109,13 @@ def test_import_worker_uses_environment_throttling() -> None:
         worker = Path("data/scripts/run_admin_import_worker.py").read_text(encoding="utf-8")
 
     with when("проверяется команда запуска worker и её настройки"):
-        worker_command_is_current = "command: python data/scripts/run_admin_import_worker.py" in compose
+        resource_preflight_is_configured = "check_import_worker_resources.py" in compose
+        worker_command_is_current = "run_admin_import_worker.py" in compose
         batch_limit_is_configured = "IMPORT_WORKER_BATCH_LIMIT: 1" in compose
         sleep_is_configured = "IMPORT_WORKER_SLEEP_SECONDS: 60" in compose
 
-    with then("Docker Compose запускает актуальный постоянный worker"):
+    with then("Docker Compose запускает resource preflight перед актуальным worker"):
+        assert resource_preflight_is_configured
         assert worker_command_is_current
 
     with then("лимит очереди и пауза задаются через окружение"):
