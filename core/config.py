@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     import_worker_safe_mode: bool = False
     import_worker_max_runtime_seconds: int = 300
     import_worker_backend_health_url: str = "http://backend:8000/ready"
-    import_worker_min_available_memory_mb: int = 650
+    import_worker_min_available_memory_mb: int = 256
     import_worker_min_container_memory_mb: int = 512
     import_worker_min_container_headroom_mb: int = 400
     import_worker_runtime_host_floor_mb: int = 256
