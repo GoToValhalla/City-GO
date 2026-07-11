@@ -73,6 +73,7 @@ jobs:
           RUNTIME_HOST_FLOOR_MB=256
           RUNTIME_CGROUP_PERCENT=85
           FAIL=0
+          WORKER_ID=""
 
           cleanup() {
             section "cleanup: always stop import-worker"
@@ -115,7 +116,7 @@ jobs:
 
           section "starting import-worker"
           timeout 60s docker compose up -d --no-deps import-worker
-          WORKER_ID="$(docker compose ps -q import-worker)"
+          WORKER_ID="$(docker compose ps -aq import-worker 2>/dev/null || true)"
           test -n "$WORKER_ID" || (echo "ERROR: worker container was not created" >&2; exit 1)
 
           section "effective worker limits"
@@ -153,6 +154,13 @@ jobs:
               echo "ERROR: host memory crossed runtime floor; stopping worker." >&2
               break
             fi
+            case "$MEM_PERCENT" in
+              ''|*[!0-9]*)
+                STOP_REASON="worker_memory_reading_unknown"
+                echo "ERROR: worker memory percentage is unknown; stopping worker fail-closed." >&2
+                break
+                ;;
+            esac
             if [ "$MEM_PERCENT" -ge "$RUNTIME_CGROUP_PERCENT" ]; then
               STOP_REASON="worker_cgroup_soft_limit"
               echo "ERROR: worker reached cgroup soft limit; stopping worker." >&2
@@ -185,7 +193,7 @@ jobs:
             echo "ERROR: worker was OOM-killed." >&2
             exit 1
           fi
-          if [ "$STOP_REASON" = "public_health_degraded" ] || [ "$STOP_REASON" = "host_memory_floor" ] || [ "$STOP_REASON" = "worker_cgroup_soft_limit" ]; then
+          if [ "$STOP_REASON" = "public_health_degraded" ] || [ "$STOP_REASON" = "host_memory_floor" ] || [ "$STOP_REASON" = "worker_cgroup_soft_limit" ] || [ "$STOP_REASON" = "worker_memory_reading_unknown" ]; then
             exit 1
           fi
           REMOTE_EOF
