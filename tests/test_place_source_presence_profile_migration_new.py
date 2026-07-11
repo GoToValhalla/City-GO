@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from alembic import command
@@ -33,30 +34,38 @@ def _create_legacy_presence_table(db_url: str) -> None:
 def test_place_source_presence_profile_migration_upgrade_and_downgrade_new(tmp_path):
     db_path = tmp_path / "presence-profile.db"
     db_url = f"sqlite:///{db_path}"
-    config = _config(db_url)
+    previous_database_url = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = db_url
+    try:
+        config = _config(db_url)
 
-    command.upgrade(config, PARENT)
-    _create_legacy_presence_table(db_url)
+        command.upgrade(config, PARENT)
+        _create_legacy_presence_table(db_url)
 
-    engine = create_engine(db_url)
-    assert "source_profile" not in {
-        column["name"] for column in inspect(engine).get_columns("place_source_presence")
-    }
-    engine.dispose()
+        engine = create_engine(db_url)
+        assert "source_profile" not in {
+            column["name"] for column in inspect(engine).get_columns("place_source_presence")
+        }
+        engine.dispose()
 
-    command.upgrade(config, REVISION)
-    engine = create_engine(db_url)
-    assert "source_profile" in {
-        column["name"] for column in inspect(engine).get_columns("place_source_presence")
-    }
-    assert "ix_place_source_presence_source_profile" in {
-        index["name"] for index in inspect(engine).get_indexes("place_source_presence")
-    }
-    engine.dispose()
+        command.upgrade(config, REVISION)
+        engine = create_engine(db_url)
+        assert "source_profile" in {
+            column["name"] for column in inspect(engine).get_columns("place_source_presence")
+        }
+        assert "ix_place_source_presence_source_profile" in {
+            index["name"] for index in inspect(engine).get_indexes("place_source_presence")
+        }
+        engine.dispose()
 
-    command.downgrade(config, PARENT)
-    engine = create_engine(db_url)
-    assert "source_profile" not in {
-        column["name"] for column in inspect(engine).get_columns("place_source_presence")
-    }
-    engine.dispose()
+        command.downgrade(config, PARENT)
+        engine = create_engine(db_url)
+        assert "source_profile" not in {
+            column["name"] for column in inspect(engine).get_columns("place_source_presence")
+        }
+        engine.dispose()
+    finally:
+        if previous_database_url is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = previous_database_url
