@@ -131,7 +131,7 @@ services:
     profiles: ["ops"]
     image: ghcr.io/gotovalhalla/city-go-backend:latest
     build: .
-    command: python data/scripts/run_admin_import_worker.py
+    command: bash -c "python data/scripts/check_import_worker_resources.py && exec python data/scripts/run_admin_import_worker.py"
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
@@ -143,26 +143,30 @@ services:
       LOCAL_CACHE_DIR: /app/.cache/city-go
       IMPORT_WORKER_BATCH_LIMIT: 1
       IMPORT_WORKER_SLEEP_SECONDS: 60
-      # Safety framework after the 2026-07-10 OOM incident (host has ~1GB RAM,
-      # no swap). Manual-only execution via the guarded workflow; deploy must
-      # never auto-start this service (enforced separately in deploy.yml).
+      # Upgraded production VM: ~1.8 GiB RAM, no swap. Heavy execution stays
+      # manual-only and requires both host and cgroup headroom.
       IMPORT_WORKER_SAFE_MODE: "true"
       IMPORT_WORKER_MAX_RUNTIME_SECONDS: 300
       IMPORT_WORKER_BACKEND_HEALTH_URL: http://backend:8000/ready
-      IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 256
-      IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY: 0
+      IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 650
+      IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB: 512
+      IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB: 400
+      IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB: 256
+      IMPORT_WORKER_RUNTIME_CGROUP_PERCENT: 85
+      # Legacy explicit heavy-job enable switch. Positive means enabled after
+      # resource preflight; this is not represented as a live place-count cap.
+      IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY: 1
     volumes:
       - local_cache:/app/.cache/city-go
     depends_on:
       backend:
         condition: service_healthy
-    # restart: "no" — a crashing worker (e.g. OOM-killed, exit 137) must never
-    # crash-loop and repeatedly compete for host memory/CPU; manual re-run only,
-    # via the guarded run-import-worker-safe.yml workflow.
+    # Manual-only; a hard failure or OOM must never create a restart loop.
     restart: "no"
-    mem_limit: 384m
-    memswap_limit: 384m
+    mem_limit: 512m
+    memswap_limit: 512m
     cpus: "0.50"
+    stop_grace_period: 30s
 
   bot:
     image: ghcr.io/gotovalhalla/city-go-backend:latest
