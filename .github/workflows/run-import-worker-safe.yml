@@ -116,6 +116,11 @@ jobs:
 
           section "starting import-worker"
           timeout 60s docker compose up -d --no-deps import-worker
+          START_RC=$?
+          if [ "$START_RC" -ne 0 ]; then
+            echo "ERROR: docker compose failed to start import-worker (rc=${START_RC})." >&2
+            exit 1
+          fi
           WORKER_ID="$(docker compose ps -aq import-worker 2>/dev/null || true)"
           test -n "$WORKER_ID" || (echo "ERROR: worker container was not created" >&2; exit 1)
 
@@ -193,7 +198,18 @@ jobs:
             echo "ERROR: worker was OOM-killed." >&2
             exit 1
           fi
-          if [ "$STOP_REASON" = "public_health_degraded" ] || [ "$STOP_REASON" = "host_memory_floor" ] || [ "$STOP_REASON" = "worker_cgroup_soft_limit" ] || [ "$STOP_REASON" = "worker_memory_reading_unknown" ]; then
+          case "$WORKER_EXIT_CODE" in
+            ''|*[!0-9]*)
+              echo "ERROR: worker exit code is unknown; failing closed." >&2
+              exit 1
+              ;;
+          esac
+          if [ "$WORKER_EXIT_CODE" -ne 0 ]; then
+            echo "ERROR: worker exited with code ${WORKER_EXIT_CODE}." >&2
+            exit 1
+          fi
+          if [ "$STOP_REASON" = "public_health_degraded" ] || [ "$STOP_REASON" = "host_memory_floor" ] || [ "$STOP_REASON" = "worker_cgroup_soft_limit" ] || [ "$STOP_REASON" = "worker_memory_reading_unknown" ] || [ "$STOP_REASON" = "max_runtime_reached" ]; then
+            echo "ERROR: worker run ended by safety guard (${STOP_REASON})." >&2
             exit 1
           fi
           REMOTE_EOF
