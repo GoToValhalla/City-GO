@@ -6,12 +6,15 @@ import './styles/design-system.css'
 import './styles/maplibre.css'
 import App from './App.tsx'
 import { AppVersionBadge } from './shared/AppVersionBadge'
+import { PublicErrorBoundary } from './shared/errors/PublicErrorBoundary'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <div>
-      <App />
-      <AppVersionBadge />
-    </div>
+    <PublicErrorBoundary>
+      <div>
+        <App />
+        <AppVersionBadge />
+      </div>
+    </PublicErrorBoundary>
   </StrictMode>,
 )

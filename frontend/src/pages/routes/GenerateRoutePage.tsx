@@ -13,7 +13,7 @@ import { RouteResultPanel } from '../../widgets/recommendation-route/RouteResult
 import { filterInterestsForFeatures } from '../../widgets/recommendation-route/chipOptions'
 import { RandomRouteDraftEditor } from '../../widgets/route-draft/RandomRouteDraftEditor'
 import { isDebugEnabled } from '../../shared/config/debug'
-import { initialRouteForm } from './routeInitialForm'
+import { buildInitialRouteForm } from './routeInitialForm'
 import './GenerateRoutePage.css'
 import './GenerateRouteControls.css'
 import './GenerateRouteMobile.css'
@@ -81,7 +81,7 @@ export const GenerateRoutePage = () => {
   const location = useLocationProvider()
   const [city, setCity] = useState<CityOption>(getCurrentCity())
   const [features, setFeatures] = useState<string[]>([])
-  const [form, setForm] = useState(initialRouteForm)
+  const [form, setForm] = useState(buildInitialRouteForm)
   const [loading, setLoading] = useState(false)
   const [geoStatus, setGeoStatus] = useState<string | null>(null)
   const [geoError, setGeoError] = useState<string | null>(null)
