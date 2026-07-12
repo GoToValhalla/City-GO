@@ -183,10 +183,20 @@
 .admin-import-card-grid span { color: var(--admin-muted); font-size: 11px; }
 @media (max-width: 760px) {
   .admin-content { padding: 16px; }
-  .admin-import-table { display: none; }
   .admin-import-card-list { display: grid; gap: 12px; }
   .admin-import-card .admin-actions-cell { white-space: normal; }
   .admin-import-card .admin-btn { flex: 1 1 130px; }
+}
+
+.admin-import-mobile-card-list { display: none; }
+.admin-import-mobile-card { min-height: 48px; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; color: inherit; background: #fff; border: 1px solid var(--admin-border); border-radius: var(--admin-radius); box-shadow: var(--admin-shadow); text-decoration: none; max-width: 100%; overflow-wrap: break-word; }
+.admin-import-mobile-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.admin-import-mobile-card-head strong { min-width: 0; overflow-wrap: break-word; }
+
+@media (max-width: 768px) {
+  .admin-import-table { display: none; }
+  .admin-import-card-list { display: none; }
+  .admin-import-mobile-card-list { display: flex; flex-direction: column; gap: 12px; }
 }
 
 .admin-btn-lg { min-height: 52px; width: 100%; font-size: 15px; }
