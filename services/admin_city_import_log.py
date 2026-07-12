@@ -18,6 +18,7 @@ def log_import_event(
     level: str = "info",
     message: str,
     details: dict[str, Any] | None = None,
+    job_id: int | None = None,
 ) -> None:
     write_system_log(
         db,
@@ -26,6 +27,7 @@ def log_import_event(
         message=message,
         details={"event": event, **(details or {})},
         city_slug=city_slug,
+        request_id=str(job_id) if job_id is not None else None,
         actor_id=actor_id,
         commit=False,
     )

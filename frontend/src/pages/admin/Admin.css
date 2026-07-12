@@ -188,3 +188,16 @@
   .admin-import-card .admin-actions-cell { white-space: normal; }
   .admin-import-card .admin-btn { flex: 1 1 130px; }
 }
+
+.admin-btn-lg { min-height: 52px; width: 100%; font-size: 15px; }
+
+.admin-import-diagnostic-page { display: flex; flex-direction: column; gap: 16px; max-width: 100%; overflow-x: hidden; }
+.admin-import-diagnostic-summary { display: flex; flex-direction: column; gap: 8px; padding: 16px; background: var(--admin-panel); border: 1px solid var(--admin-border); border-radius: var(--admin-radius); box-shadow: var(--admin-shadow); }
+.admin-import-diagnostic-summary-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.admin-import-diagnostic-timeline { display: flex; flex-direction: column; gap: 12px; }
+.admin-import-timeline-card { padding: 14px; background: #fff; border: 1px solid var(--admin-border); border-left: 4px solid var(--admin-border); border-radius: var(--admin-radius); box-shadow: var(--admin-shadow); word-break: break-word; }
+.admin-import-timeline-card.admin-state-error { border-left-color: var(--admin-danger); }
+.admin-import-timeline-card.admin-state-warning { border-left-color: #c98a1f; }
+.admin-import-timeline-card .admin-import-timeline-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.admin-import-timeline-card pre, .admin-import-diagnostic-raw pre { max-width: 100%; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+.admin-import-diagnostic-raw { padding: 12px 16px; background: var(--admin-panel); border: 1px solid var(--admin-border); border-radius: var(--admin-radius); }

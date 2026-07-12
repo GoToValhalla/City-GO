@@ -29,7 +29,7 @@ def test_photo_enrichment_success_with_zero_created_is_visible_in_details(db_ses
         assert active_job.started_at is not None
         return result
 
-    def fake_log_import_event(db, event: str, city_slug: str, actor_id: str | None, message: str, details: dict[str, object] | None = None):
+    def fake_log_import_event(db, event: str, city_slug: str, actor_id: str | None, message: str, details: dict[str, object] | None = None, level: str = "info", job_id: int | None = None):
         logs.append({"event": event, "city_slug": city_slug, "actor_id": actor_id, "message": message, "details": details or {}})
 
     monkeypatch.setattr(service, "run_image_enrich", fake_run_image_enrich)

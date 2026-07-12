@@ -40,6 +40,7 @@ def _apply_summary(
         level="info" if status == "success" else "error",
         message=f"Импорт #{job.id}: {status}, мест в городе {places_total}",
         details={"job_id": job.id, "places_total": places_total, **summary},
+        job_id=job.id,
     )
 
 
@@ -49,4 +50,4 @@ def _fail_job(db: Session, *, job: CityAdminImportJob, city: City, actor_id: str
     job.finished_at = datetime.utcnow()
     city.launch_status = "import_failed"
     log_import_event(db, event="import_job_failed", city_slug=city.slug, actor_id=actor_id, level="error",
-                     message=f"Импорт #{job.id} упал: {error}", details={"job_id": job.id})
+                     message=f"Импорт #{job.id} упал: {error}", details={"job_id": job.id}, job_id=job.id)

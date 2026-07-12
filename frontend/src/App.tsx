@@ -36,6 +36,7 @@ import { AdminPlaceVerificationsPage } from './pages/admin/AdminPlaceVerificatio
 import { AdminPlaceChangeReviewsPage } from './pages/admin/AdminPlaceChangeReviewsPage'
 import { AdminImportJobsPage } from './pages/admin/AdminImportJobsPage'
 import { AdminImportJobChangesPage } from './pages/admin/AdminImportJobChangesPage'
+import { AdminImportJobDiagnosticPage } from './pages/admin/AdminImportJobDiagnosticPage'
 import { AdminCoveragePage } from './pages/admin/AdminCoveragePage'
 import { AdminAuditLogPage } from './pages/admin/AdminAuditLogPage'
 import { AdminPlaceEnrichmentPage } from './pages/admin/AdminPlaceEnrichmentPage'
@@ -104,6 +105,7 @@ function App() {
     <Route path="/admin/destinations" element={<AdminPage><AdminDestinationsPage /></AdminPage>} />
     <Route path="/admin/destinations/:slug" element={<AdminPage><AdminDestinationDetailPage /></AdminPage>} />
     <Route path="/admin/imports/:citySlug/jobs/:jobId/changes" element={<AdminPage><AdminImportJobChangesPage /></AdminPage>} />
+    <Route path="/admin/imports/jobs/:jobId/diagnostic" element={<AdminPage><AdminImportJobDiagnosticPage /></AdminPage>} />
     <Route path="/admin/import-jobs" element={<Navigate to="/admin/imports" replace />} />
     <Route path="/admin/coverage" element={<AdminPage><AdminCoveragePage /></AdminPage>} />
     <Route path="/admin/quality" element={<AdminPage><AdminQualityPage /></AdminPage>} />

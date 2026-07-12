@@ -161,7 +161,7 @@ def _queue_job(db: Session, *, city: City, source: str, actor_id: str | None) ->
     job.last_error = None
     job.cancelled_at = None
     job.updated_at = datetime.utcnow()
-    log_import_event(db, event="import_job_created", city_slug=city.slug, actor_id=actor_id, message=f"Создана задача {source} #{job.id}", details={"job_id": job.id, "scopes_total": scopes, "source": source})
+    log_import_event(db, event="import_job_created", city_slug=city.slug, actor_id=actor_id, message=f"Создана задача {source} #{job.id}", details={"job_id": job.id, "scopes_total": scopes, "source": source}, job_id=job.id)
     return job
 
 
@@ -180,7 +180,7 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
     job.finished_at = None
     job.last_error = None
     job.scopes_total = db.query(CityImportScope).filter_by(city_id=city_id, enabled=True).count()
-    log_import_event(db, event="import_job_started", city_slug=city.slug, actor_id=actor_id, message=f"Старт полного pipeline #{job.id}", details={"job_id": job.id, "source": job.source})
+    log_import_event(db, event="import_job_started", city_slug=city.slug, actor_id=actor_id, message=f"Старт полного pipeline #{job.id}", details={"job_id": job.id, "source": job.source}, job_id=job.id)
     db.commit()
     try:
         legacy = run_enrichment_pipeline(db, job=job, city=city, actor_id=actor_id, force=True, notify_completion=False)
@@ -210,7 +210,7 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
         job.finished_at = datetime.utcnow()
         city.last_import_at = job.finished_at
         _refresh_snapshot_light(db, city=city, job=job, source="import_worker_finished")
-        log_import_event(db, event="unified_import_pipeline_finished", city_slug=city.slug, actor_id=actor_id, message=f"Полный pipeline #{job.id}: {len(ids)} изменений; auto-repair {auto_repair.get('repaired_count', 0)}; публикация города сохранена", details={"job_id": job.id, "changed_places": len(ids), "warnings": warnings, "auto_repair": auto_repair, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active)})
+        log_import_event(db, event="unified_import_pipeline_finished", city_slug=city.slug, actor_id=actor_id, message=f"Полный pipeline #{job.id}: {len(ids)} изменений; auto-repair {auto_repair.get('repaired_count', 0)}; публикация города сохранена", details={"job_id": job.id, "changed_places": len(ids), "warnings": warnings, "auto_repair": auto_repair, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active)}, job_id=job.id)
         db.commit()
         _alert(db, city, job, len(ids), readiness, warnings)
     except Exception as exc:
@@ -292,7 +292,7 @@ def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> C
         job.finished_at = datetime.utcnow()
         job.current_step = STEP_ERROR
         job.last_error = f"Добор адресов заблокирован: {prerequisites['blocked_reason']}"
-        log_import_event(db, event="address_enrichment_blocked", city_slug=city.slug, actor_id=actor_id, level="warning", message=f"Добор адресов #{job.id} заблокирован: {prerequisites['blocked_reason']}", details={"job_id": job.id, "city_id": city.id, "source": SOURCE_ADDRESS_ENRICHMENT, "prerequisites": prerequisites})
+        log_import_event(db, event="address_enrichment_blocked", city_slug=city.slug, actor_id=actor_id, level="warning", message=f"Добор адресов #{job.id} заблокирован: {prerequisites['blocked_reason']}", details={"job_id": job.id, "city_id": city.id, "source": SOURCE_ADDRESS_ENRICHMENT, "prerequisites": prerequisites}, job_id=job.id)
         db.commit()
         db.refresh(job)
         return job
@@ -336,7 +336,7 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
         job.finished_at = datetime.utcnow()
         job.current_step = STEP_ERROR
         job.last_error = f"Добор фото заблокирован: {prerequisites['blocked_reason']}"
-        log_import_event(db, event="photo_enrichment_blocked", city_slug=city.slug, actor_id=actor_id, level="warning", message=f"Добор фото #{job.id} заблокирован: {prerequisites['blocked_reason']}", details={"job_id": job.id, "city_id": city.id, "source": SOURCE_PHOTO_ENRICHMENT, "prerequisites": prerequisites})
+        log_import_event(db, event="photo_enrichment_blocked", city_slug=city.slug, actor_id=actor_id, level="warning", message=f"Добор фото #{job.id} заблокирован: {prerequisites['blocked_reason']}", details={"job_id": job.id, "city_id": city.id, "source": SOURCE_PHOTO_ENRICHMENT, "prerequisites": prerequisites}, job_id=job.id)
         db.commit()
         db.refresh(job)
         return job
@@ -361,7 +361,7 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> Cit
         job.last_error = f"Добор фото остановлен по таймауту выполнения после просмотра {scanned} мест."
     job.finished_at = datetime.utcnow()
     job.current_step = "snapshot_refresh"
-    log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair})
+    log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair}, job_id=job.id)
     db.commit()
     _refresh_snapshot_light(db, city=city, job=job, source="photo_enrichment_finished")
     db.refresh(job)
@@ -405,7 +405,7 @@ def _run_auto_repair(db: Session, *, city: City, job: CityAdminImportJob, change
     details = dict(job.step_details or {})
     details["auto_repair"] = payload
     job.step_details = details
-    log_import_event(db, event="place_auto_repair_finished", city_slug=city.slug, actor_id=None, message=f"Auto-repair #{job.id}: repaired={summary.repaired_count}, review={summary.needs_review_count}, skipped={summary.skipped_count}", details={"job_id": job.id, "auto_repair": payload})
+    log_import_event(db, event="place_auto_repair_finished", city_slug=city.slug, actor_id=None, message=f"Auto-repair #{job.id}: repaired={summary.repaired_count}, review={summary.needs_review_count}, skipped={summary.skipped_count}", details={"job_id": job.id, "auto_repair": payload}, job_id=job.id)
     return payload
 
 
@@ -500,7 +500,7 @@ def cancel_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminI
     job.finished_at = datetime.utcnow()
     city = db.query(City).filter(City.id == city_id).first()
     if city:
-        log_import_event(db, event="import_job_cancelled", city_slug=city.slug, actor_id=actor_id, message=f"Импорт #{job.id} отменён без изменения публикации города", details={"job_id": job.id, "source": job.source})
+        log_import_event(db, event="import_job_cancelled", city_slug=city.slug, actor_id=actor_id, message=f"Импорт #{job.id} отменён без изменения публикации города", details={"job_id": job.id, "source": job.source}, job_id=job.id)
     db.commit()
     db.refresh(job)
     return job

@@ -15,7 +15,9 @@ from schemas.admin import (
     AdminImportJobListResponse,
     AdminImportJobRead,
 )
+from schemas.admin_import_job_diagnostic import ImportJobDiagnostic
 from services.admin_city_import_job_payload import refresh_import_job_snapshot
+from services.admin_import_job_diagnostic_service import build_import_job_diagnostic
 from services.admin_city_import_job_service import (
     DuplicateActiveJobError,
     cancel_import_job,
@@ -69,6 +71,14 @@ def read_import_job(city_id: int, auth: AdminContext = Depends(admin_required), 
     if payload is None:
         raise HTTPException(404, "Задача импорта не найдена")
     return AdminImportJobRead.model_validate(payload)
+
+
+@router.get("/import-jobs/{job_id}/diagnostic", response_model=ImportJobDiagnostic)
+def read_import_job_diagnostic(job_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> ImportJobDiagnostic:
+    payload = build_import_job_diagnostic(db, job_id=job_id)
+    if payload is None:
+        raise HTTPException(404, "Задача импорта не найдена")
+    return ImportJobDiagnostic.model_validate(payload)
 
 
 @router.get("/import-jobs/{city_id}/changes", response_model=AdminImportJobChangeListResponse)

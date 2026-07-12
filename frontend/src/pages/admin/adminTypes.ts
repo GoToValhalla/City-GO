@@ -165,6 +165,32 @@ export type AdminImportJobChange = { id: number; job_id: number; city_id: number
 export type AdminImportJobChangesResponse = { items: AdminImportJobChange[]; total: number; limit: number; offset: number }
 export type AdminImportJobChangesSummary = { job_id: number; city_id: number; city_slug: string; created: number; updated: number; unchanged: number; rejected: number; hidden: number; needs_review: number }
 
+export type AdminImportJobTimelineEvent = { timestamp: string; severity: string; type: string; summary: string; payload: Record<string, unknown> | null }
+export type AdminImportJobDiagnostic = {
+  job_id: number
+  city_id: number
+  city_slug: string
+  city_name: string
+  status: string
+  current_step: string
+  last_completed_step: string | null
+  failure_reason: string | null
+  started_at: string | null
+  finished_at: string | null
+  duration_seconds: number | null
+  worker_state: string | null
+  worker_run_id: string | null
+  stop_reason: string | null
+  stop_source: string | null
+  exit_code: number | null
+  oom_killed: boolean | null
+  workflow_name: string | null
+  workflow_run_id: string | null
+  workflow_run_url: string | null
+  timeline: AdminImportJobTimelineEvent[]
+  diagnostic_report: string
+}
+
 export type AdminAuditLogEntry = { id: string; created_at: string; actor: string; action: string; entity_type: string; entity_id: string | null; reason: string | null; new_value: unknown }
 export type AdminAuditLogResponse = { items: AdminAuditLogEntry[]; total: number }
 
