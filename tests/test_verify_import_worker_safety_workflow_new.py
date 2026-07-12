@@ -117,6 +117,33 @@ def test_workflow_uses_json_compose_config_extraction_new() -> None:
     assert "sed -n '/^  import-worker:/" not in text
 
 
+def test_workflow_enables_ops_profile_for_compose_config_new() -> None:
+    """import-worker is defined behind `profiles: ["ops"]` in
+    docker-compose.yml, so `docker compose config` must explicitly enable
+    that profile — otherwise the effective config never includes the
+    import-worker service at all, and the embedded Python validation fails
+    with "import-worker service not found in effective compose config"
+    even though the service is correctly defined and running. This is a
+    real regression observed in production (workflow run 29182836886):
+    the diagnostic itself failed, not the worker."""
+    text = _workflow_text()
+
+    assert "docker compose --profile ops config --format json" in text
+
+
+def test_import_worker_profile_membership_matches_workflow_assumption_new() -> None:
+    """Guards against the opposite drift: if import-worker were ever moved
+    out of the `ops` profile in docker-compose.yml, this workflow's
+    `--profile ops` flag would become unnecessary but harmless — this test
+    exists so a future change to docker-compose.yml's profile assignment is
+    forced to revisit this workflow instead of silently diverging."""
+    compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+    compose = yaml.safe_load(compose_text)
+    import_worker = compose["services"]["import-worker"]
+
+    assert import_worker.get("profiles") == ["ops"]
+
+
 def test_workflow_validates_full_recalibrated_contract_new() -> None:
     text = _workflow_text()
 
@@ -230,7 +257,7 @@ def test_end_to_end_parsed_run_script_nested_python_has_no_indentation_error_new
             encoding="utf-8",
         )
         patched = script.replace(
-            "docker compose config --format json > /tmp/compose-config.json 2>/tmp/compose-config.err",
+            "docker compose --profile ops config --format json > /tmp/compose-config.json 2>/tmp/compose-config.err",
             "true 2>/tmp/compose-config.err",
         )
         patched = patched.replace("/tmp/compose-config.json", str(fixture_path))

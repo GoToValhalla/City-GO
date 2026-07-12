@@ -95,7 +95,7 @@ jobs:
 
           section "effective docker compose config: import-worker"
           CONFIG_FAIL=0
-          if ! docker compose config --format json > /tmp/compose-config.json 2>/tmp/compose-config.err; then
+          if ! docker compose --profile ops config --format json > /tmp/compose-config.json 2>/tmp/compose-config.err; then
             echo "ERROR: docker compose config --format json failed:" >&2
             cat /tmp/compose-config.err >&2 || true
             CONFIG_FAIL=1
