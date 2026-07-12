@@ -88,6 +88,7 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
     limit = max(1, int(limit or 1))
     processed = 0
     failed = 0
+    queued_locked = 0
     errors: list[dict[str, object]] = []
     with SessionLocal() as db:
         stalled = mark_stalled_import_jobs(db, actor_id=actor_id)
@@ -111,6 +112,7 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
             # was silently stuck forever.
             queued_total = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "queued").count()
             if queued_total > 0:
+                queued_locked = queued_total
                 _log_worker_decision(
                     db,
                     event="worker_queued_jobs_locked",
@@ -266,7 +268,14 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                     details=error,
                 )
         queue = import_queue_summary(db)
-    return {"processed": processed, "failed": failed, "stalled_marked": stalled, "errors": errors, "queue": queue}
+    return {
+        "processed": processed,
+        "failed": failed,
+        "queued_locked": queued_locked,
+        "stalled_marked": stalled,
+        "errors": errors,
+        "queue": queue,
+    }
 
 
 def _queued_seconds(job: CityAdminImportJob, *, now: datetime | None = None) -> int | None:

@@ -30,6 +30,9 @@ if not settings.database_url.startswith("sqlite"):
         with dbapi_connection.cursor() as cursor:
             cursor.execute(f"SET statement_timeout = {settings.db_statement_timeout_ms}")
             cursor.execute(f"SET lock_timeout = {settings.db_lock_timeout_ms}")
+            cursor.execute(
+                f"SET idle_in_transaction_session_timeout = {settings.db_idle_in_transaction_session_timeout_ms}"
+            )
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

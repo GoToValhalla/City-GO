@@ -92,11 +92,29 @@ def test_import_worker_reports_locked_queued_job_instead_of_lying_about_empty_qu
 
     assert result["processed"] == 0
     assert result["failed"] == 0
+    # queued_locked must be a first-class, top-level field of the returned
+    # result — not just something buried in a SystemLog row — so any caller
+    # (the worker loop, the admin run-once endpoint, tests) can treat this
+    # as a non-success operational outcome without parsing logs.
+    assert result["queued_locked"] == 1
     assert _events(db_session) == ["worker_queued_jobs_locked"]
     log = db_session.query(SystemLog).filter(SystemLog.module == "import_worker").order_by(SystemLog.id.asc()).first()
     assert log.level == "error"
     assert log.details["queued_locked"] == 1
     assert "locked" in log.message.lower()
+
+
+def test_import_worker_logs_no_queued_jobs_reports_zero_queued_locked_new(
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    """The genuinely-empty-queue path must report queued_locked=0, not just
+    omit the field, so callers can rely on it always being present."""
+    _patch_session_local(monkeypatch, db_session)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["queued_locked"] == 0
 
 
 def test_import_worker_blocks_full_import_in_safe_mode_on_low_memory_host(

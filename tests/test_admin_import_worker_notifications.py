@@ -125,3 +125,43 @@ def test_worker_stops_after_max_runtime_seconds(monkeypatch) -> None:
 
     assert len(calls) <= 3
     assert alerts[-1]["title"] == "Import-worker остановлен по таймауту"
+
+
+def test_worker_loop_surfaces_queued_locked_in_container_log_new(monkeypatch, capsys) -> None:
+    """A queued_locked result must not be treated as a silent success — it
+    must be printed to the worker's own stderr/container log immediately,
+    in addition to the SystemLog/Telegram alert already sent inside
+    run_queued_import_jobs, so operators see it without needing to check
+    Telegram or query SystemLog directly."""
+    monkeypatch.setattr(
+        worker,
+        "run_queued_import_jobs",
+        lambda **_kwargs: {"queue": {}, "queued_locked": 1},
+    )
+    monkeypatch.setattr(worker, "send_admin_alert", lambda **_kwargs: {"sent": True})
+    monkeypatch.setattr(worker, "backend_is_healthy", lambda *_a, **_k: True)
+    monkeypatch.setattr(worker.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(worker, "_STOP", False)
+
+    worker.run_worker_loop(limit=1, sleep_seconds=5, max_iterations=1, health_url="http://backend:8000/ready")
+
+    captured = capsys.readouterr()
+    assert "import_worker_queued_jobs_locked" in captured.err
+    assert "count=1" in captured.err
+
+
+def test_worker_loop_stays_silent_when_no_jobs_are_locked_new(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        worker,
+        "run_queued_import_jobs",
+        lambda **_kwargs: {"queue": {}, "queued_locked": 0},
+    )
+    monkeypatch.setattr(worker, "send_admin_alert", lambda **_kwargs: {"sent": True})
+    monkeypatch.setattr(worker, "backend_is_healthy", lambda *_a, **_k: True)
+    monkeypatch.setattr(worker.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(worker, "_STOP", False)
+
+    worker.run_worker_loop(limit=1, sleep_seconds=5, max_iterations=1, health_url="http://backend:8000/ready")
+
+    captured = capsys.readouterr()
+    assert "import_worker_queued_jobs_locked" not in captured.err

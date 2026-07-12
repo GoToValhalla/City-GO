@@ -19,6 +19,16 @@ class Settings(BaseSettings):
     db_pool_recycle_seconds: int = 1800
     db_statement_timeout_ms: int = 15_000
     db_lock_timeout_ms: int = 5_000
+    # Bounds a transaction that already holds a lock but is sitting idle
+    # (no active statement) — e.g. a worker connection SIGKILLed (OOM-kill,
+    # forced container stop) between claiming a queued job row (SELECT ...
+    # FOR UPDATE) and its very next commit. Neither statement_timeout (only
+    # bounds an executing statement) nor lock_timeout (only bounds waiting
+    # to acquire a lock) protects against this — without this timeout,
+    # Postgres has no default bound on an idle-in-transaction session and
+    # only detects a dead connection via TCP keepalive, which can take a
+    # very long time (Postgres default tcp_keepalives_idle is 7200s).
+    db_idle_in_transaction_session_timeout_ms: int = 30_000
 
     local_cache_enabled: bool = True
     local_cache_dir: str = "/app/.cache/city-go"
