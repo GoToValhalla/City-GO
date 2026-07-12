@@ -112,11 +112,28 @@ jobs:
               print("ERROR: import-worker service not found in effective compose config", file=sys.stderr)
               raise SystemExit(1)
 
-          print(json.dumps(service, indent=2, default=str))
-
           env = service.get("environment") or {}
           if isinstance(env, list):
               env = dict((item.split("=", 1) + [""])[:2] if "=" in item else (item, "") for item in env)
+
+          SECRET_ENV_NAME_MARKERS = (
+              "TOKEN", "KEY", "SECRET", "PASSWORD", "PASS", "DSN",
+              "DATABASE_URL", "CREDENTIAL", "COOKIE", "AUTH",
+          )
+
+          def is_secret_env_name(name):
+              upper = name.upper()
+              return any(marker in upper for marker in SECRET_ENV_NAME_MARKERS)
+
+          def masked_env(env_dict):
+              masked = {}
+              for name, value in env_dict.items():
+                  masked[name] = "***" if is_secret_env_name(name) else value
+              return masked
+
+          safe_service = dict(service)
+          safe_service["environment"] = masked_env(env)
+          print(json.dumps(safe_service, indent=2, default=str))
 
           def norm_bytes(value):
               if value is None:
