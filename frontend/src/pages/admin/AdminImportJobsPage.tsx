@@ -61,6 +61,16 @@ const secondsText = (value?: number | null) => value == null ? '—' : value >= 
 const formatDateTime = (value: unknown) => { if (!value) return null; const date = new Date(String(value)); return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
 const snapshotAt = (job: AdminImportJob) => formatDateTime(detailsOf(job)['snapshot_at']) ?? 'snapshot не создан'
 const isJobFailed = (job: AdminImportJob) => Boolean(job.job_execution_failed || job.is_stalled || job.status.includes('fail') || job.status === 'stalled' || job.import_error_summary)
+// Truthful hierarchy: a currently queued/running job must never show a
+// failed badge derived from a stale error payload left over from a
+// previous run. import_error_summary is already backend-gated to the
+// current execution (see services/admin_import_display.py
+// import_error_summary(): returns None unless job_execution_failed(job)
+// is true right now) — but current_warnings/is_stalled can still be
+// carried over on the client if the job has since been re-queued, so the
+// canonical current status wins whenever it says queued/running.
+const isActiveExecution = (job: AdminImportJob) => job.status === 'queued' || job.status === 'running'
+const isTruthfullyFailed = (job: AdminImportJob) => !isActiveExecution(job) && isJobFailed(job)
 const isDestinationPublished = (job: AdminImportJob) => job.destination_publication_status === 'published' || (job.launch_status === 'published' && job.is_city_active)
 const jobStatusText = (job: AdminImportJob) => {
   if (isJobFailed(job)) return STATUS_LABELS[job.job_execution_status ?? job.status] ?? job.current_step_label ?? job.status
@@ -143,10 +153,15 @@ export const AdminImportJobsPage = () => {
   return <div><h2 className="admin-page-title">Сбор и обогащение ({cityFilter ? visibleItems.length : total})</h2><p className="admin-page-subtitle">Список читает только лёгкие counters/snapshot. Тяжёлые расчёты запускаются POST-действиями и import-worker.</p><section className="admin-help-panel"><div className="admin-help-title">Полный запуск для всех городов</div><p className="admin-muted">HTTP-запуск только ставит задачу в очередь. Выполнение делает import-worker, состояние очереди обновляется кнопкой ниже.</p><button type="button" className="admin-btn" disabled={allBusy || items.length === 0} onClick={() => void runAll()}>{allBusy ? 'Ставим задачи…' : 'Собрать и обогатить все города'}</button>{cityFilter && <button type="button" className="admin-btn" onClick={clearFilter}>Показать все города</button>}</section><WorkerQueuePanel queue={queue} loading={queueLoading} error={queueError} runLoading={workerRunLoading} runNotice={workerRunNotice} runError={workerRunError} onRefresh={loadQueue} onRunOnce={() => void runWorkerOnce()} onMarkStalled={() => void markStalled()} />{notice && <p className="admin-success-text">{notice}</p>}{error && <AdminError message={error} />}{loading ? <AdminLoading /> : visibleItems.length === 0 ? <AdminEmpty message="Задач по выбранному фильтру нет" /> : <><MobileImportJobCards items={visibleItems} />{selected && <ImportJobDetail selected={selected} busy={busy} onAction={runAction} onClose={closeDetail} />}<ImportJobsTable items={visibleItems} busy={busy} onAction={runAction} onSelect={selectDetail} /></>}</div>
 }
 
-const jobDuration = (job: AdminImportJob): string | null => {
-  const start = job.started_at ?? job.created_at
-  if (!start) return null
-  const startDate = new Date(start)
+// Mobile card duration must never be invented from created_at (a queued
+// job can sit for weeks, producing fake "474 hours" durations). Show it
+// only for the two truthful cases: a completed run (both timestamps
+// exist) or a currently running job (started, not yet finished).
+const mobileJobDuration = (job: AdminImportJob): string | null => {
+  const hasCompletedRun = Boolean(job.started_at && job.finished_at)
+  const isRunningWithStart = job.status === 'running' && Boolean(job.started_at)
+  if (!hasCompletedRun && !isRunningWithStart) return null
+  const startDate = new Date(job.started_at as string)
   if (Number.isNaN(startDate.getTime())) return null
   const endDate = job.finished_at ? new Date(job.finished_at) : new Date()
   if (Number.isNaN(endDate.getTime())) return null
@@ -156,25 +171,72 @@ const jobDuration = (job: AdminImportJob): string | null => {
   if (minutes < 60) return `${minutes} мин`
   return `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`
 }
-const jobFailureReason = (job: AdminImportJob): string | null => {
-  if (!isJobFailed(job)) return null
-  return text(job.import_error_summary?.error_message ?? job.last_error, '') || null
+
+// Raw backend error text (SQL, tracebacks, parameter dumps) must never
+// reach a mobile card — only a short, single-purpose summary. Structured
+// fields (primary_error_kind, scope_errors[].admin_hint, already
+// human-readable Russian text produced by
+// services/import_pipeline/scope_errors.py classify_scope_error) are
+// preferred; free-text is used only as a last resort and only after
+// confirming it does not look like a raw dump.
+const RAW_DUMP_PATTERN = /(traceback|SELECT\s|INSERT\s|UPDATE\s|DELETE\s|psycopg|sqlalchemy\.exc|File "|line \d+, in |\bat 0x[0-9a-f]+\b)/i
+const looksLikeRawDump = (value: string) => RAW_DUMP_PATTERN.test(value) || value.length > 160 || value.split('\n').length > 3
+
+const ERROR_KIND_SUMMARY: Record<string, string> = {
+  data_integrity: 'Ошибка целостности данных',
+  source_failure: 'Источник OSM временно недоступен',
+  scope_lock: 'Scope заблокирован другим запуском',
+  source_limits: 'Превышен лимит объектов OSM',
+  schema_mismatch: 'Схема БД не соответствует коду импорта',
+  scope_failure: 'Ошибка сбора данных',
+}
+
+const mobileFailureSummary = (job: AdminImportJob): string | null => {
+  if (!isTruthfullyFailed(job)) return null
+  const summary = job.import_error_summary
+  const firstScopeError = summary?.scope_errors?.[0] ?? summary?.diagnostics?.scope_errors?.[0]
+  if (firstScopeError?.admin_hint && !looksLikeRawDump(firstScopeError.admin_hint)) {
+    return firstScopeError.admin_hint
+  }
+  const kind = summary?.primary_error_kind ?? summary?.diagnostics?.primary_kind
+  if (kind && ERROR_KIND_SUMMARY[kind]) return ERROR_KIND_SUMMARY[kind]
+  const raw = summary?.error_message ?? job.last_error
+  if (!raw) return 'Импорт завершился с ошибкой'
+  const trimmed = raw.trim()
+  if (!trimmed || looksLikeRawDump(trimmed)) return 'Импорт завершился с ошибкой'
+  return trimmed
+}
+
+// Truthful mobile-only status: the canonical current status (queued/
+// running/stalled/success/partial) always wins over any stale error
+// payload — a queued job never shows a generic "Ошибка" badge.
+const mobileStatusLabel = (job: AdminImportJob): string => {
+  if (isActiveExecution(job)) return STATUS_LABELS[job.status] ?? (job.status === 'running' ? 'Выполняется' : 'В очереди')
+  if (job.status === 'stalled') return 'Завис'
+  if (job.status === 'partial_success') return 'Частично завершён'
+  if (isTruthfullyFailed(job)) return 'Ошибка'
+  return STATUS_LABELS[job.status] ?? job.current_step_label ?? job.status
+}
+const mobileBadgeTone = (job: AdminImportJob): string => {
+  if (isActiveExecution(job)) return 'needs_review'
+  if (isTruthfullyFailed(job)) return 'hidden'
+  return 'draft'
 }
 
 const MobileImportJobCards = ({ items }: { items: AdminImportJob[] }) => <div className="admin-import-mobile-card-list">{items.map((job) => {
-  const failureReason = jobFailureReason(job)
-  const duration = jobDuration(job)
-  const createdAt = formatDateTime(job.started_at ?? job.created_at)
+  const failureReason = mobileFailureSummary(job)
+  const duration = mobileJobDuration(job)
+  const startedAt = formatDateTime(job.started_at)
   return (
     <Link className="admin-import-mobile-card" to={`/admin/imports/jobs/${job.job_id ?? ''}/diagnostic`} key={job.id} data-testid="mobile-import-job-card">
       <div className="admin-import-mobile-card-head">
         <strong>{job.city_name}</strong>
-        <span className={`admin-badge pub-${badgeTone(job)}`} data-testid="mobile-import-job-status-badge">{jobStatusText(job)}</span>
+        <span className={`admin-badge pub-${mobileBadgeTone(job)}`} data-testid="mobile-import-job-status-badge">{mobileStatusLabel(job)}</span>
       </div>
       <div className="admin-muted">запуск #{job.job_id ?? 'текущий'}</div>
       <div className="admin-muted">{job.current_step_label ?? job.current_step ?? '—'}</div>
       {failureReason && <div className="admin-error-text" data-testid="mobile-import-job-failure-reason">{failureReason}</div>}
-      {createdAt && <div className="admin-muted">начало: {createdAt}</div>}
+      {startedAt && <div className="admin-muted">начало: {startedAt}</div>}
       {duration && <div className="admin-muted">длительность: {duration}</div>}
     </Link>
   )

@@ -69,6 +69,126 @@ const failedJob = {
   step_details: {},
 }
 
+const rawSqlErrorJob = {
+  id: 'raw-sql-job',
+  city_id: 303,
+  city_slug: 'raw-sql-city',
+  city_name: 'Raw SQL City',
+  status: 'failed',
+  current_step: 'error',
+  current_step_label: 'Ошибка',
+  source: 'admin_city_import',
+  places_total: 3,
+  places_published: 0,
+  places_unpublished: 3,
+  pending_photos: 0,
+  next_step: 'Разобрать ошибку импорта',
+  failed_items: 1,
+  job_id: 44,
+  job_execution_failed: true,
+  last_error: 'Traceback (most recent call last):\n  File "app/services/import.py", line 42, in run\n    cursor.execute("SELECT * FROM places WHERE city_id = %s AND status = %s", (1, "active"))\nsqlalchemy.exc.ProgrammingError: (psycopg.errors.UndefinedColumn) column "status" does not exist',
+  started_at: '2026-07-20T08:00:00Z',
+  finished_at: '2026-07-20T08:02:00Z',
+  created_at: '2026-07-20T08:00:00Z',
+  step_details: {},
+}
+
+const duplicatePhotoErrorJob = {
+  id: 'duplicate-photo-job',
+  city_id: 304,
+  city_slug: 'duplicate-photo-city',
+  city_name: 'Duplicate Photo City',
+  status: 'failed',
+  current_step: 'error',
+  source: 'admin_photo_enrichment',
+  places_total: 1,
+  places_published: 0,
+  places_unpublished: 1,
+  pending_photos: 0,
+  next_step: 'Разобрать ошибку добора фото',
+  failed_items: 1,
+  job_id: 45,
+  job_execution_failed: true,
+  import_error_summary: {
+    failed_step: 'photo_enrichment',
+    error_message: 'duplicate key value violates unique constraint "place_images_place_id_image_url_key"',
+    job_id: 45,
+    primary_error_kind: 'data_integrity',
+    scope_errors: [{ error: 'duplicate key value violates unique constraint', kind: 'data_integrity', admin_hint: 'Ошибка связи review queue с import job. Повторите сбор после деплоя фикса.' }],
+  },
+  started_at: '2026-07-20T07:00:00Z',
+  finished_at: '2026-07-20T07:01:00Z',
+  created_at: '2026-07-20T07:00:00Z',
+  step_details: {},
+}
+
+const fkErrorJob = {
+  id: 'fk-error-job',
+  city_id: 305,
+  city_slug: 'fk-error-city',
+  city_name: 'FK Error City',
+  status: 'failed',
+  current_step: 'error',
+  source: 'admin_city_import',
+  places_total: 2,
+  places_published: 0,
+  places_unpublished: 2,
+  pending_photos: 0,
+  next_step: 'Разобрать ошибку импорта',
+  failed_items: 1,
+  job_id: 46,
+  job_execution_failed: true,
+  last_error: 'psycopg.errors.ForeignKeyViolation: insert or update on table "review_queue_items" violates foreign key constraint "review_queue_items_job_id_fkey"',
+  started_at: '2026-07-20T06:00:00Z',
+  finished_at: '2026-07-20T06:01:00Z',
+  created_at: '2026-07-20T06:00:00Z',
+  step_details: {},
+}
+
+const queuedJobWithStaleError = {
+  id: 'queued-stale-error-job',
+  city_id: 306,
+  city_slug: 'queued-stale-city',
+  city_name: 'Queued Stale City',
+  status: 'queued',
+  current_step: 'queued',
+  source: 'admin_city_import',
+  places_total: 0,
+  places_published: 0,
+  places_unpublished: 0,
+  pending_photos: 0,
+  next_step: 'Ожидаем запуск worker',
+  failed_items: 0,
+  job_id: 47,
+  // Stale flags left over from the previous run's failure — the current
+  // status is queued, so the badge must not say "Ошибка".
+  is_stalled: true,
+  last_error: 'previous run failed: connection reset',
+  created_at: '2026-07-19T00:00:00Z',
+  step_details: {},
+}
+
+const inactiveJobWithoutFinishedAt = {
+  id: 'inactive-no-finish-job',
+  city_id: 307,
+  city_slug: 'inactive-no-finish-city',
+  city_name: 'Inactive No Finish City',
+  status: 'stalled',
+  current_step: 'error',
+  source: 'admin_city_import',
+  places_total: 0,
+  places_published: 0,
+  places_unpublished: 0,
+  pending_photos: 0,
+  next_step: 'Проверить зависшую задачу',
+  failed_items: 0,
+  job_id: 48,
+  is_stalled: true,
+  started_at: '2026-01-01T00:00:00Z',
+  created_at: '2026-01-01T00:00:00Z',
+  step_details: {},
+}
+
 const mockedAdminGet = adminGet as unknown as Mock
 const mockedAdminPost = adminPost as unknown as Mock
 
@@ -147,5 +267,87 @@ describe('AdminImportJobsPage mobile card list', () => {
     expect(mobileContainer).toBeTruthy()
     expect(mobileContainer?.querySelector('table')).toBeNull()
     expect(mobileContainer?.closest('.admin-table-wrap')).toBeNull()
+  })
+
+  it('never renders raw SQL/traceback text in the mobile card failure summary', async () => {
+    mockAdminGet(queueIdle, { items: [rawSqlErrorJob], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const reason = await screen.findByTestId('mobile-import-job-failure-reason')
+    expect(reason.textContent).not.toContain('Traceback')
+    expect(reason.textContent).not.toContain('SELECT')
+    expect(reason.textContent).not.toContain('sqlalchemy.exc')
+    expect(reason.textContent).not.toContain('File "')
+    expect(reason.textContent).toBe('Импорт завершился с ошибкой')
+  })
+
+  it('turns a duplicate-photo constraint error into a short summary', async () => {
+    mockAdminGet(queueIdle, { items: [duplicatePhotoErrorJob], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const reason = await screen.findByTestId('mobile-import-job-failure-reason')
+    expect(reason.textContent).not.toContain('duplicate key value violates unique constraint')
+    expect(reason.textContent).toBe('Ошибка связи review queue с import job. Повторите сбор после деплоя фикса.')
+  })
+
+  it('turns a foreign key violation error into a short summary', async () => {
+    mockAdminGet(queueIdle, { items: [fkErrorJob], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const reason = await screen.findByTestId('mobile-import-job-failure-reason')
+    expect(reason.textContent).not.toContain('ForeignKeyViolation')
+    expect(reason.textContent).not.toContain('review_queue_items_job_id_fkey')
+    expect(reason.textContent).toBe('Импорт завершился с ошибкой')
+  })
+
+  it('does not show a generic error badge for a queued job carrying a stale error from a previous run', async () => {
+    mockAdminGet(queueIdle, { items: [queuedJobWithStaleError], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const badge = await screen.findByTestId('mobile-import-job-status-badge')
+    expect(badge.textContent).toBe('В очереди')
+    expect(screen.queryByTestId('mobile-import-job-failure-reason')).toBeNull()
+  })
+
+  it('hides duration for an inactive job that never recorded finished_at', async () => {
+    mockAdminGet(queueIdle, { items: [inactiveJobWithoutFinishedAt], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const card = await screen.findByTestId('mobile-import-job-card')
+    expect(card.textContent).not.toContain('длительность:')
+  })
+
+  it('shows duration for a running job with started_at (no finished_at yet)', async () => {
+    mockAdminGet(queueIdle, { items: [runningJob], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const card = await screen.findByTestId('mobile-import-job-card')
+    expect(card.textContent).toContain('длительность:')
+  })
+
+  it('shows duration for a completed job with both started_at and finished_at', async () => {
+    mockAdminGet(queueIdle, { items: [failedJob], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const card = await screen.findByTestId('mobile-import-job-card')
+    expect(card.textContent).toContain('длительность: 5 мин')
+  })
+
+  it('lets the current queued status win over a stale failed-looking error payload', async () => {
+    mockAdminGet(queueIdle, { items: [queuedJobWithStaleError], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const badge = await screen.findByTestId('mobile-import-job-status-badge')
+    expect(badge.textContent).not.toBe('Ошибка')
+    const card = screen.getByTestId('mobile-import-job-card')
+    expect(card.textContent).not.toContain('connection reset')
   })
 })

@@ -132,7 +132,14 @@ export type AdminImportJob = {
   destination_publication_status?: string
   job_execution_failed?: boolean
   import_execution_summary?: Record<string, unknown> | null
-  import_error_summary?: { failed_step?: string; error_message?: string; job_id?: number } | null
+  import_error_summary?: {
+    failed_step?: string
+    error_message?: string
+    job_id?: number
+    primary_error_kind?: string
+    scope_errors?: Array<{ error?: string; kind?: string; admin_hint?: string }>
+    diagnostics?: { primary_kind?: string; scope_errors?: Array<{ error?: string; kind?: string; admin_hint?: string }> } | null
+  } | null
   current_warnings?: Array<{ step?: string; error?: string; reason?: string }>
   stale_error?: string | null
   snapshot_warning?: { code?: string; message?: string } | null
