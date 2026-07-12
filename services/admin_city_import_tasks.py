@@ -368,4 +368,5 @@ def import_queue_summary(db) -> dict[str, Any]:
         "stalled_running": sum(1 for job in running_jobs if is_stalled(job, now=now)),
         "oldest_queued_seconds": oldest_queued_seconds,
         "next_job_ids": [job.id for job in next_jobs],
+        "running_job_ids": [job.id for job in running_jobs],
     }

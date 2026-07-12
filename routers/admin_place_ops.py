@@ -28,7 +28,9 @@ from schemas.admin_place_ops import (
     AdminPlaceUpdateRequest,
 )
 from schemas.admin_system_log import SystemLogListResponse, SystemLogRead
+from schemas.admin_worker_event import AdminWorkerEventRequest, AdminWorkerEventResponse
 from services.admin_address_job_service import queue_address_refresh, run_address_refresh_operation
+from services.admin_worker_event_service import record_worker_event
 from services.admin_city_settings_service import city_settings_payload, update_city_toggle
 from services.admin_place_bulk_service import apply_bulk, preview_bulk
 from services.admin_place_create_service import create_draft_place
@@ -167,6 +169,22 @@ def read_system_logs(
         db.rollback()
         raise HTTPException(status_code=503, detail="Не удалось получить логи: ошибка базы данных") from exc
     return SystemLogListResponse(items=[SystemLogRead.model_validate(item) for item in items], total=total, limit=limit, offset=offset)
+
+
+@router.post("/system-logs/worker-event", response_model=AdminWorkerEventResponse)
+def report_worker_event(
+    payload: AdminWorkerEventRequest,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> AdminWorkerEventResponse:
+    try:
+        row = record_worker_event(db, payload=payload, actor_id=auth.actor_id)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Не удалось записать событие worker: ошибка базы данных") from exc
+    return AdminWorkerEventResponse(accepted=True, log_id=row.id)
 
 
 @router.get("/deployment/status")

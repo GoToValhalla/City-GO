@@ -248,3 +248,125 @@ def test_api_returns_404_for_missing_job_new(client) -> None:
     response = client.get("/admin/import-jobs/999999/diagnostic")
 
     assert response.status_code == 404
+
+
+def test_workflow_run_id_and_url_populate_diagnostic_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    city = city_factory(slug="diag-workflow-run")
+    job = _create_job(db_session, city_id=city.id, status="running")
+    write_system_log(
+        db_session, level="info", module="import_worker", message="Import-worker run started",
+        details={
+            "event": "worker_run_started", "job_id": job.id, "worker_run_id": "29192806410",
+            "workflow_name": "CITY GO · OPS · Run Import Worker Safely",
+            "github_run_id": "29192806410",
+            "github_run_url": "https://github.com/GoToValhalla/City-GO/actions/runs/29192806410",
+        },
+        request_id=str(job.id), commit=True,
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["worker_run_id"] == "29192806410"
+    assert diagnostic["workflow_name"] == "CITY GO · OPS · Run Import Worker Safely"
+    assert diagnostic["workflow_run_id"] == "29192806410"
+    assert diagnostic["workflow_run_url"] == "https://github.com/GoToValhalla/City-GO/actions/runs/29192806410"
+    assert diagnostic["worker_state"] == "running"
+    assert diagnostic["workflow_run_url"] in diagnostic["diagnostic_report"]
+
+
+def test_health_degradation_populates_stop_reason_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    city = city_factory(slug="diag-health-degraded")
+    job = _create_job(db_session, city_id=city.id, status="running")
+    write_system_log(
+        db_session, level="warning", module="import_worker", message="Import-worker public health check degraded",
+        details={
+            "event": "worker_health_check_failed", "job_id": job.id,
+            "stop_reason": "health_check_failed_health=000_ready=200_streak=1",
+        },
+        request_id=str(job.id), commit=True,
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["stop_reason"] == "health_check_failed_health=000_ready=200_streak=1"
+    assert len(diagnostic["timeline"]) == 1
+    assert diagnostic["timeline"][0]["type"] == "health_degradation"
+    assert diagnostic["timeline"][0]["severity"] == "warning"
+
+
+def test_sigterm_and_workflow_cleanup_appear_in_timeline_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    city = city_factory(slug="diag-sigterm-cleanup")
+    job = _create_job(db_session, city_id=city.id, status="failed", current_step="error")
+    write_system_log(
+        db_session, level="warning", module="import_worker", message="Import-worker stop requested",
+        details={"event": "worker_stop_requested", "job_id": job.id, "stop_reason": "public_health_degraded", "stop_source": "monitor_loop"},
+        request_id=str(job.id), commit=True,
+    )
+    write_system_log(
+        db_session, level="info", module="import_worker", message="Import-worker workflow cleanup executed",
+        details={"event": "workflow_cleanup", "job_id": job.id, "stop_reason": "public_health_degraded"},
+        request_id=str(job.id), commit=True,
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["stop_reason"] == "public_health_degraded"
+    assert diagnostic["stop_source"] == "monitor_loop"
+    types = [event["type"] for event in diagnostic["timeline"]]
+    assert types == ["sigterm", "workflow_cleanup"]
+    assert diagnostic["timeline"][0]["severity"] == "warning"
+
+
+def test_worker_events_from_another_job_are_excluded_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    city = city_factory(slug="diag-worker-scope")
+    job_a = _create_job(db_session, city_id=city.id, status="running")
+    job_b = _create_job(db_session, city_id=city.id, status="running")
+
+    write_system_log(
+        db_session, level="info", module="import_worker", message="Import-worker run started",
+        details={"event": "worker_run_started", "job_id": job_a.id, "worker_run_id": "run-a"},
+        request_id=str(job_a.id), commit=True,
+    )
+    write_system_log(
+        db_session, level="info", module="import_worker", message="Import-worker run started",
+        details={"event": "worker_run_started", "job_id": job_b.id, "worker_run_id": "run-b"},
+        request_id=str(job_b.id), commit=True,
+    )
+
+    diagnostic_a = build_import_job_diagnostic(db_session, job_id=job_a.id)
+    diagnostic_b = build_import_job_diagnostic(db_session, job_id=job_b.id)
+
+    assert diagnostic_a is not None and diagnostic_b is not None
+    assert diagnostic_a["worker_run_id"] == "run-a"
+    assert diagnostic_b["worker_run_id"] == "run-b"
+    assert len(diagnostic_a["timeline"]) == 1
+    assert len(diagnostic_b["timeline"]) == 1
+
+
+def test_missing_lifecycle_events_leave_worker_fields_nullable_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """A job that has never had any worker-lifecycle event reported (e.g. it
+    was processed by the in-process worker loop without the workflow
+    reporting layer, or hasn't been claimed yet) must return null for all
+    worker/workflow fields rather than raising or defaulting to a fake value."""
+    city = city_factory(slug="diag-no-lifecycle-events")
+    job = _create_job(db_session, city_id=city.id, status="running")
+    write_system_log(
+        db_session, level="info", module="import_worker", message=f"Import worker claiming job #{job.id}",
+        details={"event": "worker_job_claimed", "job_id": job.id}, request_id=str(job.id), commit=True,
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["worker_state"] is None
+    assert diagnostic["worker_run_id"] is None
+    assert diagnostic["stop_reason"] is None
+    assert diagnostic["stop_source"] is None
+    assert diagnostic["exit_code"] is None
+    assert diagnostic["oom_killed"] is None
+    assert diagnostic["workflow_name"] is None
+    assert diagnostic["workflow_run_id"] is None
+    assert diagnostic["workflow_run_url"] is None

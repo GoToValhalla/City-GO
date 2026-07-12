@@ -33,6 +33,21 @@ const diagnostic = {
   diagnostic_report: 'CITY GO — Import Job Diagnostic Report\nJob #9 — Алматы (almaty)\nStatus: failed',
 }
 
+const diagnosticWithWorkerData = {
+  ...diagnostic,
+  job_id: 10,
+  status: 'stalled',
+  worker_state: 'stopped',
+  worker_run_id: '29192806410',
+  stop_reason: 'public_health_degraded',
+  stop_source: 'monitor_loop',
+  exit_code: 0,
+  oom_killed: false,
+  workflow_name: 'CITY GO · OPS · Run Import Worker Safely',
+  workflow_run_id: '29192806410',
+  workflow_run_url: 'https://github.com/GoToValhalla/City-GO/actions/runs/29192806410',
+}
+
 const renderPage = (jobId = '9') =>
   render(
     <MemoryRouter initialEntries={[`/admin/imports/jobs/${jobId}/diagnostic`]}>
@@ -50,6 +65,7 @@ describe('AdminImportJobDiagnosticPage', () => {
       vi.fn((input: RequestInfo | URL) => {
         const url = String(input)
         if (url.includes('/import-jobs/9/diagnostic')) return Promise.resolve(new Response(JSON.stringify(diagnostic), { status: 200 }))
+        if (url.includes('/import-jobs/10/diagnostic')) return Promise.resolve(new Response(JSON.stringify(diagnosticWithWorkerData), { status: 200 }))
         if (url.includes('/import-jobs/999/diagnostic')) return Promise.resolve(new Response('{}', { status: 404 }))
         return Promise.resolve(new Response('{}', { status: 404 }))
       }),
@@ -103,5 +119,15 @@ describe('AdminImportJobDiagnosticPage', () => {
     await waitFor(() => expect(screen.getByText('Алматы')).toBeTruthy())
     expect(container.querySelector('table')).toBeNull()
     expect(container.querySelector('.admin-table-wrap')).toBeNull()
+  })
+
+  it('renders persisted worker/workflow fields when available (stop reason, exit code, workflow link)', async () => {
+    renderPage('10')
+    await waitFor(() => expect(screen.getByTestId('diagnostic-stop-reason')).toBeTruthy())
+    expect(screen.getByTestId('diagnostic-stop-reason').textContent).toContain('public_health_degraded')
+    expect(screen.getByTestId('diagnostic-stop-reason').textContent).toContain('monitor_loop')
+    expect(screen.getByText(/Код завершения: 0/)).toBeTruthy()
+    const workflowLink = screen.getByText('CITY GO · OPS · Run Import Worker Safely').closest('a')
+    expect(workflowLink?.getAttribute('href')).toBe('https://github.com/GoToValhalla/City-GO/actions/runs/29192806410')
   })
 })

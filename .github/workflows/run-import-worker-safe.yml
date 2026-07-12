@@ -25,9 +25,13 @@ jobs:
       SSH_HOST: ${{ secrets.SSH_HOST }}
       SSH_USER: ${{ secrets.SSH_USER }}
       SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       MAX_RUNTIME_SECONDS: ${{ inputs.max_runtime_seconds || '300' }}
+      WORKFLOW_NAME: ${{ github.workflow }}
+      WORKFLOW_RUN_ID: ${{ github.run_id }}
+      WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - name: Require exact confirmation text
         shell: bash
@@ -63,7 +67,13 @@ jobs:
             -o ServerAliveCountMax=2 \
             -i ~/.ssh/deploy_key \
             -p "$SSH_PORT" \
-            "$SSH_USER@$SSH_HOST" MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS" bash <<'REMOTE_EOF' | tee "$LOG"
+            "$SSH_USER@$SSH_HOST" \
+            MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS" \
+            ADMIN_API_TOKEN="$ADMIN_API_TOKEN" \
+            WORKFLOW_NAME="$WORKFLOW_NAME" \
+            WORKFLOW_RUN_ID="$WORKFLOW_RUN_ID" \
+            WORKFLOW_RUN_URL="$WORKFLOW_RUN_URL" \
+            bash <<'REMOTE_EOF' | tee "$LOG"
           set -uo pipefail
           cd /srv/app
 
@@ -74,9 +84,45 @@ jobs:
           RUNTIME_CGROUP_PERCENT=85
           FAIL=0
           WORKER_ID=""
+          CLAIMED_JOB_ID=""
+
+          # Reports one structured worker-lifecycle event to the existing
+          # backend logging endpoint (POST /admin/system-logs/worker-event,
+          # which reuses write_system_log — no new logging system). Silent,
+          # best-effort: a failed report must never fail or slow down the
+          # worker run itself. job_id is included only when a job has
+          # actually been claimed (CLAIMED_JOB_ID set) — never invented.
+          report_worker_event() {
+            local event="$1"; shift
+            [ -n "${ADMIN_API_TOKEN:-}" ] || return 0
+            local extra_json="$1"
+            local job_field=""
+            if [ -n "${CLAIMED_JOB_ID:-}" ]; then
+              job_field="\"job_id\": ${CLAIMED_JOB_ID}, "
+            fi
+            curl -sS --max-time 8 -o /dev/null \
+              -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -X POST "https://citygo.autismishe.online/api/admin/system-logs/worker-event" \
+              -d "{\"event\": \"${event}\", ${job_field}\"worker_run_id\": \"${WORKFLOW_RUN_ID:-}\", \"workflow_name\": \"${WORKFLOW_NAME:-}\", \"github_run_id\": \"${WORKFLOW_RUN_ID:-}\", \"github_run_url\": \"${WORKFLOW_RUN_URL:-}\"${extra_json}}" \
+              2>&1 || true
+          }
+
+          # Best-effort: pick up the job_id the worker actually claimed (if
+          # any) from the existing queue summary endpoint, so subsequent
+          # lifecycle events can be associated with it. No job is invented
+          # if nothing is running yet.
+          refresh_claimed_job_id() {
+            [ -n "${ADMIN_API_TOKEN:-}" ] || return 0
+            CLAIMED_JOB_ID="$(curl -sS --max-time 8 \
+              -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+              "https://citygo.autismishe.online/api/admin/import-jobs/queue" 2>/dev/null \
+              | python3 -c 'import json,sys; data=json.load(sys.stdin); ids=data.get("running_job_ids") or []; print(ids[0] if ids else "")' 2>/dev/null || true)"
+          }
 
           cleanup() {
             section "cleanup: always stop import-worker"
+            report_worker_event "workflow_cleanup" ", \"stop_reason\": \"${STOP_REASON:-unknown}\""
             docker compose stop -t 30 import-worker 2>&1 || echo "(stop failed or already stopped)"
           }
           trap cleanup EXIT
@@ -123,6 +169,7 @@ jobs:
           fi
           WORKER_ID="$(docker compose ps -aq import-worker 2>/dev/null || true)"
           test -n "$WORKER_ID" || (echo "ERROR: worker container was not created" >&2; exit 1)
+          report_worker_event "worker_run_started" ""
 
           section "effective worker limits"
           docker inspect -f 'memory_limit={{.HostConfig.Memory}} memory_swap={{.HostConfig.MemorySwap}} nano_cpus={{.HostConfig.NanoCpus}} restart={{.HostConfig.RestartPolicy.Name}}' "$WORKER_ID"
@@ -153,6 +200,8 @@ jobs:
 
             if [ "$HEALTH_CODE" != "200" ] || [ "$READY_CODE" != "200" ]; then
               HEALTH_FAIL_STREAK=$((HEALTH_FAIL_STREAK + 1))
+              refresh_claimed_job_id
+              report_worker_event "worker_health_check_failed" ", \"stop_reason\": \"health_check_failed_health=${HEALTH_CODE}_ready=${READY_CODE}_streak=${HEALTH_FAIL_STREAK}\""
             else
               HEALTH_FAIL_STREAK=0
             fi
@@ -161,34 +210,41 @@ jobs:
 
             if [ "$WORKER_STATE" != "running" ]; then
               STOP_REASON="worker_exited_state_${WORKER_STATE}"
+              refresh_claimed_job_id
+              report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
               break
             fi
             if [ "$HEALTH_FAIL_STREAK" -ge "$HEALTH_FAIL_THRESHOLD" ]; then
               STOP_REASON="public_health_degraded"
               echo "ERROR: public health degraded for ${HEALTH_FAIL_STREAK} consecutive checks; stopping worker." >&2
+              report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
               break
             fi
             if [ "$AVAILABLE_MB" -lt "$RUNTIME_HOST_FLOOR_MB" ]; then
               STOP_REASON="host_memory_floor"
               echo "ERROR: host memory crossed runtime floor; stopping worker." >&2
+              report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
               break
             fi
             case "$MEM_PERCENT" in
               ''|*[!0-9]*)
                 STOP_REASON="worker_memory_reading_unknown"
                 echo "ERROR: worker memory percentage is unknown; stopping worker fail-closed." >&2
+                report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
                 break
                 ;;
             esac
             if [ "$MEM_PERCENT" -ge "$RUNTIME_CGROUP_PERCENT" ]; then
               STOP_REASON="worker_cgroup_soft_limit"
               echo "ERROR: worker reached cgroup soft limit; stopping worker." >&2
+              report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
               break
             fi
           done
 
           if [ "$ELAPSED" -ge "$MAX_RUNTIME_SECONDS" ]; then
             STOP_REASON="max_runtime_reached"
+            report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
           fi
           echo "monitor loop ended: reason=${STOP_REASON} elapsed=${ELAPSED}s"
 
@@ -207,6 +263,13 @@ jobs:
           WORKER_OOM=$(docker inspect -f '{{.State.OOMKilled}}' "$WORKER_ID" 2>/dev/null || echo unknown)
           echo "worker_exit_code=${WORKER_EXIT_CODE} worker_oom_killed=${WORKER_OOM}"
           echo "STOP_REASON=${STOP_REASON}"
+
+          EXIT_CODE_JSON="null"
+          case "$WORKER_EXIT_CODE" in ''|*[!0-9]*) ;; *) EXIT_CODE_JSON="$WORKER_EXIT_CODE" ;; esac
+          OOM_JSON="null"
+          [ "$WORKER_OOM" = "true" ] && OOM_JSON="true"
+          [ "$WORKER_OOM" = "false" ] && OOM_JSON="false"
+          report_worker_event "worker_run_finished" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\", \"exit_code\": ${EXIT_CODE_JSON}, \"oom_killed\": ${OOM_JSON}"
 
           if [ "$WORKER_OOM" = "true" ] || [ "$WORKER_EXIT_CODE" = "137" ]; then
             echo "ERROR: worker was OOM-killed." >&2

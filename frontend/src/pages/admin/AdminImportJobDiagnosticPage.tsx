@@ -107,8 +107,9 @@ export const AdminImportJobDiagnosticPage = () => {
             <p className="admin-muted">Начало: {formatDateTime(diagnostic.started_at)}</p>
             <p className="admin-muted">Завершение: {formatDateTime(diagnostic.finished_at)}</p>
             <p className="admin-muted">Длительность: {formatDuration(diagnostic.duration_seconds)}</p>
-            {diagnostic.worker_state && <p className="admin-muted">Состояние worker: {diagnostic.worker_state}</p>}
-            {diagnostic.stop_reason && <p className="admin-muted">Причина остановки: {diagnostic.stop_reason}{diagnostic.stop_source ? ` (${diagnostic.stop_source})` : ''}</p>}
+            {diagnostic.worker_state && <p className="admin-muted">Состояние worker: {diagnostic.worker_state}{diagnostic.worker_run_id ? ` · run ${diagnostic.worker_run_id}` : ''}</p>}
+            {diagnostic.stop_reason && <p className="admin-muted" data-testid="diagnostic-stop-reason">Причина остановки: {diagnostic.stop_reason}{diagnostic.stop_source ? ` (${diagnostic.stop_source})` : ''}</p>}
+            {diagnostic.exit_code != null && <p className="admin-muted">Код завершения: {diagnostic.exit_code}{diagnostic.oom_killed ? ' · OOM' : ''}</p>}
             {diagnostic.workflow_run_url && (
               <p className="admin-muted">
                 Workflow: <a href={diagnostic.workflow_run_url} target="_blank" rel="noreferrer">{diagnostic.workflow_name ?? diagnostic.workflow_run_id ?? 'открыть'}</a>
