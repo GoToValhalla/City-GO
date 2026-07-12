@@ -130,6 +130,14 @@ jobs:
           section "monitor loop"
           ELAPSED=0
           STOP_REASON="timeout"
+          # A single transient DNS/connect failure on the public health check
+          # must not stop the worker (CI run 29192806410: "curl: (28) Resolving
+          # timed out" was misread as a confirmed unhealthy backend and killed
+          # a worker that was otherwise running fine). Only a run of consecutive
+          # failed checks is treated as a confirmed outage. /ready and
+          # container-state checks are unaffected: they still break immediately.
+          HEALTH_FAIL_STREAK=0
+          HEALTH_FAIL_THRESHOLD=3
           while [ "$ELAPSED" -lt "$MAX_RUNTIME_SECONDS" ]; do
             sleep 5
             ELAPSED=$((ELAPSED + 5))
@@ -143,15 +151,21 @@ jobs:
             MEM_PERCENT=${MEM_PERCENT_RAW%.*}
             MEM_PERCENT=${MEM_PERCENT:-999}
 
-            echo "t=${ELAPSED}s worker_state=${WORKER_STATE} health=${HEALTH_CODE} ready=${READY_CODE} host_available_mb=${AVAILABLE_MB} worker_mem='${MEM_USAGE}' worker_mem_percent=${MEM_PERCENT}"
+            if [ "$HEALTH_CODE" != "200" ] || [ "$READY_CODE" != "200" ]; then
+              HEALTH_FAIL_STREAK=$((HEALTH_FAIL_STREAK + 1))
+            else
+              HEALTH_FAIL_STREAK=0
+            fi
+
+            echo "t=${ELAPSED}s worker_state=${WORKER_STATE} health=${HEALTH_CODE} ready=${READY_CODE} health_fail_streak=${HEALTH_FAIL_STREAK} host_available_mb=${AVAILABLE_MB} worker_mem='${MEM_USAGE}' worker_mem_percent=${MEM_PERCENT}"
 
             if [ "$WORKER_STATE" != "running" ]; then
               STOP_REASON="worker_exited_state_${WORKER_STATE}"
               break
             fi
-            if [ "$HEALTH_CODE" != "200" ] || [ "$READY_CODE" != "200" ]; then
+            if [ "$HEALTH_FAIL_STREAK" -ge "$HEALTH_FAIL_THRESHOLD" ]; then
               STOP_REASON="public_health_degraded"
-              echo "ERROR: public health degraded; stopping worker." >&2
+              echo "ERROR: public health degraded for ${HEALTH_FAIL_STREAK} consecutive checks; stopping worker." >&2
               break
             fi
             if [ "$AVAILABLE_MB" -lt "$RUNTIME_HOST_FLOOR_MB" ]; then
