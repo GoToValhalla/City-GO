@@ -118,7 +118,7 @@ def test_import_worker_allows_heavy_job_when_enabled_and_host_memory_is_sufficie
     _patch_session_local(monkeypatch, db_session)
     monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
     monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 1)
-    monkeypatch.setattr(tasks.settings, "import_worker_min_available_memory_mb", 600)
+    monkeypatch.setattr(tasks.settings, "import_worker_min_available_memory_mb", 550)
     monkeypatch.setattr(tasks, "_available_memory_mb", lambda: 711)
     city = city_factory(slug="worker-heavy-allowed", name="Worker Heavy Allowed")
     job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
