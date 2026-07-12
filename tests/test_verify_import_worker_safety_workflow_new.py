@@ -117,6 +117,16 @@ def test_workflow_uses_json_compose_config_extraction_new() -> None:
     assert "sed -n '/^  import-worker:/" not in text
 
 
+def test_workflow_never_dumps_raw_service_config_new() -> None:
+    """The raw service dict includes environment with real secret values
+    resolved by docker compose config — only the masked copy may be printed."""
+    text = _workflow_text()
+
+    assert "print(json.dumps(service, indent=2" not in text
+    assert "safe_service" in text
+    assert 'safe_service["environment"] = masked_env(env)' in text
+
+
 def test_workflow_enables_ops_profile_for_compose_config_new() -> None:
     """import-worker is defined behind `profiles: ["ops"]` in
     docker-compose.yml, so `docker compose config` must explicitly enable
@@ -212,6 +222,37 @@ def test_embedded_validation_passes_for_recalibrated_config_new() -> None:
 
     assert result.returncode == 0, result.stderr
     assert "All import-worker safety config checks passed." in result.stdout
+
+
+def test_embedded_validation_masks_secret_env_values_new() -> None:
+    """Regression for a real leak: docker compose config resolves secret env
+    vars to their real values, and the diagnostic used to dump the whole
+    service (including environment) straight into the GitHub Actions log."""
+    service = _fixture_service()
+    service["environment"] = dict(service["environment"])
+    service["environment"].update({
+        "OPENAI_API_KEY": "sk-supersecretvalue1234567890",
+        "TELEGRAM_BOT_TOKEN": "123456:AAsupersecrettokenvalue",
+        "ADMIN_API_TOKEN": "admin-secret-token-value",
+        "DATABASE_URL": "postgresql://user:supersecretpass@db:5432/citygo",
+    })
+
+    result = _run_validation_against_fixture(service)
+
+    assert result.returncode == 0, result.stderr
+    for leaked in (
+        "sk-supersecretvalue1234567890",
+        "AAsupersecrettokenvalue",
+        "admin-secret-token-value",
+        "supersecretpass",
+    ):
+        assert leaked not in result.stdout
+
+    assert '"OPENAI_API_KEY": "***"' in result.stdout
+    assert '"TELEGRAM_BOT_TOKEN": "***"' in result.stdout
+    assert '"ADMIN_API_TOKEN": "***"' in result.stdout
+    assert '"DATABASE_URL": "***"' in result.stdout
+    assert '"IMPORT_WORKER_SAFE_MODE": "true"' in result.stdout
 
 
 def test_embedded_validation_fails_for_old_low_memory_contract_new() -> None:
