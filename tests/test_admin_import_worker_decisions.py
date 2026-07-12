@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session
 
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
@@ -55,6 +55,48 @@ def test_import_worker_logs_no_queued_jobs(
     assert result["failed"] == 0
     assert result["queue"]["queued"] == 0
     assert _events(db_session) == ["worker_no_queued_jobs"]
+
+
+def test_import_worker_reports_locked_queued_job_instead_of_lying_about_empty_queue(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """On Postgres, `FOR UPDATE SKIP LOCKED` can return zero rows even when a
+    queued job genuinely exists, if every candidate row is locked by another
+    transaction (e.g. a crashed/orphaned prior worker iteration that never
+    released its connection) — this is exactly how a queued job can stay
+    queued forever with the worker reporting "no queued jobs" every
+    iteration, giving no diagnostic signal. SQLite (used by this test
+    fixture) silently drops the SKIP LOCKED clause, so the locked-claim
+    result is simulated directly at the query level to prove the worker's
+    own reporting is now truthful regardless of what the claim query
+    returns."""
+    _patch_session_local(monkeypatch, db_session)
+    city = city_factory(slug="worker-locked-queue", name="Worker Locked Queue")
+    _create_import_job(db_session, city_id=city.id, source="admin_city_import")
+
+    real_all = Query.all
+
+    def _empty_claim_once(self):
+        # Only the claim query itself (status == "queued" + with_for_update)
+        # is forced empty; the plain lock-free count query used for the
+        # truthful-report check must still see the real row.
+        if getattr(self, "_for_update_arg", None) is not None:
+            return []
+        return real_all(self)
+
+    monkeypatch.setattr(Query, "all", _empty_claim_once)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 0
+    assert result["failed"] == 0
+    assert _events(db_session) == ["worker_queued_jobs_locked"]
+    log = db_session.query(SystemLog).filter(SystemLog.module == "import_worker").order_by(SystemLog.id.asc()).first()
+    assert log.level == "error"
+    assert log.details["queued_locked"] == 1
+    assert "locked" in log.message.lower()
 
 
 def test_import_worker_blocks_full_import_in_safe_mode_on_low_memory_host(
