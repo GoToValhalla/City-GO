@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { adminGet } from './adminApi'
 import type { AdminImportJobDiagnostic, AdminImportJobTimelineEvent } from './adminTypes'
@@ -58,16 +58,20 @@ export const AdminImportJobDiagnosticPage = () => {
   const [error, setError] = useState<string | null>(null)
   const [copyStatus, setCopyStatus] = useState<string | null>(null)
 
-  const load = useCallback(() => {
-    setLoading(true)
-    setError(null)
-    adminGet<AdminImportJobDiagnostic>(`/admin/import-jobs/${jobId}/diagnostic`, { cache: false })
-      .then(setDiagnostic)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false))
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      await Promise.resolve()
+      if (!alive) return
+      setLoading(true)
+      setError(null)
+      const result = await adminGet<AdminImportJobDiagnostic>(`/admin/import-jobs/${jobId}/diagnostic`, { cache: false })
+      if (alive) setDiagnostic(result)
+    })()
+      .catch((e: Error) => alive && setError(e.message))
+      .finally(() => alive && setLoading(false))
+    return () => { alive = false }
   }, [jobId])
-
-  useEffect(() => { load() }, [load])
 
   const copyReport = async () => {
     if (!diagnostic) return
