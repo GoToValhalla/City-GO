@@ -126,15 +126,17 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                 continue
             block_reason = _safe_mode_block_reason(job)
             if block_reason is not None:
-                job.status = "failed"
-                job.last_error = block_reason
-                job.finished_at = datetime.utcnow()
+                # The job stays queued: this guard reflects a transient host
+                # resource shortage, not a defect in the job itself. Marking
+                # it failed would drop it from the queue and require manual
+                # re-enqueueing once memory recovers; leaving it queued lets
+                # the next worker run automatically pick it up again.
                 _log_worker_decision(
                     db,
                     event="worker_job_blocked_safe_mode",
                     actor_id=actor_id,
-                    level="error",
-                    message=f"Import worker blocked job #{job_id}: {block_reason}",
+                    level="warning",
+                    message=f"Import worker skipped job #{job_id} (stays queued): {block_reason}",
                     job=job,
                     details={"reason": "safe_mode_resource_guard", "source": source, "limit": limit},
                 )
@@ -142,7 +144,7 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                 send_admin_alert(
                     title="Import worker job blocked (safe mode)",
                     message=block_reason,
-                    level="error",
+                    level="warning",
                     job_id=job_id,
                     details={"city_id": city_id, "source": source},
                 )

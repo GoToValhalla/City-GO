@@ -77,10 +77,9 @@ def test_import_worker_blocks_full_import_in_safe_mode_on_low_memory_host(
 
     assert result["processed"] == 0
     db_session.refresh(job)
-    assert job.status == "failed"
-    assert job.last_error is not None
-    assert "safety guard" in job.last_error
-    assert job.finished_at is not None
+    assert job.status == "queued"
+    assert job.last_error is None
+    assert job.finished_at is None
     assert _events(db_session) == ["worker_job_blocked_safe_mode"]
 
 
@@ -106,8 +105,58 @@ def test_import_worker_blocks_heavy_job_when_memory_reading_is_unknown(
 
     assert result["processed"] == 0
     db_session.refresh(job)
-    assert job.status == "failed"
-    assert "unknown" in str(job.last_error)
+    assert job.status == "queued"
+    assert job.last_error is None
+
+
+def test_import_worker_blocked_job_stays_queued_and_is_picked_up_once_memory_recovers(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """Regression: a job blocked by the low-memory resource guard must not be
+    marked failed or dropped from the queue. It must remain queued, and the
+    very next worker run must automatically pick up the same job once host
+    memory is reported as sufficient — no manual re-enqueue."""
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
+    monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 1)
+    monkeypatch.setattr(tasks.settings, "import_worker_min_available_memory_mb", 550)
+    city = city_factory(slug="worker-low-memory-then-recovered", name="Worker Low Memory Then Recovered")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
+
+    monkeypatch.setattr(tasks, "_available_memory_mb", lambda: 532)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("run_city_import_job must not be called while memory is below threshold")
+
+    monkeypatch.setattr(tasks, "run_city_import_job", fail_if_called)
+
+    blocked_result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert blocked_result["processed"] == 0
+    assert blocked_result["failed"] == 0
+    db_session.refresh(job)
+    assert job.status == "queued"
+    assert job.last_error is None
+    assert job.finished_at is None
+
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+        queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
+        queued_job.status = "success"
+        queued_job.finished_at = datetime.utcnow()
+        db.commit()
+        db.refresh(queued_job)
+        return queued_job
+
+    monkeypatch.setattr(tasks, "_available_memory_mb", lambda: 711)
+    monkeypatch.setattr(tasks, "run_city_import_job", fake_run_city_import_job)
+
+    recovered_result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert recovered_result["processed"] == 1
+    db_session.refresh(job)
+    assert job.status == "success"
 
 
 def test_import_worker_allows_heavy_job_when_enabled_and_host_memory_is_sufficient(
