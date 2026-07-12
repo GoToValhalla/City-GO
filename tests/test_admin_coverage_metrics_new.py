@@ -3,7 +3,7 @@
 from models.city import City
 from models.place import Place
 from models.place_image import PLACE_IMAGE_STATUS_APPROVED, PlaceImage
-from services.admin_coverage_metrics import city_coverage_row
+from services.admin_coverage_metrics import build_coverage_summary, city_coverage_row
 
 
 def _seed_city(db, slug: str = "cov-metrics") -> City:
@@ -124,3 +124,53 @@ def test_coverage_old_formula_regression_new(db_session) -> None:
     assert row["places_published"] == 1
     assert row["places_without_address"] == 1
     assert row["places_with_address"] == 0
+
+
+def test_coverage_summary_city_with_no_published_places_does_not_raise_new(db_session) -> None:
+    """Regression for production 500 (KeyError: 'with_photo'): a city with
+    zero published places is absent from _published_quality_by_city's result
+    (it only iterates published places), so with_photo/with_addr/with_desc
+    must default to 0 from _empty_metrics rather than being missing keys."""
+    city = _seed_city(db_session, slug="cov-no-published")
+    _seed_place(db_session, city, slug="draft-only", is_published=False, publication_status="draft")
+    db_session.commit()
+
+    items, total = build_coverage_summary(db_session)
+
+    assert total >= 1
+    row = next(r for r in items if r["city_slug"] == "cov-no-published")
+    assert row["places_published"] == 0
+    assert row["places_with_photo"] == 0
+    assert row["places_without_photo"] == 0
+    assert row["places_with_address"] == 0
+    assert row["places_with_description"] == 0
+
+
+def test_coverage_summary_city_with_zero_places_does_not_raise_new(db_session) -> None:
+    """A city with no places at all must also produce a complete row, not a
+    KeyError from a partially-populated metrics dict."""
+    city = _seed_city(db_session, slug="cov-empty-city")
+    db_session.commit()
+
+    items, total = build_coverage_summary(db_session)
+
+    row = next(r for r in items if r["city_slug"] == "cov-empty-city")
+    assert row["places_total"] == 0
+    assert row["places_with_photo"] == 0
+    assert row["places_with_address"] == 0
+    assert row["places_with_description"] == 0
+    assert row["quality_score"] == 0
+
+
+def test_coverage_summary_api_returns_200_for_city_with_no_published_places_new(client, db_session) -> None:
+    city = _seed_city(db_session, slug="cov-api-no-published")
+    _seed_place(db_session, city, slug="draft-only-api", is_published=False, publication_status="draft")
+    db_session.commit()
+
+    response = client.get("/admin/coverage/summary?limit=5")
+
+    assert response.status_code == 200
+    body = response.json()
+    row = next(r for r in body["items"] if r["city_slug"] == "cov-api-no-published")
+    assert row["places_with_photo"] == 0
+    assert row["places_without_photo"] == 0

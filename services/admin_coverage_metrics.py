@@ -31,7 +31,8 @@ def _quality_score(total: int, published: int, with_photo: int, with_addr: int, 
 
 
 def city_coverage_row(db: Session, city: City) -> dict[str, object]:
-    metrics = _place_metrics(db, [city.id]).get(city.id, _empty_metrics())
+    metrics = _empty_metrics()
+    metrics.update(_place_metrics(db, [city.id]).get(city.id, {}))
     pending = _pending_photo_counts(db, [city.id]).get(city.id, 0)
     metrics.update(_published_quality_by_city(db, [city.id]).get(city.id, {}))
     return _row(city, metrics, pending)
@@ -75,7 +76,8 @@ def build_coverage_summary(db: Session, *, limit: int = 100, offset: int = 0) ->
     pending = _pending_photo_counts(db, city_ids)
     rows = []
     for city in cities:
-        city_metrics = metrics.get(city.id, _empty_metrics())
+        city_metrics = _empty_metrics()
+        city_metrics.update(metrics.get(city.id, {}))
         city_metrics.update(quality.get(city.id, {}))
         rows.append(_row(city, city_metrics, pending.get(city.id, 0)))
     return rows, total
