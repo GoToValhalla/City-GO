@@ -41,15 +41,31 @@ def test_ensure_import_pipeline_schema_does_not_create_tables_new(db_session) ->
     assert gaps_before["missing_tables"] == []
     assert gaps_before["missing_place_columns"] == []
 
-    bind.execute(text("DROP TABLE IF EXISTS place_field_provenance"))
-    gaps = diagnose_import_schema_gaps(bind.engine)
+    # DROP TABLE is DDL: on SQLite it auto-commits outside the db_session
+    # fixture's rollback-guarded transaction, so running it directly against
+    # the shared, session-scoped `engine` fixture would permanently remove
+    # place_field_provenance for every later test in the same pytest run
+    # (this exact leak previously broke two unrelated tests whenever the
+    # full suite ran, since it depends on collection order). Use a private,
+    # disposable in-memory engine seeded from the real model metadata
+    # instead, so the DROP is fully contained to this test.
+    from sqlalchemy import create_engine
+
+    from db.base import Base
+
+    isolated_engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(isolated_engine)
+    with isolated_engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS place_field_provenance"))
+    gaps = diagnose_import_schema_gaps(isolated_engine)
     assert gaps["missing_tables"] == []
 
-    result = ensure_import_pipeline_schema(bind.engine)
+    result = ensure_import_pipeline_schema(isolated_engine)
 
     assert result["created_tables"] == []
-    inspector = inspect(bind.engine)
+    inspector = inspect(isolated_engine)
     assert "place_field_provenance" not in inspector.get_table_names()
+    isolated_engine.dispose()
 
 
 def test_collecting_schema_failure_skips_finding_images_new(db_session, city_factory, monkeypatch) -> None:
