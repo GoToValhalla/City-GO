@@ -7,6 +7,18 @@ bounding the score columns), but no migration ever added them. Any ORM query
 that selects a Place (e.g. import_pipeline collection COUNT queries) fails
 with UndefinedColumn on a database migrated from scratch.
 
+Idempotent/ownership-safe (services.migration_column_guard): a real
+production deploy (e150f85) failed here with
+"column canonical_category of relation places already exists" — that
+column had been created outside this Alembic chain, in compatible form,
+on a production-shaped database. Every add_column/create_index/
+create_check_constraint below now checks first via
+services.migration_column_guard.ensure_*, using op.get_bind() (Alembic's
+own connection — never a second one), and tags anything it actually
+creates with a SQL COMMENT recording this revision, so downgrade() can
+later tell newly-created objects apart from pre-existing, compatible
+production columns and never drops the latter.
+
 Revision ID: 84665d0fd500
 Revises: d4e6f8a0b2c4
 Create Date: 2026-07-27 01:00:00.000000
@@ -15,72 +27,81 @@ Create Date: 2026-07-27 01:00:00.000000
 from alembic import op
 import sqlalchemy as sa
 
+from services.migration_column_guard import (
+    drop_check_constraint_if_owned,
+    drop_column_if_owned,
+    drop_index_if_owned,
+    ensure_check_constraint,
+    ensure_column,
+    ensure_index,
+)
+
 revision = "84665d0fd500"
 down_revision = "d4e6f8a0b2c4"
 branch_labels = None
 depends_on = None
 
+_TABLE = "places"
+
 
 def upgrade() -> None:
-    op.add_column("places", sa.Column("canonical_category", sa.String(length=100), nullable=True))
-    op.create_index(op.f("ix_places_canonical_category"), "places", ["canonical_category"], unique=False)
+    bind = op.get_bind()
 
-    op.add_column("places", sa.Column("lifecycle_status", sa.String(length=32), nullable=False, server_default="active"))
-    op.create_index(op.f("ix_places_lifecycle_status"), "places", ["lifecycle_status"], unique=False)
+    ensure_column(bind, revision=revision, table=_TABLE, column=sa.Column("canonical_category", sa.String(length=100), nullable=True))
+    ensure_index(bind, revision=revision, index_name=op.f("ix_places_canonical_category"), table=_TABLE, columns=["canonical_category"])
 
-    op.add_column("places", sa.Column("quality_tier", sa.String(length=32), nullable=False, server_default="silver"))
-    op.create_index(op.f("ix_places_quality_tier"), "places", ["quality_tier"], unique=False)
+    ensure_column(bind, revision=revision, table=_TABLE, column=sa.Column("lifecycle_status", sa.String(length=32), nullable=False, server_default="active"))
+    ensure_index(bind, revision=revision, index_name=op.f("ix_places_lifecycle_status"), table=_TABLE, columns=["lifecycle_status"])
 
-    op.add_column("places", sa.Column("quality_score", sa.Integer(), nullable=False, server_default="65"))
-    op.create_index(op.f("ix_places_quality_score"), "places", ["quality_score"], unique=False)
+    ensure_column(bind, revision=revision, table=_TABLE, column=sa.Column("quality_tier", sa.String(length=32), nullable=False, server_default="silver"))
+    ensure_index(bind, revision=revision, index_name=op.f("ix_places_quality_tier"), table=_TABLE, columns=["quality_tier"])
 
-    op.add_column("places", sa.Column("completeness_score", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("places", sa.Column("photo_score", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("places", sa.Column("description_score", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("places", sa.Column("confidence_score", sa.Integer(), nullable=False, server_default="0"))
-    op.add_column("places", sa.Column("freshness_score", sa.Integer(), nullable=False, server_default="3"))
+    ensure_column(bind, revision=revision, table=_TABLE, column=sa.Column("quality_score", sa.Integer(), nullable=False, server_default="65"))
+    ensure_index(bind, revision=revision, index_name=op.f("ix_places_quality_score"), table=_TABLE, columns=["quality_score"])
 
-    op.add_column("places", sa.Column("is_spam_poi", sa.Boolean(), nullable=False, server_default=sa.false()))
-    op.create_index(op.f("ix_places_is_spam_poi"), "places", ["is_spam_poi"], unique=False)
+    ensure_column(bind, revision=revision, table=_TABLE, column=sa.Column("completeness_score", sa.Integer(), nullable=False, server_default="0"))
+    ensure_column(bind, revision=revision, table=_TABLE, column=sa.Column("photo_score", sa.Integer(), nullable=False, server_default="0"))
+    ensure_column(bind, revision=revision, table=_TABLE, column=sa.Column("description_score", sa.Integer(), nullable=False, server_default="0"))
+    ensure_column(bind, revision=revision, table=_TABLE, column=sa.Column("confidence_score", sa.Integer(), nullable=False, server_default="0"))
+    ensure_column(bind, revision=revision, table=_TABLE, column=sa.Column("freshness_score", sa.Integer(), nullable=False, server_default="3"))
 
-    # batch_alter_table: plain op.create_check_constraint() fails on SQLite
-    # ("No support for ALTER of constraints in SQLite dialect") since adding a
-    # CHECK constraint requires a table rebuild there; batch mode handles that
-    # copy-and-move automatically while emitting a plain ALTER on Postgres.
-    with op.batch_alter_table("places") as batch_op:
-        batch_op.create_check_constraint("ck_places_quality_score_range", "quality_score >= 0 AND quality_score <= 100")
-        batch_op.create_check_constraint("ck_places_completeness_score_range", "completeness_score >= 0 AND completeness_score <= 40")
-        batch_op.create_check_constraint("ck_places_photo_score_range", "photo_score >= 0 AND photo_score <= 25")
-        batch_op.create_check_constraint("ck_places_description_score_range", "description_score >= 0 AND description_score <= 15")
-        batch_op.create_check_constraint("ck_places_confidence_score_range", "confidence_score >= 0 AND confidence_score <= 10")
-        batch_op.create_check_constraint("ck_places_freshness_score_range", "freshness_score >= 0 AND freshness_score <= 10")
+    ensure_column(bind, revision=revision, table=_TABLE, column=sa.Column("is_spam_poi", sa.Boolean(), nullable=False, server_default=sa.false()))
+    ensure_index(bind, revision=revision, index_name=op.f("ix_places_is_spam_poi"), table=_TABLE, columns=["is_spam_poi"])
+
+    ensure_check_constraint(bind, revision=revision, constraint_name="ck_places_quality_score_range", table=_TABLE, condition="quality_score >= 0 AND quality_score <= 100")
+    ensure_check_constraint(bind, revision=revision, constraint_name="ck_places_completeness_score_range", table=_TABLE, condition="completeness_score >= 0 AND completeness_score <= 40")
+    ensure_check_constraint(bind, revision=revision, constraint_name="ck_places_photo_score_range", table=_TABLE, condition="photo_score >= 0 AND photo_score <= 25")
+    ensure_check_constraint(bind, revision=revision, constraint_name="ck_places_description_score_range", table=_TABLE, condition="description_score >= 0 AND description_score <= 15")
+    ensure_check_constraint(bind, revision=revision, constraint_name="ck_places_confidence_score_range", table=_TABLE, condition="confidence_score >= 0 AND confidence_score <= 10")
+    ensure_check_constraint(bind, revision=revision, constraint_name="ck_places_freshness_score_range", table=_TABLE, condition="freshness_score >= 0 AND freshness_score <= 10")
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("places") as batch_op:
-        batch_op.drop_constraint("ck_places_freshness_score_range", type_="check")
-        batch_op.drop_constraint("ck_places_confidence_score_range", type_="check")
-        batch_op.drop_constraint("ck_places_description_score_range", type_="check")
-        batch_op.drop_constraint("ck_places_photo_score_range", type_="check")
-        batch_op.drop_constraint("ck_places_quality_score_range", type_="check")
+    bind = op.get_bind()
 
-    op.drop_index(op.f("ix_places_is_spam_poi"), table_name="places")
-    op.drop_column("places", "is_spam_poi")
+    drop_check_constraint_if_owned(bind, revision=revision, table=_TABLE, constraint_name="ck_places_freshness_score_range")
+    drop_check_constraint_if_owned(bind, revision=revision, table=_TABLE, constraint_name="ck_places_confidence_score_range")
+    drop_check_constraint_if_owned(bind, revision=revision, table=_TABLE, constraint_name="ck_places_description_score_range")
+    drop_check_constraint_if_owned(bind, revision=revision, table=_TABLE, constraint_name="ck_places_photo_score_range")
+    drop_check_constraint_if_owned(bind, revision=revision, table=_TABLE, constraint_name="ck_places_quality_score_range")
 
-    op.drop_column("places", "freshness_score")
-    op.drop_column("places", "confidence_score")
-    op.drop_column("places", "description_score")
-    op.drop_column("places", "photo_score")
-    op.drop_column("places", "completeness_score")
+    drop_index_if_owned(bind, revision=revision, table=_TABLE, index_name=op.f("ix_places_is_spam_poi"))
+    drop_column_if_owned(bind, revision=revision, table=_TABLE, column="is_spam_poi")
 
-    op.drop_index(op.f("ix_places_quality_score"), table_name="places")
-    op.drop_column("places", "quality_score")
+    drop_column_if_owned(bind, revision=revision, table=_TABLE, column="freshness_score")
+    drop_column_if_owned(bind, revision=revision, table=_TABLE, column="confidence_score")
+    drop_column_if_owned(bind, revision=revision, table=_TABLE, column="description_score")
+    drop_column_if_owned(bind, revision=revision, table=_TABLE, column="photo_score")
+    drop_column_if_owned(bind, revision=revision, table=_TABLE, column="completeness_score")
 
-    op.drop_index(op.f("ix_places_quality_tier"), table_name="places")
-    op.drop_column("places", "quality_tier")
+    drop_index_if_owned(bind, revision=revision, table=_TABLE, index_name=op.f("ix_places_quality_score"))
+    drop_column_if_owned(bind, revision=revision, table=_TABLE, column="quality_score")
 
-    op.drop_index(op.f("ix_places_lifecycle_status"), table_name="places")
-    op.drop_column("places", "lifecycle_status")
+    drop_index_if_owned(bind, revision=revision, table=_TABLE, index_name=op.f("ix_places_quality_tier"))
+    drop_column_if_owned(bind, revision=revision, table=_TABLE, column="quality_tier")
 
-    op.drop_index(op.f("ix_places_canonical_category"), table_name="places")
-    op.drop_column("places", "canonical_category")
+    drop_index_if_owned(bind, revision=revision, table=_TABLE, index_name=op.f("ix_places_lifecycle_status"))
+    drop_column_if_owned(bind, revision=revision, table=_TABLE, column="lifecycle_status")
+
+    drop_index_if_owned(bind, revision=revision, table=_TABLE, index_name=op.f("ix_places_canonical_category"))
+    drop_column_if_owned(bind, revision=revision, table=_TABLE, column="canonical_category")

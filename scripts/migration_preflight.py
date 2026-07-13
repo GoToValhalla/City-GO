@@ -174,6 +174,17 @@ def run_preflight(*, database_url: str, statement_timeout_ms: int, lock_timeout_
                 # A column the model declares NOT NULL must not already be
                 # nullable in a way that would leave existing rows with NULLs
                 # when Alembic adds a NOT NULL constraint without a backfill.
+                # This is deliberately a non-blocking finding, matching
+                # services.migration_column_guard.ensure_column's real
+                # behavior: every actual migration that adds a NOT NULL
+                # column here does so with a server_default (verified in
+                # 84665d0fd500/f0c0c48aa12a), so an existing nullable column
+                # backfills safely via that default rather than needing a
+                # separate data migration. If a future migration ever adds a
+                # NOT NULL column with no server_default, ensure_column will
+                # correctly raise IncompatibleColumnError for it at migration
+                # time — this preflight check would then need to also become
+                # blocking for that specific column to keep matching.
                 if not column.nullable and existing.get("nullable", True):
                     findings.append(
                         PreflightFinding(
