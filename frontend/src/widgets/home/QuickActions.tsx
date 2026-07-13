@@ -1,23 +1,20 @@
-import { Clock, Coffee, MapPinned, Route } from 'lucide-react'
+import { ArrowRight, Clock, List, LocateFixed, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { cityCatalogPath, cityRouteBuildPath } from '../../features/city-routing/cityPaths'
 
-const actions = [
-  { label: 'Куда сходить', text: 'места для прогулки', to: '/places', Icon: Coffee },
-  { label: 'Открыто сейчас', text: 'можно идти без ожидания', to: '/open-now', Icon: Clock },
-  { label: 'Места рядом', text: 'по текущей точке', to: '/nearby', Icon: MapPinned },
-  { label: 'Собрать прогулку', text: 'маршрут по городу', to: '/routes/generate', Icon: Route },
-]
+type Props = { citySlug: string }
 
-export const QuickActions = () => {
-  return (
-    <section className="quick-actions" aria-label="Быстрые сценарии">
-      {actions.map(({ label, text, to, Icon }) => (
-        <Link className="quick-action" key={label} to={to}>
-          <Icon size={20} />
-          <span>{label}</span>
-          <small>{text}</small>
-        </Link>
-      ))}
-    </section>
-  )
+export const QuickActions = ({ citySlug }: Props) => {
+  const actions = [
+    { label: 'Куда сходить', text: 'Все места города', to: cityCatalogPath(citySlug), Icon: List, primary: true },
+    { label: 'Места рядом', text: 'Только по вашему запросу', to: '/nearby', Icon: LocateFixed },
+    { label: 'Открыто сейчас', text: 'По опубликованным расписаниям', to: '/open-now', Icon: Clock },
+    { label: 'Случайный маршрут', text: 'Готовый сюрприз по городу', to: `${cityRouteBuildPath(citySlug)}?mode=random_mood`, Icon: Sparkles },
+  ]
+
+  return <section className="quick-actions" aria-label="Быстрые сценарии">
+    {actions.map(({ Icon, label, primary, text, to }) => <Link className={primary ? 'quick-action is-primary' : 'quick-action'} key={label} to={to}>
+      <span className="quick-action-icon"><Icon size={23} /></span><span><strong>{label}</strong><small>{text}</small></span><ArrowRight size={20} />
+    </Link>)}
+  </section>
 }

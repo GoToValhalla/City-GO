@@ -45,12 +45,14 @@ describe('RandomRouteDraftEditor', () => {
     vi.unstubAllGlobals()
   })
 
-  it('builds a mapped draft and only searches by a selected category', async () => {
+  it('builds random places without category filters and keeps draft editing', async () => {
     render(<MemoryRouter><RandomRouteDraftEditor citySlug="zelenogradsk" /></MemoryRouter>)
-    await waitFor(() => expect(screen.getByText('Кофе')).toBeTruthy())
-    fireEvent.click(screen.getByText('Кофе'))
-    fireEvent.click(screen.getByText('Случайный маршрут'))
+    fireEvent.click(screen.getByText('Собрать случайные места'))
     await waitFor(() => expect(screen.getByText(/Маршрут собран частично/)).toBeTruthy())
+    const randomCall = vi.mocked(fetch).mock.calls.find(([input]) => String(input).includes('/routes/random'))
+    const payload = JSON.parse(String((randomCall?.[1] as RequestInit | undefined)?.body))
+    expect(payload).toMatchObject({ city_slug: 'zelenogradsk', budget_minutes: 120, category_mode: 'none', selected_category_slugs: [] })
+    expect(payload.seed).toEqual(expect.any(Number))
     expect(screen.getByTestId('random-route-map')).toHaveAttribute('data-points', '2')
     expect(screen.getByTestId('random-route-map')).toHaveAttribute('data-route-line', 'true')
     expect(screen.queryByRole('textbox')).toBeNull()
@@ -59,6 +61,19 @@ describe('RandomRouteDraftEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: /Показать места/ }))
     await waitFor(() => expect(screen.getByText('Новая кофейня')).toBeTruthy())
     expect(screen.queryByText(/category_match|name_or_quality_match/)).toBeFalsy()
+  })
+
+  it('builds random mood with real categories and a randomized supported duration', async () => {
+    render(<MemoryRouter><RandomRouteDraftEditor citySlug="zelenogradsk" /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Случайное настроение/ }))
+    await waitFor(() => expect(screen.getByText(/1 доступных категорий/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: 'Удивить меня' }))
+    await waitFor(() => expect(screen.getByText(/Маршрут собран частично/)).toBeTruthy())
+    const randomCalls = vi.mocked(fetch).mock.calls.filter(([input]) => String(input).includes('/routes/random'))
+    const payload = JSON.parse(String((randomCalls.at(-1)?.[1] as RequestInit | undefined)?.body))
+    expect(payload.category_mode).toBe('balanced')
+    expect(payload.selected_category_slugs).toEqual(['cafe'])
+    expect([60, 120, 180, 240]).toContain(payload.budget_minutes)
   })
 })
 

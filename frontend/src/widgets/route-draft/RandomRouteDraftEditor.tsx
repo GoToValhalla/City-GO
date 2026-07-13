@@ -3,18 +3,19 @@ import { MapPinned, Search, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { addDraftPoint, createRandomDraft, loadCategories, removeDraftPoint, replaceDraftPoint, searchDraftPlaces } from '../../api/routes/routeDraft.api'
 import type { CategoryOption, RouteDraft, RouteDraftSearchItem } from '../../api/routes/routeDraft.types'
+import { buildRandomRoutePlan, nextRandomRouteSeed, type RandomRouteMode, type RandomRoutePlan } from '../../features/routes/model/randomRoutePlan'
 import { MapLibreMap } from '../../shared/map/MapLibreMap'
 import type { MapPoint } from '../../shared/map/mapTypes'
 import {
   filterCategoryOptionsForFeatures,
-  filterInterestsForFeatures,
-  getUnsupportedInterestLabels,
   interestOptions,
 } from '../recommendation-route/chipOptions'
+import { RandomRouteModePicker } from './RandomRouteModePicker'
 
 type Props = {
   citySlug: string
   features?: string[]
+  initialMode?: RandomRouteMode
 }
 
 const EMPTY_FEATURES: string[] = []
@@ -35,10 +36,11 @@ const validDraftMapPoints = (draft: RouteDraft): MapPoint[] => draft.points.flat
   }]
 })
 
-export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: Props) => {
+export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES, initialMode = 'random_places' }: Props) => {
   const [categories, setCategories] = useState<CategoryOption[]>(fallbackCategories)
-  const [selected, setSelected] = useState<string[]>([])
+  const [mode, setMode] = useState<RandomRouteMode>(initialMode)
   const [budget, setBudget] = useState(120)
+  const [lastPlan, setLastPlan] = useState<RandomRoutePlan | null>(null)
   const [draft, setDraft] = useState<RouteDraft | null>(null)
   const [searchCategory, setSearchCategory] = useState('')
   const [search, setSearch] = useState<RouteDraftSearchItem[]>([])
@@ -51,10 +53,6 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: 
   const visibleCategories = useMemo(
     () => filterCategoryOptionsForFeatures(categories, features),
     [categories, features],
-  )
-  const unsupportedSelectedLabels = useMemo(
-    () => getUnsupportedInterestLabels(selected, features),
-    [features, selected],
   )
   const categoryNameByCode = useMemo(
     () => new Map(categories.map((item) => [item.code, item.name])),
@@ -70,8 +68,8 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: 
   }, [])
 
   useEffect(() => {
-    setSelected((current) => filterInterestsForFeatures(current, features))
     setDraft(null)
+    setLastPlan(null)
     setSearch([])
     setReplacePointId(null)
     setActiveMapPointId(null)
@@ -79,21 +77,35 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: 
     setSearchMessage(null)
   }, [citySlug, features])
 
+  useEffect(() => {
+    setMode(initialMode)
+    setDraft(null)
+    setLastPlan(null)
+  }, [initialMode])
+
   const build = async () => {
     if (!Number.isInteger(budget) || budget < 30 || budget > 480) {
       setError('Продолжительность должна быть от 30 до 480 минут.')
       return
     }
-    const supportedSelected = filterInterestsForFeatures(selected, features)
+    let plan: RandomRoutePlan
+    try {
+      plan = buildRandomRoutePlan(mode, visibleCategories.map((item) => item.code), budget, nextRandomRouteSeed())
+    } catch (planError) {
+      setError(planError instanceof Error ? planError.message : 'Не удалось выбрать случайные параметры.')
+      return
+    }
     await run(async () => {
       const nextDraft = await createRandomDraft({
         city_slug: citySlug,
-        budget_minutes: budget,
-        selected_category_slugs: supportedSelected,
-        category_mode: supportedSelected.length ? 'balanced' : 'none',
+        budget_minutes: plan.minutes,
+        selected_category_slugs: plan.categories,
+        category_mode: plan.categoryMode,
+        seed: plan.seed,
       })
       setDraft(nextDraft)
-      setSelected(supportedSelected)
+      setLastPlan(plan)
+      setBudget(plan.minutes)
       setSearch([])
       setSearchMessage(null)
       setActiveMapPointId(nextDraft.points[0]?.place_id ?? null)
@@ -150,21 +162,9 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES }: 
           <p className="route-eyebrow">Быстрая прогулка</p>
           <h2>Собрать маршрут с быстрым редактированием</h2>
         </div>
-        <button type="button" className="route-primary-btn" disabled={busy} onClick={build}>{busy ? 'Собираем...' : 'Случайный маршрут'}</button>
+        <button type="button" className="route-primary-btn" disabled={busy} onClick={build}>{busy ? 'Собираем...' : mode === 'random_mood' ? 'Удивить меня' : 'Собрать случайные места'}</button>
       </header>
-      <div className="route-draft-controls">
-        <label>Продолжительность
-          <select value={budget} onChange={(event) => setBudget(Number(event.target.value))}>
-            {[60, 90, 120, 180, 240].map((minutes) => <option key={minutes} value={minutes}>{minutes} минут</option>)}
-          </select>
-        </label>
-        {unsupportedSelectedLabels.length ? (
-          <p className="route-start-note">Скрыты неподходящие для города темы: {unsupportedSelectedLabels.join(', ')}.</p>
-        ) : null}
-        <div className="route-chip-row">{visibleCategories.slice(0, 10).map((item) => (
-          <button key={item.code} type="button" className={selected.includes(item.code) ? 'route-chip active' : 'route-chip'} onClick={() => setSelected(toggle(selected, item.code))}>{item.name}</button>
-        ))}</div>
-      </div>
+      <RandomRouteModePicker budget={budget} categoriesCount={visibleCategories.length} mode={mode} onBudgetChange={setBudget} onModeChange={(nextMode) => { setMode(nextMode); setDraft(null); setLastPlan(null) }} plan={lastPlan} />
       {error && <p className="route-error-inline">{error}</p>}
       {draft && (
         <div className="route-draft-result">
@@ -228,5 +228,3 @@ const routeStatusLabel = (status: string) => {
   if (status === 'partial') return 'Маршрут собран частично'
   return 'Маршрут пока не собран'
 }
-
-const toggle = (items: string[], value: string) => items.includes(value) ? items.filter((item) => item !== value) : [...items, value]

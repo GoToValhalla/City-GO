@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HomePage } from './HomePage'
@@ -12,6 +12,10 @@ vi.mock('../../api/places/places.api', () => ({
 
 vi.mock('../../components/ui/AppHeader', () => ({
   AppHeader: () => <header data-testid="app-header" />,
+}))
+
+vi.mock('../../widgets/home/HomeCityMap', () => ({
+  HomeCityMap: () => <div data-testid="home-city-map" />,
 }))
 
 vi.mock('../../shared/city/currentCity', async (importOriginal) => {
@@ -31,7 +35,7 @@ describe('HomePage', () => {
     vi.clearAllMocks()
   })
 
-  it('renders heading and places count after loading', async () => {
+  it('renders the city hero, real places and random mood entry point', async () => {
     mockedGetPlacesByCityResponse.mockResolvedValueOnce({
       total: 2,
       limit: 20,
@@ -62,16 +66,15 @@ describe('HomePage', () => {
       </MemoryRouter>,
     )
 
-    expect(
-      screen.getByRole('heading', { name: /Найди куда сходить/ }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Зеленоградск', level: 1 })).toBeInTheDocument()
+    expect(screen.getByTestId('home-city-map')).toBeInTheDocument()
 
     await waitFor(() => {
-      expect(screen.getByText('2')).toBeInTheDocument()
+      expect(screen.getAllByText(/2/).length).toBeGreaterThan(0)
     })
 
     expect(screen.getAllByText('Кофейня у моря').length).toBeGreaterThan(0)
-    expect(screen.getByRole('link', { name: /Собрать маршрут/ })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Удивить меня/ })).toHaveAttribute('href', '/zelenogradsk/routes/build?mode=random_mood')
   })
 
   it('renders error state when places loading fails', async () => {
@@ -88,7 +91,7 @@ describe('HomePage', () => {
     })
   })
 
-  it('does not crash when typing letters into hero search', async () => {
+  it('shows only places returned by the current city API', async () => {
     mockedGetPlacesByCityResponse.mockResolvedValue({
       total: 2,
       limit: 20,
@@ -107,11 +110,8 @@ describe('HomePage', () => {
 
     await waitFor(() => expect(screen.getByText('Кофейня у моря')).toBeInTheDocument())
 
-    const input = screen.getByPlaceholderText(/Кафе, музей/i)
-    fireEvent.change(input, { target: { value: 'м' } })
-    fireEvent.change(input, { target: { value: 'муз' } })
-
-    expect(screen.getByRole('heading', { name: /Найди куда сходить/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Зеленоградск', level: 1 })).toBeInTheDocument()
+    expect(screen.getByText('Кофейня у моря')).toBeInTheDocument()
     expect(screen.getByText('Музей янтаря')).toBeInTheDocument()
   })
 })

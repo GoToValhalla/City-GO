@@ -3,6 +3,7 @@ import { addPlaceToUserRoute, ApiRequestError, buildRecommendationRoute, correct
 import type { RecommendationRouteResponse, UserRouteCorrectionAction } from '../../api/recommendations/recommendationRoute.types'
 import { buildRecommendationRouteRequest, toggleListValue, type RecommendationRouteFormState } from '../../features/routes/model/recommendationRouteForm'
 import { routeMatchesCity } from '../../features/routes/model/routeCityGuard'
+import { parseRandomRouteMode } from '../../features/routes/model/randomRoutePlan'
 import { AppHeader } from '../../components/ui/AppHeader'
 import { buildApiUrl } from '../../shared/api/http'
 import { getCurrentCity, getCurrentCityCoordinates, type CityOption } from '../../shared/city/currentCity'
@@ -78,6 +79,7 @@ const flattenDebugInfo = (payload: unknown, prefix = ''): DebugInfoRow[] => {
 const renderDebugInfo = (debugInfo: RouteDebugInfo) => <section className="route-debug-tile route-debug-page"><div className="route-debug-header"><strong>Route debug</strong><span>{debugInfo.timestamp}</span></div><div className="route-debug-summary-grid">{flattenDebugInfo(debugInfo).map((row) => <div key={row.label}><span>{row.label}</span><strong>{formatDebugValue(row.value)}</strong></div>)}</div></section>
 
 export const GenerateRoutePage = () => {
+  const randomMode = parseRandomRouteMode(new URLSearchParams(window.location.search).get('mode'))
   const location = useLocationProvider()
   const [city, setCity] = useState<CityOption>(getCurrentCity())
   const [features, setFeatures] = useState<string[]>([])
@@ -271,5 +273,5 @@ export const GenerateRoutePage = () => {
   const slotCount = form.routeSlots?.length ?? 0
   const compactFormSummary = `${city.name} · ${form.useTimeBudget ? `${form.timeBudgetMinutes} мин` : 'без лимита'} · ${slotCount ? `${slotCount} слотов` : form.interests.length ? form.interests.join(', ') : 'без интересов'}`
 
-  return <div className="app-screen"><div className="app-container route-design"><AppHeader /><main className="route-page"><section className="route-hero-tile"><div className="route-hero-copy"><p className="route-eyebrow">Маршрут · {city.name}</p><h1>Собери прогулку</h1><p>Выбери время, старт, интересы или сценарий из слотов.</p></div><RouteHeroPreview cityName={city.name} citySlug={city.slug} /></section><section className={`route-config-tile ${route ? 'route-config-compact' : ''}`}>{route ? <details className="route-form-details"><summary>Настройки маршрута: {compactFormSummary}</summary>{routeForm}</details> : routeForm}</section>{!route ? <RandomRouteDraftEditor citySlug={city.slug} features={features} /> : null}{error ? <section className="route-error-tile">{error}</section> : null}{routeWarning ? <section className="route-error-tile">{routeWarning}</section> : null}{debugInfo && isDebugEnabled() ? renderDebugInfo(debugInfo) : null}{route ? <RouteResultPanel key={routeRenderKey(route)} route={route} loading={loading} onAddCandidate={addCandidate} onCorrect={correct} onMovePoint={movePoint} onRemovePoint={(placeId) => void correct('remove_place', placeId)} onReplacePoint={(placeId) => void replacePoint(placeId)} /> : null}</main></div></div>
+  return <div className="app-screen"><div className="app-container route-design"><AppHeader /><main className="route-page"><section className="route-hero-tile"><div className="route-hero-copy"><p className="route-eyebrow">Маршрут · {city.name}</p><h1>Собери прогулку</h1><p>Выбери время, старт, интересы или сценарий из слотов.</p></div><RouteHeroPreview cityName={city.name} citySlug={city.slug} /></section><section className={`route-config-tile ${route ? 'route-config-compact' : ''}`}>{route ? <details className="route-form-details"><summary>Настройки маршрута: {compactFormSummary}</summary>{routeForm}</details> : routeForm}</section>{!route ? <RandomRouteDraftEditor citySlug={city.slug} features={features} initialMode={randomMode} /> : null}{error ? <section className="route-error-tile">{error}</section> : null}{routeWarning ? <section className="route-error-tile">{routeWarning}</section> : null}{debugInfo && isDebugEnabled() ? renderDebugInfo(debugInfo) : null}{route ? <RouteResultPanel key={routeRenderKey(route)} route={route} loading={loading} onAddCandidate={addCandidate} onCorrect={correct} onMovePoint={movePoint} onRemovePoint={(placeId) => void correct('remove_place', placeId)} onReplacePoint={(placeId) => void replacePoint(placeId)} /> : null}</main></div></div>
 }

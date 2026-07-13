@@ -1,8 +1,8 @@
 /* @vitest-environment jsdom */
 
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RandomRouteDraftEditor } from './RandomRouteDraftEditor'
 
 vi.mock('../../api/routes/routeDraft.api', () => ({
@@ -23,18 +23,17 @@ describe('RandomRouteDraftEditor', () => {
     vi.clearAllMocks()
   })
 
-  it('hides sea chip for cities without sea feature', async () => {
+  afterEach(() => cleanup())
+
+  it('excludes sea from the random mood pool for cities without sea feature', async () => {
     render(<RandomRouteDraftEditor citySlug="khanty-mansiysk" features={[]} />)
-
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Кофе' })).toBeInTheDocument())
-
-    expect(screen.queryByRole('button', { name: 'Море' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Музеи' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Случайное настроение/ }))
+    await waitFor(() => expect(screen.getByText(/2 доступных категорий/)).toBeInTheDocument())
   })
 
-  it('shows sea chip for cities with sea feature', async () => {
+  it('includes sea in the random mood pool for cities with sea feature', async () => {
     render(<RandomRouteDraftEditor citySlug="zelenogradsk" features={['sea']} />)
-
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Море' })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Случайное настроение/ }))
+    await waitFor(() => expect(screen.getByText(/3 доступных категорий/)).toBeInTheDocument())
   })
 })

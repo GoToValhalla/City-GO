@@ -1,5 +1,27 @@
 # CHANGE HISTORY
 
+## 2026-07-13
+
+### Sites UI/UX integrated into the production web frontend
+
+- Подтверждено, что Sites commit `efebbfe` принадлежит отдельному внутреннему
+  репозиторию и не мог появиться в GitHub `GoToValhalla/City-GO` автоматически.
+- Светлая mobile-first оболочка из Sites адаптирована к существующему
+  React/Vite frontend без перезаписи FastAPI API, admin UI и git-истории.
+- Добавлен поисковый выбор города по названию, региону, стране и slug;
+  одноимённые города показываются как `Название · Регион · Страна`.
+- Главная получила новый header, hero с MapLibre-картой, быстрые сценарии,
+  четыре карточки реальных мест и нижнюю мобильную навигацию.
+- `POST /routes/random` получил два UI-сценария: «Случайные места» с заданным
+  временем и «Случайное настроение» со случайными временем и 1–3 категориями.
+- Добавлены unit/component tests для city identity/search, выбора города,
+  random route plan и обоих payload-вариантов.
+- Архитектурный контракт обновлён в
+  `docs/architecture/web_bot_ui_redesign.md`.
+- Локальные проверки: frontend `npm test` — 89 файлов / 324 теста пройдено,
+  1 файл / 1 тест пропущен; `npm run lint` — PASS; `npm run build` — PASS.
+- CI и deploy не запускались.
+
 ## 2026-07-06
 
 ### Destination Data Pipeline + Operational Workspace v1

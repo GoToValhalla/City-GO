@@ -1,65 +1,38 @@
-import { Map, Route, Search, Sparkles } from 'lucide-react'
+import { ArrowRight, MapPin, Sparkles } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import type { Place } from '../../entities/place/model/types'
 import { cityCatalogPath, cityRouteBuildPath } from '../../features/city-routing/cityPaths'
-import { getCurrentCity } from '../../shared/city/currentCity'
-import { LocationCarousel } from './LocationCarousel'
+import { cityLocation } from '../../features/city-search/model/citySearch'
+import type { CityOption } from '../../shared/city/currentCity'
+import { HomeCityMap } from './HomeCityMap'
 
-type HomeHeroProps = {
-  search: string
-  cityName?: string
-  onSearchChange: (value: string) => void
+type Props = {
+  categoriesCount: number
+  city: CityOption
+  places: Place[]
+  placesTotal: number
 }
 
-export const HomeHero = ({ search, cityName = 'выбранном городе', onSearchChange }: HomeHeroProps) => {
-  const citySlug = getCurrentCity().slug
-  return (
-    <section className="hero-section">
-      <div className="hero-copy">
-        <span className="hero-badge">
-          <Sparkles size={16} />
-          Гид по городу и маршрутам
-        </span>
+const openCityPicker = () => window.dispatchEvent(new CustomEvent('citygo:open-city-picker'))
 
-        <h1 className="hero-title">Найди куда сходить: {cityName}</h1>
-
-        <p className="hero-text">
-          Ищи места, проверяй что открыто сейчас и собирай прогулку под время,
-          интересы и компанию.
-        </p>
-
-        <label className="hero-search">
-          <Search size={20} aria-hidden="true" />
-          <input
-            type="text"
-            placeholder="Кафе, музей, парк, адрес..."
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-          />
-        </label>
-
-        <div className="hero-actions">
-          <Link className="hero-cta-link" to={cityRouteBuildPath(citySlug)}>
-            <Route size={17} />
-            Собрать маршрут
-          </Link>
-          <Link className="hero-cta-link secondary" to={cityCatalogPath(citySlug)}>
-            <Map size={17} />
-            Смотреть места
-          </Link>
-        </div>
+export const HomeHero = ({ categoriesCount, city, places, placesTotal }: Props) => (
+  <section className="hero-section">
+    <div className="hero-copy">
+      <button className="hero-location" onClick={openCityPicker} type="button">
+        <MapPin size={16} /><span>{cityLocation(city)}</span><span aria-hidden="true">›</span>
+      </button>
+      <p className="hero-eyebrow">Город на ладони</p>
+      <h1 className="hero-title">{city.name}</h1>
+      <p className="hero-text">Смотрите опубликованные места на карте и собирайте прогулку из реальных данных CITY GO.</p>
+      <div className="hero-actions">
+        <Link className="hero-cta-link" to={cityCatalogPath(city.slug)}>Смотреть места <ArrowRight size={18} /></Link>
+        <Link className="hero-cta-link secondary" to={`${cityRouteBuildPath(city.slug)}?mode=random_mood`}><Sparkles size={18} /> Удивить меня</Link>
       </div>
-
-      <div className="hero-route-preview">
-        <span className="preview-kicker">Сегодня</span>
-        <strong>2 часа в городе</strong>
-        <ol>
-          <li>Кофе или прогулка</li>
-          <li>Интересное место рядом</li>
-          <li>Финальная точка маршрута</li>
-        </ol>
-        <Link className="preview-link" to={cityRouteBuildPath(citySlug)}>Настроить маршрут</Link>
+      <div className="hero-facts" aria-label="Данные города">
+        <span><strong>{placesTotal || city.places_count || 0}</strong> опубликованных мест</span>
+        {categoriesCount ? <span><strong>{categoriesCount}</strong> категорий</span> : null}
       </div>
-      <LocationCarousel />
-    </section>
-  )
-}
+    </div>
+    <HomeCityMap city={city} places={places} />
+  </section>
+)

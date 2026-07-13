@@ -560,3 +560,17 @@ The structural breakpoints that matter for agents: 1440px (content lock), 1068px
 - Dark-mode counterparts for store and accessories utility cards were not surfaced on the analyzed pages; the system documented is the daytime/light-dominant variant Apple ships by default.
 - Atmospheric photography (environment page mountain vista) is a content asset, not a design token; the documented `{component.environment-quote-card}` describes the structural surface only.
 - The exact backdrop-filter blur radius on `{component.sub-nav-frosted}` and `{component.floating-sticky-bar}` is platform-dependent; production CSS uses `saturate(180%) blur(20px)` as a typical baseline but the value isn't formalized as a token.
+
+## CITY GO Public Shell Overlay (2026-07-13)
+
+The current public web shell follows the approved CITY GO Sites preview while
+preserving this document as the broader visual baseline. The overlay is scoped
+to `.app-screen`; admin surfaces keep their existing dark operational theme.
+
+- Canvas `#f8f9fa`, surface `#ffffff`, soft surface `#f1f3f5`.
+- Main text/action `#1a1c1e` / `#1c1e21`; editorial accent `#d96b43`.
+- Structural radii: 12px cards, 24px sheets, 32px home hero.
+- Header: CITY GO mark, two desktop destinations, searchable city context.
+- Mobile: 44px minimum targets and fixed Home / Places / Route navigation.
+- City labels always include region and country where available.
+- Public place/map/route states remain DB-backed and must not use demo data.

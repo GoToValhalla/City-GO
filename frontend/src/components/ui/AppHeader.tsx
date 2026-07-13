@@ -1,115 +1,53 @@
-import { useEffect, useState } from 'react'
-import { Compass, MapPinned } from 'lucide-react'
-import { Link, NavLink } from 'react-router-dom'
-import { getAvailableCities } from '../../api/cities/cities.api'
-import {
-  DEFAULT_CITY,
-  getCurrentCity,
-  isPublishedCity,
-  setCurrentCity,
-  type CityOption,
-} from '../../shared/city/currentCity'
+import { Compass, Home, List, MapPin, Route } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { cityCatalogPath, cityHomePath, cityRouteBuildPath } from '../../features/city-routing/cityPaths'
+import { cityLocation } from '../../features/city-search/model/citySearch'
+import { useAvailableCities } from '../../features/city-search/model/useAvailableCities'
+import { CityPicker } from '../../features/city-search/ui/CityPicker'
+import type { CityOption } from '../../shared/city/currentCity'
 
-type NavItem = {
-  to: string
-  label: string
-  end?: boolean
-}
-
-const navItems: NavItem[] = [
-  { to: '/', label: 'Главная', end: true },
-  { to: '/places', label: 'Места' },
-  { to: '/open-now', label: 'Открыто' },
-  { to: '/nearby', label: 'Рядом' },
-  { to: '/routes/generate', label: 'Маршрут' },
-]
-
-const navClass = ({ isActive }: { isActive: boolean }) => (
-  isActive ? 'nav-link active' : 'nav-link'
-)
+const navClass = ({ isActive }: { isActive: boolean }) => isActive ? 'nav-link active' : 'nav-link'
 
 export const AppHeader = () => {
-  const [cities, setCities] = useState<CityOption[]>([DEFAULT_CITY])
-  const [selectedCity, setSelectedCity] = useState<CityOption>(getCurrentCity())
+  const cityState = useAvailableCities()
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const navigate = useNavigate()
+  const closePicker = useCallback(() => setPickerOpen(false), [])
+  const home = cityHomePath(cityState.selectedCity.slug)
+  const catalog = cityCatalogPath(cityState.selectedCity.slug)
+  const route = cityRouteBuildPath(cityState.selectedCity.slug)
 
   useEffect(() => {
-    const loadCities = async () => {
-      const currentCity = getCurrentCity()
-
-      try {
-        const availableCities = await getAvailableCities()
-
-        if (availableCities.length === 0) {
-          // Не подменяем сохранённый город фальшивым DEFAULT_CITY при временно
-          // пустом ответе API: селектор и экран должны показывать один контекст.
-          setCities([currentCity])
-          setSelectedCity(currentCity)
-          return
-        }
-
-        setCities(availableCities)
-
-        const freshCurrentCity = availableCities.find((city) => city.slug === currentCity.slug)
-        const nextCity = freshCurrentCity ?? availableCities[0]
-
-        setSelectedCity(nextCity)
-        setCurrentCity(nextCity)
-      } catch (error) {
-        console.error(error)
-        setCities([currentCity])
-        setSelectedCity(currentCity)
-      }
-    }
-
-    loadCities()
+    const open = () => setPickerOpen(true)
+    window.addEventListener('citygo:open-city-picker', open)
+    return () => window.removeEventListener('citygo:open-city-picker', open)
   }, [])
 
-  const handleCityChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const nextCity = cities.find((city) => city.slug === event.target.value) ?? selectedCity
-
-    setSelectedCity(nextCity)
-    setCurrentCity(nextCity)
+  const selectCity = (city: CityOption) => {
+    cityState.selectCity(city)
+    closePicker()
+    navigate(cityHomePath(city.slug))
   }
 
-  return (
+  return <>
     <header className="app-header">
-      <Link className="brand-link" to="/">
-        <span className="brand-mark">
-          <Compass size={22} />
-        </span>
-        <span>
-          <span className="brand-kicker">городской навигатор</span>
-          <span className="brand-title">City Go</span>
-        </span>
+      <Link aria-label="На главную" className="brand-link" to={home}>
+        <span className="brand-mark"><Compass size={19} /></span><strong>CITY GO</strong>
       </Link>
-
       <nav className="main-nav" aria-label="Основная навигация">
-        {navItems.map((item) => (
-          <NavLink key={item.to} className={navClass} end={item.end} to={item.to}>
-            {item.label}
-          </NavLink>
-        ))}
+        <NavLink className={navClass} to={catalog}>Места</NavLink>
+        <NavLink className={navClass} to={route}>Маршрут</NavLink>
       </nav>
-
-      <div className="header-tools">
-        <label className="city-context">
-          <span>Город:</span>
-          <select value={selectedCity.slug} onChange={handleCityChange}>
-            {cities.map((city) => (
-              <option key={city.slug} value={city.slug}>
-                {city.name}
-                {isPublishedCity(city) ? '' : ' · готовится'}
-                {typeof city.places_count === 'number' ? ` · ${city.places_count} мест` : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <Link className="header-action" to="/places">
-          <MapPinned size={16} />
-          <span>Все места</span>
-        </Link>
-      </div>
+      <button className="city-context" onClick={() => setPickerOpen(true)} type="button">
+        <MapPin size={17} /><span><strong>{cityState.selectedCity.name}</strong><small>{cityLocation(cityState.selectedCity)}</small></span><span aria-hidden="true">›</span>
+      </button>
     </header>
-  )
+    <nav aria-label="Мобильная навигация" className="mobile-nav">
+      <NavLink className={navClass} end to={home}><Home size={20} /><span>Главная</span></NavLink>
+      <NavLink className={navClass} to={catalog}><List size={20} /><span>Места</span></NavLink>
+      <NavLink className={navClass} to={route}><Route size={21} /><span>Маршрут</span></NavLink>
+    </nav>
+    {pickerOpen ? <CityPicker cities={cityState.cities} error={cityState.error} loading={cityState.loading} onClose={closePicker} onRetry={() => void cityState.reload()} onSelect={selectCity} selectedCity={cityState.selectedCity} /> : null}
+  </>
 }

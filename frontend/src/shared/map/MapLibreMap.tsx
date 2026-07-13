@@ -48,8 +48,9 @@ const boundsCoordinates = (
   ...(manual ? [[manual.longitude, manual.latitude] as [number, number]] : []),
 ]
 
-const cssColor = (property: string, fallback: string): string => {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(property).trim()
+const cssColor = (property: string, fallback: string, element?: Element | null): string => {
+  const colorScope = element?.closest('.app-screen') ?? document.documentElement
+  const value = getComputedStyle(colorScope).getPropertyValue(property).trim()
   return value || fallback
 }
 
@@ -172,10 +173,10 @@ export const MapLibreMap = ({
         map.addSource('route', { type: 'geojson', data: routeCollection(current.routeState.geometry) })
         map.addSource('locations', { type: 'geojson', data: locationCollection(current.userLocation, current.manualPoint) })
         addMapLayers(map, {
-          primary: cssColor('--cg-primary', '#7C4DFF'),
-          closed: cssColor('--cg-closed', '#EF4444'),
-          muted: cssColor('--cg-text-soft', '#6F778A'),
-          text: cssColor('--cg-text-main', '#F5F7FA'),
+          primary: cssColor('--cg-map-marker', cssColor('--cg-primary', '#7C4DFF', containerRef.current), containerRef.current),
+          closed: cssColor('--cg-closed', '#EF4444', containerRef.current),
+          muted: cssColor('--cg-text-soft', '#6F778A', containerRef.current),
+          text: cssColor('--cg-text-main', '#F5F7FA', containerRef.current),
         })
         lastViewportKeyRef.current = viewportKey(current.points, current.userLocation, current.manualPoint)
         fitMapToData(map, current.points, current.userLocation, current.manualPoint, current.activePointId)

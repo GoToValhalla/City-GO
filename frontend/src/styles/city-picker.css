@@ -1,0 +1,25 @@
+.city-picker-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-end; justify-content: center; padding: 20px; background: rgba(23, 28, 34, .38); }
+.city-picker { width: 100%; max-width: 560px; max-height: min(780px, 90vh); padding: 24px; overflow-y: auto; color: var(--cg-text-main); background: var(--cg-bg-card); border: 1px solid var(--cg-border-soft); border-radius: 24px; box-shadow: var(--cg-shadow-sheet); }
+.city-picker-handle { display: none; }
+.city-picker > header { display: flex; align-items: flex-start; justify-content: space-between; }
+.city-picker > header p { color: #d96b43; font-size: 12px; font-weight: 800; letter-spacing: .13em; }
+.city-picker > header h2 { margin-top: 7px; font-size: 30px; letter-spacing: -.035em; }
+.city-picker > header button { display: grid; place-items: center; width: 44px; height: 44px; background: var(--cg-bg-elevated); border: 0; border-radius: 50%; cursor: pointer; }
+.city-picker-search { display: flex; align-items: center; gap: 10px; min-height: 54px; margin-top: 22px; padding: 0 14px; background: var(--cg-bg-elevated); border: 1px solid transparent; border-radius: 14px; }
+.city-picker-search:focus-within { background: var(--cg-bg-card); border-color: var(--cg-border-strong); box-shadow: 0 0 0 4px rgba(217, 107, 67, .1); }
+.city-picker-search input { width: 100%; min-width: 0; height: 52px; color: var(--cg-text-main); background: transparent; border: 0; outline: 0; }
+.city-picker-summary { display: flex; justify-content: space-between; margin-top: 11px; color: var(--cg-text-muted); font-size: 10px; }
+.city-picker-summary small { font-size: 9px; }
+.city-picker-list { display: flex; flex-direction: column; gap: 7px; margin-top: 22px; }
+.city-picker-list > button { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 12px; min-height: 64px; padding: 9px 13px; text-align: left; background: transparent; border: 1px solid var(--cg-border-soft); border-radius: 12px; cursor: pointer; }
+.city-picker-list > button:hover, .city-picker-list > button.is-active { background: var(--cg-bg-elevated); border-color: var(--cg-border-strong); }
+.city-picker-list > button > span { display: flex; flex-direction: column; min-width: 0; }
+.city-picker-list strong { font-size: 14px; }
+.city-picker-list small { margin-top: 3px; overflow: hidden; color: var(--cg-text-muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.city-picker-list b { padding: 5px 8px; color: var(--cg-text-muted); background: var(--cg-bg-card); border: 1px solid var(--cg-border-soft); border-radius: 999px; font-size: 10px; }
+.city-picker-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 210px; padding: 24px; color: var(--cg-text-muted); text-align: center; }
+.city-picker-empty strong { margin-top: 12px; color: var(--cg-text-main); }
+.city-picker-empty p { max-width: 280px; margin-top: 6px; font-size: 11px; }
+.city-picker-empty button { min-height: 40px; margin-top: 12px; color: #d96b43; background: transparent; border: 0; font-size: 11px; font-weight: 750; cursor: pointer; }
+.city-picker-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 10px 12px; color: #73540d; background: #fff4df; border: 1px solid #f0d9a5; border-radius: 6px; font-size: 11px; }
+.city-picker-error button { display: inline-flex; align-items: center; gap: 5px; min-height: 40px; background: transparent; border: 0; font-weight: 750; cursor: pointer; }
