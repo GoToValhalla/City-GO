@@ -429,7 +429,14 @@ jobs:
             echo "=== Production disk at failure ===" >&2
             df -h / >&2 || true
             docker system df >&2 || true
-            docker compose ps >&2 || true
+            echo "=== docker compose ps -a ===" >&2
+            docker compose ps -a >&2 || true
+            echo "=== migrate container: state and exit code (docker inspect) ===" >&2
+            docker inspect app-migrate-1 --format 'State: {{.State.Status}} ExitCode: {{.State.ExitCode}} Error: {{.State.Error}} StartedAt: {{.State.StartedAt}} FinishedAt: {{.State.FinishedAt}}' >&2 || true
+            echo "=== full migrate container logs ===" >&2
+            docker compose logs --no-color --timestamps migrate >&2 || true
+            echo "=== current alembic revision (best-effort, read-only, may be unreachable if migrate never connected) ===" >&2
+            timeout 15s docker compose exec -T db psql -U postgres -d city_guide -tA -c "SELECT version_num FROM alembic_version;" >&2 || echo "(could not read alembic_version — table may not exist yet, or db exec failed)" >&2
             exit "$UP_STATUS"
           fi
 
