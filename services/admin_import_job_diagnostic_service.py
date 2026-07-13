@@ -137,6 +137,50 @@ def _worker_lifecycle_fields(logs: list[SystemLog]) -> dict[str, object | None]:
     return fields
 
 
+_ATTEMPT_START_EVENTS = frozenset({"worker_job_claimed"})
+_ATTEMPT_TERMINAL_EVENTS = frozenset(
+    {"worker_job_finished", "worker_job_failed", "worker_job_stalled", "import_job_cancelled"}
+)
+
+
+def _job_attempts(logs: list[SystemLog]) -> list[dict[str, object]]:
+    """Segment the flat, durable system_logs timeline into one record per
+    retry attempt (start event=worker_job_claimed, end event=one of
+    worker_job_finished/worker_job_failed/worker_job_stalled/cancelled).
+
+    Retrying a job overwrites CityAdminImportJob's own status/last_error/
+    started_at/finished_at columns in place — this reconstructs, from the
+    durable, append-only system_logs table, the fact that a worker crash and
+    a later successful/failed retry are two distinct events with their own
+    start/end/result, rather than one row silently rewound over another."""
+    attempts: list[dict[str, object]] = []
+    current: dict[str, object] | None = None
+    for row in logs:
+        details = dict(row.details or {})
+        event = str(details.pop("event", row.message))
+        if event in _ATTEMPT_START_EVENTS:
+            if current is not None and current.get("result") is None:
+                current["result"] = "worker_crashed_no_terminal_event"
+                current["ended_at"] = row.created_at
+            current = {
+                "attempt_number": len(attempts) + 1,
+                "started_at": row.created_at,
+                "ended_at": None,
+                "result": None,
+                "retry_count_at_claim": details.get("retry_count") if isinstance(details.get("retry_count"), int) else None,
+            }
+            attempts.append(current)
+            continue
+        if current is None:
+            continue
+        if event in _ATTEMPT_TERMINAL_EVENTS:
+            current["ended_at"] = row.created_at
+            current["result"] = event
+    if current is not None and current.get("result") is None:
+        current["result"] = "in_progress"
+    return attempts
+
+
 def _last_completed_step(job: CityAdminImportJob) -> str | None:
     if job.current_step in TERMINAL_STEPS or job.status in TERMINAL_STATUSES:
         return job.current_step
@@ -221,6 +265,7 @@ def build_import_job_diagnostic(db: Session, *, job_id: int) -> dict[str, object
 
     logs = _job_logs(db, job_id=job_id)
     timeline = _job_timeline(logs)
+    attempts = _job_attempts(logs)
     worker_fields = _worker_lifecycle_fields(logs)
     last_completed_step = _last_completed_step(job)
     duration_seconds = _duration_seconds(job)
@@ -256,5 +301,6 @@ def build_import_job_diagnostic(db: Session, *, job_id: int) -> dict[str, object
         "workflow_run_id": worker_fields["workflow_run_id"],
         "workflow_run_url": worker_fields["workflow_run_url"],
         "timeline": timeline,
+        "attempts": attempts,
         "diagnostic_report": report,
     }

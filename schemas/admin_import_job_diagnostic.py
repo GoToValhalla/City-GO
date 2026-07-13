@@ -14,6 +14,14 @@ class ImportJobTimelineEvent(BaseModel):
     payload: dict[str, Any] | None = None
 
 
+class ImportJobAttempt(BaseModel):
+    attempt_number: int
+    started_at: datetime
+    ended_at: datetime | None = None
+    result: str | None = None
+    retry_count_at_claim: int | None = None
+
+
 class ImportJobDiagnostic(BaseModel):
     job_id: int
     city_id: int
@@ -36,4 +44,5 @@ class ImportJobDiagnostic(BaseModel):
     workflow_run_id: str | None = None
     workflow_run_url: str | None = None
     timeline: list[ImportJobTimelineEvent]
+    attempts: list[ImportJobAttempt]
     diagnostic_report: str
