@@ -4,6 +4,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, inspect
 
+from models.place import Place
 from tests.test_db_setup import apply_alembic_migrations
 
 
@@ -53,3 +54,18 @@ def _inspect_migrated_source_observations() -> set[str]:
 def test_migrated_source_observations_has_provenance_columns_new() -> None:
     cols = _inspect_migrated_source_observations()
     assert {"source_license", "attribution_text", "idempotency_key"}.issubset(cols)
+
+
+def test_migrated_places_has_every_place_model_column_new() -> None:
+    """Regression for the E2E rehearsal's Defect #3: models/place.py defined
+    canonical_category, lifecycle_status, quality_tier, quality_score and 6
+    other columns that no migration ever shipped, so any ORM query selecting
+    a Place (e.g. import_pipeline's collection COUNT queries) failed with
+    UndefinedColumn on a database migrated from scratch. Diff every column
+    the Place model declares against what a from-scratch migration run
+    actually creates, so a newly added model column without a matching
+    migration fails this test immediately instead of surfacing later as a
+    runtime UndefinedColumn during a real import."""
+    _, cols = _inspect_migrated_file_db()
+    model_columns = {column.name for column in Place.__table__.columns}
+    assert model_columns.issubset(cols)

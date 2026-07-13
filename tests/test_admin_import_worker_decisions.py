@@ -330,6 +330,56 @@ def test_generic_runtime_exception_marks_job_failed_with_one_event_new(
     assert failed_log.details["error"] == "worker boom"
 
 
+def test_system_exit_from_job_runner_marks_job_failed_and_does_not_propagate_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """Regression for a real worker crash found during the E2E rehearsal:
+    run_city_import_job's call chain reaches run_due_import_jobs._targets(),
+    which raises SystemExit("No configured import targets match filters")
+    when a city's launch_status has left importing/imported/review_required
+    (e.g. after publication) and a rerun is attempted. SystemExit subclasses
+    BaseException, not Exception, so a bare `except Exception` here would let
+    it propagate straight out of run_queued_import_jobs and kill the entire
+    worker process instead of just failing this one job. Assert the job ends
+    up failed with the real message and that run_queued_import_jobs itself
+    returns normally (proving the worker loop would survive to poll again)."""
+    _patch_session_local(monkeypatch, db_session)
+    city = city_factory(slug="worker-system-exit", name="Worker System Exit")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
+
+    monkeypatch.setattr(
+        tasks,
+        "run_city_import_job",
+        lambda *args, **kwargs: (_ for _ in ()).throw(SystemExit("No configured import targets match filters")),
+    )
+    monkeypatch.setattr(tasks, "send_admin_alert", lambda **_kwargs: {"sent": True})
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 0
+    assert result["failed"] == 1
+    assert result["errors"] == [
+        {"job_id": job.id, "city_id": city.id, "source": "admin_city_import", "error": "No configured import targets match filters"}
+    ]
+
+    db_session.refresh(job)
+    assert job.status == "failed"
+    assert job.current_step == "error"
+    assert job.last_error == "No configured import targets match filters"
+
+    events = _events(db_session)
+    assert events == ["worker_job_claimed", "worker_job_failed"]
+
+    # The worker loop must survive: a subsequent call must run normally,
+    # proving this SystemExit did not tear down anything shared (session,
+    # module state) needed for the next poll cycle.
+    next_result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+    assert next_result["processed"] == 0
+    assert next_result["failed"] == 0
+
+
 def test_sqlalchemy_error_recovers_and_marks_job_failed_once_new(
     db_session: Session,
     city_factory: Callable[..., Any],

@@ -197,7 +197,16 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                     details={"final_status": job.status, "source": source},
                 )
                 db.commit()
-            except Exception as exc:  # noqa: BLE001
+            except (Exception, SystemExit) as exc:  # noqa: BLE001
+                # SystemExit is deliberately caught here too: run_city_import_job's
+                # call chain reaches run_due_import_jobs._targets(), a standalone
+                # CLI script's helper that raises SystemExit when a city has no
+                # matching import targets (e.g. its launch_status left
+                # importing/imported/review_required after publication). SystemExit
+                # subclasses BaseException, not Exception, so without this it skips
+                # every handler up to and including the worker loop's own
+                # `except Exception`, killing the whole worker process instead of
+                # just failing this one job.
                 # Roll back only to the SAVEPOINT if it is still open (a
                 # runner that already committed internally closes it, in
                 # which case there is nothing uncommitted left to discard).

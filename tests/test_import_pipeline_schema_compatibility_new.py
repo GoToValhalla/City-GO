@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -23,19 +23,33 @@ def test_is_schema_mismatch_error_detects_undefined_column_new() -> None:
     assert is_schema_mismatch_error(message) is True
 
 
-def test_ensure_import_pipeline_schema_creates_place_field_provenance_new(db_session) -> None:
+def test_ensure_import_pipeline_schema_does_not_create_tables_new(db_session) -> None:
+    """Regression: ensure_import_pipeline_schema used to open a second,
+    isolated DB connection and CREATE TABLE place_field_provenance itself
+    when missing. That self-heal path is exactly what caused a real,
+    reproducible deadlock during migration b536b3b1ab93/a1c2d3e4f5b6: the
+    migration's own still-open (uncommitted) transaction had already created
+    the table moments earlier, and the second connection — under
+    read-committed isolation — could not see it and blocked forever trying
+    to CREATE TABLE the same relation. place_field_provenance's existence is
+    now guaranteed by a real Alembic migration (b536b3b1ab93), so this
+    function must never attempt to create ANY table again — missing_tables
+    must always report empty, and running the repair must not create
+    anything even if the table is (abnormally) missing."""
     bind = db_session.get_bind()
     gaps_before = diagnose_import_schema_gaps(bind.engine)
+    assert gaps_before["missing_tables"] == []
+    assert gaps_before["missing_place_columns"] == []
+
     bind.execute(text("DROP TABLE IF EXISTS place_field_provenance"))
     gaps = diagnose_import_schema_gaps(bind.engine)
-    assert "place_field_provenance" in gaps["missing_tables"]
+    assert gaps["missing_tables"] == []
 
     result = ensure_import_pipeline_schema(bind.engine)
 
-    assert "place_field_provenance" in result["created_tables"]
-    gaps_after = diagnose_import_schema_gaps(bind.engine)
-    assert gaps_after["missing_tables"] == []
-    assert gaps_before["missing_place_columns"] == []
+    assert result["created_tables"] == []
+    inspector = inspect(bind.engine)
+    assert "place_field_provenance" not in inspector.get_table_names()
 
 
 def test_collecting_schema_failure_skips_finding_images_new(db_session, city_factory, monkeypatch) -> None:
