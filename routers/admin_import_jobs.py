@@ -226,9 +226,15 @@ def preview_city_publish(city_id: int, auth: AdminContext = Depends(admin_requir
 
 @router.post("/import-jobs/{city_id}/publish", response_model=AdminImportJobActionResponse)
 def publish_imported_city(city_id: int, payload: AdminCityPublishRequest | None = None, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+    # override_readiness_gate is intentionally NOT part of AdminCityPublishRequest
+    # (or any public request schema): until a separate authorization model exists,
+    # no normal admin API/UI request may bypass the readiness gate. The parameter
+    # on publish_city() itself remains service-only, for tests/internal emergency
+    # use via direct Python calls — this endpoint always calls it with the
+    # (unpassed, defaulting-False) gate enforced.
     body = payload or AdminCityPublishRequest()
     try:
-        result = publish_city(db, city_id, actor=auth.actor_id, reason=body.reason, override_readiness_gate=body.override_readiness_gate)
+        result = publish_city(db, city_id, actor=auth.actor_id, reason=body.reason)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     if result is None:

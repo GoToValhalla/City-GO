@@ -12,7 +12,7 @@ class AdminUnpublishRequest(AdminActionRequest):
     reason: str = Field(min_length=1)
 
 class AdminCityPublishRequest(AdminActionRequest):
-    override_readiness_gate: bool = False
+    pass
 
 class AdminCityPublicationPreviewResponse(BaseModel):
     city_id: int
