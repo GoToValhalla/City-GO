@@ -22,6 +22,7 @@ services:
       - bash
       - -c
       - |
+        set -e
         python - <<'PY'
         from sqlalchemy import create_engine, inspect, text
         from core.config import settings
@@ -37,6 +38,7 @@ services:
                     )
                     print("Alembic overlapping heads repaired")
         PY
+        python scripts/migration_preflight.py
         alembic upgrade head
     env_file: .env
     environment:
