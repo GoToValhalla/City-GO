@@ -61,6 +61,22 @@ jobs:
           mkdir -p /tmp/safe-import-worker-run
           LOG=/tmp/safe-import-worker-run/report.log
 
+          # WORKFLOW_NAME (github.workflow) contains spaces and Unicode
+          # ("CITY GO · OPS · Run Import Worker Safely") — passing it as a
+          # bare NAME="$VALUE" word to `ssh host word1 word2 ...` breaks,
+          # since ssh rejoins all trailing argv words with a single space
+          # before handing them to the remote shell for re-parsing: the
+          # remote shell then sees WORKFLOW_NAME=CITY GO · ... and tries to
+          # run "GO" as a command. printf '%q' shell-quotes each value (same
+          # pattern already used for ADMIN_API_TOKEN in
+          # production-health.yml) so the whole assignment list survives as
+          # one safely re-parseable string, regardless of spaces/Unicode.
+          REMOTE_MAX_RUNTIME_SECONDS=$(printf '%q' "$MAX_RUNTIME_SECONDS")
+          REMOTE_ADMIN_API_TOKEN=$(printf '%q' "$ADMIN_API_TOKEN")
+          REMOTE_WORKFLOW_NAME=$(printf '%q' "$WORKFLOW_NAME")
+          REMOTE_WORKFLOW_RUN_ID=$(printf '%q' "$WORKFLOW_RUN_ID")
+          REMOTE_WORKFLOW_RUN_URL=$(printf '%q' "$WORKFLOW_RUN_URL")
+
           ssh \
             -o ConnectTimeout=20 \
             -o ServerAliveInterval=15 \
@@ -68,12 +84,7 @@ jobs:
             -i ~/.ssh/deploy_key \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
-            MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS" \
-            ADMIN_API_TOKEN="$ADMIN_API_TOKEN" \
-            WORKFLOW_NAME="$WORKFLOW_NAME" \
-            WORKFLOW_RUN_ID="$WORKFLOW_RUN_ID" \
-            WORKFLOW_RUN_URL="$WORKFLOW_RUN_URL" \
-            bash <<'REMOTE_EOF' | tee "$LOG"
+            "MAX_RUNTIME_SECONDS=$REMOTE_MAX_RUNTIME_SECONDS ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN WORKFLOW_NAME=$REMOTE_WORKFLOW_NAME WORKFLOW_RUN_ID=$REMOTE_WORKFLOW_RUN_ID WORKFLOW_RUN_URL=$REMOTE_WORKFLOW_RUN_URL bash -s" <<'REMOTE_EOF' | tee "$LOG"
           set -uo pipefail
           cd /srv/app
 

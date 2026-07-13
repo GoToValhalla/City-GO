@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -176,3 +177,90 @@ def test_workflow_stop_requested_and_cleanup_report_stop_reason_new() -> None:
     assert 'report_worker_event "workflow_cleanup"' in cleanup_body
     assert "stop_reason" in cleanup_body
     assert text.count('report_worker_event "worker_stop_requested"') >= 5
+
+
+def test_remote_ssh_variables_are_shell_quoted_not_bare_words_new() -> None:
+    """Regression: WORKFLOW_NAME (github.workflow) is
+    "CITY GO · OPS · Run Import Worker Safely" — spaces and Unicode. The SSH
+    command used to pass each NAME="$VALUE" as a separate argv word to
+    `ssh host word1 word2 ...`; ssh rejoins all trailing words with a single
+    space before the remote shell re-parses them, so the remote shell saw
+    WORKFLOW_NAME=CITY GO · ... and tried to run "GO" as a command
+    ("bash: GO: command not found"). Every remote-bound variable must now be
+    shell-quoted with printf '%q' and assembled into ONE string passed to
+    ssh, matching the pattern already used for ADMIN_API_TOKEN in
+    production-health.yml."""
+    text = _workflow_text()
+
+    for var in ("MAX_RUNTIME_SECONDS", "ADMIN_API_TOKEN", "WORKFLOW_NAME", "WORKFLOW_RUN_ID", "WORKFLOW_RUN_URL"):
+        assert f"REMOTE_{var}=$(printf '%q' \"${var}\")" in text, f"{var} must be shell-quoted via printf '%q' before being sent over ssh"
+
+    # The five NAME="$VALUE" assignments and `bash -s` must be a single
+    # quoted string argument to ssh, not five bare trailing argv words.
+    ssh_call_idx = text.index("ssh \\\n")
+    single_command_idx = text.index(
+        '"MAX_RUNTIME_SECONDS=$REMOTE_MAX_RUNTIME_SECONDS '
+        "ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN "
+        "WORKFLOW_NAME=$REMOTE_WORKFLOW_NAME "
+        "WORKFLOW_RUN_ID=$REMOTE_WORKFLOW_RUN_ID "
+        'WORKFLOW_RUN_URL=$REMOTE_WORKFLOW_RUN_URL bash -s"'
+    )
+    assert ssh_call_idx < single_command_idx
+
+    # The old, broken bare-word form must not reappear.
+    assert 'WORKFLOW_NAME="$WORKFLOW_NAME" \\' not in text
+    assert '"$SSH_USER@$SSH_HOST" \\\n            MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS"' not in text
+
+
+def test_remote_ssh_variables_survive_a_real_shell_roundtrip_new() -> None:
+    """Behavioral proof, not just a text match: extract the exact
+    printf '%q' quoting lines and the exact single-string ssh command from
+    the workflow, then actually run them in bash — with a real
+    WORKFLOW_NAME containing spaces and the literal '·' Unicode character —
+    and confirm the value a remote shell would see is byte-for-byte
+    unchanged. `eval` on the built command string here plays the same role
+    ssh plays for real: ssh sends the one already-built string to the
+    remote sshd, which hands it to the login shell for parsing exactly as
+    eval parses it locally."""
+    text = _workflow_text()
+
+    quoting_lines = "\n".join(
+        line.strip()
+        for line in text.splitlines()
+        if line.strip().startswith("REMOTE_") and "printf '%q'" in line
+    )
+    assert quoting_lines, "could not find the printf '%q' quoting lines in the workflow"
+
+    single_command_start = text.index('"MAX_RUNTIME_SECONDS=$REMOTE_MAX_RUNTIME_SECONDS')
+    single_command_end = text.index('bash -s"', single_command_start) + len('bash -s"')
+    ssh_command_literal = text[single_command_start:single_command_end]
+
+    script = f"""
+set -euo pipefail
+MAX_RUNTIME_SECONDS="300"
+ADMIN_API_TOKEN="abc def'ghi\\$xyz"
+WORKFLOW_NAME="CITY GO · OPS · Run Import Worker Safely"
+WORKFLOW_RUN_ID="123456"
+WORKFLOW_RUN_URL="https://github.com/org/repo/actions/runs/123456"
+
+{quoting_lines}
+
+CMD={ssh_command_literal}
+eval "$CMD" <<'REMOTE_EOF'
+echo "NAME=[$WORKFLOW_NAME]"
+echo "TOKEN=[$ADMIN_API_TOKEN]"
+echo "RUNTIME=[$MAX_RUNTIME_SECONDS]"
+echo "RUN_ID=[$WORKFLOW_RUN_ID]"
+echo "RUN_URL=[$WORKFLOW_RUN_URL]"
+REMOTE_EOF
+"""
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
+    assert "NAME=[CITY GO · OPS · Run Import Worker Safely]" in result.stdout
+    assert "TOKEN=[abc def'ghi$xyz]" in result.stdout
+    assert "RUNTIME=[300]" in result.stdout
+    assert "RUN_ID=[123456]" in result.stdout
+    assert "RUN_URL=[https://github.com/org/repo/actions/runs/123456]" in result.stdout
+    # The historical failure mode: "GO" being run as a command.
+    assert "GO: command not found" not in result.stderr
+    assert "command not found" not in result.stderr

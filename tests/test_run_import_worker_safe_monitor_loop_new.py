@@ -25,7 +25,7 @@ def _extract_monitor_loop_script() -> str:
     script = next(
         step["run"] for step in steps if step.get("name") == "Preflight, run, monitor, and always stop import-worker"
     )
-    match = re.search(r"bash <<'REMOTE_EOF'.*?\n(.*?)\nREMOTE_EOF", script, re.S)
+    match = re.search(r"<<'REMOTE_EOF'.*?\n(.*?)\nREMOTE_EOF", script, re.S)
     assert match is not None, "REMOTE_EOF heredoc body not found"
     body = match.group(1)
 
