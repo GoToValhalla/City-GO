@@ -11,6 +11,18 @@ class AdminActionRequest(BaseModel):
 class AdminUnpublishRequest(AdminActionRequest):
     reason: str = Field(min_length=1)
 
+class AdminCityPublishRequest(AdminActionRequest):
+    override_readiness_gate: bool = False
+
+class AdminCityPublicationPreviewResponse(BaseModel):
+    city_id: int
+    gate_allowed: bool
+    gate_reasons: list[str]
+    places_total: int
+    would_publish_place_ids: list[int]
+    would_hide_place_ids: list[int]
+    hide_reasons_by_place_id: dict[int, list[str]]
+
 class AdminPlaceListResponse(BaseModel):
     items: list[PlaceRead]
     total: int

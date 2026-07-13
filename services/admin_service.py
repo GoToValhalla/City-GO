@@ -15,6 +15,7 @@ from services.admin_audit_service import write_admin_audit_log
 from services.admin_city_import_job_service import queue_city_import_job
 from services.admin_city_import_setup import finish_city_import_setup
 from services.admin_places_filters import apply_place_filters
+from services.place_publication_eligibility import place_publication_eligibility
 from services.place_read_service import build_place_read
 from services.place_service import create_place, get_place_by_id, get_places, get_places_total, update_place
 from services.publication_policy import unsafe_manual_publish_gates
@@ -128,7 +129,8 @@ def publish_place(db: Session, place_id: int, *, actor: str, reason: str | None 
     place = get_place_by_id(db, place_id)
     if place is None:
         return None
-    failed_gates = unsafe_manual_publish_gates(place)
+    eligibility = place_publication_eligibility(place)
+    failed_gates = list(eligibility.reasons) + unsafe_manual_publish_gates(place)
     if failed_gates:
         raise PlacePublicationBlockedError(place_id=place_id, blocked_reason=failed_gates[0], failed_gates=failed_gates)
     old_value = _place_publication_snapshot(place)

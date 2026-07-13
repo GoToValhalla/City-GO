@@ -10,6 +10,7 @@ from models.place_tag import PlaceTag
 from services.admin_audit_service import write_admin_audit_log
 from services.admin_place_update_service import update_admin_place_fields
 from services.admin_service import publish_place, unpublish_place, verify_place
+from services.place_publication_eligibility import place_publication_eligibility
 from services.product_event_service import record_event
 
 DANGEROUS = frozenset({"publish", "hide", "set_category", "disable_route", "remove_tags"})
@@ -23,13 +24,29 @@ def preview_bulk(db: Session, place_ids: list[int], action: str, params: dict[st
         key = p.category or "unknown"
         cats[key] = cats.get(key, 0) + 1
     changes = _describe(action, params)
-    return {
+    payload = {
         "action": action, "total": len(places), "place_ids": [p.id for p in places],
         "cities": [{"city_id": cid, "name": cities.get(cid, "?"), "count": sum(1 for p in places if p.city_id == cid)}
                    for cid in sorted({p.city_id for p in places})],
         "categories": cats, "field_changes": changes,
         "is_dangerous": action in DANGEROUS, "risks": _risks(action, len(places)),
     }
+    if action == "publish":
+        # Same canonical check apply_bulk uses below — dry-run and apply must
+        # never diverge on which places are eligible (see
+        # services/place_publication_eligibility.py).
+        eligible_ids: list[int] = []
+        blocked: list[dict[str, object]] = []
+        for place in places:
+            eligibility = place_publication_eligibility(place)
+            if eligibility.eligible:
+                eligible_ids.append(place.id)
+            else:
+                blocked.append({"place_id": place.id, "reasons": list(eligibility.reasons)})
+        payload["would_publish_place_ids"] = eligible_ids
+        payload["would_block_place_ids"] = [row["place_id"] for row in blocked]
+        payload["blocked_reasons"] = blocked
+    return payload
 
 
 def apply_bulk(db: Session, place_ids: list[int], action: str, params: dict[str, object], *, actor: str) -> dict[str, object]:

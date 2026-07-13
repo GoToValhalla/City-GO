@@ -8,20 +8,17 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.place import Place
 from services.admin_audit_service import write_admin_audit_log
-from services.place_public_visibility import is_public_hidden_category
-from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES, evaluate_place_route_eligibility
+from services.place_publication_eligibility import city_publication_gate, place_publication_eligibility
+from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 CITY_STATUS_DRAFT = "draft"
 CITY_STATUS_PUBLISHED = "published"
 CITY_STATUS_REVIEW_REQUIRED = "review_required"
 CITY_STATUS_UNPUBLISHED = "unpublished"
 
-PLACE_STATUS_ACTIVE = "active"
 PLACE_PUBLICATION_PUBLISHED = "published"
 PLACE_PUBLICATION_NEEDS_REVIEW = "needs_review"
 PLACE_PUBLICATION_UNPUBLISHED = "unpublished"
-NON_PUBLIC_CITY_PUBLICATION_CATEGORIES = HARD_EXCLUDED_CATEGORIES
-NON_PUBLIC_CITY_PUBLICATION_LAYERS = {"service", "transport", "utility"}
 
 
 @dataclass(frozen=True)
@@ -32,13 +29,71 @@ class CityPublicationResult:
     places_hidden: int
 
 
-def publish_city(db: Session, city_id: int, *, actor: str, reason: str | None = None) -> CityPublicationResult | None:
+@dataclass(frozen=True)
+class CityPublicationPreview:
+    city_id: int
+    gate_allowed: bool
+    gate_reasons: tuple[str, ...]
+    places_total: int
+    would_publish_place_ids: tuple[int, ...]
+    would_hide_place_ids: tuple[int, ...]
+    hide_reasons_by_place_id: dict[int, tuple[str, ...]]
+
+
+def preview_city_publication(db: Session, city_id: int) -> CityPublicationPreview | None:
+    """Read-only dry-run using the exact same gate and eligibility function
+    publish_city itself uses, so dry-run and apply can never diverge."""
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
         return None
 
+    gate = city_publication_gate(city)
     places = db.query(Place).filter(Place.city_id == city.id).order_by(Place.id.asc()).all()
-    publishable_places = [place for place in places if _place_can_be_public(place)]
+    would_publish: list[int] = []
+    would_hide: list[int] = []
+    hide_reasons: dict[int, tuple[str, ...]] = {}
+    for place in places:
+        eligibility = place_publication_eligibility(place)
+        if eligibility.eligible:
+            would_publish.append(place.id)
+        else:
+            would_hide.append(place.id)
+            hide_reasons[place.id] = eligibility.reasons
+
+    return CityPublicationPreview(
+        city_id=city.id,
+        gate_allowed=gate.allowed,
+        gate_reasons=gate.reasons,
+        places_total=len(places),
+        would_publish_place_ids=tuple(would_publish),
+        would_hide_place_ids=tuple(would_hide),
+        hide_reasons_by_place_id=hide_reasons,
+    )
+
+
+def publish_city(
+    db: Session,
+    city_id: int,
+    *,
+    actor: str,
+    reason: str | None = None,
+    override_readiness_gate: bool = False,
+) -> CityPublicationResult | None:
+    city = db.query(City).filter(City.id == city_id).first()
+    if city is None:
+        return None
+
+    if not override_readiness_gate:
+        gate = city_publication_gate(city)
+        if not gate.allowed:
+            raise ValueError(
+                "Нельзя опубликовать город: не пройден readiness gate ("
+                + ", ".join(gate.reasons)
+                + "). Явный override_readiness_gate=true требуется для публикации без готового снапшота."
+            )
+
+    places = db.query(Place).filter(Place.city_id == city.id).order_by(Place.id.asc()).all()
+    publishable_places = [place for place in places if place_publication_eligibility(place).eligible]
     if not publishable_places:
         raise ValueError("Нельзя опубликовать город: нет ни одного места, прошедшего публичный quality gate.")
 
@@ -73,6 +128,7 @@ def publish_city(db: Session, city_id: int, *, actor: str, reason: str | None = 
             "places_total": len(places),
             "places_published": published_count,
             "places_hidden": hidden_count,
+            "readiness_gate_overridden": override_readiness_gate,
         },
         reason=reason,
     )
@@ -134,28 +190,6 @@ def unpublish_city(db: Session, city_id: int, *, actor: str, reason: str) -> Cit
     )
 
 
-def _place_can_be_public(place: Place) -> bool:
-    if not place.is_active:
-        return False
-    if place.status not in {None, PLACE_STATUS_ACTIVE}:
-        return False
-    category = str(place.canonical_category or place.category or "").strip().lower()
-    layer = str(place.place_layer or "").strip().lower()
-    if category in NON_PUBLIC_CITY_PUBLICATION_CATEGORIES or layer in NON_PUBLIC_CITY_PUBLICATION_LAYERS:
-        return False
-    if is_public_hidden_category(place.category):
-        return False
-    if bool(getattr(place, "is_spam_poi", False)):
-        return False
-    if bool(getattr(place, "is_duplicate_suspected", False)):
-        return False
-    if place.lat is None or place.lng is None:
-        return False
-    if _is_blank(place.title):
-        return False
-    return True
-
-
 def _publish_place_for_city(place: Place, *, now: datetime, reason: str | None) -> None:
     place.is_active = True
     place.is_published = True
@@ -191,7 +225,3 @@ def _city_publication_snapshot(city: City) -> dict[str, object]:
         "readiness_score": city.readiness_score,
         "quality_status": city.quality_status,
     }
-
-
-def _is_blank(value: str | None) -> bool:
-    return not bool(str(value or "").strip())

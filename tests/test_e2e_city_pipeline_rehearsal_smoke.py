@@ -69,11 +69,13 @@ class TestCityPipelineE2ESmoke(unittest.TestCase):
 
     def _cleanup_city(self, city_id: int) -> None:
         from models.city_import_scope import CityImportScope
+        from models.data_foundation import CityQualitySnapshot
 
         self.db.rollback()
         self.db.query(Place).filter(Place.city_id == city_id).delete()
         self.db.query(CityAdminImportJob).filter(CityAdminImportJob.city_id == city_id).delete()
         self.db.query(CityImportScope).filter(CityImportScope.city_id == city_id).delete()
+        self.db.query(CityQualitySnapshot).filter(CityQualitySnapshot.city_id == city_id).delete()
         self.db.query(City).filter(City.id == city_id).delete()
         self.db.commit()
 
@@ -124,6 +126,16 @@ class TestCityPipelineE2ESmoke(unittest.TestCase):
         skip_result = run_queued_import_jobs(actor_id="e2e-smoke-worker", limit=1)
         self.assertEqual(skip_result["processed"], 0)
         self.assertEqual(skip_result["failed"], 0)
+
+        # A fresh, ready readiness snapshot is required by the canonical
+        # publication gate (see services/place_publication_eligibility.py) —
+        # this is exactly the invariant the publication-safety audit added,
+        # after the manual rehearsal published a needs_review/score=46 city
+        # with no gate at all.
+        from models.data_foundation import CityQualitySnapshot
+
+        self.db.add(CityQualitySnapshot(city_id=city.id, readiness_score=90, quality_status="ready"))
+        self.db.commit()
 
         publication = publish_city(self.db, city.id, actor="e2e-smoke-test")
         self.assertIsNotNone(publication)

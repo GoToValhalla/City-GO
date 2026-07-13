@@ -8,6 +8,8 @@ from db.dependencies import get_db
 from models.city import City
 from schemas.admin import (
     AdminActionRequest,
+    AdminCityPublicationPreviewResponse,
+    AdminCityPublishRequest,
     AdminImportJobActionResponse,
     AdminImportJobChangeListResponse,
     AdminImportJobChangeRead,
@@ -29,7 +31,7 @@ from services.admin_city_import_job_service import (
     reset_import_job_to_queued,
 )
 from services.admin_city_import_tasks import import_queue_summary
-from services.admin_city_publication_service import publish_city
+from services.admin_city_publication_service import preview_city_publication, publish_city
 from services.admin_extended_service import get_admin_import_job
 from services.admin_import_job_change_service import CHANGE_TYPES, import_job_changes_summary, list_import_job_changes, serialize_change
 from services.admin_import_jobs_fast import list_admin_import_jobs_fast
@@ -204,11 +206,29 @@ def cancel_import_job_endpoint(city_id: int, auth: AdminContext = Depends(admin_
     return AdminImportJobActionResponse(city_id=city_id, status="cancelled", message="Сбор и обогащение отменены.")
 
 
+@router.get("/import-jobs/{city_id}/publish-preview", response_model=AdminCityPublicationPreviewResponse)
+def preview_city_publish(city_id: int, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminCityPublicationPreviewResponse:
+    """Read-only dry-run using the exact same gate/eligibility publish_city
+    itself applies below — see services/place_publication_eligibility.py."""
+    preview = preview_city_publication(db, city_id)
+    if preview is None:
+        raise HTTPException(404, "Город не найден")
+    return AdminCityPublicationPreviewResponse(
+        city_id=preview.city_id,
+        gate_allowed=preview.gate_allowed,
+        gate_reasons=list(preview.gate_reasons),
+        places_total=preview.places_total,
+        would_publish_place_ids=list(preview.would_publish_place_ids),
+        would_hide_place_ids=list(preview.would_hide_place_ids),
+        hide_reasons_by_place_id={pid: list(reasons) for pid, reasons in preview.hide_reasons_by_place_id.items()},
+    )
+
+
 @router.post("/import-jobs/{city_id}/publish", response_model=AdminImportJobActionResponse)
-def publish_imported_city(city_id: int, payload: AdminActionRequest | None = None, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
-    body = payload or AdminActionRequest()
+def publish_imported_city(city_id: int, payload: AdminCityPublishRequest | None = None, auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> AdminImportJobActionResponse:
+    body = payload or AdminCityPublishRequest()
     try:
-        result = publish_city(db, city_id, actor=auth.actor_id, reason=body.reason)
+        result = publish_city(db, city_id, actor=auth.actor_id, reason=body.reason, override_readiness_gate=body.override_readiness_gate)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
     if result is None:
