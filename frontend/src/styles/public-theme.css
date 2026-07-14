@@ -49,3 +49,53 @@
   outline: 3px solid rgba(217, 107, 67, .34);
   outline-offset: 2px;
 }
+
+/*
+ * Public dark mode reuses the same Obsidian Velora palette admin already
+ * uses on :root (styles/design-system.css) — dark mode is not a new theme,
+ * it is "no longer overriding :root to light". Scoped to html[data-theme]
+ * so admin (which never sets data-theme) is unaffected either way.
+ */
+html[data-theme="dark"] .app-screen {
+  --cg-bg-main: #08090C;
+  --cg-bg-card: #0D0D11;
+  --cg-bg-elevated: #181A20;
+  --cg-bg-muted: #111318;
+  --cg-bg-panel: #1E2028;
+  --cg-border-soft: rgba(255, 255, 255, 0.08);
+  --cg-border-strong: rgba(255, 255, 255, 0.14);
+  --cg-text-main: #F5F5F7;
+  --cg-text-muted: #9899A4;
+  --cg-text-soft: #C2C3CB;
+  --cg-text-disabled: #5A5C66;
+  --cg-primary: #A78BFA;
+  --cg-primary-hover: #B8A9FE;
+  --cg-primary-soft: rgba(167, 139, 250, 0.14);
+  --cg-map-marker: #FF5A00;
+  --cg-route: #FF5A00;
+  --cg-route-future: #5A5C66;
+  --cg-route-completed: #9899A4;
+  --cg-open: #86EFAC;
+  --cg-open-soft: rgba(134, 239, 172, 0.14);
+  --cg-warning: #FBBF24;
+  --cg-warning-soft: rgba(251, 191, 36, 0.14);
+  --cg-closed: #F87171;
+  --cg-closed-soft: rgba(248, 113, 113, 0.14);
+  --cg-rating: #FBBF24;
+  --cg-shadow-card: 0 2px 12px rgba(0, 0, 0, 0.4);
+  --cg-shadow-sheet: 0 16px 48px rgba(0, 0, 0, 0.56);
+  --cg-shadow-primary: 0 4px 16px rgba(167, 139, 250, 0.22);
+  --cg-glass-bg: rgba(18, 18, 24, 0.68);
+  --ink: var(--cg-text-main);
+  --muted: var(--cg-text-muted);
+  --line: var(--cg-border-soft);
+  --blue: var(--cg-primary);
+  --blue-soft: var(--cg-primary-soft);
+  --green: var(--cg-open);
+  --red: var(--cg-closed);
+  --canvas: var(--cg-bg-card);
+  --pearl: var(--cg-bg-main);
+  --tile: var(--cg-bg-elevated);
+  --shadow: var(--cg-shadow-card);
+  color-scheme: dark;
+}

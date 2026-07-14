@@ -37,3 +37,30 @@ describe('AppHeader city picker', () => {
     expect(JSON.parse(String(window.localStorage.getItem('citygo:selectedCity')))).toMatchObject({ slug: 'pushkin-saratov' })
   })
 })
+
+describe('AppHeader theme toggle', () => {
+  afterEach(() => {
+    cleanup()
+    window.localStorage.clear()
+    document.documentElement.removeAttribute('data-theme')
+    vi.restoreAllMocks()
+  })
+
+  it('keeps desktop and mobile controls in sync via one shared state_new', () => {
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }),
+    })
+    render(<MemoryRouter initialEntries={['/zelenogradsk']}><AppHeader /></MemoryRouter>)
+
+    const darkButtons = screen.getAllByRole('radio', { name: 'Тёмная' })
+    expect(darkButtons).toHaveLength(2)
+    darkButtons.forEach((button) => expect(button).toHaveAttribute('aria-checked', 'false'))
+
+    fireEvent.click(darkButtons[0])
+
+    screen.getAllByRole('radio', { name: 'Тёмная' }).forEach((button) => expect(button).toHaveAttribute('aria-checked', 'true'))
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+    expect(window.localStorage.getItem('citygo:themeMode')).toBe('dark')
+  })
+})

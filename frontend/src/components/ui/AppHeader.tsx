@@ -6,11 +6,14 @@ import { cityLocation } from '../../features/city-search/model/citySearch'
 import { useAvailableCities } from '../../features/city-search/model/useAvailableCities'
 import { CityPicker } from '../../features/city-search/ui/CityPicker'
 import type { CityOption } from '../../shared/city/currentCity'
+import { useTheme } from '../../shared/theme/useTheme'
+import { ThemeToggle } from './ThemeToggle'
 
 const navClass = ({ isActive }: { isActive: boolean }) => isActive ? 'nav-link active' : 'nav-link'
 
 export const AppHeader = () => {
   const cityState = useAvailableCities()
+  const { mode: themeMode, setThemeMode } = useTheme()
   const [pickerOpen, setPickerOpen] = useState(false)
   const navigate = useNavigate()
   const closePicker = useCallback(() => setPickerOpen(false), [])
@@ -42,11 +45,13 @@ export const AppHeader = () => {
       <button className="city-context" onClick={() => setPickerOpen(true)} type="button">
         <MapPin size={17} /><span><strong>{cityState.selectedCity.name}</strong><small>{cityLocation(cityState.selectedCity)}</small></span><span aria-hidden="true">›</span>
       </button>
+      <ThemeToggle className="theme-toggle--desktop" mode={themeMode} onChange={setThemeMode} />
     </header>
     <nav aria-label="Мобильная навигация" className="mobile-nav">
       <NavLink className={navClass} end to={home}><Home size={20} /><span>Главная</span></NavLink>
       <NavLink className={navClass} to={catalog}><List size={20} /><span>Места</span></NavLink>
       <NavLink className={navClass} to={route}><Route size={21} /><span>Маршрут</span></NavLink>
+      <ThemeToggle className="theme-toggle--mobile" mode={themeMode} onChange={setThemeMode} />
     </nav>
     {pickerOpen ? <CityPicker cities={cityState.cities} error={cityState.error} loading={cityState.loading} onClose={closePicker} onRetry={() => void cityState.reload()} onSelect={selectCity} selectedCity={cityState.selectedCity} /> : null}
   </>
