@@ -46,7 +46,7 @@
 .nearby-controls .is-active {
   color: var(--cg-primary-hover);
   background: var(--cg-primary-soft);
-  border-color: rgba(124, 77, 255, 0.36);
+  border-color: color-mix(in srgb, var(--cg-primary) 36%, var(--cg-border-soft));
 }
 
 .nearby-location-panel {
@@ -76,7 +76,7 @@
   padding: 10px 12px;
   color: var(--cg-warning);
   background: var(--cg-warning-soft);
-  border: 1px solid rgba(245, 166, 35, 0.28);
+  border: 1px solid color-mix(in srgb, var(--cg-warning) 28%, var(--cg-border-soft));
   border-radius: var(--cg-radius-md);
   font-size: 13px;
   line-height: 18px;

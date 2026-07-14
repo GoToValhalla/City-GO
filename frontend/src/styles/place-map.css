@@ -70,7 +70,7 @@
   padding: 8px 10px;
   color: var(--cg-warning);
   background: var(--cg-warning-soft);
-  border: 1px solid rgba(245, 166, 35, 0.28);
+  border: 1px solid color-mix(in srgb, var(--cg-warning) 28%, var(--cg-border-soft));
   border-radius: var(--cg-radius-md);
   font-size: 12px;
   line-height: 16px;

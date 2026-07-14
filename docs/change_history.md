@@ -1,5 +1,36 @@
 # CHANGE HISTORY
 
+## 2026-07-14
+
+### Sites UI/UX integration — follow-up audit and CSS fixes
+
+- Подтверждена корректная интеграция `b40babd` (Sites UI/UX): fast-forward
+  pull, конфликтов нет, порядок CSS-каскада (`.app-screen` поверх `:root`)
+  проверен по байтовым смещениям в собранном бандле.
+- Найдены и исправлены 11 случаев конфликта старой/новой темы: правила, где
+  `color`/`background` уже использовали новые `--cg-*` токены, но соседний
+  `border-color`/`border`/градиент на том же селекторе оставался захардкожен
+  старыми rgba-значениями тёмной темы и не перекрашивался в новой светлой
+  теме. Исправлено через существующий в проекте паттерн
+  `color-mix(in srgb, var(--cg-X) N%, var(--cg-border-soft))`
+  (`cards.css`, `discovery.css`, `place-map.css`, `place-ui.css`,
+  `places.css`, `responsive.css`).
+- `CityPicker`: добавлен `aria-live="polite"` на счётчик результатов поиска
+  (`city-picker-summary`), чтобы screen reader объявлял изменение числа
+  найденных городов при вводе запроса.
+- Проверено и признано не дефектом: отсутствие focus-trap/focus-return в
+  `CityPicker` — это существующий по всему проекту базовый уровень
+  доступности диалогов (сравнение с `PlaceMapPanel`), а не регресс,
+  внесённый этой интеграцией; изменения не вносились.
+- Проведён аудит состояний loading/empty/partial-data/warning/error для
+  places catalog, place details, nearby, open-now, route builder, route
+  draft, route result — везде raw backend-ошибки пользователю не
+  показываются, mock/demo-данные не используются, add/replace/remove для
+  маршрутов работают через прежние API. Дефектов не найдено.
+- Локальные проверки: frontend `npm test` — 89 файлов / 324 теста пройдено,
+  1 тест пропущен; `npm run lint` — PASS; `npm run build` — PASS.
+- CI и deploy не запускались.
+
 ## 2026-07-13
 
 ### Sites UI/UX integrated into the production web frontend

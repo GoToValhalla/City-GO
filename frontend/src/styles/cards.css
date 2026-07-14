@@ -52,7 +52,7 @@
 
 .place-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(124, 77, 255, 0.36);
+  border-color: color-mix(in srgb, var(--cg-primary) 36%, var(--cg-border-soft));
 }
 
 .place-card-media {

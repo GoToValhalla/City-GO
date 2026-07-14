@@ -24,7 +24,7 @@
 
 .places-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .state-panel { padding: 16px; color: var(--cg-text-muted); background: var(--cg-bg-card); border: 1px dashed var(--cg-border-soft); border-radius: var(--cg-radius-md); }
-.state-panel-error { color: var(--cg-closed); background: var(--cg-closed-soft); border-color: rgba(239, 68, 68, 0.28); }
+.state-panel-error { color: var(--cg-closed); background: var(--cg-closed-soft); border-color: color-mix(in srgb, var(--cg-closed) 28%, var(--cg-border-soft)); }
 .places-load-more { min-height: 1px; }
 .places-load-more-label { color: var(--cg-text-muted); font-size: 14px; }
 

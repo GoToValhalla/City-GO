@@ -31,7 +31,7 @@ export const CityPicker = ({ cities, error, loading, onClose, onRetry, onSelect,
       <label className="city-picker-search"><Search size={20} /><span className="sr-only">Поиск города, региона или страны</span>
         <input autoComplete="off" autoFocus onChange={(event) => setQuery(event.target.value)} placeholder="Город, регион или страна" type="search" value={query} />
       </label>
-      <div className="city-picker-summary"><span>{loading ? 'Обновляем города…' : `${filtered.length} из ${cities.length}`}</span><small>Название · Регион · Страна</small></div>
+      <div aria-live="polite" className="city-picker-summary"><span>{loading ? 'Обновляем города…' : `${filtered.length} из ${cities.length}`}</span><small>Название · Регион · Страна</small></div>
       <div className="city-picker-list">{filtered.map((city) => <button aria-label={`Выбрать ${cityIdentity(city)}`} className={selectedCity.slug === city.slug ? 'is-active' : ''} key={city.slug} onClick={() => onSelect(city)} type="button">
         <span><strong>{city.name}</strong><small>{cityLocation(city)}</small></span><b>{city.places_count ?? 0}</b>
         {selectedCity.slug === city.slug ? <Check size={19} /> : <ChevronRight size={19} />}
