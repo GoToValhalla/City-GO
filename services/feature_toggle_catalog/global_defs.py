@@ -3,7 +3,7 @@ from services.feature_toggle_catalog.types import ToggleDef
 GLOBAL_TOGGLES: tuple[ToggleDef, ...] = (
     {"key": "web_app_enabled", "label": "Веб-приложение", "description": "Публичный сайт доступен", "default": True, "scope": "global", "group": "product"},
     {"key": "telegram_bot_enabled", "label": "Telegram-бот", "description": "Бот отвечает пользователям", "default": True, "scope": "global", "group": "product"},
-    {"key": "tma_enabled", "label": "Telegram Mini App", "description": "Мини-приложение в Telegram доступно пользователям", "default": False, "scope": "global", "group": "product"},
+    {"key": "tma_enabled", "label": "Telegram Mini App", "description": "Мини-приложение в Telegram доступно пользователям", "default": True, "scope": "global", "group": "product"},
     {"key": "maintenance_mode", "label": "Режим обслуживания", "description": "Публичный API недоступен (админка работает)", "default": False, "scope": "global", "group": "product"},
     {"key": "payments_enabled", "label": "Платежи", "description": "Оплата и биллинг", "default": False, "scope": "global", "group": "product"},
     {"key": "subscriptions_enabled", "label": "Подписки", "description": "Подписочная модель", "default": False, "scope": "global", "group": "product"},
