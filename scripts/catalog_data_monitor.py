@@ -143,27 +143,27 @@ def parse_json(result: HttpResult) -> tuple[Any | None, str | None]:
 
 
 def _items_count(payload: Any) -> int:
+    return len(_city_items(payload))
+
+
+def _city_items(payload: Any) -> list[Any]:
     if isinstance(payload, list):
-        return len(payload)
+        return payload
     if isinstance(payload, dict):
         items = payload.get("items")
         if isinstance(items, list):
-            return len(items)
-    return 0
+            return items
+    return []
 
 
-def _first_city_slug(payload: Any) -> str | None:
-    first: Any | None = None
-    if isinstance(payload, list) and payload:
-        first = payload[0]
-    elif isinstance(payload, dict):
-        items = payload.get("items")
-        if isinstance(items, list) and items:
-            first = items[0]
-    if isinstance(first, dict):
-        slug = first.get("slug")
-        return str(slug) if slug else None
-    return None
+def _all_city_slugs(payload: Any) -> list[str]:
+    slugs: list[str] = []
+    for item in _city_items(payload):
+        if isinstance(item, dict):
+            slug = item.get("slug")
+            if slug:
+                slugs.append(str(slug))
+    return slugs
 
 
 def _technical_error(result: HttpResult | None) -> str:
@@ -224,15 +224,16 @@ def failure_report(
     return "\n".join(lines)
 
 
-def success_report(*, host: str, city_count: int, city_slug: str, places_total: int) -> str:
+def success_report(*, host: str, city_count: int, checked_cities: list[tuple[str, int]]) -> str:
+    checked_lines = [f"  - {slug}: {places_total} мест" for slug, places_total in checked_cities]
     return "\n".join(
         [
             "✅ CITY GO · CATALOG DATA MONITOR",
             "Статус: публичный каталог доступен",
             f"Хост: {host}",
             f"Городов в выдаче: {city_count}",
-            f"Проверенный город: {city_slug}",
-            f"Мест в каталоге: {places_total}",
+            f"Проверено городов: {len(checked_cities)}",
+            *checked_lines,
             f"GitHub Actions: {_run_url()}",
         ]
     )
@@ -306,48 +307,52 @@ def run_monitor(host: str, *, admin_api_token: str | None = None) -> tuple[int, 
             ),
         )
 
-    city_slug = _first_city_slug(cities_payload)
-    if not city_slug:
+    city_slugs = _all_city_slugs(cities_payload)
+    if not city_slugs:
         return 1, failure_report(
             host=host,
             result=cities,
-            problem="первый город в ответе не содержит slug",
-            meaning="frontend не сможет загрузить места для выбранного города.",
+            problem="ни один город в ответе не содержит slug",
+            meaning="frontend не сможет загрузить места ни для одного города.",
             action="проверить контракт /api/cities/available и данные таблицы cities.",
         )
 
-    # Trailing slash is intentional. Without it FastAPI can redirect /places to /places/;
-    # through nginx that redirect may escape /api and return the frontend SPA HTML.
-    places_url = f"{base_url}/api/places/?city_slug={urllib.parse.quote(city_slug)}&limit=1&offset=0"
-    places = http_get(places_url)
-    places_payload, places_error = parse_json(places)
-    if places_error:
-        if _looks_like_html(places):
-            return _html_api_failure(host=host, result=places, endpoint_name=f"список мест для города {city_slug}")
-        return 1, failure_report(
-            host=host,
-            result=places,
-            problem=f"не удалось получить места для города {city_slug}: {places_error}",
-            meaning="город есть, но список мест не открывается; вероятна ошибка API places, БД или visibility-фильтров.",
-            action="открыть backend logs по /api/places/ и проверить public visibility мест выбранного города.",
-        )
+    checked_cities: list[tuple[str, int]] = []
+    for city_slug in city_slugs:
+        # Trailing slash is intentional. Without it FastAPI can redirect /places to /places/;
+        # through nginx that redirect may escape /api and return the frontend SPA HTML.
+        places_url = f"{base_url}/api/places/?city_slug={urllib.parse.quote(city_slug)}&limit=1&offset=0"
+        places = http_get(places_url)
+        places_payload, places_error = parse_json(places)
+        if places_error:
+            if _looks_like_html(places):
+                return _html_api_failure(host=host, result=places, endpoint_name=f"список мест для города {city_slug}")
+            return 1, failure_report(
+                host=host,
+                result=places,
+                problem=f"не удалось получить места для города {city_slug}: {places_error}",
+                meaning="город есть, но список мест не открывается; вероятна ошибка API places, БД или visibility-фильтров.",
+                action="открыть backend logs по /api/places/ и проверить public visibility мест выбранного города.",
+            )
 
-    places_total = 0
-    if isinstance(places_payload, dict):
-        try:
-            places_total = int(places_payload.get("total") or 0)
-        except (TypeError, ValueError):
-            places_total = 0
-    if places_total < 1:
-        return 1, failure_report(
-            host=host,
-            result=places,
-            problem=f"город {city_slug} есть, но видимых мест 0",
-            meaning="frontend покажет пустой каталог; чаще всего места скрыты, сняты с публикации или не проходят catalog visibility.",
-            action="проверить статусы places, visible_in_catalog, city_id, review_required и последние импорты по этому городу.",
-        )
+        places_total = 0
+        if isinstance(places_payload, dict):
+            try:
+                places_total = int(places_payload.get("total") or 0)
+            except (TypeError, ValueError):
+                places_total = 0
+        if places_total < 1:
+            return 1, failure_report(
+                host=host,
+                result=places,
+                problem=f"город {city_slug} есть, но видимых мест 0",
+                meaning="frontend покажет пустой каталог для этого города; чаще всего места скрыты, сняты с публикации или не проходят catalog visibility.",
+                action="проверить статусы places, visible_in_catalog, city_id, review_required и последние импорты по этому городу.",
+            )
 
-    return 0, success_report(host=host, city_count=city_count, city_slug=city_slug, places_total=places_total)
+        checked_cities.append((city_slug, places_total))
+
+    return 0, success_report(host=host, city_count=city_count, checked_cities=checked_cities)
 
 
 def main() -> int:

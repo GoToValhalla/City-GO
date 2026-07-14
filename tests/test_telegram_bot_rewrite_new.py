@@ -186,8 +186,9 @@ def test_facade_filters_non_tourist_and_technical_places_new(db_session, city_fa
     assert [item.id for item in page.items] == [visible.id]
 
 
-def test_facade_city_picker_matches_website_available_cities_new(db_session, city_factory) -> None:
+def test_facade_city_picker_matches_website_available_cities_new(db_session, city_factory, place_factory) -> None:
     published = city_factory(slug="published-city", name="Опубликованный", launch_status="published")
+    place_factory(city_id=published.id, slug="published-city-place", title="Место", category="museum")
     ready = city_factory(slug="ready-city", name="Готовый", launch_status="ready")
     draft = city_factory(slug="draft-city", name="Черновик", launch_status="draft")
 

@@ -169,6 +169,70 @@ def test_catalog_monitor_uses_trailing_slash_for_places_api(monkeypatch) -> None
     assert calls[1] == "https://2.27.4.31/api/places/?city_slug=arkhangelsk&limit=1&offset=0"
 
 
+def test_catalog_monitor_checks_every_city_not_only_first(monkeypatch) -> None:
+    """The monitor must not stop after validating the alphabetically-first
+    city: a later city in the list can be empty while the first one is
+    healthy, and that must still fail the check."""
+    calls: list[str] = []
+
+    def fake_http_get(url: str, *, timeout: int = 25) -> HttpResult:
+        calls.append(url)
+        if "/api/cities/available" in url:
+            return HttpResult(
+                method="GET",
+                url=url,
+                status=200,
+                elapsed_ms=20,
+                body='{"items":[{"slug":"almaty"},{"slug":"baku"}]}',
+                content_type="application/json",
+            )
+        if "city_slug=almaty" in url:
+            return HttpResult(
+                method="GET", url=url, status=200, elapsed_ms=30,
+                body='{"items":[{"id":1}],"total":5}', content_type="application/json",
+            )
+        return HttpResult(
+            method="GET", url=url, status=200, elapsed_ms=30,
+            body='{"items":[],"total":0}', content_type="application/json",
+        )
+
+    monkeypatch.setattr(catalog_monitor, "http_get", fake_http_get)
+
+    exit_code, text = catalog_monitor.run_monitor("2.27.4.31")
+
+    assert exit_code == 1
+    assert "город baku есть, но видимых мест 0" in text
+    assert any("city_slug=almaty" in call for call in calls)
+    assert any("city_slug=baku" in call for call in calls)
+
+
+def test_catalog_monitor_reports_all_checked_cities_on_success(monkeypatch) -> None:
+    def fake_http_get(url: str, *, timeout: int = 25) -> HttpResult:
+        if "/api/cities/available" in url:
+            return HttpResult(
+                method="GET", url=url, status=200, elapsed_ms=20,
+                body='{"items":[{"slug":"almaty"},{"slug":"baku"}]}', content_type="application/json",
+            )
+        if "city_slug=almaty" in url:
+            return HttpResult(
+                method="GET", url=url, status=200, elapsed_ms=30,
+                body='{"items":[{"id":1}],"total":5}', content_type="application/json",
+            )
+        return HttpResult(
+            method="GET", url=url, status=200, elapsed_ms=30,
+            body='{"items":[{"id":2}],"total":3}', content_type="application/json",
+        )
+
+    monkeypatch.setattr(catalog_monitor, "http_get", fake_http_get)
+
+    exit_code, text = catalog_monitor.run_monitor("2.27.4.31")
+
+    assert exit_code == 0
+    assert "Проверено городов: 2" in text
+    assert "almaty" in text
+    assert "baku" in text
+
+
 def test_known_missing_poi_seed_contains_kutaisi_regression_set() -> None:
     payload = json.loads(Path("data/config/known_missing_poi.json").read_text(encoding="utf-8"))
     kutaisi = next(city for city in payload["cities"] if city["city"] == "kutaisi")

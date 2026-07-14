@@ -5,8 +5,16 @@ from main import app
 
 def test_cities_available_hides_draft(client: TestClient, db_session):
     from models.city import City
-    db_session.add(City(slug="zelenogradsk", name="Зеленоградск", country="Россия", launch_status="published", is_active=True))
+    from models.place import Place
+    zelenogradsk = City(slug="zelenogradsk", name="Зеленоградск", country="Россия", launch_status="published", is_active=True)
+    db_session.add(zelenogradsk)
     db_session.add(City(slug="kutaisi", name="Кутаиси", country="Грузия", launch_status="draft"))
+    db_session.commit()
+    db_session.add(Place(
+        city_id=zelenogradsk.id, slug="zelenogradsk-place", title="Место",
+        lat=54.9, lng=20.4, is_active=True, is_published=True,
+        is_visible_in_catalog=True, publication_status="published",
+    ))
     db_session.commit()
     response = client.get("/cities/available")
     assert [item["slug"] for item in response.json()] == ["zelenogradsk"]

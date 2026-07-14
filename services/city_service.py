@@ -11,6 +11,7 @@ from models.city import City
 from models.place import Place
 from services.city_slug_resolver import resolve_city_by_slug
 from services.feature_toggle_service import is_toggle_enabled
+from services.place_public_visibility import admin_preview_place_conditions
 
 PUBLISHED = "published"
 PUBLIC_ACTIVE_STATUS = "active"
@@ -55,6 +56,8 @@ def get_available_cities(db: Session, *, include_draft: bool = False) -> list[di
     if not include_draft:
         rows = [row for row in rows if row.launch_status == PUBLISHED]
     rows = [row for row in rows if _city_visible_to_users(db, row.slug)]
+    if not include_draft:
+        rows = [row for row in rows if _city_has_visible_place(db, row.slug)]
     return [
         {
             "slug": row.slug,
@@ -89,6 +92,22 @@ def _catalog_counter_place_conditions() -> tuple[object, ...]:
         Place.is_published.is_(True),
         Place.is_visible_in_catalog.is_(True),
         or_(Place.publication_status.is_(None), Place.publication_status.in_(PUBLICATION_STATUSES)),
+    )
+
+
+def _city_has_visible_place(db: Session, city_slug: str) -> bool:
+    """A city must not be advertised as available unless /api/places/ would
+    actually return at least one place for it. The catalogue counter above
+    intentionally uses a looser condition set (see module docstring), so it
+    alone cannot guarantee a non-empty /api/places/ response — e.g. a city
+    whose only places fall in a publicly hidden category (health, useful,
+    pharmacy, ...) still counts them, but /api/places/ excludes them."""
+    return (
+        db.query(Place.id)
+        .join(City, Place.city_id == City.id)
+        .filter(City.slug == city_slug, *admin_preview_place_conditions())
+        .first()
+        is not None
     )
 
 

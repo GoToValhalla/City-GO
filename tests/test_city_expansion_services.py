@@ -14,12 +14,20 @@ from services.place_discovery_service import create_discovery_request
 def test_registry_and_available_cities(db_session):
     country = create_country(db_session, CountryCreate(code="GE", name="Грузия"))
     region = create_region(db_session, RegionCreate(country_id=country.id, code="imereti", name="Имерети"))
-    db_session.add(City(slug="kutaisi", name="Кутаиси", country_id=country.id, region_id=region.id,
-                        country="Грузия", launch_status="draft", is_active=True))
-    db_session.add(City(slug="zelenogradsk", name="Зеленоградск", country="Россия", launch_status="published", is_active=True))
+    kutaisi = City(slug="kutaisi", name="Кутаиси", country_id=country.id, region_id=region.id,
+                        country="Грузия", launch_status="draft", is_active=True)
+    batumi = City(slug="batumi", name="Батуми", country="Грузия", launch_status="published", is_active=True)
+    db_session.add(kutaisi)
+    db_session.add(batumi)
     db_session.commit()
-    assert [city["slug"] for city in get_available_cities(db_session)] == ["zelenogradsk"]
-    assert {city["slug"] for city in get_available_cities(db_session, include_draft=True)} == {"kutaisi", "zelenogradsk"}
+    db_session.add(Place(
+        city_id=batumi.id, slug="batumi-place", title="Место",
+        lat=41.6, lng=41.6, is_active=True, is_published=True,
+        is_visible_in_catalog=True, publication_status="published",
+    ))
+    db_session.commit()
+    assert [city["slug"] for city in get_available_cities(db_session)] == ["batumi"]
+    assert {city["slug"] for city in get_available_cities(db_session, include_draft=True)} == {"kutaisi", "batumi"}
 
 
 def test_due_scope_lock_batch_and_state(db_session):
