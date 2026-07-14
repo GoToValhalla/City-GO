@@ -17,6 +17,7 @@ import { RouteInsights } from './RouteInsights'
 import { RoutePointList } from './RoutePointList'
 import { RouteWarnings } from './RouteWarnings'
 import { emptyCopy, emptyTitle, statusLabel } from './routeResultStatusText'
+import { isSessionInvalidError } from './sessionErrors'
 import { isDebugEnabled } from '../../shared/config/debug'
 import { DiagnosticsPanel } from '../../shared/debug/DiagnosticsPanel'
 
@@ -42,6 +43,14 @@ type Props = {
   onMovePoint?: (placeId: string, direction: 'up' | 'down') => void
   onRemovePoint?: (placeId: string) => void
   onReplacePoint?: (placeId: string) => void
+  /** Restores a previously started/paused walk after the page reopens.
+   * Only meaningful together with onSessionChange — omit both for the
+   * existing in-memory-only behavior (e.g. the desktop route builder). */
+  initialSession?: ActiveRouteSession | null
+  /** Called whenever the session is created/updated, and with `null` when
+   * the backend reports the session is no longer valid (see
+   * isSessionInvalidError) so the caller can clear its own persisted copy. */
+  onSessionChange?: (session: ActiveRouteSession | null) => void
 }
 
 const normalizeQualityStatus = (route: RecommendationRouteResponse): RouteQualityStatus => {
@@ -91,10 +100,28 @@ const RouteMapPreview = ({ points }: { points: RecommendationRoutePoint[] }) => 
   </div>
 }
 
-export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect, onMovePoint, onRemovePoint, onReplacePoint }: Props) => {
+export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect, onMovePoint, onRemovePoint, onReplacePoint, initialSession = null, onSessionChange }: Props) => {
   const [ratingStatus, setRatingStatus] = useState<string | null>(null)
-  const [session, setSession] = useState<ActiveRouteSession | null>(null)
+  const [session, setSessionState] = useState<ActiveRouteSession | null>(initialSession)
   const [sessionStatus, setSessionStatus] = useState<string | null>(null)
+  const [sessionInvalid, setSessionInvalid] = useState(false)
+  // initialSession is only meant to seed state once, for the route it was
+  // restored with — later route rebuilds (a genuinely different route_id)
+  // must not silently reset an already-progressing in-memory session back
+  // to the stale restored one. Reset inline during render (React's
+  // documented pattern for "adjusting state when a prop changes") instead
+  // of an effect, which would call setState synchronously post-render.
+  const [seededForRouteId, setSeededForRouteId] = useState(route.route_id)
+  if (route.route_id !== seededForRouteId) {
+    setSeededForRouteId(route.route_id)
+    setSessionState(initialSession)
+  }
+
+  const setSession = (next: ActiveRouteSession | null) => {
+    setSessionState(next)
+    onSessionChange?.(next)
+    if (next) setSessionInvalid(false)
+  }
   const summary = route.explanation?.summary ?? `Маршрут ${route.route_id}`
   const quality = route.quality_score ?? 0
   const qualityStatus = normalizeQualityStatus(route)
@@ -145,11 +172,19 @@ export const RouteResultPanel = ({ route, loading, onAddCandidate, onCorrect, on
       setSessionStatus('Прогулка обновлена.')
     } catch (error) {
       console.error(error)
-      setSessionStatus('Не удалось обновить прогулку.')
+      if (isSessionInvalidError(error)) {
+        setSession(null)
+        setSessionInvalid(true)
+        setSessionStatus(null)
+      } else {
+        setSessionStatus('Не удалось обновить прогулку.')
+      }
     }
   }
 
-  const sessionCopy = !session ? 'Маршрут ещё не начат.' : session.status === 'completed' ? 'Маршрут завершён.' : session.status === 'paused' ? 'Маршрут на паузе.' : `Текущая точка: ${currentPoint?.title ?? 'следующая точка'}`
+  const sessionCopy = sessionInvalid
+    ? 'Не удалось продолжить сохранённую прогулку — сессия больше не действует. Начните маршрут заново.'
+    : !session ? 'Маршрут ещё не начат.' : session.status === 'completed' ? 'Маршрут завершён.' : session.status === 'paused' ? 'Маршрут на паузе.' : `Текущая точка: ${currentPoint?.title ?? 'следующая точка'}`
 
   return <section className="route-result-grid route-result-grid-mobile-first">
     <div className="route-result-tile route-result-summary">

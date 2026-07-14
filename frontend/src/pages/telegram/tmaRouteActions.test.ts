@@ -4,7 +4,9 @@ import * as recommendationApi from '../../api/recommendations/recommendationRout
 import type { RecommendationRouteResponse } from '../../api/recommendations/recommendationRoute.types'
 import type { PlaceDetail } from '../../entities/place/model/types'
 import { DEFAULT_CITY, setCurrentCity } from '../../shared/city/currentCity'
-import { addPlaceToTmaRoute } from './tmaRouteActions'
+import { saveLocationSnapshot } from '../../shared/location/storage'
+import type { LocationSnapshot } from '../../shared/location/types'
+import { addPlaceToTmaRoute, TmaRouteStartUnavailableError } from './tmaRouteActions'
 import { restoreTmaRoute } from './tmaRouteStorage'
 
 vi.mock('../../api/recommendations/recommendationRoute.api', () => ({
@@ -12,7 +14,10 @@ vi.mock('../../api/recommendations/recommendationRoute.api', () => ({
   addPlaceToUserRoute: vi.fn(),
 }))
 
+const UNMAPPED_CITY = { slug: 'some-unmapped-city', name: 'Unmapped City', country: 'Россия' }
+
 const place = { id: 42, slug: 'test-place', title: 'Test Place' } as PlaceDetail
+const placeWithCoordinates = { id: 42, slug: 'test-place', title: 'Test Place', lat: 55.5, lng: 66.6 } as PlaceDetail
 
 const routeFixture = (overrides: Partial<RecommendationRouteResponse> = {}): RecommendationRouteResponse => ({
   route_id: 'r1',
@@ -28,9 +33,17 @@ const routeFixture = (overrides: Partial<RecommendationRouteResponse> = {}): Rec
   ...overrides,
 } as RecommendationRouteResponse)
 
+const locationSnapshot = (): LocationSnapshot => ({
+  coordinates: { latitude: 12.34, longitude: 56.78, accuracy: 10, altitude: null, course: null, speed: null },
+  source: 'browser',
+  capturedAt: Date.now(),
+  stale: false,
+})
+
 describe('addPlaceToTmaRoute', () => {
   afterEach(() => {
     window.localStorage.clear()
+    window.sessionStorage.clear()
     vi.clearAllMocks()
     setCurrentCity(DEFAULT_CITY)
   })
@@ -72,5 +85,67 @@ describe('addPlaceToTmaRoute', () => {
     await addPlaceToTmaRoute(place)
 
     expect(recommendationApi.buildRecommendationRoute).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses the supported city coordinates when the city is in the known-center map_new', async () => {
+    setCurrentCity(DEFAULT_CITY) // zelenogradsk — has known coordinates
+    vi.mocked(recommendationApi.buildRecommendationRoute).mockResolvedValue(routeFixture())
+    vi.mocked(recommendationApi.addPlaceToUserRoute).mockResolvedValue(routeFixture())
+
+    await addPlaceToTmaRoute(place)
+
+    const payload = vi.mocked(recommendationApi.buildRecommendationRoute).mock.calls[0][0]
+    expect(payload.start_source).toBe('city_center')
+    expect(payload.lat).toBeCloseTo(54.96)
+    expect(payload.lng).toBeCloseTo(20.48)
+  })
+
+  it('uses a previously granted location for a city with no known center (backend-available coordinates)_new', async () => {
+    setCurrentCity(UNMAPPED_CITY)
+    saveLocationSnapshot(locationSnapshot())
+    vi.mocked(recommendationApi.buildRecommendationRoute).mockResolvedValue(routeFixture({ city_slug: UNMAPPED_CITY.slug }))
+    vi.mocked(recommendationApi.addPlaceToUserRoute).mockResolvedValue(routeFixture({ city_slug: UNMAPPED_CITY.slug }))
+
+    await addPlaceToTmaRoute(place)
+
+    const payload = vi.mocked(recommendationApi.buildRecommendationRoute).mock.calls[0][0]
+    expect(payload.start_source).toBe('current_location')
+    expect(payload.lat).toBeCloseTo(12.34)
+    expect(payload.lng).toBeCloseTo(56.78)
+  })
+
+  it('falls back to the place being added when the city has no known center and location was denied/never granted_new', async () => {
+    setCurrentCity(UNMAPPED_CITY)
+    // No saveLocationSnapshot call — simulates denied/never-granted location.
+    vi.mocked(recommendationApi.buildRecommendationRoute).mockResolvedValue(routeFixture({ city_slug: UNMAPPED_CITY.slug }))
+    vi.mocked(recommendationApi.addPlaceToUserRoute).mockResolvedValue(routeFixture({ city_slug: UNMAPPED_CITY.slug }))
+
+    await addPlaceToTmaRoute(placeWithCoordinates)
+
+    const payload = vi.mocked(recommendationApi.buildRecommendationRoute).mock.calls[0][0]
+    expect(payload.start_source).toBe('place')
+    expect(payload.lat).toBeCloseTo(55.5)
+    expect(payload.lng).toBeCloseTo(66.6)
+  })
+
+  it('never uses another city coordinates and throws a truthful error when no coordinate source exists_new', async () => {
+    setCurrentCity(UNMAPPED_CITY)
+    // No location snapshot, and the place itself has no coordinates either.
+
+    await expect(addPlaceToTmaRoute(place)).rejects.toThrow(TmaRouteStartUnavailableError)
+    expect(recommendationApi.buildRecommendationRoute).not.toHaveBeenCalled()
+  })
+
+  it('the unavailable-start error message is a clear Russian explanation, never silently using another city_new', async () => {
+    setCurrentCity(UNMAPPED_CITY)
+
+    try {
+      await addPlaceToTmaRoute(place)
+      expect.unreachable('expected addPlaceToTmaRoute to throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(TmaRouteStartUnavailableError)
+      expect((err as Error).message).toContain('Не удалось определить точку старта')
+      expect((err as Error).message).not.toContain('zelenogradsk')
+    }
   })
 })

@@ -1,22 +1,34 @@
 import { useEffect, useState } from 'react'
 import { addPlaceToUserRoute, correctUserRoute, replacePlaceInUserRoute, updateUserRouteOrder } from '../../api/recommendations/recommendationRoute.api'
-import type { RecommendationRouteResponse, UserRouteCorrectionAction } from '../../api/recommendations/recommendationRoute.types'
+import type { ActiveRouteSession, RecommendationRouteResponse, UserRouteCorrectionAction } from '../../api/recommendations/recommendationRoute.types'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { getCurrentCity } from '../../shared/city/currentCity'
 import { RouteResultPanel } from '../../widgets/recommendation-route/RouteResultPanel'
-import { clearTmaRoute, restoreTmaRoute, saveTmaRoute } from './tmaRouteStorage'
+import { clearTmaRoute, clearTmaRouteSession, restoreTmaRoute, restoreTmaRouteSession, saveTmaRoute, saveTmaRouteSession } from './tmaRouteStorage'
 import { TmaShell } from './TmaShell'
 
 export const TmaRoutePage = () => {
   const [route, setRoute] = useState<RecommendationRouteResponse | null>(null)
+  const [initialSession, setInitialSession] = useState<ActiveRouteSession | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const city = getCurrentCity()
     const restored = restoreTmaRoute()
-    setRoute(restored && restored.city_slug === city.slug ? restored : null)
+    const matchesCity = restored && restored.city_slug === city.slug
+    setRoute(matchesCity ? restored : null)
+    // A route for a different/no-longer-restorable city means its session
+    // (if any) is stale local state too — never show progress for a route
+    // that is no longer the active one.
+    setInitialSession(matchesCity ? restoreTmaRouteSession(restored!.route_id) : null)
+    if (!matchesCity) clearTmaRouteSession()
   }, [])
+
+  const onSessionChange = (session: ActiveRouteSession | null) => {
+    if (session) saveTmaRouteSession(session)
+    else clearTmaRouteSession()
+  }
 
   const apply = async (operation: Promise<RecommendationRouteResponse>) => {
     try {
@@ -49,6 +61,8 @@ export const TmaRoutePage = () => {
       <RouteResultPanel
         route={route}
         loading={loading}
+        initialSession={initialSession}
+        onSessionChange={onSessionChange}
         onAddCandidate={(placeId) => void apply(addPlaceToUserRoute(route, placeId))}
         onCorrect={correct}
         onMovePoint={(placeId, direction) => {
@@ -69,6 +83,6 @@ export const TmaRoutePage = () => {
         }}
       />
     )}
-    {route ? <button type="button" className="cg-button cg-button--ghost" onClick={() => { clearTmaRoute(); setRoute(null) }}>Очистить маршрут</button> : null}
+    {route ? <button type="button" className="cg-button cg-button--ghost" onClick={() => { clearTmaRoute(); setRoute(null); setInitialSession(null) }}>Очистить маршрут</button> : null}
   </TmaShell>
 }

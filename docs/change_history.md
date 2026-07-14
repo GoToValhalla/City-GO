@@ -1,5 +1,53 @@
 # CHANGE HISTORY
 
+## 2026-07-14 (5)
+
+### Telegram Mini App v1 — fix two confirmed gaps from 4d9a129
+
+Frontend-only, no backend/database changes.
+
+**Gap 1 — active route session state resets to "not started" on reopen.**
+`RouteResultPanel.tsx` owned `session` (`ActiveRouteSession`) entirely
+in-memory with no way for a caller to seed or persist it. Added optional
+`initialSession`/`onSessionChange` props (default `undefined`/absent —
+the desktop `GenerateRoutePage` caller passes neither, so its behavior is
+unchanged). `pages/telegram/tmaRouteStorage.ts` gained
+`saveTmaRouteSession`/`restoreTmaRouteSession`/`clearTmaRouteSession`,
+keyed separately from the route and validated against the restored
+route's `route_id` (a session for any other route_id is stale local state
+and is discarded, never shown as if authoritative).
+
+There is no backend session TTL/read endpoint (`models/route_session.py`
+has no expiry field; `POST /v1/user-routes/sessions/{id}/action` is the
+only session-mutating call) — "expired or invalid" is detected the only
+way the existing contract allows: a 4xx from that same endpoint on the
+next real action. New `widgets/recommendation-route/sessionErrors.ts`
+(`isSessionInvalidError`) recognizes this and `RouteResultPanel` then
+clears the session, shows a truthful Russian recovery message ("сессия
+больше не действует... Начните маршрут заново"), and re-enables "Начать
+маршрут" so the user can restart — no progress is ever fabricated
+locally; a transient (non-4xx) error leaves the prior session untouched.
+
+**Gap 2 — cross-city coordinate fallback.** `tmaRouteActions.ts` fell back
+to `DEFAULT_CITY`'s (zelenogradsk) coordinates for any city missing from
+the existing hardcoded center map, silently starting the route from the
+wrong city. Fixed to a strict, no-cross-city-fallback order: (1) this
+city's known center if present, (2) a previously granted location
+snapshot if the user already shared one (`restoreLocationSnapshot()` —
+never actively requested, so a denied/never-granted location just skips
+this tier without blocking anything), (3) the coordinates of the place
+actually being added (real data, not a guess), (4) otherwise a new
+`TmaRouteStartUnavailableError` with a clear Russian message, surfaced
+verbatim by `TmaPlaceDetailPage.tsx` instead of a generic failure message.
+No new hardcoded city list was added.
+
+Local checks: targeted frontend tests — 58 passed (new/updated:
+`tmaRouteActions.test.ts`, `tmaRouteStorage.test.ts`,
+`RouteResultPanel.test.tsx`, plus new `TmaRoutePage.test.tsx` and
+`TmaPlaceDetailPage.test.tsx`); `npm run lint` — clean; `npm run build` —
+success. No backend files changed, so no backend tests were run per this
+task's scope.
+
 ## 2026-07-14 (4)
 
 ### Telegram Mini App v1

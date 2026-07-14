@@ -8,7 +8,7 @@ import { ErrorState } from '../../components/ui/ErrorState'
 import { Skeleton } from '../../components/ui/Skeleton'
 import type { PlaceDetail } from '../../entities/place/model/types'
 import { openExternalUrl, twoGisMapLink, yandexMapLink } from '../../shared/map/externalMapLinks'
-import { addPlaceToTmaRoute } from './tmaRouteActions'
+import { addPlaceToTmaRoute, TmaRouteStartUnavailableError } from './tmaRouteActions'
 import { TmaShell } from './TmaShell'
 
 export const TmaPlaceDetailPage = () => {
@@ -43,7 +43,7 @@ export const TmaPlaceDetailPage = () => {
       setAddStatus('Место добавлено в маршрут.')
     } catch (err) {
       console.error(err)
-      setAddStatus('Не удалось добавить место в маршрут.')
+      setAddStatus(err instanceof TmaRouteStartUnavailableError ? err.message : 'Не удалось добавить место в маршрут.')
     }
   }
 
