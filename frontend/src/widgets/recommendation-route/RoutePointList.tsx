@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, Clock, MapPin, Wand2, X } from 'lucide-react'
 import type { RecommendationRoutePoint } from '../../api/recommendations/recommendationRoute.types'
+import { openExternalUrl, twoGisMapLink, yandexMapLink } from '../../shared/map/externalMapLinks'
 import { categoryLabel } from '../../shared/place/categoryLabels'
 import { MAP_LINK_LABEL, UNCLEAR_ADDRESS_LABEL } from '../../shared/place/placeAddress'
 
@@ -69,6 +70,12 @@ export const RoutePointList = ({
             </p>
             <p><Clock size={15} /> {formatTime(point.estimated_arrival_time) ? `${formatTime(point.estimated_arrival_time)} · ` : ''}визит {point.visit_minutes} мин</p>
             {warning ? <p className="route-warning-text">{warning}</p> : null}
+            {Number.isFinite(point.lat) && Number.isFinite(point.lng) ? (
+              <div className="tma-route-point-links">
+                <button type="button" onClick={() => openExternalUrl(yandexMapLink({ latitude: point.lat, longitude: point.lng }))}>Яндекс</button>
+                <button type="button" onClick={() => openExternalUrl(twoGisMapLink({ latitude: point.lat, longitude: point.lng }))}>2ГИС</button>
+              </div>
+            ) : null}
             <div className="route-point-actions">
               {onMove ? (
                 <>

@@ -1,3 +1,5 @@
+import '../telegram/telegramWebApp'
+
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type ResolvedTheme = 'light' | 'dark'
 
@@ -32,7 +34,10 @@ export const setStoredThemeMode = (mode: ThemeMode): void => {
 }
 
 export const getSystemPrefersDark = (): boolean => {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false
+  if (typeof window === 'undefined') return false
+  const telegramScheme = window.Telegram?.WebApp?.colorScheme
+  if (telegramScheme === 'dark' || telegramScheme === 'light') return telegramScheme === 'dark'
+  if (typeof window.matchMedia !== 'function') return false
   return window.matchMedia('(prefers-color-scheme: dark)').matches
 }
 

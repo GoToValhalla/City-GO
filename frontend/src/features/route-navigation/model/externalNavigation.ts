@@ -1,4 +1,5 @@
 import { buildApiUrl } from '../../../shared/api/http'
+import { openExternalUrl } from '../../../shared/map/externalMapLinks'
 
 export type ExternalNavigationLink = {
   provider: string
@@ -44,12 +45,7 @@ export const segmentFromPoint = (
 export const openExternalNavigationLink = (link: ExternalNavigationLink): void => {
   const url = link.web_url || link.app_url
   if (!url) return
-  const telegram = (window as unknown as { Telegram?: { WebApp?: { openLink?: (url: string, options?: { try_instant_view?: boolean }) => void } } }).Telegram?.WebApp
-  if (telegram?.openLink) {
-    telegram.openLink(url, { try_instant_view: false })
-    return
-  }
-  window.open(url, '_blank', 'noopener,noreferrer')
+  openExternalUrl(url)
 }
 
 export const recordExternalNavigationEvent = async (

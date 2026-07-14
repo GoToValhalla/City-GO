@@ -22,6 +22,7 @@ import {
 type PlaceDetailSheetProps = {
   place: PlaceDetail
   onAddToRoute?: () => void
+  backTo?: string
 }
 
 type FactRowProps = {
@@ -56,7 +57,7 @@ const FactRow = ({ children, icon, label }: FactRowProps) => (
   </div>
 )
 
-export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps) => {
+export const PlaceDetailSheet = ({ backTo = '/places', onAddToRoute, place }: PlaceDetailSheetProps) => {
   const [expanded, setExpanded] = useState(false)
   const [photoIndex, setPhotoIndex] = useState(0)
   const title = placeTitle(place)
@@ -125,7 +126,7 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
       </div>
 
       <section className="place-detail-sheet__panel">
-        <Link className="place-detail-sheet__back" to="/places"><ArrowLeft size={17} /> Места</Link>
+        <Link className="place-detail-sheet__back" to={backTo}><ArrowLeft size={17} /> Места</Link>
 
         <div className="place-detail-sheet__badges">
           <CategoryBadge category={place.category} />
@@ -163,8 +164,7 @@ export const PlaceDetailSheet = ({ onAddToRoute, place }: PlaceDetailSheetProps)
         </section> : null}
 
         <footer className="place-detail-sheet__footer">
-          <Link className="cg-button cg-button--primary cg-button--lg" to="/routes/generate">Построить маршрут</Link>
-          {onAddToRoute ? <Button variant="secondary" size="lg" onClick={onAddToRoute}>Добавить в маршрут</Button> : null}
+          {onAddToRoute ? <Button variant="secondary" size="lg" onClick={onAddToRoute}>Добавить в маршрут</Button> : <Link className="cg-button cg-button--primary cg-button--lg" to="/routes/generate">Построить маршрут</Link>}
           {place.phone ? <a className="cg-button cg-button--ghost cg-button--lg" href={`tel:${place.phone}`}>Позвонить</a> : null}
           {place.website ? <a className="cg-button cg-button--ghost cg-button--lg" href={place.website} target="_blank" rel="noopener noreferrer">Сайт</a> : null}
         </footer>

@@ -1,9 +1,10 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -22,6 +23,8 @@ from core.request_logging import log_request
 from core.public_access_middleware import public_access_middleware
 from core.router_setup import include_app_routers
 from core.version import get_backend_version
+from db.dependencies import get_db
+from services.feature_toggle_service import is_toggle_enabled
 
 
 @asynccontextmanager
@@ -95,3 +98,12 @@ def ready() -> JSONResponse | dict[str, str]:
         status_code=503,
         content={"status": "error", "database": reason},
     )
+
+
+@app.get("/features/public")
+def public_features(db: Session = Depends(get_db)) -> dict[str, bool]:
+    """Unauthenticated read of feature flags the public frontend needs
+    before rendering a gated surface (e.g. the Telegram Mini App). Not a
+    general toggle-read API — deliberately limited to the flags that a
+    public client must check client-side."""
+    return {"tma_enabled": is_toggle_enabled(db, "tma_enabled", default=False)}

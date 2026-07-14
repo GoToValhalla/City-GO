@@ -90,4 +90,18 @@ describe('themeStorage', () => {
     Object.defineProperty(window, 'matchMedia', { configurable: true, value: undefined })
     expect(getSystemPrefersDark()).toBe(false)
   })
+
+  it('prefers Telegram WebApp colorScheme over matchMedia_new', () => {
+    mockMatchMedia(false)
+    window.Telegram = { WebApp: { colorScheme: 'dark' } }
+    expect(getSystemPrefersDark()).toBe(true)
+    delete window.Telegram
+  })
+
+  it('falls back to matchMedia when Telegram colorScheme is absent_new', () => {
+    mockMatchMedia(true)
+    window.Telegram = { WebApp: {} }
+    expect(getSystemPrefersDark()).toBe(true)
+    delete window.Telegram
+  })
 })

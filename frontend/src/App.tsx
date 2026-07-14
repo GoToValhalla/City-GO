@@ -29,6 +29,10 @@ import { RouteDetailPage } from './pages/routes/RouteDetailPage'
 import { RoutesListPage } from './pages/routes/RoutesListPage'
 import { WalkRoutePage } from './pages/routes/WalkRoutePage'
 import { TelegramMapPage } from './pages/telegram/TelegramMapPage'
+import { TmaHomePage } from './pages/telegram/TmaHomePage'
+import { TmaPlaceDetailPage } from './pages/telegram/TmaPlaceDetailPage'
+import { TmaPlacesPage } from './pages/telegram/TmaPlacesPage'
+import { TmaRoutePage } from './pages/telegram/TmaRoutePage'
 import { AdminLoginPage } from './pages/admin/AdminLoginPage'
 import { AdminRouteGuard } from './pages/admin/AdminRouteGuard'
 import { AdminLayout } from './pages/admin/AdminLayout'
@@ -80,6 +84,10 @@ function App() {
     <Route path="/nearby" element={<NearbyPage />} />
     <Route path="/walk-route" element={<WalkRoutePage />} />
     <Route path="/telegram/map" element={<TelegramMapPage />} />
+    <Route path="/telegram" element={<TmaHomePage />} />
+    <Route path="/telegram/places" element={<TmaPlacesPage />} />
+    <Route path="/telegram/places/:slug" element={<TmaPlaceDetailPage />} />
+    <Route path="/telegram/route" element={<TmaRoutePage />} />
     <Route path="/routes" element={<RoutesListPage />} />
     <Route path="/routes/generate" element={<LegacyCityRedirect target="routes-build" />} />
     <Route path="/routes/:slug" element={<RouteDetailPage />} />

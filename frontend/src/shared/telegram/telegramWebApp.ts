@@ -17,11 +17,22 @@ export type TelegramLocationManager = {
   openSettings: () => void
 }
 
+export type TelegramBackButton = {
+  isVisible?: boolean
+  show?: () => void
+  hide?: () => void
+  onClick?: (callback: () => void) => void
+  offClick?: (callback: () => void) => void
+}
+
 export type TelegramWebApp = {
   version?: string
   platform?: string
+  colorScheme?: 'light' | 'dark'
+  initData?: string
   isVersionAtLeast?: (version: string) => boolean
   LocationManager?: TelegramLocationManager
+  BackButton?: TelegramBackButton
   onEvent?: (event: string, callback: () => void) => void
   offEvent?: (event: string, callback: () => void) => void
   safeAreaInset?: Record<string, number>
@@ -32,8 +43,10 @@ export type TelegramWebApp = {
   }
   ready?: () => void
   expand?: () => void
+  close?: () => void
   setHeaderColor?: (color: string) => void
   setBackgroundColor?: (color: string) => void
+  openLink?: (url: string, options?: { try_instant_view?: boolean }) => void
   MainButton?: { hide?: () => void }
 }
 

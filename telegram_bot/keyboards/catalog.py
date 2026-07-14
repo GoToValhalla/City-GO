@@ -16,9 +16,9 @@ CITY_LIST_VISIBLE_LIMIT = 5
 BUTTON_TITLE_LIMIT = 42
 
 
-def main_menu(*, show_moderation: bool = False) -> InlineKeyboardMarkup:
+def main_menu(*, show_moderation: bool = False, tma_enabled: bool = False) -> InlineKeyboardMarkup:
     rows = []
-    mini_app_button = _mini_app_button("🚀 Открыть City GO", "/")
+    mini_app_button = _mini_app_button("🚀 Открыть City GO", "/telegram") if tma_enabled else None
     if mini_app_button is not None:
         rows.append([mini_app_button])
     if show_moderation:
@@ -164,9 +164,9 @@ def back_to_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🏠 В меню", callback_data=cb("m", "main"))]])
 
 
-def request_location() -> InlineKeyboardMarkup:
+def request_location(*, tma_enabled: bool = False) -> InlineKeyboardMarkup:
     rows = []
-    mini_app_button = _mini_app_button("🚀 Открыть City GO", "/places")
+    mini_app_button = _mini_app_button("🚀 Открыть City GO", "/telegram/places") if tma_enabled else None
     if mini_app_button is not None:
         rows.append([mini_app_button])
     rows.extend(

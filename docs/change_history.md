@@ -1,5 +1,68 @@
 # CHANGE HISTORY
 
+## 2026-07-14 (4)
+
+### Telegram Mini App v1
+
+Anonymous-only Mini App reusing the existing public React app and backend
+APIs — no new business API, no database changes.
+
+**Backend** (minimal, additive):
+- `services/feature_toggle_catalog/global_defs.py`: new admin-controlled
+  global toggle `tma_enabled` (default `False`), using the existing
+  `feature_toggles` table/service (`services/feature_toggle_service.py`,
+  `/admin/feature-toggles` — no new admin endpoints).
+- `main.py`: one new unauthenticated `GET /features/public` returning
+  `{"tma_enabled": bool}` — the minimum a public client needs to check a
+  gated surface before rendering it; not a general toggle-read API.
+- `telegram_bot/keyboards/catalog.py`: the pre-existing "🚀 Открыть City GO"
+  Mini App button (`main_menu`, `request_location`) is now gated on
+  `tma_enabled` and points at `/telegram` / `/telegram/places` instead of
+  the desktop `/` / `/places` routes.
+
+**Frontend** (new `/telegram/*` routes reusing existing public
+components/APIs, alongside the untouched desktop site):
+- `pages/telegram/TmaShell.tsx`: chrome wrapper — Telegram theme
+  (`useTheme()`, extended `getSystemPrefersDark()` to read
+  `Telegram.WebApp.colorScheme`), safe areas (existing
+  `useTelegramMiniApp()` + new `--tg-safe-*`-aware CSS), BackButton (new
+  `shared/telegram/useTelegramBackButton.ts`), and the new `tma_enabled`
+  gate (loading/disabled/error states).
+- `pages/telegram/TmaHomePage.tsx`: city selection, reusing
+  `CityPicker`/`useAvailableCities`/`currentCity.ts` as-is (published-only,
+  already localStorage-persisted).
+- `pages/telegram/TmaPlacesPage.tsx`: published places catalog, reusing
+  `usePlacesPagination`/`PlacesLoadMoreTrigger` as-is.
+- `pages/telegram/TmaPlaceDetailPage.tsx`: place detail, reusing
+  `PlaceDetailSheet` (now takes an optional `backTo` prop and hides the
+  desktop-only "Построить маршрут" link when `onAddToRoute` is provided —
+  additive, zero desktop behavior change) plus Yandex/2GIS links via the
+  existing `shared/map/externalMapLinks.ts` helpers.
+- `pages/telegram/TmaRoutePage.tsx`: route preview/build/active-route,
+  reusing `RouteResultPanel` as-is (already has its own add/remove/replace,
+  start/pause/resume/finish active-session state).
+- `pages/telegram/tmaRouteActions.ts` / `tmaRouteStorage.ts`: route
+  building goes through the existing `POST /v1/user-routes/build` +
+  `/add-place` (`recommendationRoute.api.ts`); the route/draft is persisted
+  to `localStorage` (`citygo:tma:activeRoute`) so it and the current city
+  survive reopening the Mini App, matching the existing
+  `citygo:selectedCity` pattern.
+- `shared/map/externalMapLinks.ts`: new `openExternalUrl()` — opens via
+  `Telegram.WebApp.openLink` inside Telegram, `window.open` outside;
+  `features/route-navigation/model/externalNavigation.ts` and
+  `widgets/recommendation-route/RoutePointList.tsx` (route points now show
+  Yandex/2GIS links unconditionally, not just when the address is unclear)
+  reuse this instead of duplicating the Telegram-detection logic.
+
+Explicitly not implemented (out of v1 scope per the task): auth, profiles,
+favorites, saved routes, reviews/ratings, account linking, AI, admin
+functionality, background geolocation, frontend-side route calculation.
+
+Local checks: frontend `npm test` — 382 passed, 1 skipped; `npm run lint` —
+clean; `npm run build` — success. Backend: 2124 passed, 27 skipped, 1
+pre-existing unrelated failure (local Postgres role misconfiguration,
+reproduced identically on unmodified `main`).
+
 ## 2026-07-14 (3)
 
 ### Stage 0 P0: published Place overwrite protection + manual PostgreSQL regression lane

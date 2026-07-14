@@ -93,3 +93,55 @@ def test_admin_moderation_router_is_before_catalog_catch_all_new() -> None:
     routers = create_dispatcher().sub_routers
 
     assert routers.index(admin_moderation_router) < routers.index(catalog_router)
+
+
+def test_mini_app_button_hidden_when_tma_toggle_disabled_new(monkeypatch) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "telegram_mini_app_url", "https://tma.example.com")
+
+    keyboard = catalog_keyboard.main_menu(tma_enabled=False)
+
+    assert "🚀 Открыть City GO" not in _inline_texts(keyboard)
+
+
+def test_mini_app_button_shown_when_tma_toggle_enabled_new(monkeypatch) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "telegram_mini_app_url", "https://tma.example.com")
+
+    keyboard = catalog_keyboard.main_menu(tma_enabled=True)
+    texts = _inline_texts(keyboard)
+    urls = [button.web_app.url for row in keyboard.inline_keyboard for button in row if button.web_app]
+
+    assert "🚀 Открыть City GO" in texts
+    assert any(url.endswith("/telegram") for url in urls)
+
+
+def test_tma_toggle_controls_main_menu_button_new(db_session, monkeypatch) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "telegram_mini_app_url", "https://tma.example.com")
+
+    disabled = _main_menu_markup(db_session)
+    assert "🚀 Открыть City GO" not in _inline_texts(disabled)
+
+    db_session.add(FeatureToggle(key="tma_enabled", scope="global", scope_id=None, value_bool=True))
+    db_session.commit()
+
+    enabled = _main_menu_markup(db_session)
+    assert "🚀 Открыть City GO" in _inline_texts(enabled)
+
+
+def test_request_location_mini_app_button_gated_by_toggle_new(monkeypatch) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "telegram_mini_app_url", "https://tma.example.com")
+
+    disabled = catalog_keyboard.request_location(tma_enabled=False)
+    enabled = catalog_keyboard.request_location(tma_enabled=True)
+    enabled_urls = [button.web_app.url for row in enabled.inline_keyboard for button in row if button.web_app]
+
+    assert "🚀 Открыть City GO" not in _inline_texts(disabled)
+    assert "🚀 Открыть City GO" in _inline_texts(enabled)
+    assert any(url.endswith("/telegram/places") for url in enabled_urls)
