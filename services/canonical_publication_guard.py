@@ -12,6 +12,12 @@ from services.place_publication_eligibility import READY_QUALITY_STATUS, SNAPSHO
 
 SUCCESS_IMPORT_STATUSES = frozenset({"success", "success_with_warnings"})
 REJECT_IMPORT_REASONS = frozenset({"no_coordinates", "hidden_category", "no_title"})
+# Category/policy concerns that must always route a changed place to manual
+# review and create its review-queue item, even if the place is already
+# public — unlike soft, data-completeness review reasons (no_source,
+# low_confidence, missing_hours_for_dynamic_category), which the existing
+# always-public contract lets an already-public place skip.
+MANUAL_REVIEW_OVERRIDES_PRESERVE_PUBLIC = frozenset({"non_tourist_category"})
 
 
 @dataclass(frozen=True)
@@ -42,20 +48,10 @@ def evaluate_canonical_publication(
     evidence_allowed: bool,
     preserve_public: bool = True,
 ) -> CanonicalPublicationVerdict:
-    if preserve_public and bool(place.is_published and place.is_visible_in_catalog):
-        return CanonicalPublicationVerdict(
-            outcome="preserve_public",
-            reasons=("already_public",),
-            import_decision=import_decision,
-            lineage={"import_reason": import_decision.reason},
-        )
-    if not evidence_allowed:
-        return CanonicalPublicationVerdict(
-            outcome="blocked",
-            reasons=("import_evidence_not_allowed",),
-            import_decision=import_decision,
-            lineage={"import_reason": import_decision.reason},
-        )
+    # Hard safety rejection always wins, even for an already-public place and
+    # even when evidence_allowed is False: invalid coordinates, hidden
+    # categories, missing titles, and other hard blockers must archive/hide
+    # the place, never be shielded by preserve_public.
     if import_decision.reason in REJECT_IMPORT_REASONS or import_decision.decision == "hidden":
         return CanonicalPublicationVerdict(
             outcome="reject",
@@ -63,8 +59,37 @@ def evaluate_canonical_publication(
             import_decision=import_decision,
             lineage={"import_reason": import_decision.reason},
         )
+    # preserve_public keeps an already-public place visible while flagged for
+    # soft, data-completeness review reasons (no_source, low_confidence,
+    # missing_hours_for_dynamic_category) or when the decision would
+    # auto-publish anyway. It must never apply to a category/policy concern
+    # (MANUAL_REVIEW_OVERRIDES_PRESERVE_PUBLIC) — those must still move the
+    # place to needs_review and create its review queue item.
+    if (
+        preserve_public
+        and import_decision.reason not in MANUAL_REVIEW_OVERRIDES_PRESERVE_PUBLIC
+        and bool(place.is_published and place.is_visible_in_catalog)
+    ):
+        return CanonicalPublicationVerdict(
+            outcome="preserve_public",
+            reasons=("already_public",),
+            import_decision=import_decision,
+            lineage={"import_reason": import_decision.reason},
+        )
     eligibility = place_publication_eligibility(_eligibility_probe(place, import_decision))
     if import_decision.decision == "auto_publish" and eligibility.eligible:
+        # evidence_allowed only gates the auto-publish path: it exists to stop
+        # a place going public before quality-snapshot evidence is ready. It
+        # must never block genuine review-required flagging — a changed place
+        # that needs manual review must still reach the "review" outcome
+        # below and get its review queue item, regardless of evidence state.
+        if not evidence_allowed:
+            return CanonicalPublicationVerdict(
+                outcome="blocked",
+                reasons=("import_evidence_not_allowed",),
+                import_decision=import_decision,
+                lineage={"import_reason": import_decision.reason},
+            )
         return CanonicalPublicationVerdict(
             outcome="publish",
             reasons=("quality_ok",),

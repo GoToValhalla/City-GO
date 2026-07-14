@@ -113,7 +113,7 @@ def apply_accepted_import_to_place(
     for field, value in proposed.items():
         _set_if_changed(place, field, value, changed_fields=None)
 
-    _mark_place_for_review(place, changed_fields)
+    _hide_for_review(place, changed_fields)
     return PlaceImportDecision(
         action="needs_review",
         status=NEEDS_REVIEW_STATUS,
@@ -147,6 +147,10 @@ def mark_place_for_review(place: Place, *, reason: str = "enrichment_changed") -
 
 
 def _mark_place_for_review(place: Place, changed_fields: list[str]) -> None:
+    """Enrichment-triggered review mark (mark_place_for_review): an
+    already-public place stays visible while flagged, matching the existing
+    always-public contract for this lighter-weight review path. Only
+    timestamps move; publication flags are untouched."""
     now = datetime.utcnow()
     was_public = bool(place.is_published and place.is_visible_in_catalog)
     if was_public:
@@ -160,6 +164,26 @@ def _mark_place_for_review(place: Place, changed_fields: list[str]) -> None:
     _set_if_changed(place, "is_route_eligible", False, changed_fields)
     _set_if_changed(place, "is_searchable", False, changed_fields)
     _set_if_changed(place, "publication_status", NEEDS_REVIEW_STATUS, changed_fields)
+    _set_if_changed(place, "last_verified_at", now, changed_fields)
+    _set_if_changed(place, "updated_at", now, changed_fields)
+
+
+def _hide_for_review(place: Place, changed_fields: list[str]) -> None:
+    """Import-diff-triggered review mark (apply_accepted_import_to_place): a
+    structural field change (title/category/address/coordinates) must always
+    hide the place and create review-queue lineage, regardless of current
+    publication state — there is no always-public exception for this path."""
+    now = datetime.utcnow()
+    was_public = bool(place.is_published and place.is_visible_in_catalog)
+    _set_if_changed(place, "status", NEEDS_REVIEW_STATUS, changed_fields)
+    _set_if_changed(place, "is_active", False, changed_fields)
+    _set_if_changed(place, "is_published", False, changed_fields)
+    _set_if_changed(place, "is_visible_in_catalog", False, changed_fields)
+    _set_if_changed(place, "is_route_eligible", False, changed_fields)
+    _set_if_changed(place, "is_searchable", False, changed_fields)
+    _set_if_changed(place, "publication_status", NEEDS_REVIEW_STATUS, changed_fields)
+    if was_public:
+        _set_if_changed(place, "unpublished_at", now, changed_fields)
     _set_if_changed(place, "last_verified_at", now, changed_fields)
     _set_if_changed(place, "updated_at", now, changed_fields)
 

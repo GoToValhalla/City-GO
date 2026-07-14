@@ -33,14 +33,42 @@ def apply_canonical_publication_verdict(
     if verdict.outcome == "review":
         _set_review(place, verdict.reasons[0] if verdict.reasons else "needs_review")
         return "review_required"
-    _set_published(place, route_eligible=verdict.import_decision.is_route_eligible, reason=actor)
-    return "auto_published" if verdict.import_decision.is_route_eligible else "limited_published"
+    route_eligible = _route_eligible_for_publish(place)
+    _set_published(place, route_eligible=route_eligible, reason=actor)
+    return "auto_published" if route_eligible else "limited_published"
 
 
 def apply_admin_city_publication_place(place: Place, *, now: datetime, reason: str | None) -> None:
     verdict = evaluate_place_route_eligibility(place)
     _set_published(place, route_eligible=verdict.eligible, reason=reason, now=now)
     place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons[:5])
+
+
+def _route_eligible_for_publish(place: Place) -> bool:
+    """Route eligibility must always come from route_eligibility_policy (the
+    single source of truth for pharmacy/service/transport/etc. exclusion),
+    never from the import quality gate's own category allowlist. The place
+    is about to become active/published/visible, so evaluate eligibility as
+    if those flags already hold — matching the pattern already used by
+    place_publication_eligibility's own probe for the same reason."""
+    if place.is_active and place.is_published and place.is_visible_in_catalog:
+        return evaluate_place_route_eligibility(place).eligible
+    probe = Place(
+        city_id=place.city_id,
+        title=place.title,
+        category=place.category,
+        canonical_category=place.canonical_category,
+        place_layer=place.place_layer,
+        lat=place.lat,
+        lng=place.lng,
+        is_active=True,
+        status=place.status or "active",
+        is_published=True,
+        is_visible_in_catalog=True,
+        is_spam_poi=bool(getattr(place, "is_spam_poi", False)),
+        is_duplicate_suspected=bool(getattr(place, "is_duplicate_suspected", False)),
+    )
+    return evaluate_place_route_eligibility(probe).eligible
 
 
 def _record_decision(
