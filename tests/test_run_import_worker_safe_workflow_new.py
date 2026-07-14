@@ -32,11 +32,31 @@ def test_workflow_is_manual_dispatch_only_new() -> None:
     assert "pull_request" not in triggers
 
 
-def test_workflow_requires_exact_confirmation_new() -> None:
+def test_workflow_uses_typed_run_mode_input_not_free_text_confirmation_new() -> None:
+    """The old free-text RUN_IMPORT_WORKER_SAFELY confirmation input is
+    replaced by a typed run_mode choice input, so the UI presents a fixed
+    set of valid actions instead of requiring an operator to type an exact
+    magic string."""
+    data = _workflow_yaml()
+    inputs = data[True]["workflow_dispatch"]["inputs"]
+
+    assert "confirmation" not in inputs
+    assert "RUN_IMPORT_WORKER_SAFELY" not in _workflow_text()
+
+    run_mode = inputs["run_mode"]
+    assert run_mode["type"] == "choice"
+    assert run_mode["default"] == "safe_one_job"
+    assert set(run_mode["options"]) == {"safe_one_job", "dry_run", "diagnostics_only"}
+
+    city_slug = inputs["city_slug"]
+    assert city_slug["required"] is False
+
+
+def test_workflow_validates_run_mode_value_new() -> None:
     text = _workflow_text()
 
-    assert "RUN_IMPORT_WORKER_SAFELY" in text
-    assert 'if [ "${{ inputs.confirmation }}" != "RUN_IMPORT_WORKER_SAFELY" ]; then' in text
+    assert "safe_one_job|dry_run|diagnostics_only" in text
+    assert "run_mode must be one of safe_one_job, dry_run, diagnostics_only" in text
 
 
 def test_workflow_preflight_checks_health_memory_and_running_state_new() -> None:
@@ -192,18 +212,23 @@ def test_remote_ssh_variables_are_shell_quoted_not_bare_words_new() -> None:
     production-health.yml."""
     text = _workflow_text()
 
-    for var in ("MAX_RUNTIME_SECONDS", "ADMIN_API_TOKEN", "WORKFLOW_NAME", "WORKFLOW_RUN_ID", "WORKFLOW_RUN_URL"):
+    for var in (
+        "MAX_RUNTIME_SECONDS", "ADMIN_API_TOKEN", "WORKFLOW_NAME", "WORKFLOW_RUN_ID",
+        "WORKFLOW_RUN_URL", "RUN_MODE", "CITY_SLUG",
+    ):
         assert f"REMOTE_{var}=$(printf '%q' \"${var}\")" in text, f"{var} must be shell-quoted via printf '%q' before being sent over ssh"
 
-    # The five NAME="$VALUE" assignments and `bash -s` must be a single
-    # quoted string argument to ssh, not five bare trailing argv words.
+    # The NAME="$VALUE" assignments and `bash -s` must be a single quoted
+    # string argument to ssh, not bare trailing argv words.
     ssh_call_idx = text.index("ssh \\\n")
     single_command_idx = text.index(
         '"MAX_RUNTIME_SECONDS=$REMOTE_MAX_RUNTIME_SECONDS '
         "ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN "
         "WORKFLOW_NAME=$REMOTE_WORKFLOW_NAME "
         "WORKFLOW_RUN_ID=$REMOTE_WORKFLOW_RUN_ID "
-        'WORKFLOW_RUN_URL=$REMOTE_WORKFLOW_RUN_URL bash -s"'
+        "WORKFLOW_RUN_URL=$REMOTE_WORKFLOW_RUN_URL "
+        "RUN_MODE=$REMOTE_RUN_MODE "
+        'CITY_SLUG=$REMOTE_CITY_SLUG bash -s"'
     )
     assert ssh_call_idx < single_command_idx
 
@@ -242,6 +267,8 @@ ADMIN_API_TOKEN="abc def'ghi\\$xyz"
 WORKFLOW_NAME="CITY GO · OPS · Run Import Worker Safely"
 WORKFLOW_RUN_ID="123456"
 WORKFLOW_RUN_URL="https://github.com/org/repo/actions/runs/123456"
+RUN_MODE="safe_one_job"
+CITY_SLUG="astrakhan"
 
 {quoting_lines}
 
@@ -252,6 +279,8 @@ echo "TOKEN=[$ADMIN_API_TOKEN]"
 echo "RUNTIME=[$MAX_RUNTIME_SECONDS]"
 echo "RUN_ID=[$WORKFLOW_RUN_ID]"
 echo "RUN_URL=[$WORKFLOW_RUN_URL]"
+echo "RUN_MODE=[$RUN_MODE]"
+echo "CITY_SLUG=[$CITY_SLUG]"
 REMOTE_EOF
 """
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10)
@@ -261,6 +290,43 @@ REMOTE_EOF
     assert "RUNTIME=[300]" in result.stdout
     assert "RUN_ID=[123456]" in result.stdout
     assert "RUN_URL=[https://github.com/org/repo/actions/runs/123456]" in result.stdout
+    assert "RUN_MODE=[safe_one_job]" in result.stdout
+    assert "CITY_SLUG=[astrakhan]" in result.stdout
     # The historical failure mode: "GO" being run as a command.
     assert "GO: command not found" not in result.stderr
     assert "command not found" not in result.stderr
+
+
+def test_workflow_passes_run_mode_and_city_slug_to_docker_compose_up_new() -> None:
+    """run_mode/city_slug must reach the import-worker container via
+    IMPORT_WORKER_RUN_MODE/IMPORT_WORKER_CITY_SLUG env vars on the exact
+    `docker compose up` invocation that starts it — otherwise the typed
+    inputs would be accepted by the workflow UI but silently ignored."""
+    text = _workflow_text()
+
+    assert (
+        'IMPORT_WORKER_RUN_MODE="$RUN_MODE" IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" '
+        "timeout 60s docker compose up -d --no-deps import-worker"
+    ) in text
+
+
+def test_workflow_defaults_run_mode_and_city_slug_inside_remote_script_new() -> None:
+    """RUN_MODE/CITY_SLUG must be defaulted with ${VAR:-...} before use
+    inside the remote heredoc, which runs under `set -uo pipefail` —
+    an unset/empty value must not crash the script (regression: this
+    previously failed with 'RUN_MODE: unbound variable')."""
+    text = _workflow_text()
+
+    assert 'RUN_MODE="${RUN_MODE:-safe_one_job}"' in text
+    assert 'CITY_SLUG="${CITY_SLUG:-}"' in text
+
+
+def test_docker_compose_import_worker_reads_run_mode_and_city_slug_from_shell_env_new() -> None:
+    """docker-compose.yml must interpolate IMPORT_WORKER_RUN_MODE/
+    IMPORT_WORKER_CITY_SLUG from the shell environment of the `docker
+    compose up` invocation (not hardcode them), so each manual workflow
+    run can select its own mode/city without editing the compose file."""
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "IMPORT_WORKER_RUN_MODE: ${IMPORT_WORKER_RUN_MODE:-safe_one_job}" in compose
+    assert "IMPORT_WORKER_CITY_SLUG: ${IMPORT_WORKER_CITY_SLUG:-}" in compose

@@ -145,6 +145,12 @@ services:
       LOCAL_CACHE_DIR: /app/.cache/city-go
       IMPORT_WORKER_BATCH_LIMIT: 1
       IMPORT_WORKER_SLEEP_SECONDS: 60
+      # Set from the shell environment of the `docker compose up` invocation
+      # (see .github/workflows/run-import-worker-safe.yml), not from .env:
+      # each manual run picks its own run_mode/city_slug via workflow_dispatch
+      # inputs. Defaults preserve the always-safe, unattended posture.
+      IMPORT_WORKER_RUN_MODE: ${IMPORT_WORKER_RUN_MODE:-safe_one_job}
+      IMPORT_WORKER_CITY_SLUG: ${IMPORT_WORKER_CITY_SLUG:-}
       # Upgraded production VM: ~1.8 GiB RAM, no swap. Heavy execution stays
       # manual-only and requires both host and cgroup headroom.
       IMPORT_WORKER_SAFE_MODE: "true"

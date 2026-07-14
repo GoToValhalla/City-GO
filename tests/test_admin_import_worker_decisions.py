@@ -472,3 +472,88 @@ def test_failed_job_is_not_left_queued_or_running_in_queue_summary_new(
     assert result["queue"]["queued"] == 0
     assert result["queue"]["running"] == 0
     assert result["queue"]["active_total"] == 0
+
+
+def test_city_slug_never_claims_an_unrelated_queued_city_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks, "run_city_import_job", lambda *args, **kwargs: None)
+    monkeypatch.setattr(tasks, "send_admin_alert", lambda **_kwargs: {"sent": True})
+
+    target_city = city_factory(slug="target-city-slug", name="Target City")
+    other_city = city_factory(slug="other-city-slug", name="Other City")
+    other_job = _create_import_job(db_session, city_id=other_city.id)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1, city_slug=target_city.slug)
+
+    assert result["processed"] == 0
+    assert result["failed"] == 0
+    db_session.refresh(other_job)
+    assert other_job.status == "queued"
+
+
+def test_city_slug_claims_only_the_matching_citys_job_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks, "run_city_import_job", lambda *args, **kwargs: None)
+    monkeypatch.setattr(tasks, "send_admin_alert", lambda **_kwargs: {"sent": True})
+
+    target_city = city_factory(slug="claim-target-city", name="Claim Target City")
+    other_city = city_factory(slug="claim-other-city", name="Claim Other City")
+    target_job = _create_import_job(db_session, city_id=target_city.id)
+    other_job = _create_import_job(db_session, city_id=other_city.id)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1, city_slug=target_city.slug)
+
+    assert result["processed"] == 1
+    db_session.refresh(other_job)
+    assert other_job.status == "queued"
+    assert _events(db_session) == ["worker_job_claimed", "worker_job_finished"]
+    claimed_log = db_session.query(SystemLog).filter(SystemLog.module == "import_worker").first()
+    assert (claimed_log.details or {}).get("job_id") == target_job.id
+
+
+def test_dry_run_never_claims_or_mutates_the_job_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    _patch_session_local(monkeypatch, db_session)
+    called = []
+    monkeypatch.setattr(tasks, "run_city_import_job", lambda *args, **kwargs: called.append(1))
+    monkeypatch.setattr(tasks, "send_admin_alert", lambda **_kwargs: {"sent": True})
+
+    city = city_factory(slug="dry-run-city", name="Dry Run City")
+    job = _create_import_job(db_session, city_id=city.id)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1, dry_run=True)
+
+    assert result["dry_run"] is True
+    assert result["would_process"] == [{"job_id": job.id, "city_id": city.id, "source": job.source}]
+    assert called == []
+    db_session.refresh(job)
+    assert job.status == "queued"
+    assert _events(db_session) == []
+
+
+def test_dry_run_reports_no_matching_job_for_unrelated_city_slug_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks, "send_admin_alert", lambda **_kwargs: {"sent": True})
+
+    target_city = city_factory(slug="dry-run-target", name="Dry Run Target")
+    other_city = city_factory(slug="dry-run-other", name="Dry Run Other")
+    _create_import_job(db_session, city_id=other_city.id)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1, city_slug=target_city.slug, dry_run=True)
+
+    assert result["would_process"] == []

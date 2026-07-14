@@ -84,29 +84,54 @@ def run_all_cities_enrichment_background(*, actor_id: str) -> None:
             run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id)
 
 
-def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -> dict[str, Any]:
+def run_queued_import_jobs(
+    *,
+    actor_id: str = "import-worker",
+    limit: int = 1,
+    city_slug: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
     limit = max(1, int(limit or 1))
     processed = 0
     failed = 0
     errors: list[dict[str, object]] = []
     with SessionLocal() as db:
-        stalled = mark_stalled_import_jobs(db, actor_id=actor_id)
-        jobs = (
-            db.query(CityAdminImportJob)
-            .filter(CityAdminImportJob.status == "queued")
-            .order_by(CityAdminImportJob.created_at.asc(), CityAdminImportJob.id.asc())
-            .with_for_update(skip_locked=True)
-            .limit(limit)
-            .all()
-        )
+        # dry_run never claims or mutates anything, so marking stalled jobs
+        # (a mutation) must not happen either — it stays purely observational.
+        stalled = 0 if dry_run else mark_stalled_import_jobs(db, actor_id=actor_id)
+        query = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "queued")
+        if city_slug:
+            query = query.join(City, CityAdminImportJob.city_id == City.id).filter(City.slug == city_slug)
+        query = query.order_by(CityAdminImportJob.created_at.asc(), CityAdminImportJob.id.asc())
+        if dry_run:
+            # No FOR UPDATE / SKIP LOCKED: a dry run must not take row locks
+            # that could block a real worker from claiming the same job.
+            jobs = query.limit(limit).all()
+            queue = import_queue_summary(db)
+            return {
+                "processed": 0,
+                "failed": 0,
+                "stalled_marked": 0,
+                "errors": [],
+                "queue": queue,
+                "dry_run": True,
+                "would_process": [
+                    {"job_id": int(job.id), "city_id": int(job.city_id), "source": str(job.source or "")}
+                    for job in jobs
+                ],
+            }
+        jobs = query.with_for_update(skip_locked=True).limit(limit).all()
         if not jobs:
-            running_count = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").count()
+            running_query = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running")
+            if city_slug:
+                running_query = running_query.join(City, CityAdminImportJob.city_id == City.id).filter(City.slug == city_slug)
+            running_count = running_query.count()
             _log_worker_decision(
                 db,
                 event="worker_no_queued_jobs",
                 actor_id=actor_id,
                 message=f"Import worker found no queued jobs; active running jobs: {running_count}",
-                details={"limit": limit, "running": running_count, "stalled_marked": stalled},
+                details={"limit": limit, "running": running_count, "stalled_marked": stalled, "city_slug": city_slug},
             )
             db.commit()
         for job in jobs:

@@ -3,9 +3,18 @@ name: CITY GO · OPS · Run Import Worker Safely
 on:
   workflow_dispatch:
     inputs:
-      confirmation:
-        description: Type exactly RUN_IMPORT_WORKER_SAFELY to confirm this action.
-        required: true
+      run_mode:
+        description: safe_one_job processes at most one queued job. dry_run and diagnostics_only never mutate anything.
+        required: false
+        type: choice
+        default: safe_one_job
+        options:
+          - safe_one_job
+          - dry_run
+          - diagnostics_only
+      city_slug:
+        description: Restrict to this city's queued job only. Leave empty to target any queued city.
+        required: false
         type: string
       max_runtime_seconds:
         description: Maximum worker runtime before automatic stop, in seconds.
@@ -29,18 +38,23 @@ jobs:
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       MAX_RUNTIME_SECONDS: ${{ inputs.max_runtime_seconds || '300' }}
+      RUN_MODE: ${{ inputs.run_mode || 'safe_one_job' }}
+      CITY_SLUG: ${{ inputs.city_slug || '' }}
       WORKFLOW_NAME: ${{ github.workflow }}
       WORKFLOW_RUN_ID: ${{ github.run_id }}
       WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - name: Require exact confirmation text
+      - name: Validate run_mode input
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ inputs.confirmation }}" != "RUN_IMPORT_WORKER_SAFELY" ]; then
-            echo "ERROR: confirmation input must be exactly RUN_IMPORT_WORKER_SAFELY (got: '${{ inputs.confirmation }}')." >&2
-            exit 1
-          fi
+          case "$RUN_MODE" in
+            safe_one_job|dry_run|diagnostics_only) ;;
+            *)
+              echo "ERROR: run_mode must be one of safe_one_job, dry_run, diagnostics_only (got: '${RUN_MODE}')." >&2
+              exit 1
+              ;;
+          esac
 
       - name: Setup SSH key
         shell: bash
@@ -76,6 +90,8 @@ jobs:
           REMOTE_WORKFLOW_NAME=$(printf '%q' "$WORKFLOW_NAME")
           REMOTE_WORKFLOW_RUN_ID=$(printf '%q' "$WORKFLOW_RUN_ID")
           REMOTE_WORKFLOW_RUN_URL=$(printf '%q' "$WORKFLOW_RUN_URL")
+          REMOTE_RUN_MODE=$(printf '%q' "$RUN_MODE")
+          REMOTE_CITY_SLUG=$(printf '%q' "$CITY_SLUG")
 
           ssh \
             -o ConnectTimeout=20 \
@@ -84,12 +100,14 @@ jobs:
             -i ~/.ssh/deploy_key \
             -p "$SSH_PORT" \
             "$SSH_USER@$SSH_HOST" \
-            "MAX_RUNTIME_SECONDS=$REMOTE_MAX_RUNTIME_SECONDS ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN WORKFLOW_NAME=$REMOTE_WORKFLOW_NAME WORKFLOW_RUN_ID=$REMOTE_WORKFLOW_RUN_ID WORKFLOW_RUN_URL=$REMOTE_WORKFLOW_RUN_URL bash -s" <<'REMOTE_EOF' | tee "$LOG"
+            "MAX_RUNTIME_SECONDS=$REMOTE_MAX_RUNTIME_SECONDS ADMIN_API_TOKEN=$REMOTE_ADMIN_API_TOKEN WORKFLOW_NAME=$REMOTE_WORKFLOW_NAME WORKFLOW_RUN_ID=$REMOTE_WORKFLOW_RUN_ID WORKFLOW_RUN_URL=$REMOTE_WORKFLOW_RUN_URL RUN_MODE=$REMOTE_RUN_MODE CITY_SLUG=$REMOTE_CITY_SLUG bash -s" <<'REMOTE_EOF' | tee "$LOG"
           set -uo pipefail
           cd /srv/app
 
           section() { echo; echo "=== $1 ==="; }
           MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-300}"
+          RUN_MODE="${RUN_MODE:-safe_one_job}"
+          CITY_SLUG="${CITY_SLUG:-}"
           STARTUP_HOST_FLOOR_MB=550
           RUNTIME_HOST_FLOOR_MB=256
           RUNTIME_CGROUP_PERCENT=85
@@ -171,8 +189,8 @@ jobs:
             exit 1
           fi
 
-          section "starting import-worker"
-          timeout 60s docker compose up -d --no-deps import-worker
+          section "starting import-worker (run_mode=${RUN_MODE} city_slug=${CITY_SLUG:-any})"
+          IMPORT_WORKER_RUN_MODE="$RUN_MODE" IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" timeout 60s docker compose up -d --no-deps import-worker
           START_RC=$?
           if [ "$START_RC" -ne 0 ]; then
             echo "ERROR: docker compose failed to start import-worker (rc=${START_RC})." >&2
