@@ -8,6 +8,9 @@ gating, and the single post-readiness import-worker invariant check."""
 
 from __future__ import annotations
 
+import platform
+import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -273,3 +276,48 @@ def test_deploy_idempotently_writes_telegram_mini_app_url_default_new() -> None:
     # Idempotent: touching .env before the grep must not fail if the file
     # doesn't exist yet, and running the block twice must not duplicate the line.
     assert "touch /srv/app/.env" in section
+
+
+def _extract_mini_app_shell_block() -> str:
+    """Extract the exact Ensure+Validate TELEGRAM_MINI_APP_URL shell lines
+    from deploy.yml's remote heredoc, de-indented for standalone execution."""
+    text = _read()
+    start = text.index('echo "=== Ensure TELEGRAM_MINI_APP_URL')
+    end = text.index('echo "=== Recording rollback metadata')
+    raw_lines = text[start:end].splitlines()
+    return "\n".join(line[10:] if line.startswith(" " * 10) else line for line in raw_lines)
+
+
+def test_mini_app_url_block_survives_missing_env_line_under_strict_mode_new() -> None:
+    """Regression for the exact incident: under `set -euo pipefail`, a `grep`
+    command substitution with no match exits non-zero and kills the script
+    before the auto-heal write ever runs, even though `2>/dev/null` only
+    silences stderr and does nothing to the exit status. Executes the real
+    Ensure+Validate block extracted from deploy.yml against a .env with no
+    TELEGRAM_MINI_APP_URL line at all — the scenario confirmed on the
+    production host — and asserts the process does not die early, the
+    default URL is written, and validation subsequently passes (proving
+    the deploy would actually continue)."""
+    if platform.system() != "Linux":
+        import pytest
+
+        pytest.skip("deploy.yml's sed -i syntax is GNU-only; production/CI run on Linux")
+
+    block = _extract_mini_app_shell_block()
+    with tempfile.TemporaryDirectory() as tmp:
+        Path(tmp, ".env").write_text("FOO=bar\n", encoding="utf-8")
+
+        script = f"set -euo pipefail\ncd {tmp}\n{block}\ncat .env\necho DEPLOY_WOULD_CONTINUE\n"
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        assert result.returncode == 0, (
+            f"shell block exited non-zero under set -euo pipefail with a missing "
+            f"TELEGRAM_MINI_APP_URL line (stdout={result.stdout!r} stderr={result.stderr!r})"
+        )
+        assert "TELEGRAM_MINI_APP_URL=https://citygo.autismishe.online/telegram" in result.stdout
+        assert "DEPLOY_WOULD_CONTINUE" in result.stdout
