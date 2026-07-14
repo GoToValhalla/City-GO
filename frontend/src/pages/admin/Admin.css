@@ -189,9 +189,11 @@
 }
 
 .admin-import-mobile-card-list { display: none; }
-.admin-import-mobile-card { min-height: 48px; display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; color: inherit; background: #fff; border: 1px solid var(--admin-border); border-radius: var(--admin-radius); box-shadow: var(--admin-shadow); text-decoration: none; max-width: 100%; overflow-wrap: break-word; }
+.admin-import-mobile-card { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; color: inherit; background: #fff; border: 1px solid var(--admin-border); border-radius: var(--admin-radius); box-shadow: var(--admin-shadow); max-width: 100%; overflow-wrap: break-word; }
 .admin-import-mobile-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .admin-import-mobile-card-head strong { min-width: 0; overflow-wrap: break-word; }
+.admin-import-mobile-card-actions { margin-top: 6px; white-space: normal; }
+.admin-import-mobile-card-actions .admin-btn { flex: 1 1 130px; min-height: 44px; }
 
 @media (max-width: 768px) {
   .admin-import-table { display: none; }

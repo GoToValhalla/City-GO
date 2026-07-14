@@ -237,14 +237,105 @@ describe('AdminImportJobsPage mobile card list', () => {
     expect(screen.getByTestId('mobile-import-job-failure-reason').textContent).toContain('Не удалось получить данные OSM: timeout')
   })
 
-  it('links the whole card to the existing diagnostic route for that job', async () => {
+  it('is not a clickable container, and exposes a diagnostics link as an independent action', async () => {
     mockAdminGet(queueIdle, { items: [runningJob], total: 1, limit: 50, offset: 0 })
 
     renderPage()
 
     const card = await screen.findByTestId('mobile-import-job-card')
-    expect(card.tagName).toBe('A')
-    expect(card.getAttribute('href')).toBe('/admin/imports/jobs/42/diagnostic')
+    expect(card.tagName).not.toBe('A')
+    expect(card.getAttribute('href')).toBeNull()
+    const diagnostic = screen.getByTestId('mobile-import-job-action-diagnostic')
+    expect(diagnostic.tagName).toBe('A')
+    expect(diagnostic.getAttribute('href')).toBe('/admin/imports/jobs/42/diagnostic')
+  })
+
+  it('exposes independent Queue/Retry/Diagnostics/Refresh actions on the mobile card', async () => {
+    mockAdminGet(queueIdle, { items: [{ ...failedJob, can_run: true, can_retry: true }], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    await screen.findByTestId('mobile-import-job-card')
+    expect(screen.getByTestId('mobile-import-job-action-run')).toBeTruthy()
+    expect(screen.getByTestId('mobile-import-job-action-retry')).toBeTruthy()
+    expect(screen.getByTestId('mobile-import-job-action-diagnostic')).toBeTruthy()
+    expect(screen.getByTestId('mobile-import-job-action-refresh')).toBeTruthy()
+  })
+
+  const mockAdminGetWithDetail = (items: unknown[], detail: unknown) => {
+    mockedAdminGet.mockImplementation((path: string) => {
+      if (path === '/admin/import-queue') return Promise.resolve(queueIdle)
+      if (/^\/admin\/import-jobs\/\d+$/.test(path)) return Promise.resolve(detail)
+      if (path.startsWith('/admin/import-jobs')) return Promise.resolve({ items, total: items.length, limit: 50, offset: 0 })
+      return Promise.reject(new Error(`Unexpected GET ${path}`))
+    })
+  }
+
+  it('Queue action posts to the existing /run endpoint for that city only', async () => {
+    const job = { ...failedJob, can_run: true, can_retry: false }
+    mockAdminGetWithDetail([job], job)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    const runButton = await screen.findByTestId('mobile-import-job-action-run')
+    runButton.click()
+
+    await waitFor(() => expect(mockedAdminPost).toHaveBeenCalledWith('/admin/import-jobs/302/run', {}))
+  })
+
+  it('Retry action posts to the existing /retry endpoint for that city only', async () => {
+    const job = { ...failedJob, can_run: false, can_retry: true }
+    mockAdminGetWithDetail([job], job)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    const retryButton = await screen.findByTestId('mobile-import-job-action-retry')
+    retryButton.click()
+
+    await waitFor(() => expect(mockedAdminPost).toHaveBeenCalledWith('/admin/import-jobs/302/retry', {}))
+  })
+
+  it('Refresh action reloads only this city status via GET /admin/import-jobs/{city_id}, not the worker queue', async () => {
+    mockAdminGetWithDetail([failedJob], failedJob)
+
+    renderPage()
+
+    const refreshButton = await screen.findByTestId('mobile-import-job-action-refresh')
+    mockedAdminGet.mockClear()
+    refreshButton.click()
+
+    await waitFor(() => expect(mockedAdminGet).toHaveBeenCalledWith('/admin/import-jobs/302', { cache: false }))
+    expect(mockedAdminGet).not.toHaveBeenCalledWith('/admin/import-queue', expect.anything())
+    expect(mockedAdminPost).not.toHaveBeenCalled()
+  })
+
+  it('Queue and Retry never call a worker-run endpoint directly', async () => {
+    const job = { ...failedJob, can_run: true, can_retry: true }
+    mockAdminGetWithDetail([job], job)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    const runButton = await screen.findByTestId('mobile-import-job-action-run')
+    runButton.click()
+    await waitFor(() => expect(mockedAdminPost).toHaveBeenCalled())
+    const retryButton = screen.getByTestId('mobile-import-job-action-retry')
+    retryButton.click()
+    await waitFor(() => expect(mockedAdminPost).toHaveBeenCalledTimes(2))
+
+    const calledPaths = mockedAdminPost.mock.calls.map((call) => call[0])
+    expect(calledPaths).not.toContain('/admin/import-queue/run-once')
+  })
+
+  it('does not show Queue/Retry for an active (queued/running) job', async () => {
+    mockAdminGet(queueIdle, { items: [runningJob], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    await screen.findByTestId('mobile-import-job-card')
+    expect(screen.queryByTestId('mobile-import-job-action-run')).toBeNull()
   })
 
   it('keeps the desktop table present in the markup', async () => {
