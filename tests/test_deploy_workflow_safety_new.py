@@ -239,3 +239,18 @@ def test_timing_summary_includes_archive_size_new() -> None:
     section = text[summary_idx:summary_idx + 900]
     assert "archive_size_bytes" in section
     assert "archive_size_mib" in section
+
+
+def test_deploy_validates_telegram_mini_app_url_before_replacing_containers_new() -> None:
+    """Prevents a repeat of the incident where the Telegram Mini App button
+    silently disappeared in production: TELEGRAM_MINI_APP_URL lived only in
+    the host .env file, which deploy.yml never validated, so a missing or
+    malformed value was never caught before rollout."""
+    text = _read()
+    assert "TELEGRAM_MINI_APP_URL" in text
+    assert "/srv/app/.env" in text
+
+    config_idx = text.index("docker compose config --quiet")
+    validate_idx = text.index("Validate TELEGRAM_MINI_APP_URL")
+    stop_idx = text.index("docker compose stop frontend backend import-worker bot")
+    assert config_idx < validate_idx < stop_idx

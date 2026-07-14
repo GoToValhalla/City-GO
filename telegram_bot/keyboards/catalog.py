@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from urllib.parse import urlencode
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
@@ -14,6 +15,8 @@ from telegram_bot.utils import compact_text
 
 CITY_LIST_VISIBLE_LIMIT = 5
 BUTTON_TITLE_LIMIT = 42
+
+logger = logging.getLogger(__name__)
 
 
 def main_menu(*, show_moderation: bool = False, tma_enabled: bool = False) -> InlineKeyboardMarkup:
@@ -228,6 +231,11 @@ def _mini_app_button(text: str, path: str, params: dict[str, object] | None = No
 def _mini_app_url(path: str, params: dict[str, object] | None = None) -> str | None:
     base_url = settings.telegram_mini_app_url.strip().rstrip("/")
     if not base_url.startswith("https://"):
+        logger.warning(
+            "TELEGRAM_MINI_APP_URL пустой или некорректный (%r) — Mini App кнопка для %s скрыта.",
+            settings.telegram_mini_app_url,
+            path,
+        )
         return None
     normalized_path = path if path.startswith("/") else f"/{path}"
     query = urlencode({key: value for key, value in (params or {}).items() if value not in (None, "")})

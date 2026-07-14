@@ -392,6 +392,14 @@ jobs:
           install -m 0644 /tmp/city-go-docker-compose.yml /srv/app/docker-compose.yml
           docker compose config --quiet
 
+          echo "=== Validate TELEGRAM_MINI_APP_URL in production .env ==="
+          MINI_APP_URL="$(grep -E '^TELEGRAM_MINI_APP_URL=' /srv/app/.env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+          if [[ "${MINI_APP_URL}" != https://* ]]; then
+            echo "ERROR: TELEGRAM_MINI_APP_URL in /srv/app/.env is missing or invalid (must start with https://)." >&2
+            echo "The Telegram bot will refuse to start until this is fixed. Set it before deploying again." >&2
+            exit 1
+          fi
+
           echo "=== Recording rollback metadata (previous deployed image IDs) ==="
           PREVIOUS_SHA="$(cat /srv/app/.last_deployed_sha 2>/dev/null || echo unknown)"
           echo "Previous deployed SHA: ${PREVIOUS_SHA}"

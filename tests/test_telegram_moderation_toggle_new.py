@@ -1,6 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
 from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardRemove
 
 from models.feature_toggle import FeatureToggle
@@ -9,7 +10,7 @@ from telegram_bot.handlers.catalog import _main_menu_markup, text_message
 from telegram_bot.handlers.admin_moderation import router as admin_moderation_router
 from telegram_bot.handlers.catalog import router as catalog_router
 from telegram_bot.keyboards import catalog as catalog_keyboard
-from telegram_bot.main import create_dispatcher
+from telegram_bot.main import _validate_mini_app_config, create_dispatcher
 
 
 OLD_REPLY_LABELS = {
@@ -147,3 +148,67 @@ def test_request_location_mini_app_button_gated_by_toggle_new(monkeypatch) -> No
     assert "🚀 Открыть City GO" not in _inline_texts(disabled)
     assert "🚀 Открыть City GO" in _inline_texts(enabled)
     assert any(url.endswith("/telegram/places") for url in enabled_urls)
+
+
+def test_mini_app_url_missing_is_logged_new(monkeypatch, caplog) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "telegram_mini_app_url", "")
+
+    with caplog.at_level("WARNING"):
+        button = catalog_keyboard._mini_app_button("🚀 Открыть City GO", "/telegram")
+
+    assert button is None
+    assert any("TELEGRAM_MINI_APP_URL" in record.message for record in caplog.records)
+
+
+def test_startup_fails_fast_when_mini_app_url_missing_in_production_new(monkeypatch) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "telegram_mini_app_url", "")
+
+    with pytest.raises(ValueError, match="TELEGRAM_MINI_APP_URL"):
+        _validate_mini_app_config()
+
+
+def test_startup_fails_fast_when_mini_app_url_invalid_in_production_new(monkeypatch) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "telegram_mini_app_url", "http://not-https.example.com")
+
+    with pytest.raises(ValueError, match="TELEGRAM_MINI_APP_URL"):
+        _validate_mini_app_config()
+
+
+def test_startup_passes_when_mini_app_url_valid_in_production_new(monkeypatch) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "app_env", "production")
+    monkeypatch.setattr(settings, "telegram_mini_app_url", "https://tma.example.com")
+
+    _validate_mini_app_config()
+
+
+def test_startup_skips_mini_app_validation_outside_production_new(monkeypatch) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "app_env", "local")
+    monkeypatch.setattr(settings, "telegram_mini_app_url", "")
+
+    _validate_mini_app_config()
+
+
+def test_smoke_keyboard_contains_valid_webapp_button_new(monkeypatch) -> None:
+    from core.config import settings
+
+    monkeypatch.setattr(settings, "telegram_mini_app_url", "https://tma.example.com")
+
+    keyboard = catalog_keyboard.main_menu(tma_enabled=True)
+    webapp_buttons = [
+        button for row in keyboard.inline_keyboard for button in row if button.web_app is not None
+    ]
+
+    assert webapp_buttons, "main menu keyboard must contain at least one WebApp button when TMA is enabled"
+    assert webapp_buttons[0].web_app.url.startswith("https://tma.example.com")

@@ -48,7 +48,22 @@ def create_bot() -> Bot:
     token = _bot_token()
     if not token:
         raise ValueError("BOT_TOKEN/TELEGRAM_BOT_TOKEN пустой. Заполни токен в .env перед запуском Telegram-бота.")
+    _validate_mini_app_config()
     return Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+
+
+def _validate_mini_app_config() -> None:
+    # tma_enabled feature toggle defaults ON (project rule: non-AI toggles
+    # default ON), so in production the Mini App URL must always be valid,
+    # not only when a DB row happens to enable the toggle.
+    if settings.app_env != "production":
+        return
+    url = settings.telegram_mini_app_url.strip()
+    if not url.startswith("https://"):
+        raise ValueError(
+            "TELEGRAM_MINI_APP_URL пустой или некорректный (должен начинаться с https://). "
+            "Заполни переменную в .env перед запуском Telegram-бота в production."
+        )
 
 
 def create_dispatcher() -> Dispatcher:
