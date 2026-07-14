@@ -304,10 +304,17 @@ def test_mini_app_url_block_survives_missing_env_line_under_strict_mode_new() ->
         pytest.skip("deploy.yml's sed -i syntax is GNU-only; production/CI run on Linux")
 
     block = _extract_mini_app_shell_block()
-    with tempfile.TemporaryDirectory() as tmp:
-        Path(tmp, ".env").write_text("FOO=bar\n", encoding="utf-8")
+    assert "/srv/app/.env" in block, "expected deploy.yml to reference /srv/app/.env; substitution below would no-op"
 
-        script = f"set -euo pipefail\ncd {tmp}\n{block}\ncat .env\necho DEPLOY_WOULD_CONTINUE\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        env_path = Path(tmp) / ".env"
+        env_path.write_text("FOO=bar\n", encoding="utf-8")
+
+        # The real block hardcodes the absolute production path; substitute it
+        # with the isolated temp file so this test never touches /srv/app.
+        isolated_block = block.replace("/srv/app/.env", str(env_path))
+
+        script = f"set -euo pipefail\n{isolated_block}\ncat {env_path}\necho DEPLOY_WOULD_CONTINUE\n"
         result = subprocess.run(
             ["bash", "-c", script],
             capture_output=True,
