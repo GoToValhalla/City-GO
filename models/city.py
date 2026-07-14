@@ -2,8 +2,10 @@ from datetime import datetime
 import inspect
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, event
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm.base import NO_VALUE
 
 from db.base import Base
 
@@ -72,8 +74,25 @@ def _city_product_state_change_allowed(city: City) -> bool:
     return False
 
 
+def _resolve_committed_value(target: City, attr_name: str, oldvalue: object) -> object:
+    """SQLAlchemy expires instance attributes after every commit. When the
+    guarded attribute is set again afterwards without being read first, the
+    `set` event fires with `oldvalue is NO_VALUE` instead of the real
+    database value, so a naive `oldvalue == "published"` check silently
+    never triggers. Force a reload via the mapper (a plain read, not a
+    write, so it does not recurse into this same event) to get the true
+    committed value whenever SQLAlchemy could not supply it directly."""
+    if oldvalue is not NO_VALUE:
+        return oldvalue
+    state = sa_inspect(target)
+    if state.transient or state.pending or state.identity is None:
+        return oldvalue
+    return getattr(target, attr_name)
+
+
 @event.listens_for(City.launch_status, "set", retval=True)
 def protect_published_city_launch_status(target: City, value: object, oldvalue: object, initiator: object) -> object:
+    oldvalue = _resolve_committed_value(target, "launch_status", oldvalue)
     if oldvalue == "published" and value != "published" and not _city_product_state_change_allowed(target):
         return oldvalue
     return value
@@ -81,6 +100,7 @@ def protect_published_city_launch_status(target: City, value: object, oldvalue: 
 
 @event.listens_for(City.is_active, "set", retval=True)
 def protect_published_city_is_active(target: City, value: object, oldvalue: object, initiator: object) -> object:
+    oldvalue = _resolve_committed_value(target, "is_active", oldvalue)
     if oldvalue is True and value is False and getattr(target, "launch_status", None) == "published" and not _city_product_state_change_allowed(target):
         return oldvalue
     return value

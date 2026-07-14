@@ -126,3 +126,27 @@ Protected by code and tests:
 5. Admin overview separates manual review, auto backlog and quality buckets.
 6. Repair scripts use dry-run by default and write snapshot/report before apply.
 7. Active endpoint tests do not use legacy source-of-truth models instead of the actual router/service/model chain.
+
+## City product state guard: implementation note (2026-07-14)
+
+`models/city.py` enforces invariant #1 via SQLAlchemy `set` event listeners
+on `City.launch_status` / `City.is_active` that block any write moving away
+from `"published"` unless the caller is `services/admin_city_publication_service.py`,
+`scripts/repair_publication_states.py`, or explicitly calls
+`allow_city_product_state_change(city)`.
+
+This guard has one sharp edge: SQLAlchemy expires ORM attributes after every
+`db.commit()`. A function that commits and only afterwards reassigns
+`launch_status`/`is_active` — without reading the attribute again first —
+causes the event to fire with `oldvalue = NO_VALUE` instead of the real
+persisted value, which silently defeats the `oldvalue == "published"` check.
+This is exactly the shape of any multi-step pipeline function (several
+`db.commit()` calls interleaved with progress updates, then a final status
+write) — `services/import_pipeline/enrichment_only.py` is the confirmed
+real-world case (Arkhangelsk incident, 2026-07-14).
+
+The guard now resolves the true committed value via `sqlalchemy.inspect(...)`
+whenever `oldvalue` is `NO_VALUE`, instead of trusting the event payload
+blindly. Any new automatic write path added later is protected by
+construction — this is not something each caller needs to remember.
+Regression coverage: `tests/test_city_publication_state_protection_new.py`.

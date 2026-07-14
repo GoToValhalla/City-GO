@@ -1,5 +1,41 @@
 # CHANGE HISTORY
 
+## 2026-07-14 (2)
+
+### Fixed: published cities could silently lose published status (Arkhangelsk incident)
+
+- **Root cause**: `models/city.py` guards `City.launch_status`/`City.is_active`
+  against automatic unpublish via SQLAlchemy `set` event listeners that
+  compare against `oldvalue`. SQLAlchemy expires all ORM attributes after
+  every `db.commit()`. Any function that commits one or more times and then
+  reassigns `launch_status`/`is_active` without re-reading them first makes
+  the `set` event fire with `oldvalue = NO_VALUE` (SQLAlchemy's "unknown"
+  sentinel) instead of the real `"published"` value — the guard's
+  `oldvalue == "published"` check is then always `False`, and the write goes
+  through unprotected. `services/import_pipeline/enrichment_only.py:139`
+  (`run_enrichment_only_pipeline`, the "Добрать фото/адреса" enrichment-only
+  admin action, which also runs automatically) commits repeatedly during
+  address/image/category/quality/readiness steps and then unconditionally
+  sets `city.launch_status = "review_required"` at the end — this is the
+  exact reachable path that downgrades an already-published city.
+- **Fix**: `models/city.py` now resolves the true committed value via a
+  mapper-level read (`sqlalchemy.inspect(...)`) whenever the event's
+  `oldvalue` is the `NO_VALUE` sentinel, before applying the publish-state
+  guard. This closes the gap for every current and future write path,
+  instead of patching `enrichment_only.py` alone.
+- **Regression tests**: `tests/test_city_publication_state_protection_new.py`
+  — expired-attribute guard bypass, repeated full import, enrichment-only
+  pipeline, place-change review approval, publication policy evaluation,
+  direct automatic-unpublish attempt, and admin publish/unpublish (incl. the
+  explicit `allow_city_product_state_change` bypass flag) all pass.
+- **Verified unaffected**: `services/publication_policy.py` and
+  `services/place_change_review_service.py` only ever read
+  `city.launch_status`/`city.is_active`, never write them — confirmed by
+  full source review, not just the fix.
+- Full backend suite: 2107 passed, 27 skipped, 1 pre-existing unrelated
+  failure (local Postgres role misconfiguration, reproduced identically on
+  unmodified `main`, not caused by this change).
+
 ## 2026-07-14
 
 ### Sites UI/UX integration — follow-up audit and CSS fixes
