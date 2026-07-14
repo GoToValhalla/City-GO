@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.place import Place
 from services.admin_audit_service import write_admin_audit_log
+from services.canonical_publication_apply import apply_admin_city_publication_place
 from services.place_publication_eligibility import city_publication_gate, place_publication_eligibility
-from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 CITY_STATUS_DRAFT = "draft"
 CITY_STATUS_PUBLISHED = "published"
@@ -191,18 +191,7 @@ def unpublish_city(db: Session, city_id: int, *, actor: str, reason: str) -> Cit
 
 
 def _publish_place_for_city(place: Place, *, now: datetime, reason: str | None) -> None:
-    place.is_active = True
-    place.is_published = True
-    place.is_visible_in_catalog = True
-    place.is_searchable = True
-    place.publication_status = PLACE_PUBLICATION_PUBLISHED
-    verdict = evaluate_place_route_eligibility(place)
-    place.is_route_eligible = verdict.eligible
-    place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons[:5])
-    place.publication_comment = reason
-    place.published_at = now
-    place.unpublished_at = None
-    place.updated_at = now
+    apply_admin_city_publication_place(place, now=now, reason=reason)
 
 
 def _hide_place_for_city_publication(place: Place, *, now: datetime, reason: str) -> None:

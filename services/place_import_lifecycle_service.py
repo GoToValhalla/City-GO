@@ -148,7 +148,11 @@ def mark_place_for_review(place: Place, *, reason: str = "enrichment_changed") -
 
 def _mark_place_for_review(place: Place, changed_fields: list[str]) -> None:
     now = datetime.utcnow()
-    was_public = bool(place.is_published or place.is_visible_in_catalog or place.is_searchable)
+    was_public = bool(place.is_published and place.is_visible_in_catalog)
+    if was_public:
+        _set_if_changed(place, "last_verified_at", now, changed_fields)
+        _set_if_changed(place, "updated_at", now, changed_fields)
+        return
     _set_if_changed(place, "status", NEEDS_REVIEW_STATUS, changed_fields)
     _set_if_changed(place, "is_active", False, changed_fields)
     _set_if_changed(place, "is_published", False, changed_fields)
@@ -156,8 +160,6 @@ def _mark_place_for_review(place: Place, changed_fields: list[str]) -> None:
     _set_if_changed(place, "is_route_eligible", False, changed_fields)
     _set_if_changed(place, "is_searchable", False, changed_fields)
     _set_if_changed(place, "publication_status", NEEDS_REVIEW_STATUS, changed_fields)
-    if was_public:
-        _set_if_changed(place, "unpublished_at", now, changed_fields)
     _set_if_changed(place, "last_verified_at", now, changed_fields)
     _set_if_changed(place, "updated_at", now, changed_fields)
 

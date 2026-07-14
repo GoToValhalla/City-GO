@@ -52,7 +52,9 @@ def run_step(db: Session, *, step: str, city: City, job: CityAdminImportJob, bat
         "generate_ai_descriptions": lambda: _generate_ai_descriptions(db, places, job),
         "fetch_photo_candidates": lambda: tuple(_photo_candidate(db, place) for place in places if place.image_url),
         "calculate_field_confidence": lambda: _calculate_field_confidence(db, places, job),
-        "apply_publication_decisions": lambda: tuple(apply_pipeline_publication(db, city, job, place, counters) for place in places),
+        "apply_publication_decisions": lambda: tuple(
+            apply_pipeline_publication(db, city, job, place, counters, evidence_allowed=False) for place in places
+        ),
     }
     actions[step]()
 

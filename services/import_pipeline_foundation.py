@@ -12,8 +12,6 @@ from models.import_batch import ImportBatch
 from models.place import Place
 from services.import_job_step_service import record_step
 from services.import_pipeline_foundation_steps import run_step
-from services.place_import_lifecycle_service import mark_place_for_review
-from services.review_queue_service import ensure_review_item
 
 FOUNDATION_STEPS = (
     "collect_places",
@@ -54,10 +52,7 @@ def run_foundation_pipeline(
     for step in FOUNDATION_STEPS:
         record_step(db, job_id=job.id, step_name=step, status="started")
         try:
-            if step == "apply_publication_decisions" and manual_review_required:
-                _require_manual_review(db, city=city, job=job, places=places, counters=counters)
-            else:
-                run_step(db, step=step, city=city, job=job, batch=batch, places=places, counters=counters)
+            run_step(db, step=step, city=city, job=job, batch=batch, places=places, counters=counters)
             record_step(db, job_id=job.id, step_name=step, status="success", counters=dict(counters))
         except Exception as exc:
             counters["failed"] += 1
@@ -84,27 +79,6 @@ def run_foundation_pipeline(
     _write_job_counters(job, counters)
     db.commit()
     return counters
-
-
-def _require_manual_review(
-    db: Session,
-    *,
-    city: City,
-    job: CityAdminImportJob,
-    places: list[Place],
-    counters: dict[str, int],
-) -> None:
-    for place in places:
-        mark_place_for_review(place, reason="import_data_changed")
-        ensure_review_item(
-            db,
-            city_id=city.id,
-            place_id=place.id,
-            job_id=job.id,
-            field_name="publication_status",
-            reason="import_data_changed",
-        )
-        counters["review_required"] += 1
 
 
 def _batch(db: Session, city: City) -> ImportBatch:

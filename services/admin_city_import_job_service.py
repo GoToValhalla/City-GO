@@ -18,6 +18,7 @@ from services.admin_city_import_job_payload import SNAPSHOT_KEY
 from services.admin_city_import_log import log_import_event
 from services.admin_import_job_change_service import CHANGE_TYPES, record_place_changes
 from services.city_readiness.score import compute_city_readiness
+from services.import_publication_finalize import finalize_import_publication
 from services.import_pipeline.enrichment_only import run_enrichment_only_pipeline
 from services.import_pipeline.runner import run_enrichment_pipeline
 from services.import_pipeline.steps import STEP_CANCELLED, STEP_ERROR, STEP_QUEUED
@@ -206,9 +207,23 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdmi
             warnings.append({"step": "collection_and_legacy_enrichment", "error": f"Статус этапа сбора/обогащения: {legacy_status}", "last_error": job.last_error})
         job.step_details = {**dict(job.step_details or {}), "warnings": warnings, "changed_place_ids": ids, "has_changes": bool(ids), "auto_repair": auto_repair, "unified_pipeline": {"collection_and_legacy_enrichment": legacy, "source_enrichment": source, "readiness_score": readiness.get("readiness_score"), "auto_repair": auto_repair, "completed": True}}
         combined_status = _combine_status(legacy_status, source_status, "success_with_warnings" if warnings else "success")
+        publication = finalize_import_publication(
+            db,
+            city=city,
+            job=job,
+            place_ids=ids,
+            import_status=combined_status,
+        )
+        if publication.get("status") == "failed" and combined_status in {"success", "success_with_warnings"}:
+            combined_status = "partial_success"
+            job.last_error = f"publication_stage_failed:{','.join(publication.get('reasons', []))}"
         job.status = combined_status
         job.finished_at = datetime.utcnow()
         city.last_import_at = job.finished_at
+        job.step_details = {
+            **dict(job.step_details or {}),
+            "publication_finalize": publication,
+        }
         _refresh_snapshot_light(db, city=city, job=job, source="import_worker_finished")
         log_import_event(db, event="unified_import_pipeline_finished", city_slug=city.slug, actor_id=actor_id, message=f"Полный pipeline #{job.id}: {len(ids)} изменений; auto-repair {auto_repair.get('repaired_count', 0)}; публикация города сохранена", details={"job_id": job.id, "changed_places": len(ids), "warnings": warnings, "auto_repair": auto_repair, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active)}, job_id=job.id)
         db.commit()
