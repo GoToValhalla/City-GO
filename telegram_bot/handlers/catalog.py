@@ -272,7 +272,7 @@ async def _answer_main_menu(message: Message, text: str, db: Session) -> None:
 def _main_menu_markup(db: Session) -> object:
     return kb.main_menu(
         show_moderation=is_toggle_enabled(db, "telegram_admin_moderation", default=False),
-        tma_enabled=is_toggle_enabled(db, "tma_enabled", default=False),
+        tma_enabled=is_toggle_enabled(db, "tma_enabled"),
     )
 
 
@@ -537,7 +537,7 @@ async def _handle_nearby(callback: CallbackQuery, db: Session, session, facade: 
                 "Отправьте геопозицию, выберите центр города или смените город.",
                 reply_markup=get_location_request_keyboard(),
             )
-        await _edit_or_answer(callback, renderers.nearby_request_text(), reply_markup=kb.request_location(tma_enabled=is_toggle_enabled(db, "tma_enabled", default=False)))
+        await _edit_or_answer(callback, renderers.nearby_request_text(), reply_markup=kb.request_location(tma_enabled=is_toggle_enabled(db, "tma_enabled")))
         return
     places = facade.nearby_places(session.selected_city_slug, float(location["lat"]), float(location["lng"]), category)
     log_event(db, session, "nearby_used", payload={"results_count": len(places), "source": "user_location"})

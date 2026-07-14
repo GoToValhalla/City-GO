@@ -123,14 +123,16 @@ def test_tma_toggle_controls_main_menu_button_new(db_session, monkeypatch) -> No
 
     monkeypatch.setattr(settings, "telegram_mini_app_url", "https://tma.example.com")
 
-    disabled = _main_menu_markup(db_session)
-    assert "🚀 Открыть City GO" not in _inline_texts(disabled)
+    # No explicit toggle row: tma_enabled defaults ON (project rule: all
+    # non-AI feature flags default ON), so the button must be present.
+    enabled_by_default = _main_menu_markup(db_session)
+    assert "🚀 Открыть City GO" in _inline_texts(enabled_by_default)
 
-    db_session.add(FeatureToggle(key="tma_enabled", scope="global", scope_id=None, value_bool=True))
+    db_session.add(FeatureToggle(key="tma_enabled", scope="global", scope_id=None, value_bool=False))
     db_session.commit()
 
-    enabled = _main_menu_markup(db_session)
-    assert "🚀 Открыть City GO" in _inline_texts(enabled)
+    disabled = _main_menu_markup(db_session)
+    assert "🚀 Открыть City GO" not in _inline_texts(disabled)
 
 
 def test_request_location_mini_app_button_gated_by_toggle_new(monkeypatch) -> None:

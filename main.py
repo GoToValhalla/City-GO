@@ -106,4 +106,4 @@ def public_features(db: Session = Depends(get_db)) -> dict[str, bool]:
     before rendering a gated surface (e.g. the Telegram Mini App). Not a
     general toggle-read API — deliberately limited to the flags that a
     public client must check client-side."""
-    return {"tma_enabled": is_toggle_enabled(db, "tma_enabled", default=False)}
+    return {"tma_enabled": is_toggle_enabled(db, "tma_enabled")}

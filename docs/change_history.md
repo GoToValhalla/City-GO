@@ -1,5 +1,49 @@
 # CHANGE HISTORY
 
+## 2026-07-14 (6)
+
+### Fix two CI failures from run #2195 (commit 40cda9e)
+
+**Backend — `tma_enabled` still resolved to `false` on a fresh install.**
+The feature-toggle catalog default was already `True` (fixed in `f0c7c51`),
+but three call sites still passed a stale, redundant `default=False`
+literal into `is_toggle_enabled(...)`, which short-circuits and returns
+that literal before ever consulting the catalog when no row exists yet:
+`main.py`'s `GET /features/public`, and two Telegram bot call sites
+(`telegram_bot/handlers/catalog.py` — main menu button and the
+"share location" keyboard). Removed the stale `default=False` argument at
+all three so they fall through to the catalog's real (now `True`) default;
+an explicit admin override row is still read first regardless, so
+disabling the toggle continues to work. No migration needed — this was a
+call-site literal, not a schema/model issue. AI toggle defaults untouched.
+`test_tma_toggle_controls_main_menu_button_new` asserted the old
+(incorrect) "no row = disabled" behavior, which contradicts the project's
+own "non-AI flags default ON" rule — rewritten to assert the correct
+default-enabled behavior and that an explicit `False` row disables it.
+
+**Frontend — mobile import-job card Queue/Retry shared one `busy` state.**
+`MobileImportJobCards` reused the page-level `busy: number | null`
+(one value per city, not per action) for both the Queue and Retry
+buttons. Clicking Queue set `busy = cityId` and only cleared it once the
+entire `runAction` promise chain resolved (POST + `refreshAll` +
+`loadDetail`), so clicking Retry before that finished saw `disabled=true`
+and the click was a no-op — a real, deterministic bug, not flakiness
+(reproduced and confirmed via a manually-controlled/deferred POST promise
+in a new test). Fixed by giving the mobile card list its own local
+per-action pending-state tracker (`Set<"${cityId}:${action}">`), fully
+decoupled from the desktop table/detail panel's shared `busy` prop, which
+is untouched — `ImportJobsTable`/`ImportJobDetail` still receive and use
+`busy` exactly as before. No API changes; Queue/Retry still call the same
+existing city-scoped `/run`/`/retry` endpoints.
+
+Focused tests: `pytest -q tests/test_feature_toggles_new.py` — 8 passed;
+`npx vitest run src/pages/admin/AdminImportJobsPage.mobileCards.test.tsx`
+— 20 passed (19 existing + 1 new deterministic regression test).
+Full validation: backend 2124 passed / 27 skipped / 1 pre-existing
+unrelated failure (local Postgres role misconfiguration, reproduced
+identically on unmodified `main`); frontend `npm test` — 410 passed, 1
+skipped; `npm run lint` — clean; `npm run build` — success.
+
 ## 2026-07-14 (5)
 
 ### Telegram Mini App v1 — fix two confirmed gaps from 4d9a129

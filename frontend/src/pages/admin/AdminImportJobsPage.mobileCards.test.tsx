@@ -329,6 +329,37 @@ describe('AdminImportJobsPage mobile card list', () => {
     expect(calledPaths).not.toContain('/admin/import-queue/run-once')
   })
 
+  it('Retry is not disabled by a still-in-flight Queue action on the same card (independent per-action pending state)', async () => {
+    const job = { ...failedJob, can_run: true, can_retry: true }
+    mockAdminGetWithDetail([job], job)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    // Queue's POST resolves only when we explicitly release it below, so
+    // Retry is clicked strictly while Queue is still pending — this is the
+    // exact race the bug report described (CI: 1 call instead of 2).
+    let releaseQueuePost: (() => void) | undefined
+    mockedAdminPost.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseQueuePost = () => resolve({ scheduled: true, limit: 1, queue: queueIdle })
+    }))
+    mockedAdminPost.mockResolvedValueOnce({ scheduled: true, limit: 1, queue: queueIdle })
+
+    renderPage()
+
+    const runButton = await screen.findByTestId('mobile-import-job-action-run')
+    runButton.click()
+    await waitFor(() => expect(mockedAdminPost).toHaveBeenCalledTimes(1))
+
+    const retryButton = screen.getByTestId('mobile-import-job-action-retry') as HTMLButtonElement
+    expect(retryButton.disabled).toBe(false)
+    retryButton.click()
+
+    await waitFor(() => expect(mockedAdminPost).toHaveBeenCalledTimes(2))
+    releaseQueuePost?.()
+
+    const calledPaths = mockedAdminPost.mock.calls.map((call) => call[0])
+    expect(calledPaths).toContain('/admin/import-jobs/302/run')
+    expect(calledPaths).toContain('/admin/import-jobs/302/retry')
+  })
+
   it('does not show Queue/Retry for an active (queued/running) job', async () => {
     mockAdminGet(queueIdle, { items: [runningJob], total: 1, limit: 50, offset: 0 })
 
