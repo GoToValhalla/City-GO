@@ -72,6 +72,18 @@ def run_worker_loop(
         iteration += 1
         try:
             result = run_queued_import_jobs(actor_id=actor_id, limit=limit)
+            if result.get("queued_locked"):
+                # Queued jobs exist but every candidate row is held by
+                # another (likely abandoned) transaction — SKIP LOCKED
+                # correctly claimed nothing this iteration. This is not a
+                # silent success: surface it in the container's own log
+                # stream immediately, in addition to the SystemLog/Telegram
+                # alert already sent inside run_queued_import_jobs.
+                print(
+                    f"import_worker_queued_jobs_locked count={result['queued_locked']} iteration={iteration}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             if consecutive_failures:
                 send_admin_alert(
                     title="Import-worker восстановлен",

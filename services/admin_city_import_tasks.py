@@ -88,6 +88,7 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
     limit = max(1, int(limit or 1))
     processed = 0
     failed = 0
+    queued_locked = 0
     errors: list[dict[str, object]] = []
     with SessionLocal() as db:
         stalled = mark_stalled_import_jobs(db, actor_id=actor_id)
@@ -101,14 +102,48 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
         )
         if not jobs:
             running_count = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").count()
-            _log_worker_decision(
-                db,
-                event="worker_no_queued_jobs",
-                actor_id=actor_id,
-                message=f"Import worker found no queued jobs; active running jobs: {running_count}",
-                details={"limit": limit, "running": running_count, "stalled_marked": stalled},
-            )
-            db.commit()
+            # FOR UPDATE SKIP LOCKED can return zero rows even when queued
+            # rows genuinely exist, if every one of them is locked by another
+            # transaction (e.g. a crashed/orphaned prior worker iteration that
+            # never released its connection). A lock-free count distinguishes
+            # a truly empty queue from this stuck-but-non-empty state — the
+            # prior "found no queued jobs" message was untruthful in the
+            # locked case and gave operators no signal that a job like this
+            # was silently stuck forever.
+            queued_total = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "queued").count()
+            if queued_total > 0:
+                queued_locked = queued_total
+                _log_worker_decision(
+                    db,
+                    event="worker_queued_jobs_locked",
+                    actor_id=actor_id,
+                    level="error",
+                    message=(
+                        f"Import worker found {queued_total} queued job(s) but could not claim any: "
+                        "all are locked by another transaction."
+                    ),
+                    details={"limit": limit, "running": running_count, "queued_locked": queued_total, "stalled_marked": stalled},
+                )
+                db.commit()
+                send_admin_alert(
+                    title="Import worker queued jobs stuck (locked)",
+                    message=(
+                        f"{queued_total} queued import job(s) exist but could not be claimed — "
+                        "every candidate row is locked by another transaction (e.g. a crashed prior "
+                        "worker iteration). Investigate stuck DB sessions/locks on city_admin_import_jobs."
+                    ),
+                    level="error",
+                    details={"queued_locked": queued_total, "running": running_count},
+                )
+            else:
+                _log_worker_decision(
+                    db,
+                    event="worker_no_queued_jobs",
+                    actor_id=actor_id,
+                    message=f"Import worker found no queued jobs; active running jobs: {running_count}",
+                    details={"limit": limit, "running": running_count, "stalled_marked": stalled},
+                )
+                db.commit()
         for job in jobs:
             job_id = int(job.id)
             city_id = int(job.city_id)
@@ -244,7 +279,14 @@ def run_queued_import_jobs(*, actor_id: str = "import-worker", limit: int = 1) -
                     details=error,
                 )
         queue = import_queue_summary(db)
-    return {"processed": processed, "failed": failed, "stalled_marked": stalled, "errors": errors, "queue": queue}
+    return {
+        "processed": processed,
+        "failed": failed,
+        "queued_locked": queued_locked,
+        "stalled_marked": stalled,
+        "errors": errors,
+        "queue": queue,
+    }
 
 
 def _queued_seconds(job: CityAdminImportJob, *, now: datetime | None = None) -> int | None:
