@@ -50,19 +50,19 @@ def test_tma_enabled_toggle_in_catalog_new() -> None:
     keys = {item["key"] for item in GLOBAL_TOGGLES}
     assert "tma_enabled" in keys
     tma_toggle = next(item for item in GLOBAL_TOGGLES if item["key"] == "tma_enabled")
-    assert tma_toggle["default"] is False
+    assert tma_toggle["default"] is True
 
 
-def test_public_features_endpoint_defaults_tma_disabled_new(client: TestClient) -> None:
+def test_public_features_endpoint_defaults_tma_enabled_new(client: TestClient) -> None:
     response = client.get("/features/public")
     assert response.status_code == 200
-    assert response.json() == {"tma_enabled": False}
+    assert response.json() == {"tma_enabled": True}
 
 
 def test_public_features_endpoint_reflects_admin_toggle_new(client: TestClient, db_session) -> None:
-    update_response = client.put("/admin/feature-toggles/tma_enabled?scope=global", json={"value_bool": True, "reason": "enable tma"})
+    update_response = client.put("/admin/feature-toggles/tma_enabled?scope=global", json={"value_bool": False, "reason": "disable tma"})
     assert update_response.status_code == 200
 
     response = client.get("/features/public")
     assert response.status_code == 200
-    assert response.json() == {"tma_enabled": True}
+    assert response.json() == {"tma_enabled": False}
