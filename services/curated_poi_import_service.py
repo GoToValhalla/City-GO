@@ -14,6 +14,7 @@ from models.city_import_scope import CityImportScope
 from models.place import Place
 from models.place_scope_link import PlaceScopeLink
 from services.coverage_scope_policy import resolve_scope_policy
+from services.place_change_review_service import propose_place_change
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 CURATED_POI_DIR = ROOT_DIR / "data" / "config" / "curated_poi"
@@ -85,19 +86,32 @@ def import_curated_poi_scope(db: Session, *, city_slug: str, scope_code: str, ap
             db.flush()
             created += 1
         else:
-            place.title = str(row["title"])
-            place.category_id = category.id
-            place.category = category_code
-            place.canonical_category = str(row.get("canonical_category") or category_code)
-            place.lat = float(row["lat"])
-            place.lng = float(row["lng"])
-            place.source_url = row.get("source_url") or place.source_url
-            place.place_layer = str(row.get("place_layer") or place.place_layer or "tourist_catalog")
-            place.route_policy = str(row.get("route_policy") or policy.route_policy)
-            place.transport_required = bool(row.get("transport_required", policy.transport_required))
-            place.is_route_eligible = bool(place.is_route_eligible and not place.transport_required)
-            place.updated_at = datetime.utcnow()
-            updated += 1
+            proposed = {
+                "title": str(row["title"]),
+                "category_id": category.id,
+                "category": category_code,
+                "canonical_category": str(row.get("canonical_category") or category_code),
+                "lat": float(row["lat"]),
+                "lng": float(row["lng"]),
+                "source_url": row.get("source_url") or place.source_url,
+                "place_layer": str(row.get("place_layer") or place.place_layer or "tourist_catalog"),
+                "route_policy": str(row.get("route_policy") or policy.route_policy),
+                "transport_required": bool(row.get("transport_required", policy.transport_required)),
+            }
+            if propose_place_change(db, place=place, proposed=proposed, reason="curated_poi_reimport"):
+                place.title = proposed["title"]
+                place.category_id = proposed["category_id"]
+                place.category = proposed["category"]
+                place.canonical_category = proposed["canonical_category"]
+                place.lat = proposed["lat"]
+                place.lng = proposed["lng"]
+                place.source_url = proposed["source_url"]
+                place.place_layer = proposed["place_layer"]
+                place.route_policy = proposed["route_policy"]
+                place.transport_required = proposed["transport_required"]
+                place.is_route_eligible = bool(place.is_route_eligible and not place.transport_required)
+                place.updated_at = datetime.utcnow()
+                updated += 1
         _link(db, place.id, scope.id)
     db.flush()
     return CuratedPoiImportResult(city_slug, scope_code, len(rows), created, updated, skipped)

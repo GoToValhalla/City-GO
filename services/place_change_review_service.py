@@ -12,6 +12,7 @@ from models.place import Place
 from models.review_queue_item import ReviewQueueItem
 from services.admin_audit_service import write_admin_audit_log
 from services.publication_policy import run_hard_gates
+from services.review_queue_service import ensure_review_item
 from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 OPEN_STATUS = "open"
@@ -31,6 +32,59 @@ RESTORABLE_PLACE_FIELDS = {
     for column in Place.__table__.columns
     if column.name not in {"id", "city_id", "created_at", "updated_at"}
 }
+
+
+def propose_place_change(
+    db: Session,
+    *,
+    place: Place,
+    proposed: dict[str, Any],
+    reason: str,
+    city_id: int | None = None,
+    job_id: int | None = None,
+    severity: str = "medium",
+) -> bool:
+    """Guard for automatic writers (import, enrichment, backfills) that must
+    never destructively overwrite an already-published Place.
+
+    If `place.is_published` is True, the proposed values are NOT written to
+    the live row. They are stored as a `place_change` review candidate with
+    explicit before/after values and returns False — the public version is
+    untouched until an admin approves via the existing
+    /admin/place-change-reviews/{id}/approve|reject endpoints (approve
+    applies `after`, reject is a no-op since nothing was ever written).
+
+    If the place is not currently published, this is a pass-through: the
+    caller's normal direct-write behavior is unaffected. Returns True when
+    the caller may proceed to write `proposed` onto `place` itself.
+    """
+    if not place.is_published:
+        return True
+
+    changes = {
+        field_name: {"before": getattr(place, field_name), "after": value}
+        for field_name, value in proposed.items()
+        if field_name in RESTORABLE_PLACE_FIELDS and getattr(place, field_name) != value
+    }
+    if not changes:
+        return False
+
+    ensure_review_item(
+        db,
+        city_id=city_id if city_id is not None else place.city_id,
+        place_id=place.id,
+        job_id=job_id,
+        field_name=PLACE_CHANGE_FIELD,
+        reason=reason,
+        severity=severity,
+        payload={
+            "kind": "place_change",
+            "applied": False,
+            "place_title": place.title,
+            "changes": changes,
+        },
+    )
+    return False
 
 
 def list_place_change_reviews(
@@ -139,6 +193,7 @@ def _resolve_place_change_review(
 
     blocked_gates: list[str] = []
     if action == "approve":
+        _apply_pending_changes(place, payload)
         if payload.get("decision") != "hidden":
             place.status = "active"
             place.is_active = True
@@ -192,6 +247,27 @@ def _open_review_row(db: Session, review_id: int) -> tuple[ReviewQueueItem, Plac
 
 def _payload(item: ReviewQueueItem) -> dict[str, Any]:
     return dict(item.payload or {})
+
+
+def _apply_pending_changes(place: Place, payload: dict[str, Any]) -> None:
+    """Apply proposed field values that were deliberately NOT written to the
+    live row when the review item was queued (payload["applied"] is False —
+    see services/place_import_lifecycle_service.py::propose_place_change).
+
+    The OSM import review path already writes proposed values onto `place`
+    before queuing the review (payload has no "applied" key, or it is True),
+    so this is a no-op there and does not change that existing behavior.
+    """
+    if payload.get("applied") is not False:
+        return
+    changes = payload.get("changes")
+    if not isinstance(changes, dict):
+        return
+    for field_name, change in changes.items():
+        if field_name not in RESTORABLE_PLACE_FIELDS or not isinstance(change, dict):
+            continue
+        if "after" in change:
+            setattr(place, field_name, change["after"])
 
 
 def _restore_previous_place_values(place: Place, payload: dict[str, Any]) -> None:

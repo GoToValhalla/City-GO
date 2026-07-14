@@ -46,6 +46,22 @@ Published place must not be reset to draft/hidden/rejected by import/enrichment/
 
 Import/enrichment/backfill may improve raw/data-quality fields, but must not disable already published flags.
 
+### Content protection guard (2026-07-14)
+
+`services/place_change_review_service.py::propose_place_change()` enforces
+the "must not overwrite published content" half of this invariant. Any
+automatic writer (import, enrichment, taxonomy normalization, address
+recovery/backfill, photo recovery, curated POI re-import, place-seed
+re-import) must call it before writing to an existing Place. When the
+place is currently published, the proposed values are stored as a
+`ReviewQueueItem` (`field_name="place_change"`) candidate instead of being
+applied — the live row, including its publication flags, is left exactly
+as it was. Approval (`/admin/place-change-reviews/{id}/approve`) applies
+the candidate; rejection is a genuine no-op. Every candidate carries
+explicit `job_id` lineage to the `CityAdminImportJob` that produced it —
+there is no timestamp-based ownership heuristic anywhere in this codebase.
+Regression coverage: `tests/test_published_place_protection_new.py`.
+
 ## Manual review state
 
 Manual queue includes only explicit manual cases:

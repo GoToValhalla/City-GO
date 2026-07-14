@@ -69,7 +69,7 @@ def test_enrichment_only_pipeline_keeps_published_city_published_new(db_session,
 
     monkeypatch.setattr(mod, "_run_address_batches", lambda slug, heartbeat=None: {"checked": 0, "updated": 0, "errors": 0, "batches": 0, "last_scanned_place_id": 0})
     monkeypatch.setattr(mod, "_run_image_batches", lambda slug, heartbeat=None: {"scanned_places": 0, "created": 0, "errors": [], "batches": 0, "last_scanned_place_id": 0})
-    monkeypatch.setattr(mod, "normalize_city_categories", lambda db, *, city_slug, apply=True: {"scanned": 0, "updated": 0})
+    monkeypatch.setattr(mod, "normalize_city_categories", lambda db, *, city_slug, apply=True, job_id=None: {"scanned": 0, "updated": 0})
     monkeypatch.setattr(mod, "run_quality_cleanup", lambda argv: {"updated": 0})
     monkeypatch.setattr(mod, "compute_city_readiness", lambda db, *, city_slug: {"readiness_score": 90})
     monkeypatch.setattr(mod, "send_admin_alert", lambda **kwargs: {"sent": True})

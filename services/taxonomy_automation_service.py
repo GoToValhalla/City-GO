@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from models.place import Place
 from models.source_observation import SourceObservation
 from models.taxonomy import QualityIssue, QualityRule, TaxonomyConflict
+from services.place_change_review_service import propose_place_change
 from services.quality_score_v2 import calculate_quality_v2
 from services.route_policy_service import evaluate_category_policy
 from services.taxonomy_rule_engine import classify_place, persist_decision
@@ -39,7 +40,7 @@ def ensure_quality_rules(db: Session) -> None:
     db.flush()
 
 
-def normalize_place(db: Session, place: Place, *, actor: str = "workflow") -> dict[str, object]:
+def normalize_place(db: Session, place: Place, *, actor: str = "workflow", job_id: int | None = None) -> dict[str, object]:
     observation = db.query(SourceObservation).filter(SourceObservation.canonical_place_id == place.id).order_by(SourceObservation.last_seen_at.desc()).first()
     tags = _source_tags(observation)
     result = classify_place(db, source=(observation.source_type if observation else place.source), source_tags=tags,
@@ -51,10 +52,13 @@ def normalize_place(db: Session, place: Place, *, actor: str = "workflow") -> di
             from models.category import Category
             category = db.query(Category).filter(Category.id == result.category_id).first()
         if category:
-            old = place.category_id; place.category_id = category.id; place.category = category.code; place.canonical_category = category.code
-            place.is_route_eligible = evaluate_category_policy(category, context="tourist_walk").allowed
-            persist_decision(db, place_id=place.id, result=result, actor=actor, old_category_id=old)
-            applied = True
+            route_eligible = evaluate_category_policy(category, context="tourist_walk").allowed
+            proposed = {"category_id": category.id, "category": category.code, "canonical_category": category.code, "is_route_eligible": route_eligible}
+            if propose_place_change(db, place=place, proposed=proposed, reason="taxonomy_auto_normalization", job_id=job_id):
+                old = place.category_id; place.category_id = category.id; place.category = category.code; place.canonical_category = category.code
+                place.is_route_eligible = route_eligible
+                persist_decision(db, place_id=place.id, result=result, actor=actor, old_category_id=old)
+                applied = True
     if not applied:
         _upsert_conflict(db, place, result, source=observation.source_type if observation else place.source)
     return {**result.to_dict(), "applied": applied}

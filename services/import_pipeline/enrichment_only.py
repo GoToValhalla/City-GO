@@ -109,7 +109,7 @@ def run_enrichment_only_pipeline(
         )
         db.commit()
 
-        cats = normalize_city_categories(db, city_slug=slug, apply=True)
+        cats = normalize_city_categories(db, city_slug=slug, apply=True, job_id=int(job.id))
         results["categories"] = cats
         set_step(
             job,

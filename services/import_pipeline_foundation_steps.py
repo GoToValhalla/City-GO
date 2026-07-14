@@ -46,7 +46,7 @@ PROTECTED_PLACE_FIELDS = {
 def run_step(db: Session, *, step: str, city: City, job: CityAdminImportJob, batch: ImportBatch, places: list[Place], counters: dict[str, int]) -> None:
     actions = {
         "collect_places": lambda: tuple(_observe_place(db, batch, city, place) for place in places),
-        "normalize_categories": lambda: _normalize_categories(db, places, counters),
+        "normalize_categories": lambda: _normalize_categories(db, places, counters, job_id=job.id),
         "backfill_addresses": lambda: None,
         "enrich_external_sources": lambda: _enrich_external_sources(db, city, job, batch, places, counters),
         "generate_ai_descriptions": lambda: _generate_ai_descriptions(db, places, job),
@@ -57,8 +57,8 @@ def run_step(db: Session, *, step: str, city: City, job: CityAdminImportJob, bat
     actions[step]()
 
 
-def _normalize_categories(db: Session, places: list[Place], counters: dict[str, int]) -> None:
-    result = normalize_places_categories(db, places=places)
+def _normalize_categories(db: Session, places: list[Place], counters: dict[str, int], *, job_id: int | None = None) -> None:
+    result = normalize_places_categories(db, places=places, job_id=job_id)
     counters["categories_updated"] = counters.get("categories_updated", 0) + int(result["updated"])
     counters["categories_unknown"] = counters.get("categories_unknown", 0) + int(result["unknown"])
 

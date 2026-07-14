@@ -28,10 +28,11 @@ from sqlalchemy.orm import Session
 from db.session import SessionLocal
 from models.city import City
 from models.place import Place
-from models.place_image import PLACE_IMAGE_STATUS_APPROVED, PUBLIC_PLACE_IMAGE_STATUSES, PlaceImage
+from models.place_image import PLACE_IMAGE_STATUS_APPROVED, PLACE_IMAGE_STATUS_NEEDS_REVIEW, PUBLIC_PLACE_IMAGE_STATUSES, PlaceImage
 from models.place_source_presence import PlaceSourcePresence
 from models.source_observation import SourceObservation
 from services.local_persistent_cache import get_cached_text, set_cached_text, stable_cache_key
+from services.place_change_review_service import propose_place_change
 from services.place_public_image_service import place_has_public_image
 from services.place_public_visibility import is_public_hidden_category
 
@@ -160,6 +161,18 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             }
             summary["preview"].append(preview_item)
             if args.apply:
+                # A published place's live image must not be swapped by an
+                # automatic candidate without explicit admin approval — queue
+                # the image itself as needs_review and route the image_url
+                # change through the same place-change review gate as other
+                # automatic writers.
+                can_auto_apply = propose_place_change(
+                    db,
+                    place=place,
+                    proposed={"image_url": best_candidate["image_url"]},
+                    reason="photo_enrichment_candidate",
+                )
+                image_status = PLACE_IMAGE_STATUS_APPROVED if can_auto_apply else PLACE_IMAGE_STATUS_NEEDS_REVIEW
                 db.add(
                     PlaceImage(
                         place_id=place.id,
@@ -170,17 +183,18 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
                         attribution=best_candidate.get("attribution"),
                         license=best_candidate.get("license"),
                         confidence=best_candidate.get("confidence"),
-                        status=PLACE_IMAGE_STATUS_APPROVED,
-                        is_primary=True,
+                        status=image_status,
+                        is_primary=can_auto_apply,
                         reviewed_by=None,
                         reviewed_at=None,
-                        review_comment="Auto-approved from source evidence/search; still requires manual confirmation.",
+                        review_comment="Auto-approved from source evidence/search; still requires manual confirmation." if can_auto_apply else "Published place — awaiting place-change review approval before going live.",
                     )
                 )
-                place.image_url = best_candidate["image_url"]
+                if can_auto_apply:
+                    place.image_url = best_candidate["image_url"]
+                    summary["auto_approved"] += 1
+                    summary["place_image_url_synced"] += 1
                 summary["created"] += 1
-                summary["auto_approved"] += 1
-                summary["place_image_url_synced"] += 1
                 # Commit incrementally so progress survives a kill/deadline mid-scan
                 # instead of holding one long-lived open transaction for the whole run.
                 db.commit()

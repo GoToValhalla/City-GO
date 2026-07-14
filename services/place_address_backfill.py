@@ -14,6 +14,7 @@ from models.city import City
 from models.place import Place
 from services.place_address_geocode import ReverseGeocodeCandidate, reverse_geocode, reverse_geocode_candidate
 from services.place_address_policy import PLACEHOLDER_ADDRESSES, is_real_address, needs_backfill, should_apply_geocode_result
+from services.place_change_review_service import propose_place_change
 from services.place_import_lifecycle_service import mark_place_for_review
 
 ADDRESS_MATCH_THRESHOLD = 0.72
@@ -220,6 +221,9 @@ def _mark_address_for_review(db: Session, place: Place, candidate: str, source: 
 
 def _clear_placeholder(db: Session, place: Place, stats: dict[str, Any]) -> None:
     if is_real_address(place.address):
+        return
+    if not propose_place_change(db, place=place, proposed={"address": ""}, reason="placeholder_address_cleared"):
+        db.commit()
         return
     place.address = ""
     place.updated_at = datetime.utcnow()

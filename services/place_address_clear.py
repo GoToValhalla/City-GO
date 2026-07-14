@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.place import Place
 from services.place_address_policy import is_placeholder_address, is_real_address
+from services.place_change_review_service import propose_place_change
 
 
 def clear_placeholder_addresses(db: Session, *, city_slug: str, apply: bool) -> dict[str, Any]:
@@ -35,13 +36,18 @@ def clear_placeholder_addresses(db: Session, *, city_slug: str, apply: bool) -> 
         if not is_placeholder_address(place.address):
             continue
         stats["checked"] += 1
+        status = "cleared"
         if apply:
-            place.address = ""
-            place.updated_at = datetime.utcnow()
-            db.add(place)
-            db.commit()
+            if propose_place_change(db, place=place, proposed={"address": ""}, reason="placeholder_address_cleared"):
+                place.address = ""
+                place.updated_at = datetime.utcnow()
+                db.add(place)
+                db.commit()
+            else:
+                status = "queued_for_review"
+                db.commit()
         stats["cleared"] += 1
         results = stats["results"]
         if isinstance(results, list) and len(results) < 10:
-            results.append({"place_id": place.id, "title": place.title, "status": "cleared"})
+            results.append({"place_id": place.id, "title": place.title, "status": status})
     return stats

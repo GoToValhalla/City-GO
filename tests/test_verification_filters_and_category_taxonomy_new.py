@@ -47,7 +47,7 @@ def test_service_is_only_the_generic_fallback_new() -> None:
 def test_import_pipeline_executes_category_normalization_new() -> None:
     source = (ROOT / "services/import_pipeline_foundation_steps.py").read_text(encoding="utf-8")
 
-    assert '"normalize_categories": lambda: _normalize_categories(db, places, counters)' in source
+    assert '"normalize_categories": lambda: _normalize_categories(db, places, counters, job_id=job.id)' in source
     assert '"normalize_categories": lambda: None' not in source
     assert "normalize_places_categories" in source
 

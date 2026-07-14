@@ -1,5 +1,76 @@
 # CHANGE HISTORY
 
+## 2026-07-14 (3)
+
+### Stage 0 P0: published Place overwrite protection + manual PostgreSQL regression lane
+
+**Task 1 — published Places can no longer be overwritten by automatic processes.**
+
+Root cause: several automatic writers wrote directly onto an existing
+`Place` row with no check of `is_published`, unlike the already-safe OSM
+import path (`services/place_import_lifecycle_service.py`) which unpublishes
+before applying changes. Confirmed unsafe write paths: `services/category_normalize_service.py`,
+`services/taxonomy_automation_service.py::normalize_place`, `services/place_address_clear.py`,
+`services/place_address_backfill.py::_clear_placeholder`, `services/curated_poi_import_service.py`,
+`services/place_seed_write_service.py`, `data/scripts/enrich_place_images.py` (auto-approve branch).
+
+Fix: `services/place_change_review_service.py::propose_place_change()` — a
+new shared guard reusing the existing `ReviewQueueItem`/`place_change`
+review mechanism (already used by OSM import and already backed by real
+admin approve/reject endpoints at `/admin/place-change-reviews/*`). When a
+place is currently published, proposed field values are stored as a review
+candidate (`payload.applied = False`, `payload.changes[field] = {before, after}`)
+instead of being written to the live row. `approve_place_change_review`
+now applies `after` for such candidates (idempotent no-op for the existing
+OSM path, which already applies values before queuing review);
+`reject_place_change_review` is a true no-op since nothing was ever
+written. `job_id` lineage is threaded through
+`services/import_pipeline_foundation_steps.py` /
+`services/import_pipeline/{runner,enrichment_only}.py` so every candidate
+references the real `CityAdminImportJob` that produced it — no
+`updated_at >= job.started_at` timestamp heuristics were introduced or
+existed.
+
+Regression tests: `tests/test_published_place_protection_new.py` — repeated
+import, enrichment, partial/failed import (rollback), approved review
+publishes the candidate, rejected review keeps the existing public
+version, explicit `job_id` lineage, and the real `category_normalize_service.py`
+wiring, all passing.
+
+**Task 2 — manual PostgreSQL production regression lane.**
+
+New `tests_postgres_integration/` (outside `pytest.ini` `testpaths`, never
+collected by the default `pytest tests/` run or `ci.yml`) covers real
+concurrent-connection behavior SQLite cannot reproduce: `FOR UPDATE SKIP
+LOCKED` worker claim races, the atomic `UPDATE ... WHERE locked_at IS NULL`
+scope-lock compare-and-swap, `SourceObservation` append-only/idempotency-key
+races (real `IntegrityError` + `SAVEPOINT` recovery), `propose_place_change`
+under real concurrent writers, `ReviewQueueItem` open-item uniqueness under
+a race, a genuine `ROLLBACK` scenario, and `ReviewQueueItem.payload` JSONB
+round-tripping. New manual-only workflow:
+`.github/workflows/postgres-integration.yml` (`workflow_dispatch` with a
+required exact-text confirmation, `postgres:16-alpine` service container,
+`alembic upgrade head`, then `pytest tests_postgres_integration`). Not
+executed against a live PostgreSQL server in this session — no Postgres
+server was reachable in the sandbox; verified by code review and
+`pytest --collect-only` (12 tests collect cleanly, zero leak into the
+default suite).
+
+**Task 3 — Stage 0 P0 audit.** Compared the repo against
+`docs/architecture/architecture_freeze_gate.md`'s exit criteria: all 8 ADRs,
+the architecture review checklist, and the target architecture blueprint
+already exist. No dedicated "Architecture Roadmap and Approval Stages" doc
+was found under that name — documentation gap only, not a functional P0
+defect, left unimplemented rather than fabricated. No other automatic
+catalog/publication-table writes from Telegram handlers or AI services were
+found (`AiCandidate` already exists per ADR-004 and is the only write
+surface for AI-derived facts). The one confirmed functional P0 gap in this
+area was the published-Place overwrite protection fixed in Task 1.
+
+Full backend suite: 2117 passed, 27 skipped, 1 pre-existing unrelated
+failure (local Postgres role misconfiguration, reproduced identically on
+unmodified `main`).
+
 ## 2026-07-14 (2)
 
 ### Fixed: published cities could silently lose published status (Arkhangelsk incident)

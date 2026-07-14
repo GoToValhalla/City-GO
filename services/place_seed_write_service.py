@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from models.place import Place
 from schemas.place_seed_item import PlaceSeedItem
 from services.import_publication_gate import assess_import_quality
+from services.place_change_review_service import propose_place_change
 from services.place_seed_lookup_service import find_category_id, find_city_id, find_place_by_slug
 from services.place_seed_payload_service import place_payload
 
@@ -42,6 +43,8 @@ def write_place_seed_item(db: Session, item: PlaceSeedItem) -> str:
         }
         db.add(Place(**payload, **pub_fields))
         return decision.decision  # "auto_publish" | "needs_review" | "hidden"
+    if not propose_place_change(db, place=place, proposed=payload, reason="place_seed_reimport"):
+        return "queued_for_review"
     _update_place(place, payload)
     return "updated"
 

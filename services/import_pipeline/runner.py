@@ -200,7 +200,7 @@ def run_enrichment_pipeline(
             mark_place_for_review(place, reason="import_or_enrichment_changed")
         db.commit()
         set_step(job, STEP_PREPARING_DESCRIPTIONS, detail={"mode": "manual_required"})
-        cats = normalize_places_categories(db, places=places, apply=True)
+        cats = normalize_places_categories(db, places=places, apply=True, job_id=int(job.id))
         results["categories"] = cats
         set_step(job, STEP_CATEGORIES_TAGS, processed=int(cats.get("scanned") or 0), successful=int(cats.get("updated") or 0))
         db.commit()
