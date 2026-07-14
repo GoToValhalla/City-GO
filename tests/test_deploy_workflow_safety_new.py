@@ -251,6 +251,25 @@ def test_deploy_validates_telegram_mini_app_url_before_replacing_containers_new(
     assert "/srv/app/.env" in text
 
     config_idx = text.index("docker compose config --quiet")
+    ensure_idx = text.index("Ensure TELEGRAM_MINI_APP_URL")
     validate_idx = text.index("Validate TELEGRAM_MINI_APP_URL")
     stop_idx = text.index("docker compose stop frontend backend import-worker bot")
-    assert config_idx < validate_idx < stop_idx
+    assert config_idx < ensure_idx < validate_idx < stop_idx
+
+
+def test_deploy_idempotently_writes_telegram_mini_app_url_default_new() -> None:
+    """The deploy must self-heal a missing/invalid TELEGRAM_MINI_APP_URL in
+    /srv/app/.env by writing the known-good production Mini App URL, rather
+    than only failing the deploy and requiring a manual SSH fix."""
+    text = _read()
+    ensure_idx = text.index("Ensure TELEGRAM_MINI_APP_URL")
+    validate_idx = text.index("Validate TELEGRAM_MINI_APP_URL")
+    section = text[ensure_idx:validate_idx]
+
+    assert "https://citygo.autismishe.online/telegram" in section
+    assert "sed -i '/^TELEGRAM_MINI_APP_URL=/d' /srv/app/.env" in section
+    assert 'echo "TELEGRAM_MINI_APP_URL=${DEFAULT_MINI_APP_URL}" >> /srv/app/.env' in section
+
+    # Idempotent: touching .env before the grep must not fail if the file
+    # doesn't exist yet, and running the block twice must not duplicate the line.
+    assert "touch /srv/app/.env" in section

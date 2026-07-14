@@ -392,6 +392,16 @@ jobs:
           install -m 0644 /tmp/city-go-docker-compose.yml /srv/app/docker-compose.yml
           docker compose config --quiet
 
+          echo "=== Ensure TELEGRAM_MINI_APP_URL in production .env ==="
+          DEFAULT_MINI_APP_URL="https://citygo.autismishe.online/telegram"
+          touch /srv/app/.env
+          CURRENT_MINI_APP_URL="$(grep -E '^TELEGRAM_MINI_APP_URL=' /srv/app/.env 2>/dev/null | tail -n1 | cut -d= -f2-)"
+          if [[ "${CURRENT_MINI_APP_URL}" != https://* ]]; then
+            echo "TELEGRAM_MINI_APP_URL missing or invalid in /srv/app/.env — writing default: ${DEFAULT_MINI_APP_URL}"
+            sed -i '/^TELEGRAM_MINI_APP_URL=/d' /srv/app/.env
+            echo "TELEGRAM_MINI_APP_URL=${DEFAULT_MINI_APP_URL}" >> /srv/app/.env
+          fi
+
           echo "=== Validate TELEGRAM_MINI_APP_URL in production .env ==="
           MINI_APP_URL="$(grep -E '^TELEGRAM_MINI_APP_URL=' /srv/app/.env 2>/dev/null | tail -n1 | cut -d= -f2-)"
           if [[ "${MINI_APP_URL}" != https://* ]]; then
