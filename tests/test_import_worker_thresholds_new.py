@@ -47,3 +47,16 @@ def test_production_compose_keeps_startup_floor_at_550_and_job_claim_floor_lower
 
     assert "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 550" in compose
     assert "IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB: 350" in compose
+
+
+def test_max_runtime_seconds_default_is_900_for_manual_runs_new() -> None:
+    """core/config.py's Settings default (used by effective_thresholds())
+    and docker-compose.yml's shell-env-interpolated default must both be
+    900 seconds — the manual safe_one_job workflow's new runtime budget,
+    up from the prior 300s, which previously self-deadlocked heavier jobs
+    that legitimately need more time."""
+    result = thresholds_module.effective_thresholds()
+    assert result.max_runtime_seconds == 900
+
+    compose = Path("docker-compose.yml").read_text(encoding="utf-8")
+    assert "IMPORT_WORKER_MAX_RUNTIME_SECONDS: ${IMPORT_WORKER_MAX_RUNTIME_SECONDS:-900}" in compose

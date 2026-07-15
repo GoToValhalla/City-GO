@@ -299,14 +299,16 @@ REMOTE_EOF
 
 
 def test_workflow_passes_run_mode_and_city_slug_to_docker_compose_up_new() -> None:
-    """run_mode/city_slug must reach the import-worker container via
-    IMPORT_WORKER_RUN_MODE/IMPORT_WORKER_CITY_SLUG env vars on the exact
-    `docker compose up` invocation that starts it — otherwise the typed
-    inputs would be accepted by the workflow UI but silently ignored."""
+    """run_mode/city_slug/max_runtime_seconds must reach the import-worker
+    container via IMPORT_WORKER_RUN_MODE/IMPORT_WORKER_CITY_SLUG/
+    IMPORT_WORKER_MAX_RUNTIME_SECONDS env vars on the exact `docker compose
+    up` invocation that starts it — otherwise the typed inputs would be
+    accepted by the workflow UI but silently ignored."""
     text = _workflow_text()
 
     assert (
         'IMPORT_WORKER_RUN_MODE="$RUN_MODE" IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" '
+        'IMPORT_WORKER_MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS" '
         "timeout 60s docker compose up -d --no-deps --force-recreate import-worker"
     ) in text
 
@@ -484,3 +486,62 @@ def test_max_runtime_reached_fails_even_with_zero_exit_code_new() -> None:
     assert '"$STOP_REASON" = "max_runtime_reached"' in text
     section = text[stop_reason_check_idx : stop_reason_check_idx + 400]
     assert "exit 1" in section
+
+
+def test_workflow_input_and_container_default_to_same_900_second_runtime_new() -> None:
+    """The manual-run default (workflow_dispatch input, the GHA monitor
+    loop's own MAX_RUNTIME_SECONDS env, the remote script's ${VAR:-...}
+    fallback, and docker-compose.yml's IMPORT_WORKER_MAX_RUNTIME_SECONDS
+    interpolation default) must all agree on 900 seconds — a single
+    effective limit, not several independently configured values that can
+    silently drift apart."""
+    data = _workflow_yaml()
+    workflow_text = _workflow_text()
+    compose_text = Path("docker-compose.yml").read_text(encoding="utf-8")
+
+    input_default = data[True]["workflow_dispatch"]["inputs"]["max_runtime_seconds"]["default"]
+    assert input_default == "900"
+
+    assert "MAX_RUNTIME_SECONDS: ${{ inputs.max_runtime_seconds || '900' }}" in workflow_text
+    assert 'MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-900}"' in workflow_text
+    assert "IMPORT_WORKER_MAX_RUNTIME_SECONDS: ${IMPORT_WORKER_MAX_RUNTIME_SECONDS:-900}" in compose_text
+
+
+def test_workflow_job_timeout_exceeds_new_max_runtime_new() -> None:
+    """The GitHub Actions job-level timeout-minutes must comfortably exceed
+    the 900s (15min) max_runtime_seconds default plus setup/SSH/diagnostics
+    overhead — otherwise GitHub kills the job mid-monitor-loop before the
+    worker's own runtime guard can fire cleanly."""
+    data = _workflow_yaml()
+    timeout_minutes = data["jobs"]["run-import-worker-safe"]["timeout-minutes"]
+
+    assert timeout_minutes * 60 > 900
+
+
+def test_max_runtime_seconds_reaches_container_via_docker_compose_up_new() -> None:
+    """Behavioral proof: the real docker compose up invocation line
+    forwards MAX_RUNTIME_SECONDS to the container as
+    IMPORT_WORKER_MAX_RUNTIME_SECONDS — executed in an actual bash
+    subshell with `docker`/`timeout` stubbed, using the new 900-second
+    default, proving the value the GHA monitor loop uses is exactly the
+    value the container receives."""
+    text = _workflow_text()
+
+    up_line_start = text.index('IMPORT_WORKER_RUN_MODE="$RUN_MODE"')
+    up_line_end = text.index("\n", up_line_start)
+    up_line = text[up_line_start:up_line_end]
+
+    script = f"""
+set -euo pipefail
+MAX_RUNTIME_SECONDS="900"
+RUN_MODE="safe_one_job"
+CITY_SLUG=""
+
+docker() {{ echo "seen_max_runtime_seconds:[${{IMPORT_WORKER_MAX_RUNTIME_SECONDS:-}}]"; }}
+timeout() {{ shift; "$@"; }}
+
+{up_line}
+"""
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
+    assert "seen_max_runtime_seconds:[900]" in result.stdout

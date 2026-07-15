@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     # Import-worker safety. Local/CI defaults keep safe mode disabled; production
     # Compose supplies the measured host/cgroup contract explicitly.
     import_worker_safe_mode: bool = False
-    import_worker_max_runtime_seconds: int = 300
+    import_worker_max_runtime_seconds: int = 900
     import_worker_backend_health_url: str = "http://backend:8000/ready"
     import_worker_min_available_memory_mb: int = 256
     # Separate from import_worker_min_available_memory_mb (the pre-container

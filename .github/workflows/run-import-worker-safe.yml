@@ -20,7 +20,7 @@ on:
         description: Maximum worker runtime before automatic stop, in seconds.
         required: false
         type: string
-        default: "300"
+        default: "900"
 
 permissions:
   contents: read
@@ -28,7 +28,10 @@ permissions:
 jobs:
   run-import-worker-safe:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    # Must exceed max_runtime_seconds (default 900s = 15min) plus setup/SSH/
+    # diagnostics overhead, or GitHub Actions kills the job mid-monitor-loop
+    # before the worker's own runtime guard ever gets to fire cleanly.
+    timeout-minutes: 20
     env:
       SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
       SSH_HOST: ${{ secrets.SSH_HOST }}
@@ -37,7 +40,7 @@ jobs:
       ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      MAX_RUNTIME_SECONDS: ${{ inputs.max_runtime_seconds || '300' }}
+      MAX_RUNTIME_SECONDS: ${{ inputs.max_runtime_seconds || '900' }}
       RUN_MODE: ${{ inputs.run_mode || 'safe_one_job' }}
       CITY_SLUG: ${{ inputs.city_slug || '' }}
       WORKFLOW_NAME: ${{ github.workflow }}
@@ -114,7 +117,7 @@ jobs:
           cd /srv/app
 
           section() { echo; echo "=== $1 ==="; }
-          MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-300}"
+          MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-900}"
           RUN_MODE="${RUN_MODE:-safe_one_job}"
           CITY_SLUG="${CITY_SLUG:-}"
           STARTUP_HOST_FLOOR_MB=550
@@ -204,11 +207,16 @@ jobs:
             exit 1
           fi
 
-          section "starting import-worker (run_mode=${RUN_MODE} city_slug=${CITY_SLUG:-any})"
+          section "starting import-worker (run_mode=${RUN_MODE} city_slug=${CITY_SLUG:-any} max_runtime_seconds=${MAX_RUNTIME_SECONDS})"
           # --force-recreate: belt-and-suspenders alongside the cleanup rm
-          # above — guarantees this run's IMPORT_WORKER_CITY_SLUG/RUN_MODE
-          # are always applied to a fresh container, never a reused one.
-          IMPORT_WORKER_RUN_MODE="$RUN_MODE" IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" timeout 60s docker compose up -d --no-deps --force-recreate import-worker
+          # above — guarantees this run's IMPORT_WORKER_CITY_SLUG/RUN_MODE/
+          # IMPORT_WORKER_MAX_RUNTIME_SECONDS are always applied to a fresh
+          # container, never a reused one. IMPORT_WORKER_MAX_RUNTIME_SECONDS
+          # must equal MAX_RUNTIME_SECONDS: the GHA monitor loop above and
+          # the worker's own Python runtime guard must share one effective
+          # limit, not two independently configured timeouts that can drift
+          # apart.
+          IMPORT_WORKER_RUN_MODE="$RUN_MODE" IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" IMPORT_WORKER_MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS" timeout 60s docker compose up -d --no-deps --force-recreate import-worker
           START_RC=$?
           if [ "$START_RC" -ne 0 ]; then
             echo "ERROR: docker compose failed to start import-worker (rc=${START_RC})." >&2

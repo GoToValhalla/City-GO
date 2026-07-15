@@ -212,7 +212,7 @@ def main() -> int:
             sleep_seconds=max(5, int(os.getenv("IMPORT_WORKER_SLEEP_SECONDS", "60"))),
             actor_id=os.getenv("IMPORT_WORKER_ACTOR", "import-worker"),
             health_url=os.getenv("IMPORT_WORKER_BACKEND_HEALTH_URL", "http://backend:8000/ready"),
-            max_runtime_seconds=int(os.getenv("IMPORT_WORKER_MAX_RUNTIME_SECONDS", "300")) or None,
+            max_runtime_seconds=int(os.getenv("IMPORT_WORKER_MAX_RUNTIME_SECONDS", "900")) or None,
             max_iterations=1,
             city_slug=city_slug,
             dry_run=is_dry_run,

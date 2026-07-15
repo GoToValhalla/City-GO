@@ -154,7 +154,13 @@ services:
       # Upgraded production VM: ~1.8 GiB RAM, no swap. Heavy execution stays
       # manual-only and requires both host and cgroup headroom.
       IMPORT_WORKER_SAFE_MODE: "true"
-      IMPORT_WORKER_MAX_RUNTIME_SECONDS: 300
+      # Set from the shell environment of the `docker compose up` invocation
+      # (see .github/workflows/run-import-worker-safe.yml), same pattern as
+      # IMPORT_WORKER_RUN_MODE/IMPORT_WORKER_CITY_SLUG above: the GHA
+      # monitor loop and the worker's own Python runtime guard must share
+      # one effective runtime limit, not two independently configured
+      # timeouts that can drift apart.
+      IMPORT_WORKER_MAX_RUNTIME_SECONDS: ${IMPORT_WORKER_MAX_RUNTIME_SECONDS:-900}
       IMPORT_WORKER_BACKEND_HEALTH_URL: http://backend:8000/ready
       # Pre-container startup floor (checked by check_import_worker_resources.py
       # before the worker process exists at all). Kept at 550.

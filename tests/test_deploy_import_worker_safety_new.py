@@ -102,7 +102,11 @@ def test_import_worker_safe_mode_env_contract_new() -> None:
     env = worker.get("environment", {})
 
     assert str(env.get("IMPORT_WORKER_SAFE_MODE")).lower() == "true"
-    assert int(env.get("IMPORT_WORKER_MAX_RUNTIME_SECONDS")) == 300
+    # Set from the shell environment of `docker compose up` (see
+    # .github/workflows/run-import-worker-safe.yml), same pattern as
+    # IMPORT_WORKER_RUN_MODE/IMPORT_WORKER_CITY_SLUG: the GHA monitor loop
+    # and the worker's own runtime guard must share one effective limit.
+    assert env.get("IMPORT_WORKER_MAX_RUNTIME_SECONDS") == "${IMPORT_WORKER_MAX_RUNTIME_SECONDS:-900}"
     assert env.get("IMPORT_WORKER_BACKEND_HEALTH_URL") == "http://backend:8000/ready"
     assert int(env.get("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB")) == 550
     assert int(env.get("IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB")) == 512
