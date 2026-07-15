@@ -1,3 +1,6 @@
+import urllib.error
+from unittest.mock import patch
+
 import allure
 import pytest
 
@@ -125,3 +128,33 @@ def test_worker_stops_after_max_runtime_seconds(monkeypatch) -> None:
 
     assert len(calls) <= 3
     assert alerts[-1]["title"] == "Import-worker остановлен по таймауту"
+
+
+def test_real_alert_401_failure_does_not_stop_or_alter_worker_loop(monkeypatch) -> None:
+    """Regression for the production defect admin_alert_send_failed: HTTP
+    Error 401: Unauthorized. Exercises the REAL send_admin_alert transport
+    (not monkeypatched away like the other tests here) failing with an
+    actual Telegram 401, and proves the worker loop keeps processing jobs
+    exactly as if the alert had succeeded — alert delivery must never be
+    load-bearing for job execution."""
+    calls = []
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: calls.append(1) or {"queue": {}})
+    monkeypatch.setattr(worker, "backend_is_healthy", lambda *_a, **_k: True)
+    monkeypatch.setattr(worker.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(worker, "_STOP", False)
+
+    with patch("services.admin_alert_service.settings") as mock_settings, patch(
+        "services.admin_alert_service.urllib.request.urlopen"
+    ) as mock_urlopen:
+        mock_settings.telegram_bot_token = "invalid-production-token"
+        mock_settings.bot_token = ""
+        mock_settings.telegram_chat_id = "-100555"
+        mock_urlopen.side_effect = urllib.error.HTTPError(
+            url="https://api.telegram.org/botinvalid-production-token/sendMessage",
+            code=401, msg="Unauthorized", hdrs=None, fp=None,
+        )
+
+        outcome = worker.run_worker_loop(limit=1, sleep_seconds=5, max_iterations=3)
+
+    assert len(calls) == 3
+    assert outcome.skip_reason != "loop_error"

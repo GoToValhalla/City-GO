@@ -61,8 +61,12 @@ def send_admin_alert(
     chat_id_override: str | None = None,
 ) -> dict[str, object]:
     """Send a best-effort Telegram alert without breaking background jobs."""
-    token = settings.telegram_bot_token or settings.bot_token
-    chat_id = chat_id_override or settings.telegram_chat_id
+    # .strip(): pydantic-settings does not trim env values, and a
+    # trailing newline/space in a .env-sourced secret (the same class of
+    # bug already found in city_slug propagation this session) silently
+    # turns a valid token into an invalid one Telegram rejects with 401.
+    token = (settings.telegram_bot_token or settings.bot_token).strip()
+    chat_id = (chat_id_override or settings.telegram_chat_id).strip()
     if not token or not chat_id:
         print(
             "admin_alert_not_configured: set TELEGRAM_CHAT_ID and "
@@ -91,8 +95,21 @@ def send_admin_alert(
             response.read()
         return {"sent": True}
     except Exception as exc:  # noqa: BLE001
-        print(f"admin_alert_send_failed: {exc}")
-        return {"sent": False, "reason": str(exc)[:300]}
+        reason = _redact_token(str(exc), token)
+        print(f"admin_alert_send_failed: {reason}")
+        return {"sent": False, "reason": reason[:300]}
+
+
+def _redact_token(text: str, token: str) -> str:
+    """Defensive redaction: the request URL embeds the raw bot token
+    (Telegram's own auth scheme puts it in the path, not a header), so any
+    exception whose str() ever echoes the request URL — unlike the
+    ordinary urllib.error.HTTPError/URLError text observed today, but not
+    guaranteed across Python/OpenSSL versions or future exception types —
+    must never leak the token into logs, diagnostics, or workflow output."""
+    if not token:
+        return text
+    return text.replace(token, "***REDACTED***")
 
 
 def _format_alert_text(
