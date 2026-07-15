@@ -402,3 +402,26 @@ timeout() {{ shift; "$@"; }}
     assert "seen_city_slug:[almaty]" in result.stdout
     assert "seen_city_slug:[]" not in result.stdout
     assert "seen_city_slug:[any]" not in result.stdout
+
+
+def test_final_diagnostics_are_captured_before_cleanup_removes_container_new() -> None:
+    """Regression: cleanup() runs `docker compose rm -f import-worker`,
+    which deletes the container. If diagnostics (logs, exit code, OOM
+    state) are read after cleanup, `docker inspect`/`docker compose logs`
+    on an already-removed container return nothing — WORKER_EXIT_CODE and
+    WORKER_OOM silently become "unknown" and the real logs are lost. All
+    of this must be captured strictly before the `cleanup` call, not
+    after."""
+    text = _workflow_text()
+    monitor_loop_start = text.index('section "monitor loop"')
+    diagnostics_idx = text.index('section "final diagnostics', monitor_loop_start)
+    logs_idx = text.index("docker compose logs --tail=250 import-worker", diagnostics_idx)
+    exit_code_idx = text.index("WORKER_EXIT_CODE=$(docker inspect", diagnostics_idx)
+    oom_idx = text.index("WORKER_OOM=$(docker inspect", diagnostics_idx)
+    cleanup_call_idx = text.index("\n          cleanup\n", diagnostics_idx)
+    trap_clear_idx = text.index("trap - EXIT", cleanup_call_idx)
+
+    assert monitor_loop_start < diagnostics_idx < logs_idx < cleanup_call_idx
+    assert monitor_loop_start < diagnostics_idx < exit_code_idx < cleanup_call_idx
+    assert monitor_loop_start < diagnostics_idx < oom_idx < cleanup_call_idx
+    assert cleanup_call_idx < trap_clear_idx

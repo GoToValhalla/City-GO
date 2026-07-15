@@ -286,10 +286,14 @@ jobs:
           fi
           echo "monitor loop ended: reason=${STOP_REASON} elapsed=${ELAPSED}s"
 
-          cleanup
-          trap - EXIT
-
-          section "final diagnostics"
+          # Capture the real worker outcome — logs, exit code, OOM state —
+          # BEFORE stop/remove. `docker compose rm -f` in cleanup() deletes
+          # the container, and `docker inspect`/`docker compose logs` on an
+          # already-removed container return nothing: exit code and OOM
+          # state silently become "unknown" and logs are lost. Everything
+          # the workflow's pass/fail decision depends on must be read while
+          # the container still exists.
+          section "final diagnostics (container still present)"
           docker compose ps -a 2>&1 || true
           docker compose logs --tail=250 import-worker 2>&1 || true
           docker compose logs --tail=100 backend 2>&1 || true
@@ -301,6 +305,9 @@ jobs:
           WORKER_OOM=$(docker inspect -f '{{.State.OOMKilled}}' "$WORKER_ID" 2>/dev/null || echo unknown)
           echo "worker_exit_code=${WORKER_EXIT_CODE} worker_oom_killed=${WORKER_OOM}"
           echo "STOP_REASON=${STOP_REASON}"
+
+          cleanup
+          trap - EXIT
 
           EXIT_CODE_JSON="null"
           case "$WORKER_EXIT_CODE" in ''|*[!0-9]*) ;; *) EXIT_CODE_JSON="$WORKER_EXIT_CODE" ;; esac
