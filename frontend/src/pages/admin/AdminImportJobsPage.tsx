@@ -153,7 +153,7 @@ export const AdminImportJobsPage = () => {
   const runWorkerOnce = async () => { setWorkerRunLoading(true); setWorkerRunError(null); setWorkerRunNotice(null); try { const response = await adminPost<QueueRunOnceResponse>('/admin/import-queue/run-once', {}); setQueue(response.queue); setWorkerRunNotice(response.scheduled ? `Worker запущен один раз. Лимит: ${response.limit}.` : `Worker не запущен: заблокирован намеренно.${response.reason ? ` ${response.reason}` : ''}`); loadQueue(); reload(true) } catch (e) { setWorkerRunError(e instanceof Error ? e.message : 'Ошибка') } finally { setWorkerRunLoading(false) } }
   const markStalled = async () => { if (!window.confirm('Пометить зависшие running-задачи как stalled? После этого их можно будет запускать заново.')) return; setError(null); setNotice(null); try { const response = await adminPost<QueueRecoveryResponse>('/admin/import-queue/mark-stalled', {}); setNotice(`Зависшие задачи помечены: ${response.marked}.`); setQueue(response.queue); reload(true) } catch (e) { setError(e instanceof Error ? e.message : 'Ошибка') } }
 
-  return <div><h2 className="admin-page-title">Сбор и обогащение ({cityFilter ? visibleItems.length : total})</h2><p className="admin-page-subtitle">Список читает только лёгкие counters/snapshot. Тяжёлые расчёты запускаются POST-действиями и import-worker.</p><section className="admin-help-panel"><div className="admin-help-title">Полный запуск для всех городов</div><p className="admin-muted">HTTP-запуск только ставит задачу в очередь. Выполнение делает import-worker, состояние очереди обновляется кнопкой ниже.</p><button type="button" className="admin-btn" disabled={allBusy || items.length === 0} onClick={() => void runAll()}>{allBusy ? 'Ставим задачи…' : 'Собрать и обогатить все города'}</button>{cityFilter && <button type="button" className="admin-btn" onClick={clearFilter}>Показать все города</button>}</section><WorkerQueuePanel queue={queue} loading={queueLoading} error={queueError} runLoading={workerRunLoading} runNotice={workerRunNotice} runError={workerRunError} onRefresh={loadQueue} onRunOnce={() => void runWorkerOnce()} onMarkStalled={() => void markStalled()} />{notice && <p className="admin-success-text">{notice}</p>}{error && <AdminError message={error} />}{loading ? <AdminLoading /> : visibleItems.length === 0 ? <AdminEmpty message="Задач по выбранному фильтру нет" /> : <><MobileImportJobCards items={visibleItems} onAction={runAction} onRefreshStatus={refreshCityStatus} />{selected && <ImportJobDetail selected={selected} busy={busy} onAction={runAction} onClose={closeDetail} />}<ImportJobsTable items={visibleItems} busy={busy} onAction={runAction} onSelect={selectDetail} /></>}</div>
+  return <div><h2 className="admin-page-title">Сбор и обогащение ({cityFilter ? visibleItems.length : total})</h2><p className="admin-page-subtitle">Список читает только лёгкие counters/snapshot. Тяжёлые расчёты запускаются POST-действиями и import-worker.</p><section className="admin-help-panel"><div className="admin-help-title">Полный запуск для всех городов</div><p className="admin-muted">HTTP-запуск только ставит задачу в очередь. Выполнение делает import-worker, состояние очереди обновляется кнопкой ниже.</p><button type="button" className="admin-btn" disabled={allBusy || items.length === 0} onClick={() => void runAll()}>{allBusy ? 'Ставим задачи…' : 'Собрать и обогатить все города'}</button>{cityFilter && <button type="button" className="admin-btn" onClick={clearFilter}>Показать все города</button>}</section><WorkerQueuePanel queue={queue} loading={queueLoading} error={queueError} runLoading={workerRunLoading} runNotice={workerRunNotice} runError={workerRunError} onRefresh={loadQueue} onRunOnce={() => void runWorkerOnce()} onMarkStalled={() => void markStalled()} />{notice && <p className="admin-success-text">{notice}</p>}{error && <AdminError message={error} />}{loading ? <AdminLoading /> : visibleItems.length === 0 ? <AdminEmpty message="Задач по выбранному фильтру нет" /> : <><MobileImportJobCards items={visibleItems} onAction={runAction} onSelect={selectDetail} onRefreshStatus={refreshCityStatus} />{selected && <ImportJobDetail selected={selected} busy={busy} onAction={runAction} onClose={closeDetail} />}<ImportJobsTable items={visibleItems} busy={busy} onAction={runAction} onSelect={selectDetail} /></>}</div>
 }
 
 // Mobile card duration must never be invented from created_at (a queued
@@ -233,7 +233,11 @@ const mobileBadgeTone = (job: AdminImportJob): string => {
 // card tracks its own in-flight actions locally so clicking Queue never
 // suppresses Retry (or Refresh) on the same card, and never touches the
 // desktop-facing `busy` prop's behavior.
-const MobileImportJobCards = ({ items, onAction, onRefreshStatus }: { items: AdminImportJob[], onAction: (job: AdminImportJob, action: string, label: string) => void, onRefreshStatus: (cityId: number) => void }) => {
+// Mobile action set is kept in lockstep with the desktop ImportActionButtons
+// gating (same can_run/can_retry/can_cancel/can_publish/showDataActions
+// flags from the same job payload) so an operator on a phone never loses an
+// operation that is available on desktop for the same job state.
+const MobileImportJobCards = ({ items, onAction, onSelect, onRefreshStatus }: { items: AdminImportJob[], onAction: (job: AdminImportJob, action: string, label: string) => void, onSelect: (job: AdminImportJob) => void, onRefreshStatus: (cityId: number) => void }) => {
   const [pendingActions, setPendingActions] = useState<Set<string>>(new Set())
   const withPending = async (key: string, operation: () => Promise<unknown> | void) => {
     setPendingActions((current) => new Set(current).add(key))
@@ -248,11 +252,22 @@ const MobileImportJobCards = ({ items, onAction, onRefreshStatus }: { items: Adm
     const duration = mobileJobDuration(job)
     const startedAt = formatDateTime(job.started_at)
     const active = isRunningLike(job)
+    const showDataActions = isFullImportJob(job)
     const runKey = `${job.city_id}:run`
     const retryKey = `${job.city_id}:retry`
+    const cancelKey = `${job.city_id}:cancel`
+    const publishKey = `${job.city_id}:publish`
+    const snapshotKey = `${job.city_id}:snapshot`
+    const addressesKey = `${job.city_id}:addresses`
+    const photosKey = `${job.city_id}:photos`
     const refreshKey = `${job.city_id}:refresh`
     const runPending = pendingActions.has(runKey)
     const retryPending = pendingActions.has(retryKey)
+    const cancelPending = pendingActions.has(cancelKey)
+    const publishPending = pendingActions.has(publishKey)
+    const snapshotPending = pendingActions.has(snapshotKey)
+    const addressesPending = pendingActions.has(addressesKey)
+    const photosPending = pendingActions.has(photosKey)
     const refreshPending = pendingActions.has(refreshKey)
     return (
       <article className="admin-import-mobile-card" key={job.id} data-testid="mobile-import-job-card">
@@ -266,9 +281,17 @@ const MobileImportJobCards = ({ items, onAction, onRefreshStatus }: { items: Adm
         {startedAt && <div className="admin-muted">начало: {startedAt}</div>}
         {duration && <div className="admin-muted">длительность: {duration}</div>}
         <div className="admin-actions-cell admin-import-mobile-card-actions">
-          {job.can_run && <button type="button" className="admin-btn admin-btn-sm" disabled={runPending} onClick={() => void withPending(runKey, () => onAction(job, 'run', 'Запустить сбор'))} data-testid="mobile-import-job-action-run">Поставить в очередь</button>}
-          {job.can_retry && <button type="button" className="admin-btn admin-btn-sm" disabled={retryPending || active} onClick={() => void withPending(retryKey, () => onAction(job, 'retry', 'Повторить сбор'))} data-testid="mobile-import-job-action-retry">Повторить</button>}
+          <button type="button" className="admin-btn admin-btn-sm" onClick={() => onSelect(job)} data-testid="mobile-import-job-action-details">Детали</button>
+          <Link className="admin-btn admin-btn-sm" to={changesUrl(job)} data-testid="mobile-import-job-action-changes">Изменения</Link>
+          <Link className="admin-btn admin-btn-sm" to={logsUrl(job)} data-testid="mobile-import-job-action-logs">Логи</Link>
           {job.job_id != null && <Link className="admin-btn admin-btn-sm" to={`/admin/imports/jobs/${job.job_id}/diagnostic`} data-testid="mobile-import-job-action-diagnostic">Диагностика</Link>}
+          {job.can_run && <button type="button" className="admin-btn admin-btn-sm" disabled={runPending} onClick={() => void withPending(runKey, () => onAction(job, 'run', 'Запустить сбор'))} data-testid="mobile-import-job-action-run">Поставить в очередь</button>}
+          {job.can_retry && <button type="button" className="admin-btn admin-btn-sm" disabled={retryPending || active} onClick={() => void withPending(retryKey, () => onAction(job, 'retry', 'Повторить сбор'))} data-testid="mobile-import-job-action-retry">Повторить (перезапустить этот же запуск)</button>}
+          {showDataActions && <button type="button" className="admin-btn admin-btn-sm" disabled={snapshotPending || active} onClick={() => void withPending(snapshotKey, () => onAction(job, 'snapshot/refresh', 'Обновить snapshot'))} data-testid="mobile-import-job-action-snapshot">Обновить snapshot</button>}
+          {showDataActions && <button type="button" className="admin-btn admin-btn-sm" disabled={addressesPending || active} onClick={() => void withPending(addressesKey, () => onAction(job, 'enrich-addresses', 'Добрать адреса'))} data-testid="mobile-import-job-action-addresses">Добрать адреса</button>}
+          {showDataActions && <button type="button" className="admin-btn admin-btn-sm" disabled={photosPending || active} onClick={() => void withPending(photosKey, () => onAction(job, 'enrich-photos', 'Добрать фото'))} data-testid="mobile-import-job-action-photos">Добрать фото</button>}
+          {job.can_cancel && <button type="button" className="admin-btn admin-btn-sm admin-btn-danger" disabled={cancelPending} onClick={() => void withPending(cancelKey, () => onAction(job, 'cancel', 'Отменить'))} data-testid="mobile-import-job-action-cancel">Отменить</button>}
+          {job.can_publish && <button type="button" className="admin-btn admin-btn-sm admin-btn-primary" disabled={publishPending || active} onClick={() => void withPending(publishKey, () => onAction(job, 'publish', 'Опубликовать город'))} data-testid="mobile-import-job-action-publish">Опубликовать</button>}
           <button type="button" className="admin-btn admin-btn-sm" disabled={refreshPending} onClick={() => void withPending(refreshKey, () => onRefreshStatus(job.city_id))} data-testid="mobile-import-job-action-refresh">{refreshPending ? 'Обновляем…' : 'Обновить статус'}</button>
         </div>
       </article>

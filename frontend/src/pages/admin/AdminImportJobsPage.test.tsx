@@ -199,3 +199,135 @@ describe('AdminImportJobsPage import-worker queue controls', () => {
     expect(notice.textContent).toContain('import-worker')
   })
 })
+
+describe('AdminImportJobsPage mobile action parity with desktop', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockedAdminPost.mockResolvedValue({ scheduled: true, limit: 1, queue: queueIdle })
+  })
+
+  afterEach(() => {
+    cleanup()
+  })
+
+  const fullImportJobEligibleForEverything = {
+    id: 'full-job',
+    city_id: 301,
+    city_slug: 'full-city',
+    city_name: 'Full City',
+    status: 'success',
+    source: 'admin_city_import',
+    places_total: 10,
+    places_published: 5,
+    places_unpublished: 5,
+    pending_photos: 0,
+    next_step: 'Готово к публикации',
+    failed_items: 0,
+    job_id: 7,
+    step_details: {},
+    can_run: true,
+    can_retry: true,
+    can_cancel: true,
+    can_publish: true,
+  }
+
+  it('exposes cancel, publish and data-enrichment actions on the mobile card, matching desktop gating flags', async () => {
+    mockAdminGet(queueIdle, { items: [fullImportJobEligibleForEverything], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const card = await screen.findByTestId('mobile-import-job-card')
+    expect(card.querySelector('[data-testid="mobile-import-job-action-cancel"]')).toBeTruthy()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-publish"]')).toBeTruthy()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-snapshot"]')).toBeTruthy()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-addresses"]')).toBeTruthy()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-photos"]')).toBeTruthy()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-details"]')).toBeTruthy()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-changes"]')).toBeTruthy()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-logs"]')).toBeTruthy()
+  })
+
+  it('does not show cancel/publish/data actions when the job flags forbid them, same as desktop', async () => {
+    const queuedNonFullJob = {
+      id: 'photo-job',
+      city_id: 302,
+      city_slug: 'photo-city',
+      city_name: 'Photo City',
+      status: 'success',
+      source: 'admin_photo_enrichment',
+      places_total: 4,
+      places_published: 4,
+      places_unpublished: 0,
+      pending_photos: 0,
+      next_step: 'Готово',
+      failed_items: 0,
+      job_id: 8,
+      step_details: {},
+      can_run: false,
+      can_retry: false,
+      can_cancel: false,
+      can_publish: false,
+    }
+    mockAdminGet(queueIdle, { items: [queuedNonFullJob], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const card = await screen.findByTestId('mobile-import-job-card')
+    expect(card.querySelector('[data-testid="mobile-import-job-action-cancel"]')).toBeNull()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-publish"]')).toBeNull()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-snapshot"]')).toBeNull()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-addresses"]')).toBeNull()
+    expect(card.querySelector('[data-testid="mobile-import-job-action-photos"]')).toBeNull()
+  })
+
+  it('cancel action on mobile calls the same POST /cancel endpoint as desktop, after confirmation', async () => {
+    mockAdminGet(queueIdle, { items: [fullImportJobEligibleForEverything], total: 1, limit: 50, offset: 0 }, fullImportJobEligibleForEverything)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    const card = await screen.findByTestId('mobile-import-job-card')
+    fireEvent.click(card.querySelector('[data-testid="mobile-import-job-action-cancel"]') as Element)
+
+    await waitFor(() => {
+      expect(mockedAdminPost).toHaveBeenCalledWith('/admin/import-jobs/301/cancel', {})
+    })
+  })
+
+  it('publish action on mobile calls the same POST /publish endpoint as desktop, after confirmation', async () => {
+    mockAdminGet(queueIdle, { items: [fullImportJobEligibleForEverything], total: 1, limit: 50, offset: 0 }, fullImportJobEligibleForEverything)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderPage()
+
+    const card = await screen.findByTestId('mobile-import-job-card')
+    fireEvent.click(card.querySelector('[data-testid="mobile-import-job-action-publish"]') as Element)
+
+    await waitFor(() => {
+      expect(mockedAdminPost).toHaveBeenCalledWith('/admin/import-jobs/301/publish', { reason: 'admin_import_publish' })
+    })
+  })
+
+  it('retry label on mobile clarifies the job is restarted in place, not a new job', async () => {
+    mockAdminGet(queueIdle, { items: [fullImportJobEligibleForEverything], total: 1, limit: 50, offset: 0 })
+
+    renderPage()
+
+    const card = await screen.findByTestId('mobile-import-job-card')
+    const retryButton = card.querySelector('[data-testid="mobile-import-job-action-retry"]')
+    expect(retryButton?.textContent).toContain('этот же запуск')
+  })
+
+  it('mobile details button opens the same detail panel as the desktop table', async () => {
+    mockAdminGet(queueIdle, { items: [fullImportJobEligibleForEverything], total: 1, limit: 50, offset: 0 }, fullImportJobEligibleForEverything)
+
+    renderPage()
+
+    const card = await screen.findByTestId('mobile-import-job-card')
+    fireEvent.click(card.querySelector('[data-testid="mobile-import-job-action-details"]') as Element)
+
+    await waitFor(() => {
+      expect(mockedAdminGet).toHaveBeenCalledWith('/admin/import-jobs/301', expect.objectContaining({ cache: false }))
+    })
+  })
+})
