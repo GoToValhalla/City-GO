@@ -38,13 +38,21 @@ def test_summarize_import_results_new() -> None:
     assert summary["status"] == "partial_success"
 
 
-def test_summarize_import_results_uses_bbox_fallback_result_new() -> None:
+def test_summarize_import_results_sums_original_and_bbox_fallback_results_new() -> None:
+    """The bbox-expansion fallback re-runs _apply_import a SECOND time
+    against a fresh, separately persisted ImportBatch — it never replaces
+    the first run's already-committed rows, so its counters must be summed
+    with the original run's, not substituted for them (see
+    services/admin_city_import_runner.py and
+    test_admin_city_import_runner_summary.py for the full regression this
+    guards: found=136/saved=0 in production despite 22 real review items
+    already existing from the original run)."""
     payload = {"results": [{"status": "success", "scope": "tourist_core", "import_result": {
         "raw_count": 1, "created": 0, "updated": 0,
         "fallback_result": {"import_result": {"raw_count": 8, "created": 3, "updated": 1}},
     }}]}
     summary = summarize_import_results(payload)
-    assert summary["places_found"] == 8
+    assert summary["places_found"] == 9
     assert summary["places_saved"] == 4
     assert summary["status"] == "success"
 

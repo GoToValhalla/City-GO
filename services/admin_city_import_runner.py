@@ -61,10 +61,20 @@ def summarize_import_results(payload: dict[str, Any]) -> dict[str, int | str | N
         import_result = row.get("import_result") if isinstance(row.get("import_result"), dict) else {}
         fallback_result = import_result.get("fallback_result") if isinstance(import_result.get("fallback_result"), dict) else {}
         fallback_import = fallback_result.get("import_result") if isinstance(fallback_result.get("import_result"), dict) else {}
-        effective_result = fallback_import or import_result
-        places_found += int(effective_result.get("raw_count") or import_result.get("raw_count") or 0)
+        # The bbox-expansion fallback (run_due_import_jobs._run_expanded_bbox_fallback)
+        # runs _apply_import a SECOND time against a fresh ImportBatch — it never
+        # replaces the original run's already-committed Place/SourceObservation/
+        # review-queue rows, it adds to them (create_batch always inserts a new
+        # ImportBatch row; see services/import_job_service.py). Both runs' counters
+        # are therefore real, independently persisted facts and must be SUMMED, not
+        # have one silently discard the other. Picking only the fallback's result
+        # (as this used to do) meant a near-empty fallback silently zeroed out a
+        # genuinely successful original run's created/updated/needs_review counts
+        # in the displayed summary, even though those rows were still in the
+        # database — exactly the found=136/saved=0 production defect this fixes.
+        places_found += int(import_result.get("raw_count") or 0) + int(fallback_import.get("raw_count") or 0)
         for key in counters:
-            counters[key] += int(effective_result.get(key) or 0)
+            counters[key] += int(import_result.get(key) or 0) + int(fallback_import.get(key) or 0)
 
     places_saved = counters["created"] + counters["updated"] + counters["needs_review"]
     meaningful_changes = (
