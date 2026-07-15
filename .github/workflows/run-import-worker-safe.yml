@@ -44,7 +44,7 @@ jobs:
       WORKFLOW_RUN_ID: ${{ github.run_id }}
       WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - name: Validate run_mode input
+      - name: Validate run_mode input and normalize city_slug
         shell: bash
         run: |
           set -euo pipefail
@@ -55,6 +55,15 @@ jobs:
               exit 1
               ;;
           esac
+
+          # Trim leading/trailing whitespace from the city_slug input here,
+          # once, before it is forwarded anywhere — the worker also trims
+          # its own copy defensively, but a workflow input like
+          # "        almaty" must already read as "almaty" by the time it
+          # reaches printf '%q' quoting, SSH, and docker compose.
+          TRIMMED_CITY_SLUG="$(echo "$CITY_SLUG" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          echo "CITY_SLUG=${TRIMMED_CITY_SLUG}" >> "$GITHUB_ENV"
+          echo "city_slug normalized: '${CITY_SLUG}' -> '${TRIMMED_CITY_SLUG}'"
 
       - name: Setup SSH key
         shell: bash

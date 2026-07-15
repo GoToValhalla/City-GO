@@ -425,3 +425,62 @@ def test_final_diagnostics_are_captured_before_cleanup_removes_container_new() -
     assert monitor_loop_start < diagnostics_idx < exit_code_idx < cleanup_call_idx
     assert monitor_loop_start < diagnostics_idx < oom_idx < cleanup_call_idx
     assert cleanup_call_idx < trap_clear_idx
+
+
+def test_city_slug_is_trimmed_before_forwarding_new() -> None:
+    """Structural check: the normalization step must exist and reassign
+    CITY_SLUG via GITHUB_ENV before any downstream step (printf '%q'
+    quoting, SSH, docker compose) reads it."""
+    text = _workflow_text()
+
+    normalize_idx = text.index("Validate run_mode input and normalize city_slug")
+    trim_idx = text.index("TRIMMED_CITY_SLUG=", normalize_idx)
+    github_env_idx = text.index('echo "CITY_SLUG=${TRIMMED_CITY_SLUG}" >> "$GITHUB_ENV"', trim_idx)
+    quoting_idx = text.index("REMOTE_CITY_SLUG=$(printf '%q' \"$CITY_SLUG\")")
+
+    assert normalize_idx < trim_idx < github_env_idx < quoting_idx
+
+
+def test_city_slug_with_leading_whitespace_is_trimmed_to_almaty_new() -> None:
+    """Behavioral proof: extract the real normalization step's shell logic
+    and run it with CITY_SLUG="        almaty" — the exact input from this
+    task — confirming it becomes "almaty", not "almaty " or " almaty" or
+    anything else."""
+    text = _workflow_text()
+
+    step_start = text.index("- name: Validate run_mode input and normalize city_slug")
+    step_end = text.index("- name: Setup SSH key", step_start)
+    step_text = text[step_start:step_end]
+
+    run_start = step_text.index("run: |") + len("run: |")
+    run_body = "\n".join(line[10:] if line.startswith(" " * 10) else line for line in step_text[run_start:].splitlines())
+
+    script = f"""
+CITY_SLUG="        almaty"
+RUN_MODE="safe_one_job"
+GITHUB_ENV=$(mktemp)
+{run_body}
+cat "$GITHUB_ENV"
+"""
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
+    assert "CITY_SLUG=almaty" in result.stdout
+    assert "CITY_SLUG=        almaty" not in result.stdout
+    assert "CITY_SLUG=almaty " not in result.stdout
+
+
+def test_max_runtime_reached_fails_even_with_zero_exit_code_new() -> None:
+    """The workflow must not treat container exit code 0 as sufficient for
+    success: STOP_REASON="max_runtime_reached" (the workflow-level monitor
+    loop's own timeout) independently fails the run regardless of
+    WORKER_EXIT_CODE, and this check must be reachable even when the exit
+    code branch above it does not already exit."""
+    text = _workflow_text()
+
+    exit_code_check_idx = text.index('if [ "$WORKER_EXIT_CODE" -ne 0 ]; then')
+    stop_reason_check_idx = text.index('if [ "$STOP_REASON" = "public_health_degraded"')
+
+    assert exit_code_check_idx < stop_reason_check_idx
+    assert '"$STOP_REASON" = "max_runtime_reached"' in text
+    section = text[stop_reason_check_idx : stop_reason_check_idx + 400]
+    assert "exit 1" in section

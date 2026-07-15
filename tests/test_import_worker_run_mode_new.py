@@ -260,3 +260,42 @@ def test_outcome_json_includes_all_required_structured_fields_new(monkeypatch, c
     assert payload["skip_reason"] is None
     assert isinstance(payload["elapsed_seconds"], (int, float))
     assert payload["exit_code"] == 0
+
+
+def test_safe_one_job_exits_nonzero_when_max_runtime_reached_before_any_claim_new(monkeypatch, capsys) -> None:
+    """import_worker_max_runtime_reached firing before run_queued_import_jobs
+    is ever called (max_runtime_seconds already elapsed when the loop's
+    first check runs) must still exit non-zero — the container exiting 0
+    is not sufficient evidence of success on its own."""
+    monkeypatch.setenv("IMPORT_WORKER_MAX_RUNTIME_SECONDS", "300")
+    calls: list[dict] = []
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **kwargs: calls.append(kwargs) or {"processed": 0, "failed": 0, "queue": {}, "claimed_jobs": []})
+    # time.monotonic() is called once for started_at, then again inside the
+    # loop's runtime check on every subsequent call. Returning a huge value
+    # from the second call onward simulates max_runtime already having
+    # elapsed by the time the loop first checks — before any job is claimed.
+    monotonic_values = iter([0.0] + [10_000.0] * 10)
+    monkeypatch.setattr(worker.time, "monotonic", lambda: next(monotonic_values))
+
+    exit_code = worker.main()
+
+    assert exit_code == 1
+    assert calls == []
+    err = capsys.readouterr().err
+    assert "import_worker_max_runtime_reached" in err
+    assert "no_matching_queued_job" in err
+
+
+def test_safe_one_job_exits_nonzero_when_claimed_job_stalls_past_max_runtime_new(monkeypatch, capsys) -> None:
+    """A job that gets claimed but never reaches a terminal status before
+    max_runtime elapses must exit non-zero, matching the exact stall
+    symptom from the original bug report — regardless of the eventual
+    container exit code."""
+    monkeypatch.setattr(
+        worker, "run_queued_import_jobs",
+        lambda **_kwargs: {"processed": 0, "failed": 0, "queue": {}, "claimed_jobs": [{"job_id": 99, "terminal_status": "running"}]},
+    )
+
+    exit_code = worker.main()
+
+    assert exit_code == 1
