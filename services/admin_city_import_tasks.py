@@ -29,6 +29,7 @@ from services.admin_city_import_job_service import (
 from services.import_pipeline.progress import is_stalled, set_step
 from services.import_pipeline.steps import STEP_ERROR
 from services.admin_city_import_job_payload import refresh_import_job_snapshot
+from services.import_worker_thresholds import effective_thresholds
 from services.system_log_service import write_system_log
 
 HEAVY_IMPORT_SOURCES = {SOURCE_FULL_IMPORT, SOURCE_ENRICHMENT_ONLY}
@@ -57,11 +58,12 @@ def _safe_mode_block_reason(job: CityAdminImportJob) -> str | None:
             f"(source={source}) are explicitly disabled in safe mode. Job not processed."
         )
     available = _available_memory_mb()
-    if available is None or available < settings.import_worker_min_available_memory_mb:
+    job_claim_floor = effective_thresholds().job_claim_host_floor_mb
+    if available is None or available < job_claim_floor:
         return (
             "import-worker safety guard: available host memory "
             f"({available if available is not None else 'unknown'} MB) is below the configured "
-            f"minimum ({settings.import_worker_min_available_memory_mb} MB). Job not processed."
+            f"job-claim minimum ({job_claim_floor} MB). Job not processed."
         )
     return None
 
@@ -95,6 +97,7 @@ def run_queued_import_jobs(
     processed = 0
     failed = 0
     errors: list[dict[str, object]] = []
+    claimed_jobs: list[dict[str, object]] = []
     with SessionLocal() as db:
         # dry_run never claims or mutates anything, so marking stalled jobs
         # (a mutation) must not happen either — it stays purely observational.
@@ -213,6 +216,7 @@ def run_queued_import_jobs(
                 else:
                     run_city_import_job(db, city_id=city_id, actor_id=actor_id)
                 processed += 1
+                claimed_jobs.append({"job_id": job_id, "terminal_status": str(job.status)})
                 _log_worker_decision(
                     db,
                     event="worker_job_finished",
@@ -251,6 +255,7 @@ def run_queued_import_jobs(
                 error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
                 errors.append(error)
                 failed_job = _mark_worker_exception(db, job_id=job_id, error=str(exc))
+                claimed_jobs.append({"job_id": job_id, "terminal_status": str(failed_job.status if failed_job else "failed")})
                 _log_worker_decision(
                     db,
                     event="worker_job_failed",
@@ -269,7 +274,14 @@ def run_queued_import_jobs(
                     details=error,
                 )
         queue = import_queue_summary(db)
-    return {"processed": processed, "failed": failed, "stalled_marked": stalled, "errors": errors, "queue": queue}
+    return {
+        "processed": processed,
+        "failed": failed,
+        "stalled_marked": stalled,
+        "errors": errors,
+        "queue": queue,
+        "claimed_jobs": claimed_jobs,
+    }
 
 
 def _queued_seconds(job: CityAdminImportJob, *, now: datetime | None = None) -> int | None:

@@ -72,7 +72,7 @@ def test_workflow_preflight_checks_health_memory_and_running_state_new() -> None
 def test_workflow_starts_only_import_worker_not_whole_ops_profile_new() -> None:
     text = _workflow_text()
 
-    assert "docker compose up -d --no-deps import-worker" in text
+    assert "docker compose up -d --no-deps --force-recreate import-worker" in text
     assert "--profile ops" not in text
     assert "docker compose up -d seed" not in text
     assert "docker compose up -d address-backfill" not in text
@@ -109,8 +109,9 @@ def test_workflow_always_stops_worker_in_cleanup_new() -> None:
     trap_clear_idx = text.index("trap - EXIT", cleanup_call_idx)
 
     assert monitor_loop_start < cleanup_call_idx < trap_clear_idx
-    assert "cleanup: always stop import-worker" in text
+    assert "cleanup: always stop and remove import-worker" in text
     assert "docker compose stop -t 30 import-worker" in text
+    assert "docker compose rm -f import-worker" in text
     assert "trap cleanup EXIT" in text
 
 
@@ -306,7 +307,7 @@ def test_workflow_passes_run_mode_and_city_slug_to_docker_compose_up_new() -> No
 
     assert (
         'IMPORT_WORKER_RUN_MODE="$RUN_MODE" IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" '
-        "timeout 60s docker compose up -d --no-deps import-worker"
+        "timeout 60s docker compose up -d --no-deps --force-recreate import-worker"
     ) in text
 
 
@@ -330,3 +331,74 @@ def test_docker_compose_import_worker_reads_run_mode_and_city_slug_from_shell_en
 
     assert "IMPORT_WORKER_RUN_MODE: ${IMPORT_WORKER_RUN_MODE:-safe_one_job}" in compose
     assert "IMPORT_WORKER_CITY_SLUG: ${IMPORT_WORKER_CITY_SLUG:-}" in compose
+
+
+def test_stale_container_is_removed_not_just_stopped_before_recreate_new() -> None:
+    """Regression: a leftover stopped import-worker container from a prior
+    run (e.g. one where CITY_SLUG was empty or a different city) could be
+    reused as-is by a later `docker compose up` instead of recreated with
+    the new run's env vars — this is how CITY_SLUG previously reached the
+    worker as empty for a run that requested a specific city. Cleanup must
+    remove the container (not just stop it), and the startup command must
+    also force a recreate as a second, independent guarantee."""
+    text = _workflow_text()
+
+    assert "docker compose rm -f import-worker" in text
+    assert "docker compose up -d --no-deps --force-recreate import-worker" in text
+
+    rm_idx = text.index("docker compose rm -f import-worker")
+    stop_idx = text.index("docker compose stop -t 30 import-worker")
+    assert stop_idx < rm_idx
+
+
+def test_city_slug_survives_workflow_input_to_compose_interpolation_new() -> None:
+    """End-to-end trace for a real city_slug value ("almaty"): workflow
+    input -> GHA env -> printf '%q' quoting -> SSH remote script default ->
+    docker compose up inline env -> compose file interpolation. Executes
+    the real printf '%q' quoting lines and the real docker compose up
+    command line (with `docker` stubbed to just echo its argv) in an actual
+    bash subshell, proving CITY_SLUG=almaty is never dropped, blanked, or
+    replaced with a placeholder like "any" anywhere along the chain."""
+    text = _workflow_text()
+
+    quoting_lines = "\n".join(
+        line.strip()
+        for line in text.splitlines()
+        if line.strip().startswith("REMOTE_") and "printf '%q'" in line
+    )
+    assert quoting_lines, "could not find the printf '%q' quoting lines in the workflow"
+
+    up_line_start = text.index('IMPORT_WORKER_RUN_MODE="$RUN_MODE"')
+    up_line_end = text.index("\n", up_line_start)
+    up_line = text[up_line_start:up_line_end]
+
+    script = f"""
+set -euo pipefail
+MAX_RUNTIME_SECONDS="300"
+ADMIN_API_TOKEN="token"
+WORKFLOW_NAME="CITY GO · OPS · Run Import Worker Safely"
+WORKFLOW_RUN_ID="1"
+WORKFLOW_RUN_URL="https://example.invalid/run/1"
+RUN_MODE="safe_one_job"
+CITY_SLUG="almaty"
+
+{quoting_lines}
+
+# Simulate what the remote script receives: re-parse the quoted assignment
+# list exactly like the remote shell does, then apply the remote script's
+# own ${{VAR:-default}} defaulting.
+eval "RUN_MODE=$REMOTE_RUN_MODE CITY_SLUG=$REMOTE_CITY_SLUG"
+RUN_MODE="${{RUN_MODE:-safe_one_job}}"
+CITY_SLUG="${{CITY_SLUG:-}}"
+
+docker() {{ echo "docker_argv:$*"; echo "seen_city_slug:[${{IMPORT_WORKER_CITY_SLUG:-}}]"; }}
+timeout() {{ shift; "$@"; }}
+
+{up_line}
+"""
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
+    assert "docker_argv:compose up -d --no-deps --force-recreate import-worker" in result.stdout
+    assert "seen_city_slug:[almaty]" in result.stdout
+    assert "seen_city_slug:[]" not in result.stdout
+    assert "seen_city_slug:[any]" not in result.stdout

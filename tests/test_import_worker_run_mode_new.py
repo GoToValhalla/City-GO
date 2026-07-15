@@ -17,11 +17,22 @@ def _no_sleep(monkeypatch):
     monkeypatch.setattr(worker, "backend_is_healthy", lambda *_a, **_k: True)
 
 
+def _claimed(job_id: int = 1, terminal_status: str = "success", **overrides) -> dict:
+    payload = {
+        "processed": 1 if terminal_status != "failed" else 0,
+        "failed": 1 if terminal_status == "failed" else 0,
+        "queue": {},
+        "claimed_jobs": [{"job_id": job_id, "terminal_status": terminal_status}],
+    }
+    payload.update(overrides)
+    return payload
+
+
 def test_run_mode_env_defaults_to_safe_one_job_new(monkeypatch) -> None:
     monkeypatch.delenv("IMPORT_WORKER_RUN_MODE", raising=False)
     monkeypatch.delenv("IMPORT_WORKER_CITY_SLUG", raising=False)
     calls = []
-    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **kwargs: calls.append(kwargs) or {"processed": 0, "failed": 0, "queue": {}})
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **kwargs: calls.append(kwargs) or _claimed())
 
     exit_code = worker.main()
 
@@ -33,7 +44,7 @@ def test_run_mode_env_defaults_to_safe_one_job_new(monkeypatch) -> None:
 def test_unknown_run_mode_falls_back_to_safe_one_job_new(monkeypatch) -> None:
     monkeypatch.setenv("IMPORT_WORKER_RUN_MODE", "bogus_mode")
     calls = []
-    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **kwargs: calls.append(kwargs) or {"processed": 0, "failed": 0, "queue": {}})
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **kwargs: calls.append(kwargs) or _claimed())
 
     exit_code = worker.main()
 
@@ -47,7 +58,7 @@ def test_city_slug_env_is_passed_to_run_queued_import_jobs_new(monkeypatch) -> N
     calls = []
     monkeypatch.setattr(
         worker, "run_queued_import_jobs",
-        lambda **kwargs: calls.append(kwargs) or {"processed": 1, "failed": 0, "queue": {}},
+        lambda **kwargs: calls.append(kwargs) or _claimed(),
     )
 
     exit_code = worker.main()
@@ -65,7 +76,7 @@ def test_never_processes_unrelated_city_when_city_slug_set_new(monkeypatch) -> N
     seen_city_slugs = []
     monkeypatch.setattr(
         worker, "run_queued_import_jobs",
-        lambda **kwargs: seen_city_slugs.append(kwargs.get("city_slug")) or {"processed": 1, "failed": 0, "queue": {}},
+        lambda **kwargs: seen_city_slugs.append(kwargs.get("city_slug")) or _claimed(),
     )
 
     worker.main()
@@ -75,7 +86,7 @@ def test_never_processes_unrelated_city_when_city_slug_set_new(monkeypatch) -> N
 
 def test_safe_one_job_mode_calls_run_queued_import_jobs_exactly_once_new(monkeypatch) -> None:
     calls = []
-    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **kwargs: calls.append(kwargs) or {"processed": 1, "failed": 0, "queue": {}})
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **kwargs: calls.append(kwargs) or _claimed())
 
     worker.main()
 
@@ -88,7 +99,7 @@ def test_safe_one_job_ignores_higher_batch_limit_env_new(monkeypatch) -> None:
     raise it, in safe_one_job/dry_run modes."""
     monkeypatch.setenv("IMPORT_WORKER_BATCH_LIMIT", "5")
     calls = []
-    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **kwargs: calls.append(kwargs) or {"processed": 1, "failed": 0, "queue": {}})
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **kwargs: calls.append(kwargs) or _claimed())
 
     worker.main()
 
@@ -175,24 +186,77 @@ def test_fails_clearly_when_city_slug_has_no_queued_job_new(monkeypatch, capsys)
     assert "nowhere" in err
 
 
-def test_succeeds_when_city_slug_job_is_claimed_but_fails_new(monkeypatch) -> None:
-    """A claimed-but-failed job still counts as 'found a matching job' —
-    the no-matching-job failure must not fire when the real problem was a
-    job execution error, which already has its own alerting/logging path."""
+def test_succeeds_when_city_slug_job_is_claimed_and_reaches_terminal_status_new(monkeypatch) -> None:
+    """A claimed job that reaches a terminal status (even "failed", a real
+    job-execution outcome with its own alerting/logging path) is not a
+    no-matching-job condition — the run reports processed=True and exits 0."""
     monkeypatch.setenv("IMPORT_WORKER_CITY_SLUG", "astrakhan")
-    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: {"processed": 0, "failed": 1, "queue": {}})
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: _claimed(terminal_status="failed"))
 
     exit_code = worker.main()
 
     assert exit_code == 0
 
 
-def test_no_city_slug_set_never_fails_on_empty_queue_new(monkeypatch) -> None:
-    """Without city_slug, an empty queue is normal idle behavior, not a
-    failure — only a city_slug-targeted run with zero matches must fail."""
+def test_safe_one_job_fails_on_empty_queue_even_without_city_slug_new(monkeypatch) -> None:
+    """safe_one_job must fail if no matching job was claimed or processed —
+    a healthy-looking run that quietly claimed nothing is not success,
+    regardless of whether city_slug was set. (Superseded the previous
+    "never fails on empty queue" contract, which was exactly the silent
+    no-progress-reported-as-success defect this task fixes.)"""
     monkeypatch.delenv("IMPORT_WORKER_CITY_SLUG", raising=False)
-    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: {"processed": 0, "failed": 0, "queue": {}})
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: {"processed": 0, "failed": 0, "queue": {}, "claimed_jobs": []})
+
+    exit_code = worker.main()
+
+    assert exit_code == 1
+
+
+def test_dry_run_does_not_fail_on_empty_queue_new(monkeypatch) -> None:
+    """dry_run is exempt from the no-claim failure: reporting an empty
+    queue is dry_run's correct, successful outcome since it never claims
+    anything by design."""
+    monkeypatch.setenv("IMPORT_WORKER_RUN_MODE", "dry_run")
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: {"would_process": [], "queue": {}})
 
     exit_code = worker.main()
 
     assert exit_code == 0
+
+
+def test_fails_when_claimed_job_never_reaches_terminal_status_new(monkeypatch, capsys) -> None:
+    """Max runtime reached with a claimed job that never finished (no
+    terminal status) must fail — a stalled job looks identical to a
+    healthy run unless this is checked explicitly."""
+    monkeypatch.setattr(
+        worker, "run_queued_import_jobs",
+        lambda **_kwargs: {"processed": 0, "failed": 0, "queue": {}, "claimed_jobs": [{"job_id": 42, "terminal_status": "running"}]},
+    )
+
+    exit_code = worker.main()
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "did_not_reach_terminal_status" in err
+    assert "job_id=42" in err
+
+
+def test_outcome_json_includes_all_required_structured_fields_new(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("IMPORT_WORKER_CITY_SLUG", "almaty")
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: _claimed(job_id=7, terminal_status="success"))
+
+    exit_code = worker.main()
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    outcome_line = next(line for line in out.splitlines() if line.startswith("import_worker_outcome "))
+    import json as _json
+    payload = _json.loads(outcome_line.removeprefix("import_worker_outcome "))
+    assert payload["requested_city_slug"] == "almaty"
+    assert payload["matched_job_id"] == 7
+    assert payload["claimed"] is True
+    assert payload["processed"] is True
+    assert payload["terminal_status"] == "success"
+    assert payload["skip_reason"] is None
+    assert isinstance(payload["elapsed_seconds"], (int, float))
+    assert payload["exit_code"] == 0

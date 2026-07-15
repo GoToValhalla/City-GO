@@ -156,7 +156,16 @@ services:
       IMPORT_WORKER_SAFE_MODE: "true"
       IMPORT_WORKER_MAX_RUNTIME_SECONDS: 300
       IMPORT_WORKER_BACKEND_HEALTH_URL: http://backend:8000/ready
+      # Pre-container startup floor (checked by check_import_worker_resources.py
+      # before the worker process exists at all). Kept at 550.
       IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 550
+      # Separate, lower post-start job-claim gate (checked per-job by
+      # _safe_mode_block_reason once the worker container is already
+      # running). The container's own baseline overhead legitimately costs
+      # 60-90 MB of host MemAvailable once started; reusing the 550 startup
+      # floor here made a healthy ~520-531 MB post-start host self-deadlock
+      # every queued job forever.
+      IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB: 350
       IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB: 512
       IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB: 400
       IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB: 256

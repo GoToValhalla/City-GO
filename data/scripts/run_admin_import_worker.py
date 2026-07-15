@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import sys
 import time
 import urllib.request
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -14,12 +16,38 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from db.session import SessionLocal
 from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_tasks import import_queue_summary, run_queued_import_jobs
+from services.import_worker_thresholds import log_effective_thresholds
 
 _STOP = False
 
 RUN_MODE_SAFE_ONE_JOB = "safe_one_job"
 RUN_MODE_DRY_RUN = "dry_run"
 RUN_MODE_DIAGNOSTICS_ONLY = "diagnostics_only"
+
+TERMINAL_JOB_STATUSES = frozenset({"success", "success_with_warnings", "partial_success", "failed"})
+
+
+@dataclass
+class WorkerOutcome:
+    requested_city_slug: str | None
+    matched_job_id: int | None = None
+    claimed: bool = False
+    processed: bool = False
+    terminal_status: str | None = None
+    skip_reason: str | None = None
+    elapsed_seconds: float = 0.0
+    exit_code: int = 0
+    _started_at: float = field(default_factory=time.monotonic, repr=False, compare=False)
+
+    def finalize(self, *, exit_code: int) -> "WorkerOutcome":
+        self.elapsed_seconds = round(time.monotonic() - self._started_at, 3)
+        self.exit_code = exit_code
+        return self
+
+    def as_dict(self) -> dict[str, object]:
+        payload = asdict(self)
+        payload.pop("_started_at", None)
+        return payload
 
 
 class WorkerStopRequested(RuntimeError):
@@ -53,10 +81,11 @@ def run_worker_loop(
     max_runtime_seconds: int | None = None,
     city_slug: str | None = None,
     dry_run: bool = False,
-) -> bool:
-    """Returns True if at least one queued job was found (claimed, or would
-    have been claimed under dry_run) during the loop; False otherwise."""
-    found_job = False
+    outcome: WorkerOutcome | None = None,
+) -> WorkerOutcome:
+    """Runs the claim loop and returns the structured outcome. If `outcome`
+    is not supplied, a fresh one is created and returned."""
+    outcome = outcome or WorkerOutcome(requested_city_slug=city_slug)
     consecutive_failures = 0
     iteration = 0
     started_at = time.monotonic()
@@ -69,6 +98,10 @@ def run_worker_loop(
                 level="info",
                 details={"status": "max_runtime_reached", "max_runtime_seconds": max_runtime_seconds},
             )
+            if outcome.terminal_status not in TERMINAL_JOB_STATUSES:
+                # Runtime expired without the claimed job (if any) ever
+                # reaching a terminal status: this is a stall, not success.
+                outcome.skip_reason = outcome.skip_reason or "max_runtime_without_terminal_progress"
             break
         if not backend_is_healthy(health_url):
             print(f"import_worker_backend_unhealthy url={health_url}", file=sys.stderr, flush=True)
@@ -78,6 +111,7 @@ def run_worker_loop(
                 level="error",
                 details={"status": "backend_unhealthy", "health_url": health_url},
             )
+            outcome.skip_reason = outcome.skip_reason or "backend_unhealthy"
             break
         iteration += 1
         try:
@@ -86,12 +120,19 @@ def run_worker_loop(
                 would_process = result.get("would_process") or []
                 print(f"import_worker_dry_run would_process={would_process}", flush=True)
                 if would_process:
-                    found_job = True
-            elif int(result.get("processed") or 0) + int(result.get("failed") or 0) > 0:
-                # A claimed-but-failed job still means a matching job existed
-                # for this city_slug — that is a job-execution outcome, not
-                # an "empty queue" outcome, and must not be conflated with it.
-                found_job = True
+                    first = would_process[0]
+                    outcome.matched_job_id = int(first["job_id"])
+                    outcome.claimed = True
+            else:
+                claimed_jobs = result.get("claimed_jobs") or []
+                if claimed_jobs:
+                    first = claimed_jobs[0]
+                    outcome.matched_job_id = int(first["job_id"])
+                    outcome.claimed = True
+                    outcome.terminal_status = str(first.get("terminal_status") or None)
+                    outcome.processed = outcome.terminal_status in TERMINAL_JOB_STATUSES
+                elif not outcome.claimed:
+                    outcome.skip_reason = outcome.skip_reason or "no_queued_job_matched"
             if consecutive_failures:
                 send_admin_alert(
                     title="Import-worker восстановлен",
@@ -108,6 +149,7 @@ def run_worker_loop(
                 level="error",
                 details={"status": "stop_requested"},
             )
+            outcome.skip_reason = outcome.skip_reason or "stop_requested"
             break
         except Exception as exc:  # noqa: BLE001
             consecutive_failures += 1
@@ -119,9 +161,10 @@ def run_worker_loop(
                     details={"status": "failed", "consecutive_failures": consecutive_failures},
                 )
             print(f"import_worker_loop_failed count={consecutive_failures}: {exc}", file=sys.stderr, flush=True)
+            outcome.skip_reason = outcome.skip_reason or f"loop_error:{exc}"[:200]
         if not _STOP and (max_iterations is None or iteration < max_iterations):
             time.sleep(sleep_seconds)
-    return found_job
+    return outcome
 
 
 def run_diagnostics_only(*, city_slug: str | None = None) -> None:
@@ -134,9 +177,15 @@ def run_diagnostics_only(*, city_slug: str | None = None) -> None:
     print(f"import_worker_diagnostics_only queue={summary}", flush=True)
 
 
+def _print_outcome(outcome: WorkerOutcome) -> None:
+    print(f"import_worker_outcome {json.dumps(outcome.as_dict(), sort_keys=True)}", flush=True)
+
+
 def main() -> int:
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
+
+    log_effective_thresholds()
 
     run_mode = os.getenv("IMPORT_WORKER_RUN_MODE", RUN_MODE_SAFE_ONE_JOB).strip() or RUN_MODE_SAFE_ONE_JOB
     city_slug = os.getenv("IMPORT_WORKER_CITY_SLUG", "").strip() or None
@@ -156,9 +205,9 @@ def main() -> int:
     # enough to report what would happen. IMPORT_WORKER_BATCH_LIMIT can only
     # lower this floor, never raise it, in either mode.
     configured_limit = max(1, int(os.getenv("IMPORT_WORKER_BATCH_LIMIT", "1")))
-    found_job = False
+    outcome = WorkerOutcome(requested_city_slug=city_slug)
     try:
-        found_job = run_worker_loop(
+        outcome = run_worker_loop(
             limit=min(1, configured_limit),
             sleep_seconds=max(5, int(os.getenv("IMPORT_WORKER_SLEEP_SECONDS", "60"))),
             actor_id=os.getenv("IMPORT_WORKER_ACTOR", "import-worker"),
@@ -167,14 +216,40 @@ def main() -> int:
             max_iterations=1,
             city_slug=city_slug,
             dry_run=is_dry_run,
+            outcome=outcome,
         )
     except WorkerStopRequested as exc:
         print(str(exc), file=sys.stderr, flush=True)
+        outcome.skip_reason = outcome.skip_reason or "stop_requested"
+        _print_outcome(outcome.finalize(exit_code=0))
         return 0
 
-    if city_slug and not found_job:
-        print(f"import_worker_no_matching_queued_job city_slug={city_slug!r}", file=sys.stderr, flush=True)
+    # safe_one_job must fail if no matching job was claimed or processed —
+    # a healthy-looking run that quietly did nothing is not success. dry_run
+    # is exempt: reporting an empty queue is its correct, successful outcome.
+    if not is_dry_run and not outcome.claimed:
+        outcome.skip_reason = outcome.skip_reason or (
+            "no_matching_queued_job" if city_slug else "no_queued_job_available"
+        )
+        print(f"import_worker_no_matching_queued_job city_slug={city_slug!r} reason={outcome.skip_reason}", file=sys.stderr, flush=True)
+        _print_outcome(outcome.finalize(exit_code=1))
         return 1
+
+    # Runtime expired without the claimed job ever reaching a terminal
+    # status: a stalled job looks identical to "the worker ran fine" unless
+    # this is treated as a failure explicitly.
+    if not is_dry_run and outcome.claimed and not outcome.processed:
+        outcome.skip_reason = outcome.skip_reason or "max_runtime_without_terminal_progress"
+        print(
+            f"import_worker_job_did_not_reach_terminal_status job_id={outcome.matched_job_id} "
+            f"status={outcome.terminal_status!r}",
+            file=sys.stderr,
+            flush=True,
+        )
+        _print_outcome(outcome.finalize(exit_code=1))
+        return 1
+
+    _print_outcome(outcome.finalize(exit_code=0))
     return 0
 
 

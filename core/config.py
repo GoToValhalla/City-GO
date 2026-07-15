@@ -85,6 +85,14 @@ class Settings(BaseSettings):
     import_worker_max_runtime_seconds: int = 300
     import_worker_backend_health_url: str = "http://backend:8000/ready"
     import_worker_min_available_memory_mb: int = 256
+    # Separate from import_worker_min_available_memory_mb (the pre-container
+    # startup floor, checked once before the container exists). The worker
+    # container's own baseline overhead (Python process, DB pool, imports)
+    # legitimately costs 60-90 MB of host MemAvailable once running, so
+    # reusing the startup floor here as the per-job claim gate makes a
+    # healthy post-start host self-deadlock: the queued job is skipped
+    # forever even though nothing is actually unsafe.
+    import_worker_min_job_claim_memory_mb: int = 350
     import_worker_min_container_memory_mb: int = 512
     import_worker_min_container_headroom_mb: int = 400
     import_worker_runtime_host_floor_mb: int = 256

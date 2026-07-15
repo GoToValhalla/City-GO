@@ -121,7 +121,7 @@ def test_import_worker_blocked_job_stays_queued_and_is_picked_up_once_memory_rec
     _patch_session_local(monkeypatch, db_session)
     monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
     monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 1)
-    monkeypatch.setattr(tasks.settings, "import_worker_min_available_memory_mb", 550)
+    monkeypatch.setattr(tasks.settings, "import_worker_min_job_claim_memory_mb", 550)
     city = city_factory(slug="worker-low-memory-then-recovered", name="Worker Low Memory Then Recovered")
     job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
 
@@ -167,7 +167,7 @@ def test_import_worker_allows_heavy_job_when_enabled_and_host_memory_is_sufficie
     _patch_session_local(monkeypatch, db_session)
     monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
     monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 1)
-    monkeypatch.setattr(tasks.settings, "import_worker_min_available_memory_mb", 550)
+    monkeypatch.setattr(tasks.settings, "import_worker_min_job_claim_memory_mb", 550)
     monkeypatch.setattr(tasks, "_available_memory_mb", lambda: 711)
     city = city_factory(slug="worker-heavy-allowed", name="Worker Heavy Allowed")
     job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
@@ -188,6 +188,73 @@ def test_import_worker_allows_heavy_job_when_enabled_and_host_memory_is_sufficie
     db_session.refresh(job)
     assert job.status == "success"
     assert _events(db_session) == ["worker_job_claimed", "worker_job_finished"]
+
+
+def test_healthy_post_start_memory_does_not_self_deadlock_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """Regression for the production no-progress defect: preflight passed
+    at 603 MB before the worker container started; once running, the
+    container's own baseline overhead dropped host MemAvailable to
+    520-531 MB. The job-claim gate (import_worker_min_job_claim_memory_mb,
+    default 350, separate from the 550 MB startup floor) must NOT reuse the
+    startup floor here — a healthy post-start host must not skip the
+    queued job forever."""
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
+    monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 1)
+    # Default import_worker_min_job_claim_memory_mb (350) is intentionally
+    # left untouched here to prove the *default* does not self-deadlock.
+    monkeypatch.setattr(tasks, "_available_memory_mb", lambda: 528)
+    city = city_factory(slug="worker-post-start-healthy", name="Worker Post Start Healthy")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
+
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+        queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
+        queued_job.status = "success"
+        queued_job.finished_at = datetime.utcnow()
+        db.commit()
+        db.refresh(queued_job)
+        return queued_job
+
+    monkeypatch.setattr(tasks, "run_city_import_job", fake_run_city_import_job)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 1
+    assert result["claimed_jobs"] == [{"job_id": job.id, "terminal_status": "success"}]
+    db_session.refresh(job)
+    assert job.status == "success"
+
+
+def test_genuinely_unsafe_post_start_memory_still_blocks_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """The separate, lower job-claim floor must still block a genuinely
+    unsafe host — lowering the threshold from the old 550 MB startup value
+    must not mean "never block anything"."""
+    _patch_session_local(monkeypatch, db_session)
+    monkeypatch.setattr(tasks.settings, "import_worker_safe_mode", True)
+    monkeypatch.setattr(tasks.settings, "import_worker_max_full_import_places_low_memory", 1)
+    monkeypatch.setattr(tasks, "_available_memory_mb", lambda: 200)
+    city = city_factory(slug="worker-post-start-unsafe", name="Worker Post Start Unsafe")
+    job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("run_city_import_job must not be called under the job-claim memory floor")
+
+    monkeypatch.setattr(tasks, "run_city_import_job", fail_if_called)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 0
+    assert result["claimed_jobs"] == []
+    db_session.refresh(job)
+    assert job.status == "queued"
 
 
 def test_import_worker_allows_light_jobs_in_safe_mode(

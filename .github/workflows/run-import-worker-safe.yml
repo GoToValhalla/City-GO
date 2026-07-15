@@ -150,9 +150,15 @@ jobs:
           }
 
           cleanup() {
-            section "cleanup: always stop import-worker"
+            section "cleanup: always stop and remove import-worker"
             report_worker_event "workflow_cleanup" ", \"stop_reason\": \"${STOP_REASON:-unknown}\""
             docker compose stop -t 30 import-worker 2>&1 || echo "(stop failed or already stopped)"
+            # Remove the container, not just stop it: a leftover stopped
+            # container can be reused as-is by a later `docker compose up`
+            # instead of being recreated with that run's env vars — this is
+            # exactly how CITY_SLUG previously reached the worker as empty
+            # on a run that requested a specific city.
+            docker compose rm -f import-worker 2>&1 || echo "(rm failed or already removed)"
           }
           trap cleanup EXIT
 
@@ -190,7 +196,10 @@ jobs:
           fi
 
           section "starting import-worker (run_mode=${RUN_MODE} city_slug=${CITY_SLUG:-any})"
-          IMPORT_WORKER_RUN_MODE="$RUN_MODE" IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" timeout 60s docker compose up -d --no-deps import-worker
+          # --force-recreate: belt-and-suspenders alongside the cleanup rm
+          # above — guarantees this run's IMPORT_WORKER_CITY_SLUG/RUN_MODE
+          # are always applied to a fresh container, never a reused one.
+          IMPORT_WORKER_RUN_MODE="$RUN_MODE" IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" timeout 60s docker compose up -d --no-deps --force-recreate import-worker
           START_RC=$?
           if [ "$START_RC" -ne 0 ]; then
             echo "ERROR: docker compose failed to start import-worker (rc=${START_RC})." >&2
