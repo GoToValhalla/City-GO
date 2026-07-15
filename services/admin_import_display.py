@@ -174,6 +174,7 @@ def import_execution_summary(
     raw_saved = diff.get("places_saved")
     if raw_saved is None and job is not None:
         raw_saved = job.places_saved
+    funnel = diff.get("funnel") if isinstance(diff.get("funnel"), dict) else None
     summary: dict[str, object] = {
         "import_status": diff.get("status") or (job.status if job else None),
         "raw_collected": raw_found,
@@ -187,6 +188,12 @@ def import_execution_summary(
         "scopes_succeeded": scopes_ok,
         "scopes_failed": max(scopes_total - scopes_ok, 0) if scopes_total and not is_active_import_job(job) else None,
         "route_eligible": None,
+        # Read exactly what _apply_import/summarize_import_results already
+        # computed and persisted — never recalculated here. None when no
+        # scope has produced one yet (job pending/never run), never a fake
+        # all-zero funnel.
+        "funnel": funnel,
+        "rejected_by_reason": funnel.get("rejected_by_reason") if funnel else None,
     }
     warnings: list[str] = []
     if summary["route_eligible"] is None:

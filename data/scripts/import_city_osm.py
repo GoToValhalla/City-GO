@@ -501,6 +501,7 @@ def _apply_import(
         "hidden_needs_review": 0,
         "hidden_rejected": 0,
         "duplicate": 0,
+        "matched_existing": 0,
     }
     rejection_reasons: Counter[str] = Counter()
 
@@ -517,6 +518,8 @@ def _apply_import(
             if already_done is not None:
                 for field in _OUTCOME_COUNTER_FIELDS.get(already_done.processing_outcome, ()):
                     counters[field] += 1
+                if already_done.match_status == "matched_existing_place":
+                    counters["matched_existing"] += 1
                 if already_done.rejection_reason and already_done.processing_outcome in {"rejected", "hidden_rejected"}:
                     rejection_reasons[str(item.get("rejection_reason") or "unknown")] += 1
                 continue
@@ -550,6 +553,41 @@ def _apply_import(
         needs_review_total = counters["needs_review"] + counters["hidden_needs_review"] + counters["hidden_rejected"] + missing_stats["needs_review"]
         rejected_total = counters["rejected"] + counters["hidden_rejected"]
         hidden_total = counters["hidden_needs_review"] + counters["hidden_rejected"]
+        # accepted == every normalized item where item["accepted"] was True at
+        # _normalize_osm_object() time — i.e. everything that reached
+        # _process_one_item's post-rejection branch. normalized_total already
+        # sums every accepted outcome (created/updated/unchanged/needs_review/
+        # hidden_needs_review), so accepted_total is exactly normalized_total:
+        # nothing here is recomputed independently, only relabeled for the
+        # funnel view.
+        accepted_total = normalized_total
+
+        # Funnel: a truthful accounting of every decision point already made
+        # above, reorganized into the canonical stage names — no value here
+        # is computed anywhere except where the decision was actually made.
+        # "requested" has no distinct meaning from "fetched" in this pipeline
+        # (the Overpass query IS the request; there is no separate
+        # "requested vs returned" concept upstream), so it intentionally
+        # equals raw_count rather than inventing a different number.
+        # "deduplicated" has no implementation in this pipeline at all (no
+        # raw-object dedup step exists before normalization) — it is
+        # reported as unavailable, never as 0, so an operator never mistakes
+        # "no dedup logic runs" for "we checked and found zero duplicates".
+        funnel = {
+            "requested": batch.raw_count,
+            "fetched": batch.raw_count,
+            "deduplicated": "unavailable",
+            "normalized": len(normalized),
+            "accepted": accepted_total,
+            "rejected_by_reason": dict(rejection_reasons),
+            "matched_existing": counters["matched_existing"],
+            "created": counters["created"],
+            "updated": counters["updated"],
+            "unchanged": counters["unchanged"],
+            "hidden": hidden_total,
+            "sent_to_review": needs_review_total,
+            "failed": 0,
+        }
 
         batch.normalized_count = normalized_total
         batch.published_count = published_total
@@ -571,6 +609,7 @@ def _apply_import(
             "missing_from_source": missing_stats["missing_from_source"],
             "hidden_missing_places": missing_stats["hidden_missing_places"],
             "note": "Scoped OSM import applied with lifecycle update rules",
+            "funnel": funnel,
         }
 
         finish_batch(db, batch, "success")
@@ -597,6 +636,7 @@ def _apply_import(
             "missing_from_source": missing_stats["missing_from_source"],
             "hidden_missing_places": missing_stats["hidden_missing_places"],
             "status": "success",
+            "funnel": funnel,
         }
 
     except Exception as exc:
@@ -647,6 +687,8 @@ def _process_one_item(
     category = _get_or_create_category(db, item["category"])
     place = _find_existing_place(db, city.id, item)
     matched_existing = place is not None
+    if matched_existing:
+        counters["matched_existing"] += 1
     before_public = _public_state_snapshot(place) if matched_existing else None
     item_outcome = None
 

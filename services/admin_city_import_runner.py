@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from data.scripts.run_due_import_jobs import run as run_due_import_jobs
 from services.import_pipeline.scope_errors import scope_failure_rows
+
+_FUNNEL_SUM_FIELDS = (
+    "requested",
+    "fetched",
+    "normalized",
+    "accepted",
+    "matched_existing",
+    "created",
+    "updated",
+    "unchanged",
+    "hidden",
+    "sent_to_review",
+    "failed",
+)
 
 
 def run_city_import_targets(city_slug: str, *, force: bool = True, city_admin_import_job_id: int | None = None) -> dict[str, Any]:
@@ -53,6 +68,12 @@ def summarize_import_results(payload: dict[str, Any]) -> dict[str, int | str | N
     places_found = 0
     errors: list[str] = []
 
+    funnel: dict[str, int | str] = {field: 0 for field in _FUNNEL_SUM_FIELDS}
+    rejected_by_reason: Counter[str] = Counter()
+    any_scope_reported_funnel = False
+    deduplicated_total = 0
+    any_scope_reported_dedup_available = False
+
     for row in results:
         if row.get("status") != "success":
             reason = str(row.get("error") or row.get("reason") or row.get("status") or "unknown")
@@ -75,6 +96,39 @@ def summarize_import_results(payload: dict[str, Any]) -> dict[str, int | str | N
         places_found += int(import_result.get("raw_count") or 0) + int(fallback_import.get("raw_count") or 0)
         for key in counters:
             counters[key] += int(import_result.get(key) or 0) + int(fallback_import.get(key) or 0)
+
+        # Funnel: same additive-across-scopes rule as the counters above —
+        # each scope's (and its fallback's) funnel is a real, independently
+        # produced fact from _apply_import, summed here, never recomputed.
+        for scope_funnel in (import_result.get("funnel"), fallback_import.get("funnel")):
+            if not isinstance(scope_funnel, dict):
+                continue
+            any_scope_reported_funnel = True
+            for field in _FUNNEL_SUM_FIELDS:
+                funnel[field] = int(funnel[field]) + int(scope_funnel.get(field) or 0)
+            reasons = scope_funnel.get("rejected_by_reason")
+            if isinstance(reasons, dict):
+                for reason_key, count in reasons.items():
+                    rejected_by_reason[str(reason_key)] += int(count or 0)
+            # "unavailable" is the only value _apply_import ever reports for
+            # deduplicated (no dedup step exists in this pipeline) — if any
+            # scope ever reports a real number instead, that becomes
+            # available; until then this stays "unavailable", never 0.
+            scope_dedup = scope_funnel.get("deduplicated")
+            if isinstance(scope_dedup, (int, float)) and not isinstance(scope_dedup, bool):
+                any_scope_reported_dedup_available = True
+                deduplicated_total += int(scope_dedup)
+
+    if any_scope_reported_funnel:
+        funnel["deduplicated"] = deduplicated_total if any_scope_reported_dedup_available else "unavailable"
+        funnel["rejected_by_reason"] = dict(rejected_by_reason)
+    else:
+        # No successful scope ever produced a funnel (e.g. every scope
+        # failed before reaching _apply_import) — the funnel itself is
+        # unavailable, not a truthful all-zero accounting.
+        funnel = {field: "unavailable" for field in _FUNNEL_SUM_FIELDS}
+        funnel["deduplicated"] = "unavailable"
+        funnel["rejected_by_reason"] = {}
 
     places_saved = counters["created"] + counters["updated"] + counters["needs_review"]
     meaningful_changes = (
@@ -100,4 +154,5 @@ def summarize_import_results(payload: dict[str, Any]) -> dict[str, int | str | N
         "status": status,
         "last_error": last_error,
         "scope_errors": scope_errors,
+        "funnel": funnel,
     }
