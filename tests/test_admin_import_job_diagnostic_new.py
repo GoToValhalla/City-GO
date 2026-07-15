@@ -406,46 +406,33 @@ def test_success_job_has_no_partial_success_reason_even_with_failed_steps_new(db
     assert diagnostic["partial_success_reason"] is None
 
 
-def test_workflow_outcome_null_when_no_worker_run_finished_event_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
-    """workflow_outcome must be null (not "unknown"/false) when no
-    worker_run_finished event has been reported for this job at all — there
-    is genuinely nothing to evaluate yet, distinct from an evaluated-and-
-    unknown-exit-code case."""
-    city = city_factory(slug="diag-no-workflow-outcome")
-    job = _create_job(db_session, city_id=city.id, status="running")
-    write_system_log(
-        db_session, level="info", module="import_worker", message="Import-worker run started",
-        details={"event": "worker_run_started", "job_id": job.id}, request_id=str(job.id), commit=True,
-    )
-
-    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
-
-    assert diagnostic is not None
-    assert diagnostic["workflow_outcome"] is None
-
-
-def test_workflow_outcome_succeeded_on_clean_exit_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
-    city = city_factory(slug="diag-workflow-success")
+def test_no_synthesized_workflow_outcome_field_exists_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """Architecture guard: the diagnostic must never derive or expose a
+    synthesized "did the workflow pass" verdict — that would duplicate
+    run-import-worker-safe.yml's own fail-closed decision logic as a second,
+    driftable decision engine. Only the raw, separately-persisted evidence
+    (exit_code, oom_killed, stop_reason) may be exposed; GitHub Actions
+    itself remains the sole authority on whether a workflow run passed."""
+    city = city_factory(slug="diag-no-workflow-outcome-field")
     job = _create_job(db_session, city_id=city.id, status="success", finished_at=datetime.utcnow())
     write_system_log(
         db_session, level="info", module="import_worker", message="Import-worker run finished",
-        details={"event": "worker_run_finished", "job_id": job.id, "stop_reason": "timeout", "exit_code": 0, "oom_killed": False},
+        details={"event": "worker_run_finished", "job_id": job.id, "stop_reason": "timeout", "exit_code": 137, "oom_killed": True},
         request_id=str(job.id), commit=True,
     )
 
     diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
 
     assert diagnostic is not None
-    assert diagnostic["workflow_outcome"] == {"succeeded": True, "reasons": []}
-    assert "Workflow outcome: passed" in diagnostic["diagnostic_report"]
+    assert "workflow_outcome" not in diagnostic
+    assert "Workflow outcome" not in diagnostic["diagnostic_report"]
 
 
-def test_workflow_outcome_fails_on_oom_even_if_job_status_is_success_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
-    """The exact scenario this field exists for: the job's own status can
-    say success while the GitHub Actions run that produced it would itself
-    have been reported as failed (OOM-killed) — the two must never be
-    conflated."""
-    city = city_factory(slug="diag-workflow-oom-vs-job-success")
+def test_oom_and_success_status_are_exposed_as_separate_raw_facts_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """job.status=success and the worker's own reported exit_code=137/
+    oom_killed=True must both be visible, as-persisted, without the service
+    collapsing them into any single derived pass/fail judgment."""
+    city = city_factory(slug="diag-oom-vs-job-success")
     job = _create_job(db_session, city_id=city.id, status="success", finished_at=datetime.utcnow())
     write_system_log(
         db_session, level="info", module="import_worker", message="Import-worker run finished",
@@ -457,40 +444,8 @@ def test_workflow_outcome_fails_on_oom_even_if_job_status_is_success_new(db_sess
 
     assert diagnostic is not None
     assert diagnostic["status"] == "success"
-    assert diagnostic["workflow_outcome"]["succeeded"] is False
-    assert "worker_oom_killed" in diagnostic["workflow_outcome"]["reasons"]
-
-
-def test_workflow_outcome_fails_on_safety_guard_stop_reason_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
-    city = city_factory(slug="diag-workflow-safety-guard")
-    job = _create_job(db_session, city_id=city.id, status="success", finished_at=datetime.utcnow())
-    write_system_log(
-        db_session, level="info", module="import_worker", message="Import-worker run finished",
-        details={"event": "worker_run_finished", "job_id": job.id, "stop_reason": "max_runtime_reached", "exit_code": 0, "oom_killed": False},
-        request_id=str(job.id), commit=True,
-    )
-
-    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
-
-    assert diagnostic is not None
-    assert diagnostic["workflow_outcome"]["succeeded"] is False
-    assert "safety_guard_max_runtime_reached" in diagnostic["workflow_outcome"]["reasons"]
-
-
-def test_workflow_outcome_fails_on_unknown_exit_code_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
-    city = city_factory(slug="diag-workflow-unknown-exit")
-    job = _create_job(db_session, city_id=city.id, status="failed", finished_at=datetime.utcnow())
-    write_system_log(
-        db_session, level="info", module="import_worker", message="Import-worker run finished",
-        details={"event": "worker_run_finished", "job_id": job.id, "stop_reason": "timeout"},
-        request_id=str(job.id), commit=True,
-    )
-
-    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
-
-    assert diagnostic is not None
-    assert diagnostic["workflow_outcome"]["succeeded"] is False
-    assert "worker_exit_code_unknown" in diagnostic["workflow_outcome"]["reasons"]
+    assert diagnostic["exit_code"] == 137
+    assert diagnostic["oom_killed"] is True
 
 
 def test_attempts_are_present_in_diagnostic_payload_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
@@ -554,7 +509,7 @@ def test_api_diagnostic_response_includes_new_fields_new(client, db_session: Ses
     assert body["partial_success_reason"] is not None
     assert "boom" in body["partial_success_reason"]
     assert body["failed_steps"][0]["step_name"] == "fetch_photo_candidates"
-    assert body["workflow_outcome"] is None
+    assert "workflow_outcome" not in body
     assert body["attempts"] == []
 
 

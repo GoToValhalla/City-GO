@@ -41,13 +41,6 @@ const ATTEMPT_RESULT_LABELS: Record<string, string> = {
 }
 const attemptResultLabel = (result: string | null) => result == null ? '—' : ATTEMPT_RESULT_LABELS[result] ?? result
 
-const workflowOutcomeText = (outcome: AdminImportJobDiagnostic['workflow_outcome']): string => {
-  if (outcome == null) return 'нет данных о завершении workflow-запуска'
-  if (outcome.succeeded === true) return 'workflow завершился успешно'
-  if (outcome.succeeded === false) return `workflow сообщил бы об ошибке${outcome.reasons.length ? `: ${outcome.reasons.join(', ')}` : ''}`
-  return 'неизвестно'
-}
-
 const statusLabel = (status: string) => STATUS_LABELS[status] ?? status
 const formatDateTime = (value: string | null) => {
   if (!value) return '—'
@@ -167,15 +160,13 @@ export const AdminImportJobDiagnosticPage = () => {
                 Workflow: <a href={diagnostic.workflow_run_url} target="_blank" rel="noreferrer">{diagnostic.workflow_name ?? diagnostic.workflow_run_id ?? 'открыть'}</a>
               </p>
             )}
-            {/* Three genuinely distinct facts, never conflated: diagnostic.status
-                (the job's own truthful outcome), diagnostic.exit_code (the raw
-                worker container exit code above), and this workflow_outcome (a
-                read-only reflection of whether the GitHub Actions run itself
-                would have been reported pass/fail — see
-                services/admin_import_job_diagnostic_service.py::_workflow_outcome).
-                A job can be status=success while its workflow_outcome is a
-                failure (e.g. OOM after the job's own work already committed). */}
-            <p className="admin-muted" data-testid="diagnostic-workflow-outcome">Итог workflow-запуска: {workflowOutcomeText(diagnostic.workflow_outcome)}</p>
+            {/* diagnostic.status (the job's own truthful outcome) and
+                diagnostic.exit_code/stop_reason/oom_killed above are two
+                genuinely distinct, separately-persisted facts, deliberately
+                never merged into a single derived "did it succeed" verdict —
+                only the GitHub Actions run itself is authoritative for
+                whether the workflow passed or failed; that conclusion is not
+                duplicated or predicted here. */}
             <button type="button" className="admin-btn admin-btn-primary admin-btn-lg" onClick={() => void copyReport()} data-testid="copy-diagnostic-report">
               Копировать диагностический отчёт
             </button>

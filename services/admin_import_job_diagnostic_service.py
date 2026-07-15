@@ -21,19 +21,6 @@ from services.system_log_service import list_system_logs
 
 TERMINAL_STATUSES = frozenset({"success", "success_with_warnings", "partial_success", "failed", "cancelled", "stalled"})
 
-# Mirrors, read-only, the exact fail-closed decision
-# .github/workflows/run-import-worker-safe.yml makes from the worker's own
-# reported exit_code/stop_reason/oom_killed (see its final "Enforce..."-style
-# steps after `trap - EXIT`). This is never a new policy and is never acted
-# on — it only lets the admin see, without leaving the app, whether the
-# GitHub Actions run that produced this job would itself have been reported
-# as passed or failed, which can genuinely differ from CityAdminImportJob.status
-# (e.g. the job finished successfully but the workflow's own runtime/health
-# guard still failed the run).
-_WORKFLOW_SAFETY_GUARD_STOP_REASONS = frozenset(
-    {"public_health_degraded", "host_memory_floor", "worker_cgroup_soft_limit", "worker_memory_reading_unknown", "max_runtime_reached"}
-)
-
 _IMPORT_WORKER_MODULE = "import_worker"
 _CITY_IMPORT_MODULE = "city_import"
 
@@ -244,29 +231,6 @@ def _partial_success_reason(job: CityAdminImportJob, failed_steps: list[dict[str
     return "; ".join(parts)
 
 
-def _workflow_outcome(worker_fields: dict[str, object | None]) -> dict[str, object] | None:
-    """Read-only reflection of run-import-worker-safe.yml's own fail-closed
-    decision (see module docstring above _WORKFLOW_SAFETY_GUARD_STOP_REASONS).
-    Returns None when no worker_run_finished lifecycle event has ever been
-    reported for this job at all — there is nothing to evaluate yet, which
-    is a genuinely different state from "evaluated and unknown"."""
-    if worker_fields.get("worker_state") != "finished":
-        return None
-    exit_code = worker_fields.get("exit_code")
-    oom_killed = worker_fields.get("oom_killed")
-    stop_reason = worker_fields.get("stop_reason")
-    reasons: list[str] = []
-    if oom_killed is True or exit_code == 137:
-        reasons.append("worker_oom_killed")
-    elif not isinstance(exit_code, int):
-        reasons.append("worker_exit_code_unknown")
-    elif exit_code != 0:
-        reasons.append(f"worker_exit_code_{exit_code}")
-    if isinstance(stop_reason, str) and stop_reason in _WORKFLOW_SAFETY_GUARD_STOP_REASONS:
-        reasons.append(f"safety_guard_{stop_reason}")
-    return {"succeeded": not reasons, "reasons": reasons}
-
-
 def _build_report_text(
     *,
     job: CityAdminImportJob,
@@ -276,7 +240,6 @@ def _build_report_text(
     timeline: list[dict[str, object]],
     worker_fields: dict[str, object | None],
     partial_success_reason: str | None = None,
-    workflow_outcome: dict[str, object] | None = None,
 ) -> str:
     lines = [
         "CITY GO — Import Job Diagnostic Report",
@@ -314,14 +277,6 @@ def _build_report_text(
     if worker_fields.get("workflow_run_url") is not None:
         workflow_line = f"Workflow: {worker_fields.get('workflow_name') or 'GitHub Actions'} — {worker_fields['workflow_run_url']}"
         lines.append(workflow_line)
-    if workflow_outcome is not None:
-        succeeded = workflow_outcome.get("succeeded")
-        verdict = "passed" if succeeded else "failed" if succeeded is False else "unknown"
-        outcome_line = f"Workflow outcome: {verdict}"
-        reasons = workflow_outcome.get("reasons")
-        if reasons:
-            outcome_line += f" ({', '.join(str(r) for r in reasons)})"
-        lines.append(outcome_line)
 
     if timeline:
         lines.append("")
@@ -350,7 +305,6 @@ def build_import_job_diagnostic(db: Session, *, job_id: int) -> dict[str, object
     duration_seconds = _duration_seconds(job)
     failed_steps = _failed_steps(list_job_steps(db, job.id))
     partial_success_reason = _partial_success_reason(job, failed_steps)
-    workflow_outcome = _workflow_outcome(worker_fields)
 
     report = _build_report_text(
         job=job,
@@ -360,7 +314,6 @@ def build_import_job_diagnostic(db: Session, *, job_id: int) -> dict[str, object
         timeline=timeline,
         worker_fields=worker_fields,
         partial_success_reason=partial_success_reason,
-        workflow_outcome=workflow_outcome,
     )
 
     return {
@@ -386,7 +339,6 @@ def build_import_job_diagnostic(db: Session, *, job_id: int) -> dict[str, object
         "workflow_name": worker_fields["workflow_name"],
         "workflow_run_id": worker_fields["workflow_run_id"],
         "workflow_run_url": worker_fields["workflow_run_url"],
-        "workflow_outcome": workflow_outcome,
         "timeline": timeline,
         "attempts": attempts,
         "diagnostic_report": report,

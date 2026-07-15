@@ -28,7 +28,6 @@ const diagnostic = {
   workflow_name: null,
   workflow_run_id: null,
   workflow_run_url: null,
-  workflow_outcome: null,
   timeline: [
     { timestamp: '2026-07-12T12:32:50Z', severity: 'info', type: 'job_claimed', summary: 'Import worker claiming job #9', payload: { job_id: 9 } },
     { timestamp: '2026-07-12T12:37:01Z', severity: 'error', type: 'failed', summary: 'Import worker failed job #9: boom', payload: { error: 'boom' } },
@@ -52,7 +51,6 @@ const diagnosticWithWorkerData = {
   workflow_name: 'CITY GO · OPS · Run Import Worker Safely',
   workflow_run_id: '29192806410',
   workflow_run_url: 'https://github.com/GoToValhalla/City-GO/actions/runs/29192806410',
-  workflow_outcome: { succeeded: false, reasons: ['safety_guard_public_health_degraded'] },
 }
 
 const diagnosticPartialSuccess = {
@@ -67,14 +65,13 @@ const diagnosticPartialSuccess = {
   attempts: [],
 }
 
-const diagnosticWorkflowOomDespiteSuccess = {
+const diagnosticOomDespiteSuccess = {
   ...diagnostic,
   job_id: 12,
   status: 'success',
   failure_reason: null,
   exit_code: 137,
   oom_killed: true,
-  workflow_outcome: { succeeded: false, reasons: ['worker_oom_killed'] },
 }
 
 const diagnosticNoAttempts = {
@@ -105,7 +102,7 @@ describe('AdminImportJobDiagnosticPage', () => {
         if (url.includes('/import-jobs/9/diagnostic')) return Promise.resolve(new Response(JSON.stringify(diagnostic), { status: 200 }))
         if (url.includes('/import-jobs/10/diagnostic')) return Promise.resolve(new Response(JSON.stringify(diagnosticWithWorkerData), { status: 200 }))
         if (url.includes('/import-jobs/11/diagnostic')) return Promise.resolve(new Response(JSON.stringify(diagnosticPartialSuccess), { status: 200 }))
-        if (url.includes('/import-jobs/12/diagnostic')) return Promise.resolve(new Response(JSON.stringify(diagnosticWorkflowOomDespiteSuccess), { status: 200 }))
+        if (url.includes('/import-jobs/12/diagnostic')) return Promise.resolve(new Response(JSON.stringify(diagnosticOomDespiteSuccess), { status: 200 }))
         if (url.includes('/import-jobs/13/diagnostic')) return Promise.resolve(new Response(JSON.stringify(diagnosticNoAttempts), { status: 200 }))
         if (url.includes('/import-jobs/999/diagnostic')) return Promise.resolve(new Response('{}', { status: 404 }))
         return Promise.resolve(new Response('{}', { status: 404 }))
@@ -170,7 +167,6 @@ describe('AdminImportJobDiagnosticPage', () => {
     expect(screen.getByText(/Код завершения: 0/)).toBeTruthy()
     const workflowLink = screen.getByText('CITY GO · OPS · Run Import Worker Safely').closest('a')
     expect(workflowLink?.getAttribute('href')).toBe('https://github.com/GoToValhalla/City-GO/actions/runs/29192806410')
-    expect(screen.getByTestId('diagnostic-workflow-outcome').textContent).toContain('workflow сообщил бы об ошибке')
   })
 
   it('renders the partial_success badge as a distinct warning tone, never as success or failure', async () => {
@@ -190,19 +186,13 @@ describe('AdminImportJobDiagnosticPage', () => {
     expect(screen.getByTestId('diagnostic-failed-steps').textContent).toContain('провайдер фото не ответил вовремя')
   })
 
-  it('distinguishes job status (success) from workflow_outcome (failed due to OOM) — never conflates the two', async () => {
+  it('renders job status (success) and the raw exit_code/oom_killed as separate, non-conflated facts — never derives or displays a synthesized "workflow outcome" verdict', async () => {
     renderPage('12')
     await waitFor(() => expect(screen.getByTestId('diagnostic-status-badge')).toBeTruthy())
     expect(screen.getByTestId('diagnostic-status-badge').textContent).toBe('Завершён')
     expect(screen.getByText(/Код завершения: 137/)).toBeTruthy()
-    expect(screen.getByTestId('diagnostic-workflow-outcome').textContent).toContain('workflow сообщил бы об ошибке')
-    expect(screen.getByTestId('diagnostic-workflow-outcome').textContent).toContain('worker_oom_killed')
-  })
-
-  it('shows "нет данных" for workflow outcome when no worker_run_finished event was ever reported (never fabricates a verdict)', async () => {
-    renderPage('9')
-    await waitFor(() => expect(screen.getByTestId('diagnostic-workflow-outcome')).toBeTruthy())
-    expect(screen.getByTestId('diagnostic-workflow-outcome').textContent).toContain('нет данных')
+    expect(screen.getByText(/OOM/)).toBeTruthy()
+    expect(screen.queryByTestId('diagnostic-workflow-outcome')).toBeNull()
   })
 
   it('renders zero attempts distinctly from missing/unavailable data, with an explicit "0 attempts" message', async () => {
