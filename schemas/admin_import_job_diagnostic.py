@@ -22,6 +22,24 @@ class ImportJobAttempt(BaseModel):
     retry_count_at_claim: int | None = None
 
 
+class ImportJobFailedStep(BaseModel):
+    step_name: str
+    step_label: str
+    error_message: str | None = None
+    finished_at: datetime | None = None
+
+
+class ImportJobWorkflowOutcome(BaseModel):
+    """A read-only reflection of the same fail-closed decision
+    .github/workflows/run-import-worker-safe.yml makes from the worker's
+    reported exit_code/stop_reason/oom_killed — never a new policy, and
+    never persisted or acted on. `succeeded` is null when there is not yet
+    enough reported data (e.g. exit_code missing) to evaluate the policy."""
+
+    succeeded: bool | None = None
+    reasons: list[str] = []
+
+
 class ImportJobDiagnostic(BaseModel):
     job_id: int
     city_id: int
@@ -31,6 +49,8 @@ class ImportJobDiagnostic(BaseModel):
     current_step: str
     last_completed_step: str | None = None
     failure_reason: str | None = None
+    partial_success_reason: str | None = None
+    failed_steps: list[ImportJobFailedStep] = []
     started_at: datetime | None = None
     finished_at: datetime | None = None
     duration_seconds: int | None = None
@@ -43,6 +63,7 @@ class ImportJobDiagnostic(BaseModel):
     workflow_name: str | None = None
     workflow_run_id: str | None = None
     workflow_run_url: str | None = None
+    workflow_outcome: ImportJobWorkflowOutcome | None = None
     timeline: list[ImportJobTimelineEvent]
     attempts: list[ImportJobAttempt]
     diagnostic_report: str

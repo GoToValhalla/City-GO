@@ -173,6 +173,9 @@ export type AdminImportJobChangesResponse = { items: AdminImportJobChange[]; tot
 export type AdminImportJobChangesSummary = { job_id: number; city_id: number; city_slug: string; created: number; updated: number; unchanged: number; rejected: number; hidden: number; needs_review: number }
 
 export type AdminImportJobTimelineEvent = { timestamp: string; severity: string; type: string; summary: string; payload: Record<string, unknown> | null }
+export type AdminImportJobAttempt = { attempt_number: number; started_at: string; ended_at: string | null; result: string | null; retry_count_at_claim: number | null }
+export type AdminImportJobFailedStep = { step_name: string; step_label: string; error_message: string | null; finished_at: string | null }
+export type AdminImportJobWorkflowOutcome = { succeeded: boolean | null; reasons: string[] }
 export type AdminImportJobDiagnostic = {
   job_id: number
   city_id: number
@@ -182,6 +185,8 @@ export type AdminImportJobDiagnostic = {
   current_step: string
   last_completed_step: string | null
   failure_reason: string | null
+  partial_success_reason: string | null
+  failed_steps: AdminImportJobFailedStep[]
   started_at: string | null
   finished_at: string | null
   duration_seconds: number | null
@@ -194,7 +199,9 @@ export type AdminImportJobDiagnostic = {
   workflow_name: string | null
   workflow_run_id: string | null
   workflow_run_url: string | null
+  workflow_outcome: AdminImportJobWorkflowOutcome | null
   timeline: AdminImportJobTimelineEvent[]
+  attempts: AdminImportJobAttempt[]
   diagnostic_report: string
 }
 

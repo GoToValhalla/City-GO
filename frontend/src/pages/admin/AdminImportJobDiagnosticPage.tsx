@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { adminGet } from './adminApi'
-import type { AdminImportJobDiagnostic, AdminImportJobTimelineEvent } from './adminTypes'
+import type { AdminImportJobAttempt, AdminImportJobDiagnostic, AdminImportJobTimelineEvent } from './adminTypes'
 import { AdminEmpty, AdminError, AdminLoading } from './shared/AdminStates'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -19,6 +19,33 @@ const SEVERITY_TONE: Record<string, string> = {
   error: 'admin-state-error',
   warning: 'admin-state-warning',
   info: 'admin-state',
+}
+
+// partial_success is neither a failure nor a plain success — it must render
+// with its own distinct (warning) tone, never green "published"/success and
+// never red "hidden"/failure, so an operator never mistakes it for either.
+const statusBadgeTone = (status: string): string => {
+  if (status === 'failed' || status === 'stalled') return 'hidden'
+  if (status === 'partial_success') return 'draft'
+  if (status === 'success') return 'published'
+  return 'draft'
+}
+
+const ATTEMPT_RESULT_LABELS: Record<string, string> = {
+  worker_job_finished: 'Успешно',
+  worker_job_failed: 'Ошибка',
+  worker_job_stalled: 'Завис',
+  import_job_cancelled: 'Отменён',
+  in_progress: 'Выполняется',
+  worker_crashed_no_terminal_event: 'Воркер прервался без финального события',
+}
+const attemptResultLabel = (result: string | null) => result == null ? '—' : ATTEMPT_RESULT_LABELS[result] ?? result
+
+const workflowOutcomeText = (outcome: AdminImportJobDiagnostic['workflow_outcome']): string => {
+  if (outcome == null) return 'нет данных о завершении workflow-запуска'
+  if (outcome.succeeded === true) return 'workflow завершился успешно'
+  if (outcome.succeeded === false) return `workflow сообщил бы об ошибке${outcome.reasons.length ? `: ${outcome.reasons.join(', ')}` : ''}`
+  return 'неизвестно'
 }
 
 const statusLabel = (status: string) => STATUS_LABELS[status] ?? status
@@ -48,6 +75,24 @@ const TimelineCard = ({ event }: { event: AdminImportJobTimelineEvent }) => (
         <pre>{JSON.stringify(event.payload, null, 2)}</pre>
       </details>
     ) : null}
+  </article>
+)
+
+// Attempts are the immutable retry-history reconstruction from durable
+// system_logs (see services/admin_import_job_diagnostic_service.py
+// _job_attempts) — distinct from the job's own current, mutable
+// status/started_at/finished_at columns above. A job can have been retried
+// several times; each past attempt is a fact that does not change even
+// after the job's live status moves on.
+const AttemptCard = ({ attempt }: { attempt: AdminImportJobAttempt }) => (
+  <article className="admin-import-timeline-card admin-state" data-testid="diagnostic-attempt-card">
+    <div className="admin-import-timeline-head">
+      <span className="admin-badge">Попытка №{attempt.attempt_number}</span>
+      <span className="admin-muted">{formatDateTime(attempt.started_at)}</span>
+    </div>
+    <p>Результат: <strong>{attemptResultLabel(attempt.result)}</strong></p>
+    {attempt.ended_at && <p className="admin-muted">Завершена: {formatDateTime(attempt.ended_at)}</p>}
+    {attempt.retry_count_at_claim != null && <p className="admin-muted">retry_count на момент захвата: {attempt.retry_count_at_claim}</p>}
   </article>
 )
 
@@ -99,7 +144,7 @@ export const AdminImportJobDiagnosticPage = () => {
                 <strong>{diagnostic.city_name}</strong>
                 <div className="admin-muted">{diagnostic.city_slug} · запуск #{diagnostic.job_id}</div>
               </div>
-              <span className={`admin-badge pub-${diagnostic.status === 'failed' || diagnostic.status === 'stalled' ? 'hidden' : diagnostic.status === 'success' ? 'published' : 'draft'}`}>
+              <span className={`admin-badge pub-${statusBadgeTone(diagnostic.status)}`} data-testid="diagnostic-status-badge">
                 {statusLabel(diagnostic.status)}
               </span>
             </div>
@@ -107,6 +152,9 @@ export const AdminImportJobDiagnosticPage = () => {
             {diagnostic.last_completed_step && <p>Последний завершённый шаг: <strong>{diagnostic.last_completed_step}</strong></p>}
             {diagnostic.failure_reason && (
               <p className="admin-error-text" data-testid="diagnostic-failure-reason">{diagnostic.failure_reason}</p>
+            )}
+            {diagnostic.partial_success_reason && (
+              <p className="admin-error-text" data-testid="diagnostic-partial-success-reason">Причина частичного завершения: {diagnostic.partial_success_reason}</p>
             )}
             <p className="admin-muted">Начало: {formatDateTime(diagnostic.started_at)}</p>
             <p className="admin-muted">Завершение: {formatDateTime(diagnostic.finished_at)}</p>
@@ -119,10 +167,39 @@ export const AdminImportJobDiagnosticPage = () => {
                 Workflow: <a href={diagnostic.workflow_run_url} target="_blank" rel="noreferrer">{diagnostic.workflow_name ?? diagnostic.workflow_run_id ?? 'открыть'}</a>
               </p>
             )}
+            {/* Three genuinely distinct facts, never conflated: diagnostic.status
+                (the job's own truthful outcome), diagnostic.exit_code (the raw
+                worker container exit code above), and this workflow_outcome (a
+                read-only reflection of whether the GitHub Actions run itself
+                would have been reported pass/fail — see
+                services/admin_import_job_diagnostic_service.py::_workflow_outcome).
+                A job can be status=success while its workflow_outcome is a
+                failure (e.g. OOM after the job's own work already committed). */}
+            <p className="admin-muted" data-testid="diagnostic-workflow-outcome">Итог workflow-запуска: {workflowOutcomeText(diagnostic.workflow_outcome)}</p>
             <button type="button" className="admin-btn admin-btn-primary admin-btn-lg" onClick={() => void copyReport()} data-testid="copy-diagnostic-report">
               Копировать диагностический отчёт
             </button>
             {copyStatus && <p className="admin-success-text">{copyStatus}</p>}
+          </section>
+
+          {diagnostic.failed_steps.length > 0 && (
+            <section className="admin-help-panel" data-testid="diagnostic-failed-steps">
+              <div className="admin-help-title">Шаги с ошибкой</div>
+              {diagnostic.failed_steps.map((step, index) => (
+                <p key={index}>
+                  <strong>{step.step_label}</strong>{step.error_message ? `: ${step.error_message}` : ''}
+                </p>
+              ))}
+            </section>
+          )}
+
+          <section className="admin-import-diagnostic-timeline" data-testid="diagnostic-attempts">
+            <div className="admin-help-title">Попытки (история, не текущий статус)</div>
+            {diagnostic.attempts.length === 0 ? (
+              <p className="admin-muted">Worker ещё не захватывал эту задачу — попыток пока 0.</p>
+            ) : (
+              diagnostic.attempts.map((attempt) => <AttemptCard attempt={attempt} key={attempt.attempt_number} />)
+            )}
           </section>
 
           <section className="admin-import-diagnostic-timeline" data-testid="diagnostic-timeline">

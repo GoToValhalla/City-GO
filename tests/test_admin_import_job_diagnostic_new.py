@@ -10,6 +10,7 @@ from typing import Any, Callable
 from sqlalchemy.orm import Session
 
 from models.city_admin_import_job import CityAdminImportJob
+from models.import_job_step import ImportJobStep
 from services.admin_import_job_diagnostic_service import build_import_job_diagnostic
 from services.system_log_service import write_system_log
 
@@ -344,6 +345,217 @@ def test_worker_events_from_another_job_are_excluded_new(db_session: Session, ci
     assert diagnostic_b["worker_run_id"] == "run-b"
     assert len(diagnostic_a["timeline"]) == 1
     assert len(diagnostic_b["timeline"]) == 1
+
+
+def test_partial_success_reason_reflects_failed_non_critical_step_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """partial_success never sets job.last_error (see
+    services/import_pipeline_foundation.py) — the real reason lives in the
+    per-step ImportJobStep.error_message row instead. The diagnostic must
+    surface that reason explicitly rather than leaving the operator to read
+    raw step_details JSON."""
+    city = city_factory(slug="diag-partial-success")
+    job = _create_job(
+        db_session, city_id=city.id, status="partial_success", current_step="apply_publication_decisions",
+        started_at=datetime.utcnow() - timedelta(minutes=1), finished_at=datetime.utcnow(),
+    )
+    db_session.add(ImportJobStep(
+        job_id=job.id, step_name="fetch_photo_candidates", status="failed",
+        error_message="photo provider timed out", finished_at=datetime.utcnow(),
+    ))
+    db_session.commit()
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["status"] == "partial_success"
+    assert diagnostic["failure_reason"] is None
+    assert diagnostic["partial_success_reason"] is not None
+    assert "photo provider timed out" in diagnostic["partial_success_reason"]
+    assert len(diagnostic["failed_steps"]) == 1
+    assert diagnostic["failed_steps"][0]["step_name"] == "fetch_photo_candidates"
+    assert diagnostic["failed_steps"][0]["error_message"] == "photo provider timed out"
+    assert "Partial success reason" in diagnostic["diagnostic_report"]
+
+
+def test_partial_success_reason_is_none_when_no_failed_steps_recorded_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """A partial_success job with no ImportJobStep rows at all (e.g. legacy
+    data, or the run predates step-level recording) must report null, never
+    a fabricated reason."""
+    city = city_factory(slug="diag-partial-no-steps")
+    job = _create_job(db_session, city_id=city.id, status="partial_success", current_step="apply_publication_decisions")
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["partial_success_reason"] is None
+    assert diagnostic["failed_steps"] == []
+
+
+def test_success_job_has_no_partial_success_reason_even_with_failed_steps_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """partial_success_reason must only ever apply to a genuinely
+    partial_success job — a plain success job must never show it, even if
+    an unrelated failed step row exists from a much earlier retry."""
+    city = city_factory(slug="diag-success-with-old-failed-step")
+    job = _create_job(db_session, city_id=city.id, status="success", current_step="ready_for_review")
+    db_session.add(ImportJobStep(job_id=job.id, step_name="fetch_photo_candidates", status="failed", error_message="stale failure"))
+    db_session.commit()
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["partial_success_reason"] is None
+
+
+def test_workflow_outcome_null_when_no_worker_run_finished_event_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """workflow_outcome must be null (not "unknown"/false) when no
+    worker_run_finished event has been reported for this job at all — there
+    is genuinely nothing to evaluate yet, distinct from an evaluated-and-
+    unknown-exit-code case."""
+    city = city_factory(slug="diag-no-workflow-outcome")
+    job = _create_job(db_session, city_id=city.id, status="running")
+    write_system_log(
+        db_session, level="info", module="import_worker", message="Import-worker run started",
+        details={"event": "worker_run_started", "job_id": job.id}, request_id=str(job.id), commit=True,
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["workflow_outcome"] is None
+
+
+def test_workflow_outcome_succeeded_on_clean_exit_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    city = city_factory(slug="diag-workflow-success")
+    job = _create_job(db_session, city_id=city.id, status="success", finished_at=datetime.utcnow())
+    write_system_log(
+        db_session, level="info", module="import_worker", message="Import-worker run finished",
+        details={"event": "worker_run_finished", "job_id": job.id, "stop_reason": "timeout", "exit_code": 0, "oom_killed": False},
+        request_id=str(job.id), commit=True,
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["workflow_outcome"] == {"succeeded": True, "reasons": []}
+    assert "Workflow outcome: passed" in diagnostic["diagnostic_report"]
+
+
+def test_workflow_outcome_fails_on_oom_even_if_job_status_is_success_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """The exact scenario this field exists for: the job's own status can
+    say success while the GitHub Actions run that produced it would itself
+    have been reported as failed (OOM-killed) — the two must never be
+    conflated."""
+    city = city_factory(slug="diag-workflow-oom-vs-job-success")
+    job = _create_job(db_session, city_id=city.id, status="success", finished_at=datetime.utcnow())
+    write_system_log(
+        db_session, level="info", module="import_worker", message="Import-worker run finished",
+        details={"event": "worker_run_finished", "job_id": job.id, "stop_reason": "timeout", "exit_code": 137, "oom_killed": True},
+        request_id=str(job.id), commit=True,
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["status"] == "success"
+    assert diagnostic["workflow_outcome"]["succeeded"] is False
+    assert "worker_oom_killed" in diagnostic["workflow_outcome"]["reasons"]
+
+
+def test_workflow_outcome_fails_on_safety_guard_stop_reason_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    city = city_factory(slug="diag-workflow-safety-guard")
+    job = _create_job(db_session, city_id=city.id, status="success", finished_at=datetime.utcnow())
+    write_system_log(
+        db_session, level="info", module="import_worker", message="Import-worker run finished",
+        details={"event": "worker_run_finished", "job_id": job.id, "stop_reason": "max_runtime_reached", "exit_code": 0, "oom_killed": False},
+        request_id=str(job.id), commit=True,
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["workflow_outcome"]["succeeded"] is False
+    assert "safety_guard_max_runtime_reached" in diagnostic["workflow_outcome"]["reasons"]
+
+
+def test_workflow_outcome_fails_on_unknown_exit_code_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    city = city_factory(slug="diag-workflow-unknown-exit")
+    job = _create_job(db_session, city_id=city.id, status="failed", finished_at=datetime.utcnow())
+    write_system_log(
+        db_session, level="info", module="import_worker", message="Import-worker run finished",
+        details={"event": "worker_run_finished", "job_id": job.id, "stop_reason": "timeout"},
+        request_id=str(job.id), commit=True,
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["workflow_outcome"]["succeeded"] is False
+    assert "worker_exit_code_unknown" in diagnostic["workflow_outcome"]["reasons"]
+
+
+def test_attempts_are_present_in_diagnostic_payload_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """attempts (the immutable retry-history reconstruction from durable
+    system_logs, distinct from the job's own mutable current status/columns)
+    must actually appear in the diagnostic output — this field existed in
+    the service/schema with zero test coverage before this change."""
+    city = city_factory(slug="diag-attempts")
+    job = _create_job(db_session, city_id=city.id, status="failed", current_step="error")
+    write_system_log(
+        db_session, level="info", module="import_worker", message="claim 1",
+        details={"event": "worker_job_claimed", "job_id": job.id, "retry_count": 0}, request_id=str(job.id), commit=True,
+    )
+    write_system_log(
+        db_session, level="error", module="import_worker", message="fail 1",
+        details={"event": "worker_job_failed", "job_id": job.id}, request_id=str(job.id), commit=True,
+    )
+    write_system_log(
+        db_session, level="info", module="import_worker", message="claim 2",
+        details={"event": "worker_job_claimed", "job_id": job.id, "retry_count": 1}, request_id=str(job.id), commit=True,
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert len(diagnostic["attempts"]) == 2
+    assert diagnostic["attempts"][0]["attempt_number"] == 1
+    assert diagnostic["attempts"][0]["result"] == "worker_job_failed"
+    assert diagnostic["attempts"][0]["retry_count_at_claim"] == 0
+    assert diagnostic["attempts"][1]["attempt_number"] == 2
+    assert diagnostic["attempts"][1]["result"] == "in_progress"
+    assert diagnostic["attempts"][1]["retry_count_at_claim"] == 1
+
+
+def test_attempts_are_empty_when_job_was_never_claimed_by_worker_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """A queued job with zero worker_job_claimed events must show an empty
+    attempts list — zero attempts is a genuinely different, truthful state
+    from one successful first-try attempt, and must never be inferred."""
+    city = city_factory(slug="diag-attempts-empty")
+    job = _create_job(db_session, city_id=city.id, status="queued")
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["attempts"] == []
+
+
+def test_api_diagnostic_response_includes_new_fields_new(client, db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """End-to-end contract check: the new fields survive Pydantic response
+    serialization through the real HTTP endpoint, not just the raw service
+    dict."""
+    city = city_factory(slug="diag-api-new-fields")
+    job = _create_job(db_session, city_id=city.id, status="partial_success", current_step="apply_publication_decisions")
+    db_session.add(ImportJobStep(job_id=job.id, step_name="fetch_photo_candidates", status="failed", error_message="boom"))
+    db_session.commit()
+
+    response = client.get(f"/admin/import-jobs/{job.id}/diagnostic")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["partial_success_reason"] is not None
+    assert "boom" in body["partial_success_reason"]
+    assert body["failed_steps"][0]["step_name"] == "fetch_photo_candidates"
+    assert body["workflow_outcome"] is None
+    assert body["attempts"] == []
 
 
 def test_missing_lifecycle_events_leave_worker_fields_nullable_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
