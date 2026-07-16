@@ -27,6 +27,14 @@ class RetryOutcomeKind(str, Enum):
     SUCCESS_AFTER_RETRY = "success_after_retry"
     PERMANENT_FAILURE = "permanent_failure"
     RETRY_BUDGET_EXHAUSTED = "retry_budget_exhausted"
+    # CITYGO-318 (completion): distinct from RETRY_BUDGET_EXHAUSTED (which
+    # means "max_attempts reached") — this means the TOTAL wall-clock
+    # budget (config.timeout_seconds, covering execution time, previous
+    # retries, AND backoff delays combined) ran out before another attempt
+    # or a full backoff delay could happen. Kept as its own terminal
+    # outcome so callers/diagnostics never have to guess which limit was
+    # actually hit.
+    TIMEOUT_EXHAUSTED = "timeout_exhausted"
 
 
 class RetryPolicyError(ValueError):
@@ -134,10 +142,23 @@ def execute_with_retry(
     now: Callable[[], float] = time.monotonic,
     rng: Callable[[], float] | None = None,
 ) -> RetryOutcome[T]:
-    """Executes `fn` with retry/backoff. Never raises on retry exhaustion or
-    a non-retryable failure — always returns a RetryOutcome so the caller
-    gets truthful diagnostics either way (fail closed, requirement 4: the
-    real error, attempt count, and elapsed time are always preserved).
+    """Executes `fn` with retry/backoff. Never raises on retry exhaustion,
+    a non-retryable failure, or global timeout exhaustion — always returns
+    a RetryOutcome so the caller gets truthful diagnostics either way
+    (fail closed, requirement 4: the real error, attempt count, and
+    elapsed time are always preserved).
+
+    When config.timeout_seconds is set, it is the TOTAL retry budget:
+    execution time of every attempt, plus every backoff delay already
+    slept, all count against it (CITYGO-318 completion). Two enforcement
+    points: (1) before starting any attempt after the first, if the
+    budget is already exhausted, no new attempt is made; (2) a computed
+    backoff delay is clamped to whatever budget remains — this engine
+    never sleeps longer than the remaining total budget, and if no budget
+    remains at all, it does not sleep and finishes immediately. The first
+    attempt always runs regardless of timeout_seconds (a positive but
+    tiny budget cannot preempt the very first try — there is nothing to
+    time out yet).
 
     `sleep`/`now`/`rng` are injectable purely for deterministic testing —
     production callers use the real time.sleep/time.monotonic/random.random
@@ -147,6 +168,17 @@ def execute_with_retry(
     attempts: list[RetryAttempt] = []
 
     for attempt_number in range(1, config.max_attempts + 1):
+        if attempt_number > 1 and config.timeout_seconds is not None:
+            elapsed_so_far = now() - started
+            if elapsed_so_far >= config.timeout_seconds:
+                return RetryOutcome(
+                    success=False,
+                    outcome_kind=RetryOutcomeKind.TIMEOUT_EXHAUSTED,
+                    value=None,
+                    attempts=tuple(attempts),
+                    total_elapsed_seconds=elapsed_so_far,
+                    final_error=attempts[-1].error if attempts else "retry timeout budget exhausted before next attempt",
+                )
         attempt_started = now()
         try:
             value = fn()
@@ -154,9 +186,19 @@ def execute_with_retry(
             elapsed = now() - attempt_started
             retryable = is_retryable(exc)
             is_last_attempt = attempt_number >= config.max_attempts
-            next_delay = None if (not retryable or is_last_attempt) else compute_backoff_delay(
+            desired_delay = None if (not retryable or is_last_attempt) else compute_backoff_delay(
                 attempt_number=attempt_number, config=config, rng=rng
             )
+            next_delay = desired_delay
+            budget_exhausted_before_sleep = False
+            if desired_delay is not None and config.timeout_seconds is not None:
+                remaining_budget = config.timeout_seconds - (now() - started)
+                if remaining_budget <= 0:
+                    next_delay = None
+                    budget_exhausted_before_sleep = True
+                elif desired_delay > remaining_budget:
+                    # Never sleep longer than the remaining total budget.
+                    next_delay = remaining_budget
             attempts.append(
                 RetryAttempt(
                     attempt_number=attempt_number,
@@ -172,6 +214,15 @@ def execute_with_retry(
                 return RetryOutcome(
                     success=False,
                     outcome_kind=RetryOutcomeKind.PERMANENT_FAILURE,
+                    value=None,
+                    attempts=tuple(attempts),
+                    total_elapsed_seconds=now() - started,
+                    final_error=str(exc),
+                )
+            if budget_exhausted_before_sleep:
+                return RetryOutcome(
+                    success=False,
+                    outcome_kind=RetryOutcomeKind.TIMEOUT_EXHAUSTED,
                     value=None,
                     attempts=tuple(attempts),
                     total_elapsed_seconds=now() - started,

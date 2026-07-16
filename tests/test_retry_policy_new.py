@@ -435,3 +435,180 @@ def test_engine_module_has_no_osm_or_http_specific_logic_new():
     ]
     for forbidden in (429, 500, 502, 503, 504, "Overpass", "overpass", "OSM"):
         assert forbidden not in literals, f"retry_policy.py must stay generic, found provider-specific literal: {forbidden!r}"
+
+
+# --- CITYGO-318 completion: global retry timeout (total budget) ---
+
+
+def test_global_timeout_stops_before_next_attempt_when_budget_exhausted_new():
+    """The total budget covers execution time + previous retries + backoff
+    delays combined — once elapsed time reaches timeout_seconds, no new
+    attempt is started."""
+    attempts = []
+
+    def always_fail():
+        attempts.append(1)
+        raise TimeoutError("provider unreachable")
+
+    outcome = execute_with_retry(
+        always_fail,
+        config=RetryConfig(max_attempts=10, initial_delay_seconds=1.0, timeout_seconds=2.5),
+        is_retryable=lambda e: True,
+        sleep=lambda s: None,
+        now=_fake_clock(step=1.0),
+    )
+
+    assert outcome.success is False
+    assert outcome.outcome_kind == RetryOutcomeKind.TIMEOUT_EXHAUSTED
+    assert len(attempts) < 10  # the retry engine stopped well short of max_attempts
+    assert outcome.attempt_count == len(attempts)
+
+
+def test_global_timeout_is_distinct_from_retry_budget_exhausted_new():
+    """RETRY_BUDGET_EXHAUSTED means max_attempts was reached; TIMEOUT_EXHAUSTED
+    means the wall-clock budget ran out first — a caller must be able to
+    tell these apart."""
+
+    def always_fail():
+        raise TimeoutError("t")
+
+    by_attempts = execute_with_retry(
+        always_fail, config=RetryConfig(max_attempts=2, initial_delay_seconds=0.01), is_retryable=lambda e: True,
+        sleep=lambda s: None, now=_fake_clock(step=0.001),
+    )
+    by_timeout = execute_with_retry(
+        always_fail, config=RetryConfig(max_attempts=100, initial_delay_seconds=1.0, timeout_seconds=1.5), is_retryable=lambda e: True,
+        sleep=lambda s: None, now=_fake_clock(step=1.0),
+    )
+
+    assert by_attempts.outcome_kind == RetryOutcomeKind.RETRY_BUDGET_EXHAUSTED
+    assert by_timeout.outcome_kind == RetryOutcomeKind.TIMEOUT_EXHAUSTED
+    assert by_attempts.outcome_kind != by_timeout.outcome_kind
+
+
+def test_global_timeout_never_sleeps_longer_than_remaining_budget_new():
+    sleeps = []
+
+    def always_fail():
+        raise TimeoutError("t")
+
+    execute_with_retry(
+        always_fail,
+        config=RetryConfig(max_attempts=10, initial_delay_seconds=5.0, multiplier=1.0, timeout_seconds=3.0),
+        is_retryable=lambda e: True,
+        sleep=lambda s: sleeps.append(s),
+        now=_fake_clock(step=0.1),
+    )
+
+    assert all(s <= 3.0 for s in sleeps)
+    assert len(sleeps) > 0  # at least one clamped sleep happened before exhaustion
+
+
+def test_global_timeout_does_not_sleep_when_no_budget_remains_new():
+    sleeps = []
+
+    def always_fail():
+        raise TimeoutError("t")
+
+    outcome = execute_with_retry(
+        always_fail,
+        config=RetryConfig(max_attempts=10, initial_delay_seconds=1.0, timeout_seconds=0.5),
+        is_retryable=lambda e: True,
+        sleep=lambda s: sleeps.append(s),
+        now=_fake_clock(step=1.0),
+    )
+
+    assert sleeps == []
+    assert outcome.outcome_kind == RetryOutcomeKind.TIMEOUT_EXHAUSTED
+    assert outcome.attempt_count == 1
+
+
+def test_global_timeout_first_attempt_always_runs_regardless_of_tiny_budget_new():
+    """A positive but tiny timeout_seconds cannot preempt the very first
+    attempt — there is nothing to time out yet before anything has run."""
+    attempts = []
+
+    def ok():
+        attempts.append(1)
+        return "done"
+
+    outcome = execute_with_retry(
+        ok, config=RetryConfig(max_attempts=3, timeout_seconds=0.0001), is_retryable=lambda e: True,
+        sleep=lambda s: None, now=_fake_clock(step=0.0),
+    )
+
+    assert len(attempts) == 1
+    assert outcome.success is True
+
+
+def test_global_timeout_preserves_real_error_never_fabricates_success_new():
+    def always_fail():
+        raise TimeoutError("Overpass provider unreachable")
+
+    outcome = execute_with_retry(
+        always_fail,
+        config=RetryConfig(max_attempts=10, initial_delay_seconds=1.0, timeout_seconds=1.5),
+        is_retryable=lambda e: True,
+        sleep=lambda s: None,
+        now=_fake_clock(step=1.0),
+    )
+
+    assert outcome.success is False
+    assert outcome.value is None
+    assert "Overpass provider unreachable" in outcome.final_error
+    assert all(not attempt.succeeded for attempt in outcome.attempts)
+
+
+def test_global_timeout_success_still_works_with_timeout_configured_new():
+    attempts = []
+
+    def flaky():
+        attempts.append(1)
+        if len(attempts) < 2:
+            raise TimeoutError("t")
+        return "recovered"
+
+    outcome = execute_with_retry(
+        flaky,
+        config=RetryConfig(max_attempts=5, initial_delay_seconds=0.01, timeout_seconds=60.0),
+        is_retryable=lambda e: True,
+        sleep=lambda s: None,
+        now=_fake_clock(step=0.01),
+    )
+
+    assert outcome.success is True
+    assert outcome.outcome_kind == RetryOutcomeKind.SUCCESS_AFTER_RETRY
+
+
+def test_global_timeout_disabled_by_default_new():
+    """timeout_seconds=None (the default) means no global budget — behavior
+    is identical to before this completion, governed only by max_attempts."""
+    attempts = []
+
+    def always_fail():
+        attempts.append(1)
+        raise TimeoutError("t")
+
+    outcome = execute_with_retry(
+        always_fail, config=RetryConfig(max_attempts=5, initial_delay_seconds=0.01), is_retryable=lambda e: True,
+        sleep=lambda s: None, now=_fake_clock(step=100.0),
+    )
+
+    assert outcome.outcome_kind == RetryOutcomeKind.RETRY_BUDGET_EXHAUSTED
+    assert outcome.attempt_count == 5
+
+
+def test_global_timeout_deterministic_across_repeated_calls_new():
+    def make_fn():
+        def always_fail():
+            raise TimeoutError("t")
+
+        return always_fail
+
+    config = RetryConfig(max_attempts=10, initial_delay_seconds=1.0, timeout_seconds=2.5)
+    outcome1 = execute_with_retry(make_fn(), config=config, is_retryable=lambda e: True, sleep=lambda s: None, now=_fake_clock(step=1.0))
+    outcome2 = execute_with_retry(make_fn(), config=config, is_retryable=lambda e: True, sleep=lambda s: None, now=_fake_clock(step=1.0))
+
+    assert outcome1.outcome_kind == outcome2.outcome_kind
+    assert outcome1.attempt_count == outcome2.attempt_count
+    assert [a.next_delay_seconds for a in outcome1.attempts] == [a.next_delay_seconds for a in outcome2.attempts]

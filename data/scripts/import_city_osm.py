@@ -38,10 +38,29 @@ from services.place_import_lifecycle_service import (
     hide_place,
     mark_missing_place,
 )
+from services.osm_fetch_retry import DEFAULT_OSM_RETRY_CONFIG, fetch_osm_objects_with_retry
+from services.osm_tile_planner import TilePlannerConfig, TilePlannerError, plan_tiles
+from services.import_tile_run_service import (
+    ensure_tile_runs,
+    mark_tile_completed,
+    mark_tile_failed,
+    mark_tile_running,
+    next_unfinished_tile_run,
+    tile_progress_diagnostics,
+)
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 MAX_RAW_OBJECTS = 2500
+
+# CITYGO-319: tile mode activates ONLY when the bbox exceeds these limits
+# (i.e. plan_tiles() would produce more than one tile). Every current
+# production scope bbox is well within 0.5deg in both dimensions (verified
+# against data/config/import_targets.json — max observed span is ~0.45deg
+# for almaty/tourist_core), so this default is a no-op for all existing
+# imports: they keep planning to exactly one tile and take the exact same
+# single-shot code path as before this task.
+TILE_PLANNER_CONFIG = TilePlannerConfig()
 
 DISPLAY_NAME_KEYS = (
     "name:ru",
@@ -136,6 +155,32 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
             raise SystemExit(f"Scope is not importable: {args.scope}")
 
         bbox = _bbox(scope)
+
+        # CITYGO-319: tile mode only ever activates for --apply, and only
+        # when plan_tiles() genuinely produces more than one tile for this
+        # bbox. A --dry-run request, or any bbox that fits in a single
+        # tile (which is every current production scope — see
+        # TILE_PLANNER_CONFIG's comment above), takes the exact same
+        # single-shot fetch -> normalize -> apply path this function has
+        # always taken. Any planning error (TilePlannerError) is treated
+        # the same way — fall back to the single-shot path rather than
+        # let a new, still-young component block an import that used to
+        # work.
+        if args.apply:
+            tile_plan = None
+            try:
+                tile_plan = plan_tiles(
+                    city_slug=city.slug,
+                    scope_code=scope.code,
+                    profile=args.profile,
+                    bbox=bbox,
+                    config=TILE_PLANNER_CONFIG,
+                )
+            except TilePlannerError:
+                tile_plan = None
+            if tile_plan is not None and tile_plan.tile_count > 1:
+                return _apply_import_tiled(db, city, scope, args.profile, tile_plan, args.city_admin_import_job_id)
+
         raw_objects = _fetch_osm_objects(bbox, args.profile)
 
         if len(raw_objects) > MAX_RAW_OBJECTS:
@@ -646,6 +691,163 @@ def _apply_import(
             finish_batch(db, batch, "failed", error_count=1)
             update_import_state(db, batch, "failed", str(exc))
         raise
+
+
+_TILE_RESULT_COUNTER_FIELDS = (
+    "created", "updated", "unchanged", "needs_review", "rejected", "hidden",
+    "missing_from_source", "hidden_missing_places", "deactivated_bad_places",
+)
+
+
+def _apply_import_tiled(
+    db,
+    city: City,
+    scope: CityImportScope,
+    profile: str,
+    tile_plan,
+    city_admin_import_job_id: int | None,
+) -> dict[str, object]:
+    """CITYGO-319: tiled OSM apply. Each tile is fetched (with retry via
+    services/osm_fetch_retry.py) and applied (services/import_city_osm.py's
+    existing _apply_import, unmodified — one ImportBatch per tile) fully
+    independently, in the tile plan's deterministic sequence order.
+
+    Resume (CITYGO-320): services/import_tile_run_service.py persists one
+    ImportTileRun row per tile before any fetch happens. A tile already
+    marked "completed" from a prior run is never re-fetched or re-applied
+    — ensure_tile_runs()/next_unfinished_tile_run() find exactly where a
+    crashed or interrupted run left off, by the tile's own deterministic
+    tile_id, not by row order or elapsed time. Already-completed tiles'
+    real Place/SourceObservation rows are never touched again — nothing is
+    lost on a retry of the whole scope.
+
+    No new places are duplicated: each tile's own ImportBatch reuses the
+    exact same SourceObservation idempotency scoping and
+    apply_accepted_import_to_place() matching logic that a single-shot
+    import already used — this function does not change any matching,
+    publication, or review code, it only calls the existing _apply_import
+    once per tile instead of once per scope.
+    """
+    run_started_at = datetime.utcnow()
+    tile_runs = ensure_tile_runs(
+        db,
+        scope_id=scope.id,
+        city_admin_import_job_id=city_admin_import_job_id,
+        planner_version=tile_plan.planner_version,
+        tiles=tile_plan.tiles,
+    )
+    db.commit()
+
+    aggregate = {field: 0 for field in _TILE_RESULT_COUNTER_FIELDS}
+    tile_diagnostics: list[dict[str, object]] = []
+    retried_tile_count = 0
+    total_retry_attempts = 0
+
+    tile_by_id = {tile.tile_id: tile for tile in tile_plan.tiles}
+
+    while True:
+        tile_run = next_unfinished_tile_run(tile_runs)
+        if tile_run is None:
+            break
+        tile = tile_by_id[tile_run.tile_id]
+        tile_bbox = {"south": tile.south, "west": tile.west, "north": tile.north, "east": tile.east}
+
+        mark_tile_running(db, tile_run)
+        db.commit()
+
+        fetch_outcome = fetch_osm_objects_with_retry(
+            lambda: _fetch_osm_objects(tile_bbox, profile),
+            config=DEFAULT_OSM_RETRY_CONFIG,
+        )
+        if fetch_outcome.attempt_count > 1:
+            retried_tile_count += 1
+        total_retry_attempts += max(fetch_outcome.attempt_count - 1, 0)
+
+        if not fetch_outcome.success:
+            mark_tile_failed(
+                db,
+                tile_run,
+                failure_reason=fetch_outcome.final_error or "OSM fetch failed",
+                retry_attempts=max(fetch_outcome.attempt_count - 1, 0),
+            )
+            db.commit()
+            tile_diagnostics.append(
+                {
+                    "tile_id": tile.tile_id,
+                    "sequence": tile.sequence,
+                    "status": "failed",
+                    "failure_reason": fetch_outcome.final_error,
+                    "retry_attempts": max(fetch_outcome.attempt_count - 1, 0),
+                }
+            )
+            continue
+
+        raw_objects = fetch_outcome.value or []
+        if len(raw_objects) > MAX_RAW_OBJECTS:
+            reason = f"Too many OSM objects in tile {tile.tile_id}: {len(raw_objects)} > {MAX_RAW_OBJECTS}"
+            mark_tile_failed(db, tile_run, failure_reason=reason, retry_attempts=max(fetch_outcome.attempt_count - 1, 0))
+            db.commit()
+            tile_diagnostics.append(
+                {"tile_id": tile.tile_id, "sequence": tile.sequence, "status": "failed", "failure_reason": reason, "retry_attempts": max(fetch_outcome.attempt_count - 1, 0)}
+            )
+            continue
+
+        normalized = [_normalize_osm_object(item, city.slug) for item in raw_objects]
+
+        try:
+            tile_result = _apply_import(db, city, scope, profile, raw_objects, normalized, city_admin_import_job_id)
+        except Exception as exc:  # noqa: BLE001 — a single tile's apply failure must not lose other tiles' progress
+            mark_tile_failed(db, tile_run, failure_reason=str(exc)[:2000], retry_attempts=max(fetch_outcome.attempt_count - 1, 0))
+            db.commit()
+            tile_diagnostics.append(
+                {"tile_id": tile.tile_id, "sequence": tile.sequence, "status": "failed", "failure_reason": str(exc)[:500], "retry_attempts": max(fetch_outcome.attempt_count - 1, 0)}
+            )
+            continue
+
+        for field in _TILE_RESULT_COUNTER_FIELDS:
+            aggregate[field] += int(tile_result.get(field) or 0)
+
+        mark_tile_completed(
+            db,
+            tile_run,
+            batch_id=tile_result.get("batch_id"),
+            counters={field: tile_result.get(field) for field in _TILE_RESULT_COUNTER_FIELDS},
+            retry_attempts=max(fetch_outcome.attempt_count - 1, 0),
+        )
+        db.commit()
+        tile_diagnostics.append(
+            {
+                "tile_id": tile.tile_id,
+                "sequence": tile.sequence,
+                "status": "completed",
+                "batch_id": tile_result.get("batch_id"),
+                "retry_attempts": max(fetch_outcome.attempt_count - 1, 0),
+            }
+        )
+
+    progress = tile_progress_diagnostics(tile_runs, started_at=run_started_at)
+    elapsed_seconds = (datetime.utcnow() - run_started_at).total_seconds()
+
+    return {
+        "mode": "apply",
+        "city": city.slug,
+        "scope": scope.code,
+        "profile": profile,
+        "status": "success" if progress["failed"] == 0 else "partial_success",
+        "tiled": True,
+        "planner_version": tile_plan.planner_version,
+        "raw_count": None,
+        **aggregate,
+        "tile_diagnostics": {
+            "total_tiles": progress["total_tiles"],
+            "completed": progress["completed"],
+            "failed": progress["failed"],
+            "retried_tiles": retried_tile_count,
+            "total_retry_attempts": total_retry_attempts,
+            "elapsed_seconds": elapsed_seconds,
+            "tiles": tile_diagnostics,
+        },
+    }
 
 
 def _process_one_item(

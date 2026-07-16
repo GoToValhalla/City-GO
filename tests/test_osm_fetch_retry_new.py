@@ -158,10 +158,13 @@ def test_default_osm_retry_config_is_sane_new():
 
 
 def test_osm_fetch_retry_has_no_current_import_callers_new():
+    """CITYGO-319 explicitly wires fetch_osm_objects_with_retry into
+    data/scripts/import_city_osm.py's tiled apply path, so that file is
+    excluded from this dark-launch guard. Every other entrypoint must
+    still not reference the retry engine."""
     from pathlib import Path
 
     entrypoints = (
-        Path("data/scripts/import_city_osm.py"),
         Path("data/scripts/import_city_osm_v2.py"),
         Path("data/scripts/run_due_import_jobs.py"),
         Path("services/admin_city_import_runner.py"),

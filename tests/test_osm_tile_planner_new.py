@@ -314,13 +314,14 @@ def test_diagnostics_wrapper_reports_success_same_as_plan_new():
 
 
 def test_osm_tile_planner_has_no_current_import_callers_new():
-    """Requirement 8: no existing import job may start using tiles
-    automatically in this task. Proves at the source level that no
-    current import entrypoint imports or calls this module."""
+    """Requirement 8: no import job may start using tiles automatically
+    without deliberate wiring. CITYGO-319 explicitly wires plan_tiles
+    into data/scripts/import_city_osm.py's tile-mode-activation branch,
+    so that file is excluded here. Every other entrypoint must still not
+    reference the tile planner."""
     from pathlib import Path
 
     entrypoints = (
-        Path("data/scripts/import_city_osm.py"),
         Path("data/scripts/import_city_osm_v2.py"),
         Path("data/scripts/run_due_import_jobs.py"),
         Path("services/admin_city_import_runner.py"),
