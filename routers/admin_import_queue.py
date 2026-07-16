@@ -164,25 +164,39 @@ def mark_stuck_import_jobs(auth: AdminContext = Depends(admin_required), db: Ses
     jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").with_for_update().all()
     stuck = [job for job in jobs if _is_stuck(job, now=now)]
     marked: list[int] = []
-    for job in stuck:
-        city = db.query(City).filter(City.id == job.city_id).first()
-        previous_status = job.status
-        if not _try_finalize(db, job, "stalled", actor_id=auth.actor_id):
+    for candidate in stuck:
+        city = db.query(City).filter(City.id == candidate.city_id).first()
+        previous_status = candidate.status
+        details = dict(candidate.step_details or {})
+        details["manual_stalled_recovery"] = {
+            "marked_at": now.isoformat(),
+            "actor_id": auth.actor_id,
+            "running_seconds": _running_seconds(candidate, now=now),
+        }
+        # Administrative action — no expected_claimed_by (default sentinel
+        # means "override whoever holds it"), consistent with the fact
+        # `stuck` was already selected under this same request's own
+        # FOR UPDATE lock above. _try_finalize still re-selects the exact
+        # row fresh (populate_existing + FOR UPDATE) and re-verifies
+        # status/finished_at before writing anything, so a worker
+        # finishing normally (or the automatic sweep) in the moment
+        # between the batch SELECT above and this call is still caught.
+        result = _try_finalize(
+            db, job_id=candidate.id, new_status="stalled", actor_id=auth.actor_id,
+            fields={
+                "step_details": details,
+                "current_step": STEP_ERROR,
+                "last_error": candidate.last_error or "Recovered stale import job: no active worker heartbeat / worker process absent",
+                "finished_at": now,
+                "updated_at": now,
+            },
+        )
+        if not result.ok:
             # Someone else (a worker finishing normally, or the automatic
             # sweep) already terminalized this row — skip it, its real
             # terminal state must not be overwritten.
             continue
-        details = dict(job.step_details or {})
-        details["manual_stalled_recovery"] = {
-            "marked_at": now.isoformat(),
-            "actor_id": auth.actor_id,
-            "running_seconds": _running_seconds(job, now=now),
-        }
-        job.step_details = details
-        job.current_step = STEP_ERROR
-        job.last_error = job.last_error or "Recovered stale import job: no active worker heartbeat / worker process absent"
-        job.finished_at = now
-        job.updated_at = now
+        job = result.job
         city_slug = city.slug if city is not None else None
         if city is not None and city.launch_status != "published":
             city.launch_status = "import_failed"

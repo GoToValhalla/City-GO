@@ -1,26 +1,25 @@
-"""Regression coverage for the blocker found by independent code review of
-commit ddc800f0627750e11abd7a8f37be3a81032f5dc7:
+"""Single-session regression coverage for the atomic finalization design
+fixed in response to independent review of commit
+23deba98003814af2c5d2d6ce0a05ba99b82e65b:
 
-Every runner (run_city_import_job, run_snapshot_refresh_job,
-run_address_enrichment_job, run_photo_enrichment_job, run_enrichment_only_job)
-and _mark_worker_exception called _transition() at the very end of its own
-work, then — regardless of whether that transition actually succeeded —
-unconditionally wrote finished_at/current_step/step_details/last_error on
-the job row. When a concurrent process (mark_stalled_import_jobs, an admin
-cancel, or a second stall-recovery sweep) had already moved the row out of
-"running" into some OTHER terminal status while this run was still in
-flight, _transition correctly raised InvalidJobTransitionError and
-job.status itself stayed protected — but the unconditional writes right
-after it still executed, silently clobbering the OTHER process's truthful
-finished_at/last_error/step_details with this run's own late-arriving,
-now-irrelevant result (or, worse, with a confusing internal message like
-"job #N: invalid transition stalled -> success").
+_try_finalize(db, job_id=..., new_status=..., expected_claimed_by=...,
+fields=...) is database-authoritative — it re-selects the exact row under
+SELECT ... FOR UPDATE with populate_existing() and verifies status ==
+"running", claimed_by == expected_claimed_by (when checked), and
+finished_at IS NULL, all under that lock, before writing anything. This
+replaces the earlier version that trusted the caller's already-loaded ORM
+object, which cannot detect a status change committed by a DIFFERENT
+PostgreSQL transaction (expire_on_commit only fires on this Session's own
+commits, never on another connection's).
 
-The fix: _try_finalize(db, job, new_status, actor_id=...) wraps
-_transition and returns False (doing nothing else) when the transition was
-rejected — every runner's finalize block is now conditional on that
-return value, so a job recovered externally while this run was executing
-keeps its own truthful terminal fields untouched.
+These tests use a single sqlite session with a mutated row to prove the
+FUNCTION's own logic is correct (does it read the DB fresh? does it reject
+on lost ownership? does it write only inside the fields dict?). They do
+NOT reproduce the actual two-connection lost-update race — that requires
+two independent Sessions/connections against a database with real
+row-level locking, which sqlite cannot provide. See
+tests_postgres_integration/test_concurrent_job_finalization.py for the
+real two-connection PostgreSQL reproduction of every scenario below.
 """
 
 from __future__ import annotations
@@ -34,8 +33,6 @@ from sqlalchemy.orm import Session
 
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_city_import_job_service import (
-    InvalidJobTransitionError,
-    _try_finalize,
     claim_queued_job,
     queue_city_import_job,
     run_address_enrichment_job,
@@ -43,58 +40,140 @@ from services.admin_city_import_job_service import (
     run_enrichment_only_job,
     run_photo_enrichment_job,
     run_snapshot_refresh_job,
+    _try_finalize,
 )
 from services.admin_city_import_tasks import _mark_worker_exception, mark_stalled_import_jobs
 
 
-def _claim(db, *, city_id, actor_id="tester"):
+def _claim(db, *, city_id, actor_id="tester", worker_id="worker-1"):
     queued = queue_city_import_job(db, city_id=city_id, actor_id=actor_id)
     db.commit()
-    return claim_queued_job(db, job_id=queued.id, worker_id="worker-1", actor_id=actor_id)
+    return claim_queued_job(db, job_id=queued.id, worker_id=worker_id, actor_id=actor_id)
 
 
 # --- _try_finalize itself ----------------------------------------------------
 
 
-def test_try_finalize_returns_true_and_applies_on_valid_transition_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+def test_try_finalize_applies_and_writes_fields_atomically_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
     city = city_factory(slug="try-finalize-valid-city")
     job = _claim(db_session, city_id=city.id)
+    finished_at = datetime.utcnow()
 
-    applied = _try_finalize(db_session, job, "success", actor_id="tester")
+    result = _try_finalize(
+        db_session, job_id=job.id, new_status="success", expected_claimed_by="worker-1", actor_id="tester",
+        fields={"finished_at": finished_at, "last_error": None},
+    )
 
-    assert applied is True
-    assert job.status == "success"
+    assert result.ok is True
+    assert result.job.status == "success"
+    assert result.job.finished_at == finished_at
 
 
-def test_try_finalize_returns_false_and_does_not_touch_status_on_invalid_transition_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
-    city = city_factory(slug="try-finalize-invalid-city")
+def test_try_finalize_rereads_db_fresh_ignoring_stale_caller_object_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """The exact defect from the review: a caller's ALREADY-LOADED `job`
+    object still shows status="running" in Python, but the row was
+    already updated (simulating a different transaction's commit) —
+    _try_finalize must observe the DB's current value, not the stale
+    Python attribute."""
+    city = city_factory(slug="try-finalize-fresh-read-city")
     job = _claim(db_session, city_id=city.id)
-    job.status = "stalled"  # simulates a concurrent stall sweep having already terminalized the row
+    # Mutate the row via a raw UPDATE (bypassing the ORM object `job`
+    # entirely) to simulate "a different transaction already committed
+    # this" without going through the same Session/object.
+    db_session.execute(
+        CityAdminImportJob.__table__.update()
+        .where(CityAdminImportJob.id == job.id)
+        .values(status="stalled", finished_at=datetime.utcnow(), last_error="stalled by someone else")
+    )
+    db_session.commit()
+    # `job` (the Python object) may still be stale here depending on
+    # SQLAlchemy internals — the point of this test is that _try_finalize
+    # does not rely on it at all; it queries fresh by job_id.
+    assert job.id is not None
+
+    result = _try_finalize(
+        db_session, job_id=job.id, new_status="success", expected_claimed_by="worker-1", actor_id="tester",
+        fields={"finished_at": datetime.utcnow()},
+    )
+
+    assert result.ok is False
+    assert result.reason == "already_terminalized"
+    db_session.refresh(job)
+    assert job.status == "stalled"
+    assert job.last_error == "stalled by someone else"
+
+
+def test_try_finalize_rejects_wrong_claimed_by_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """A runner presenting the WRONG expected_claimed_by (e.g. a stale
+    worker identity from a previous, already-superseded claim) must not
+    be able to finalize the row even if status is still "running"."""
+    city = city_factory(slug="try-finalize-wrong-owner-city")
+    job = _claim(db_session, city_id=city.id, worker_id="worker-real")
+
+    result = _try_finalize(
+        db_session, job_id=job.id, new_status="success", expected_claimed_by="worker-impostor", actor_id="tester",
+        fields={"finished_at": datetime.utcnow()},
+    )
+
+    assert result.ok is False
+    assert result.reason == "lost_ownership"
+    db_session.refresh(job)
+    assert job.status == "running"
+
+
+def test_try_finalize_no_ownership_check_when_expected_claimed_by_omitted_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """Administrative override path: omitting expected_claimed_by entirely
+    (the sentinel default) means "finalize regardless of who holds it" —
+    used by mark_stalled_import_jobs/cancel_import_job/mark_stuck_import_jobs,
+    which have already re-locked the row for their own reasons."""
+    city = city_factory(slug="try-finalize-admin-override-city")
+    job = _claim(db_session, city_id=city.id, worker_id="worker-real")
+
+    result = _try_finalize(db_session, job_id=job.id, new_status="stalled", actor_id="admin")
+
+    assert result.ok is True
+    assert result.job.status == "stalled"
+
+
+def test_try_finalize_writes_nothing_on_rejection_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """A rejected finalize must not leave ANY partial field write — not
+    even the fields dict's contents — on the row."""
+    city = city_factory(slug="try-finalize-no-partial-write-city")
+    job = _claim(db_session, city_id=city.id)
+    original_step_details = dict(job.step_details or {})
+    db_session.execute(
+        CityAdminImportJob.__table__.update()
+        .where(CityAdminImportJob.id == job.id)
+        .values(status="cancelled", finished_at=datetime.utcnow())
+    )
     db_session.commit()
 
-    applied = _try_finalize(db_session, job, "success", actor_id="tester")
+    result = _try_finalize(
+        db_session, job_id=job.id, new_status="success", expected_claimed_by="worker-1", actor_id="tester",
+        fields={"step_details": {"should_not_appear": True}, "last_error": "should not appear either"},
+    )
 
-    assert applied is False
-    assert job.status == "stalled"
+    assert result.ok is False
+    db_session.refresh(job)
+    assert "should_not_appear" not in dict(job.step_details or {})
+    assert job.last_error != "should not appear either"
 
 
 # --- Every runner must not clobber a concurrently-stalled row's fields ------
 
 
-def test_run_city_import_job_does_not_clobber_concurrently_stalled_job_new(db_session: Session, city_factory: Callable[..., Any], monkeypatch) -> None:
+def test_run_city_import_job_does_not_clobber_concurrently_stalled_job_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
     city = city_factory(slug="stall-race-full-import-city")
     job = _claim(db_session, city_id=city.id)
-
-    # Simulate mark_stalled_import_jobs winning the race: by the time this
-    # run reaches its own final _transition, the row is already "stalled"
-    # with its own truthful finished_at/last_error.
     stalled_finished_at = datetime.utcnow() - timedelta(minutes=5)
     stalled_last_error = "Import job stalled: no heartbeat before timeout"
 
     def _fake_pipeline(db, *, job, city, actor_id, force=True, notify_completion=True):
-        job.status = "stalled"
-        job.finished_at = stalled_finished_at
-        job.last_error = stalled_last_error
+        db.execute(
+            CityAdminImportJob.__table__.update()
+            .where(CityAdminImportJob.id == job.id)
+            .values(status="stalled", finished_at=stalled_finished_at, last_error=stalled_last_error)
+        )
         db.commit()
         return {"status": "success", "changed_place_ids": []}
 
@@ -117,9 +196,11 @@ def test_run_city_import_job_exception_path_does_not_clobber_concurrently_stalle
     stalled_last_error = "Import job stalled: no heartbeat before timeout"
 
     def _fake_pipeline_raises(db, *, job, city, actor_id, force=True, notify_completion=True):
-        job.status = "stalled"
-        job.finished_at = stalled_finished_at
-        job.last_error = stalled_last_error
+        db.execute(
+            CityAdminImportJob.__table__.update()
+            .where(CityAdminImportJob.id == job.id)
+            .values(status="stalled", finished_at=stalled_finished_at, last_error=stalled_last_error)
+        )
         db.commit()
         raise RuntimeError("provider crashed after stall recovery already ran")
 
@@ -131,16 +212,18 @@ def test_run_city_import_job_exception_path_does_not_clobber_concurrently_stalle
     assert finished.last_error == stalled_last_error
 
 
-def test_run_snapshot_refresh_job_does_not_clobber_concurrently_stalled_job_new(db_session: Session, city_factory: Callable[..., Any], monkeypatch) -> None:
+def test_run_snapshot_refresh_job_does_not_clobber_concurrently_stalled_job_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
     city = city_factory(slug="stall-race-snapshot-city")
     job = _claim(db_session, city_id=city.id)
     stalled_finished_at = datetime.utcnow() - timedelta(minutes=5)
     stalled_last_error = "Import job stalled: no heartbeat before timeout"
 
     def _fake_refresh(db, *, city, job, source):
-        job.status = "stalled"
-        job.finished_at = stalled_finished_at
-        job.last_error = stalled_last_error
+        db.execute(
+            CityAdminImportJob.__table__.update()
+            .where(CityAdminImportJob.id == job.id)
+            .values(status="stalled", finished_at=stalled_finished_at, last_error=stalled_last_error)
+        )
         db.commit()
         return {}
 
@@ -159,9 +242,11 @@ def test_run_enrichment_only_job_does_not_clobber_concurrently_stalled_job_new(d
     stalled_last_error = "Import job stalled: no heartbeat before timeout"
 
     def _fake_enrichment_only(db, *, job, city, actor_id):
-        job.status = "stalled"
-        job.finished_at = stalled_finished_at
-        job.last_error = stalled_last_error
+        db.execute(
+            CityAdminImportJob.__table__.update()
+            .where(CityAdminImportJob.id == job.id)
+            .values(status="stalled", finished_at=stalled_finished_at, last_error=stalled_last_error)
+        )
         db.commit()
         return {"status": "success"}
 
@@ -184,9 +269,11 @@ def test_run_enrichment_only_job_exception_path_does_not_clobber_concurrently_st
     stalled_last_error = "Import job stalled: no heartbeat before timeout"
 
     def _fake_enrichment_only_raises(db, *, job, city, actor_id):
-        job.status = "stalled"
-        job.finished_at = stalled_finished_at
-        job.last_error = stalled_last_error
+        db.execute(
+            CityAdminImportJob.__table__.update()
+            .where(CityAdminImportJob.id == job.id)
+            .values(status="stalled", finished_at=stalled_finished_at, last_error=stalled_last_error)
+        )
         db.commit()
         raise RuntimeError("provider crashed after stall recovery already ran")
 
@@ -202,24 +289,28 @@ def test_run_enrichment_only_job_exception_path_does_not_clobber_concurrently_st
 
 def test_run_address_enrichment_job_blocked_path_does_not_clobber_concurrently_stalled_job_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
     """No places in the city => the "blocked" path's own _try_finalize(...,
-    "failed", ...) call must likewise be skipped if the row was already
-    stalled by the time it runs."""
+    "failed", ...) call must likewise be rejected if the row was already
+    stalled by the time it runs. Exercises _try_finalize directly since
+    _resolve_run_job would otherwise refuse to hand back an already-stalled
+    row before we even reach the finalize call."""
     city = city_factory(slug="stall-race-address-blocked-city")
     job = _claim(db_session, city_id=city.id)
     stalled_finished_at = datetime.utcnow() - timedelta(minutes=5)
     stalled_last_error = "Import job stalled: no heartbeat before timeout"
-    job.status = "stalled"
-    job.finished_at = stalled_finished_at
-    job.last_error = stalled_last_error
+    db_session.execute(
+        CityAdminImportJob.__table__.update()
+        .where(CityAdminImportJob.id == job.id)
+        .values(status="stalled", finished_at=stalled_finished_at, last_error=stalled_last_error)
+    )
     db_session.commit()
 
-    # _resolve_run_job requires status == "running", so calling the runner
-    # directly on an already-stalled row raises before reaching any finalize
-    # logic — this test instead exercises _try_finalize's guard directly
-    # against the exact field set the blocked path would have written,
-    # proving the guard (not luck) is what protects it.
-    result = _try_finalize(db_session, job, "failed", actor_id="tester")
-    assert result is False
+    result = _try_finalize(
+        db_session, job_id=job.id, new_status="failed", expected_claimed_by="worker-1", actor_id="tester",
+        fields={"finished_at": datetime.utcnow(), "last_error": "should not appear"},
+    )
+
+    assert result.ok is False
+    db_session.refresh(job)
     assert job.status == "stalled"
     assert job.finished_at == stalled_finished_at
     assert job.last_error == stalled_last_error
@@ -233,9 +324,11 @@ def test_run_photo_enrichment_job_success_path_does_not_clobber_concurrently_sta
     stalled_last_error = "Import job stalled: no heartbeat before timeout"
 
     def _fake_auto_repair(db, *, city, job, changed_place_ids):
-        job.status = "stalled"
-        job.finished_at = stalled_finished_at
-        job.last_error = stalled_last_error
+        db.execute(
+            CityAdminImportJob.__table__.update()
+            .where(CityAdminImportJob.id == job.id)
+            .values(status="stalled", finished_at=stalled_finished_at, last_error=stalled_last_error)
+        )
         db.commit()
         return {"repaired_count": 0}
 
@@ -253,15 +346,17 @@ def test_run_photo_enrichment_job_success_path_does_not_clobber_concurrently_sta
 
 def test_mark_worker_exception_does_not_clobber_concurrently_stalled_job_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
     city = city_factory(slug="stall-race-worker-exception-city")
-    job = _claim(db_session, city_id=city.id)
+    job = _claim(db_session, city_id=city.id, worker_id="worker-1")
     stalled_finished_at = datetime.utcnow() - timedelta(minutes=5)
     stalled_last_error = "Import job stalled: no heartbeat before timeout"
-    job.status = "stalled"
-    job.finished_at = stalled_finished_at
-    job.last_error = stalled_last_error
+    db_session.execute(
+        CityAdminImportJob.__table__.update()
+        .where(CityAdminImportJob.id == job.id)
+        .values(status="stalled", finished_at=stalled_finished_at, last_error=stalled_last_error)
+    )
     db_session.commit()
 
-    result = _mark_worker_exception(db_session, job_id=job.id, error="worker boom after stall recovery")
+    result = _mark_worker_exception(db_session, job_id=job.id, error="worker boom after stall recovery", expected_claimed_by="worker-1")
 
     assert result.status == "stalled"
     assert result.finished_at == stalled_finished_at
@@ -271,19 +366,31 @@ def test_mark_worker_exception_does_not_clobber_concurrently_stalled_job_new(db_
 
 def test_mark_worker_exception_still_marks_a_genuinely_running_job_failed_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
     """Sanity check: the guard must not become a no-op for the normal case
-    — a job that is genuinely still running when it crashes must still be
-    marked failed with the real error."""
+    — a job that is genuinely still running when it crashes, with the
+    correct claimed_by, must still be marked failed with the real error."""
     city = city_factory(slug="worker-exception-normal-path-city")
-    job = _claim(db_session, city_id=city.id)
+    job = _claim(db_session, city_id=city.id, worker_id="worker-1")
 
-    result = _mark_worker_exception(db_session, job_id=job.id, error="worker boom")
+    result = _mark_worker_exception(db_session, job_id=job.id, error="worker boom", expected_claimed_by="worker-1")
 
     assert result.status == "failed"
     assert result.last_error == "worker boom"
     assert result.step_details["worker_exception"]["error"] == "worker boom"
 
 
-# --- cancel_import_job and mark_stuck_import_jobs concurrency guards -------
+def test_mark_worker_exception_rejects_wrong_claimed_by_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """A stale/wrong worker identity must not be able to mark a job that
+    some OTHER worker is genuinely still running as failed."""
+    city = city_factory(slug="worker-exception-wrong-owner-city")
+    job = _claim(db_session, city_id=city.id, worker_id="worker-real")
+
+    result = _mark_worker_exception(db_session, job_id=job.id, error="impostor's error", expected_claimed_by="worker-impostor")
+
+    assert result.status == "running"
+    assert result.last_error is None
+
+
+# --- cancel_import_job and mark_stalled_import_jobs concurrency guards -----
 
 
 def test_cancel_import_job_raises_truthfully_when_already_stalled_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
@@ -291,12 +398,14 @@ def test_cancel_import_job_raises_truthfully_when_already_stalled_new(db_session
 
     city = city_factory(slug="cancel-race-stalled-city")
     job = _claim(db_session, city_id=city.id)
-    job.status = "stalled"
-    job.finished_at = datetime.utcnow()
-    job.last_error = "Import job stalled: no heartbeat before timeout"
+    original_last_error = "Import job stalled: no heartbeat before timeout"
+    original_finished_at = datetime.utcnow()
+    db_session.execute(
+        CityAdminImportJob.__table__.update()
+        .where(CityAdminImportJob.id == job.id)
+        .values(status="stalled", finished_at=original_finished_at, last_error=original_last_error)
+    )
     db_session.commit()
-    original_last_error = job.last_error
-    original_finished_at = job.finished_at
 
     with pytest.raises(ValueError, match="уже завершена"):
         cancel_import_job(db_session, city_id=city.id, actor_id="tester", job_id=job.id)
@@ -305,6 +414,19 @@ def test_cancel_import_job_raises_truthfully_when_already_stalled_new(db_session
     assert job.status == "stalled"
     assert job.last_error == original_last_error
     assert job.finished_at == original_finished_at
+
+
+def test_cancel_import_job_overrides_ownership_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """An admin cancel is an intentional override — it must succeed even
+    though it isn't the claimed_by owner, unlike a runner's own finalize."""
+    from services.admin_city_import_job_service import cancel_import_job
+
+    city = city_factory(slug="cancel-overrides-ownership-city")
+    job = _claim(db_session, city_id=city.id, worker_id="worker-real")
+
+    cancelled = cancel_import_job(db_session, city_id=city.id, actor_id="admin", job_id=job.id)
+
+    assert cancelled.status == "cancelled"
 
 
 def test_mark_stalled_import_jobs_uses_row_lock_and_is_idempotent_new(db_session: Session, city_factory: Callable[..., Any]) -> None:

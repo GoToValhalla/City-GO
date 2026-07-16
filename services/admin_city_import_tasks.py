@@ -242,8 +242,9 @@ def run_queued_import_jobs(
             # sequence (commit a log entry here, let the runner do its own
             # queued -> running later) that left a claimed-looking row
             # still status=queued and unlocked for a second worker to claim.
+            worker_id = _worker_id()
             try:
-                job = claim_queued_job(db, job_id=job_id, worker_id=_worker_id(), actor_id=actor_id)
+                job = claim_queued_job(db, job_id=job_id, worker_id=worker_id, actor_id=actor_id)
             except ValueError:
                 # Someone else (another concurrent worker process) claimed
                 # this exact row between our SELECT and our claim attempt —
@@ -321,7 +322,7 @@ def run_queued_import_jobs(
                 failed += 1
                 error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
                 errors.append(error)
-                failed_job = _mark_worker_exception(db, job_id=job_id, error=str(exc))
+                failed_job = _mark_worker_exception(db, job_id=job_id, error=str(exc), expected_claimed_by=worker_id)
                 claimed_jobs.append({"job_id": job_id, "terminal_status": str(failed_job.status if failed_job else "failed")})
                 _log_worker_decision(
                     db,
@@ -389,28 +390,40 @@ def _log_worker_decision(
     )
 
 
-def _mark_worker_exception(db: Session, *, job_id: int, error: str) -> CityAdminImportJob | None:
-    job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
-    if job is None:
+def _mark_worker_exception(db: Session, *, job_id: int, error: str, expected_claimed_by: str) -> CityAdminImportJob | None:
+    # expected_claimed_by is required (this worker's own claim identity,
+    # the same one passed to claim_queued_job for this exact job_id) —
+    # _try_finalize re-selects the row under FOR UPDATE and verifies BOTH
+    # status=="running" AND claimed_by==expected_claimed_by before writing
+    # anything. If the row already left "running" (e.g. a concurrent
+    # stall-recovery sweep or admin cancel raced ahead of this exception
+    # handler and was committed by a DIFFERENT connection — this is
+    # exactly what happens when a runner's own atomic finalize attempt
+    # lost that race and its InvalidJobTransitionError-equivalent
+    # propagated here as the caught exception), result.ok is False and
+    # none of the fields below are written — the row's real terminal
+    # state (set by whoever actually holds the lock first) must not be
+    # overwritten with this run's own late-arriving crash message.
+    finished_at = datetime.utcnow()
+    job_for_details = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
+    if job_for_details is None:
         return None
-    # If the row already left "running" (e.g. a concurrent stall-recovery
-    # sweep or admin cancel raced ahead of this exception handler — this
-    # is exactly what happens when a runner's own InvalidJobTransitionError
-    # propagates here as the caught exception), _try_finalize is a no-op
-    # and none of the fields below are touched — the row's real terminal
-    # state (set by whoever got there first) must not be overwritten with
-    # this run's own late-arriving crash message.
-    if not _try_finalize(db, job, "failed", actor_id="import-worker"):
-        return job
-    job.current_step = STEP_ERROR
-    job.last_error = error[:2000]
-    job.failed_items = max(int(job.failed_items or 0), 1)
-    job.finished_at = datetime.utcnow()
-    job.updated_at = job.finished_at
-    details = dict(job.step_details or {})
-    details["worker_exception"] = {"error": error[:1000], "failed_at": job.finished_at.isoformat()}
-    job.step_details = details
-    return job
+    details = dict(job_for_details.step_details or {})
+    details["worker_exception"] = {"error": error[:1000], "failed_at": finished_at.isoformat()}
+    result = _try_finalize(
+        db, job_id=job_id, new_status="failed", expected_claimed_by=expected_claimed_by, actor_id="import-worker",
+        fields={
+            "current_step": STEP_ERROR,
+            "last_error": error[:2000],
+            "failed_items": max(int(job_for_details.failed_items or 0), 1),
+            "finished_at": finished_at,
+            "updated_at": finished_at,
+            "step_details": details,
+        },
+    )
+    if result.ok:
+        return result.job
+    return db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
 
 
 def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: datetime | None = None) -> int:
