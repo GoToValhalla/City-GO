@@ -166,7 +166,7 @@
           "profile": "tourist_core_strict",
           "enabled": true,
           "refresh_interval_hours": 168,
-          "bbox": {"south": 43.0758, "west": 76.7232, "north": 43.4002, "east": 77.1684}
+          "bbox": {"south": 43.0758, "west": 76.7232, "north": 43.6000, "east": 77.2500}
         },
         {
           "code": "food_area",
