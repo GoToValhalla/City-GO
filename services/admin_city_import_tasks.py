@@ -23,8 +23,8 @@ from services.admin_city_import_job_service import (
     SOURCE_FULL_IMPORT,
     SOURCE_PHOTO_ENRICHMENT,
     SOURCE_SNAPSHOT_REFRESH,
-    InvalidJobTransitionError,
     _transition,
+    _try_finalize,
     claim_queued_job,
     run_address_enrichment_job,
     run_city_import_job,
@@ -170,7 +170,17 @@ def run_queued_import_jobs(
                     for job in jobs
                 ],
             }
-        jobs = query.with_for_update(skip_locked=True).limit(limit).all()
+        # No FOR UPDATE / SKIP LOCKED here: with limit > 1 those locks would
+        # be released by this loop's OWN intermediate db.commit() calls
+        # (status-not-queued skip, safe-mode block, claim-skip) long before
+        # the loop reaches later rows in the same batch — a lock a
+        # transaction no longer holds provides no protection, so relying on
+        # it here was misleading rather than unsafe. The real, sole atomic
+        # guard is claim_queued_job's own per-row SELECT ... FOR UPDATE,
+        # acquired and released within one uninterrupted commit for each
+        # job as the loop reaches it — see its docstring. This batch SELECT
+        # only needs to name candidates; it does not need to hold them.
+        jobs = query.limit(limit).all()
         if not jobs:
             running_query = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running")
             if city_slug:
@@ -383,10 +393,15 @@ def _mark_worker_exception(db: Session, *, job_id: int, error: str) -> CityAdmin
     job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
     if job is None:
         return None
-    try:
-        _transition(db, job, "failed", actor_id="import-worker")
-    except InvalidJobTransitionError:
-        pass
+    # If the row already left "running" (e.g. a concurrent stall-recovery
+    # sweep or admin cancel raced ahead of this exception handler — this
+    # is exactly what happens when a runner's own InvalidJobTransitionError
+    # propagates here as the caught exception), _try_finalize is a no-op
+    # and none of the fields below are touched — the row's real terminal
+    # state (set by whoever got there first) must not be overwritten with
+    # this run's own late-arriving crash message.
+    if not _try_finalize(db, job, "failed", actor_id="import-worker"):
+        return job
     job.current_step = STEP_ERROR
     job.last_error = error[:2000]
     job.failed_items = max(int(job.failed_items or 0), 1)
@@ -400,7 +415,12 @@ def _mark_worker_exception(db: Session, *, job_id: int, error: str) -> CityAdmin
 
 def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: datetime | None = None) -> int:
     current = now or datetime.utcnow()
-    jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").all()
+    # FOR UPDATE: two concurrent stall-sweeps (e.g. a cron tick overlapping
+    # an admin's manual "mark stalled" click) must not both decide to stall
+    # the same row from a stale, unlocked read — the second sweep's SELECT
+    # blocks until the first sweep's transaction commits or rolls back, so
+    # it then sees the row's real current status.
+    jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").with_for_update().all()
     stalled = [job for job in jobs if is_stalled(job, now=current)]
     alerts: list[dict[str, object]] = []
     for job in stalled:

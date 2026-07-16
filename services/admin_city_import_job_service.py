@@ -139,6 +139,40 @@ def _transition(db: Session, job: CityAdminImportJob, new_status: str, *, actor_
     job.updated_at = datetime.utcnow()
 
 
+def _try_finalize(db: Session, job: CityAdminImportJob, new_status: str, *, actor_id: str | None = None) -> bool:
+    """Attempt the one terminal _transition a runner performs at the end of
+    its own work. Returns True if it applied (the caller may then safely
+    write finished_at/current_step/step_details/last_error — the row is
+    still "owned" by this run), False if it was rejected because the row
+    left "running" out from under this run (e.g. mark_stalled_import_jobs
+    or an admin cancel raced ahead of us and already made it terminal).
+
+    This exists because every runner used to call _transition and then
+    unconditionally write several more fields regardless of whether the
+    transition actually took effect — when it didn't (InvalidJobTransitionError),
+    those unconditional writes silently overwrote the OTHER process's
+    truthful terminal state (its real finished_at, its real last_error)
+    with this run's own crash/exception message, even though job.status
+    itself correctly stayed on the other process's value. The row's
+    status was never corrupted, but its diagnostic fields were — an admin
+    reading a stalled job's last_error would see "invalid transition
+    stalled -> success" instead of the real stall reason.
+
+    Callers must skip every write that belongs to "this run finished" once
+    this returns False; the row now belongs to whichever process
+    terminalized it first."""
+    try:
+        _transition(db, job, new_status, actor_id=actor_id)
+    except InvalidJobTransitionError as exc:
+        log_import_event(
+            db, event="import_job_finalize_skipped_recovered_externally", city_slug=None, actor_id=actor_id, level="warning",
+            message=f"Job #{job.id} finalize to {new_status} skipped: row already left running (now {exc.from_status}) — recovered externally while this run was in flight",
+            details={"job_id": job.id, "attempted_status": new_status, "actual_status": exc.from_status}, job_id=job.id,
+        )
+        return False
+    return True
+
+
 def queue_city_import_job(db: Session, *, city_id: int, actor_id: str | None = None) -> CityAdminImportJob:
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
@@ -459,40 +493,45 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int
         if publication.get("status") == "failed" and combined_status in {"success", "success_with_warnings"}:
             combined_status = "partial_success"
             job.last_error = f"publication_stage_failed:{','.join(publication.get('reasons', []))}"
-        _transition(db, job, combined_status, actor_id=actor_id)
-        job.finished_at = datetime.utcnow()
-        city.last_import_at = job.finished_at
-        job.step_details = {
-            **dict(job.step_details or {}),
-            "publication_finalize": publication,
-        }
-        _refresh_snapshot_light(db, city=city, job=job, source="import_worker_finished")
-        log_import_event(db, event="unified_import_pipeline_finished", city_slug=city.slug, actor_id=actor_id, message=f"Полный pipeline #{job.id}: {len(ids)} изменений; auto-repair {auto_repair.get('repaired_count', 0)}; публикация города сохранена", details={"job_id": job.id, "changed_places": len(ids), "warnings": warnings, "auto_repair": auto_repair, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active)}, job_id=job.id)
+        # If the row left "running" while we were working (e.g. a concurrent
+        # mark_stalled_import_jobs sweep or an admin cancel), _try_finalize
+        # returns False and none of the finish-up writes below run — the
+        # row's real terminal state (set by whoever got there first) must
+        # not be overwritten with this run's own late-arriving result.
+        if _try_finalize(db, job, combined_status, actor_id=actor_id):
+            job.finished_at = datetime.utcnow()
+            city.last_import_at = job.finished_at
+            job.step_details = {
+                **dict(job.step_details or {}),
+                "publication_finalize": publication,
+            }
+            _refresh_snapshot_light(db, city=city, job=job, source="import_worker_finished")
+            log_import_event(db, event="unified_import_pipeline_finished", city_slug=city.slug, actor_id=actor_id, message=f"Полный pipeline #{job.id}: {len(ids)} изменений; auto-repair {auto_repair.get('repaired_count', 0)}; публикация города сохранена", details={"job_id": job.id, "changed_places": len(ids), "warnings": warnings, "auto_repair": auto_repair, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active)}, job_id=job.id)
         db.commit()
-        _alert(db, city, job, len(ids), readiness, warnings)
+        if job.status == combined_status:
+            _alert(db, city, job, len(ids), readiness, warnings)
     except Exception as exc:
         db.rollback()
         job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).first()
         city = db.query(City).filter(City.id == city_id).first()
         total = db.query(Place).filter(Place.city_id == city_id).count()
         ids = [int(v) for v in ((job.step_details or {}).get("changed_place_ids") or [])] if job else []
-        if job:
+        finalized = False
+        if job and _try_finalize(db, job, "partial_success" if ids else "failed", actor_id=actor_id):
             # This run's own changed_place_ids (recorded before the crash) is the
             # only truthful signal that *this* run made meaningful progress.
             # total > 0 (city has any place, possibly from a prior run) must not
             # by itself downgrade a hard failure of this run to partial_success.
-            try:
-                _transition(db, job, "partial_success" if ids else "failed", actor_id=actor_id)
-            except InvalidJobTransitionError:
-                pass
             job.last_error = str(exc)[:2000]
             job.finished_at = datetime.utcnow()
-        if city is not None:
-            city.last_import_at = datetime.utcnow()
-        if job and city is not None:
-            _refresh_snapshot_light(db, city=city, job=job, source="import_pipeline_failed")
+            finalized = True
+            if city is not None:
+                city.last_import_at = datetime.utcnow()
+            if city is not None:
+                _refresh_snapshot_light(db, city=city, job=job, source="import_pipeline_failed")
         db.commit()
-        send_admin_alert(title="Import completed with warnings" if total > 0 else "Import pipeline failed", message=f"Pipeline прерван. Изменённых мест: {len(ids)}. Публикация города не изменялась.", level="warning" if total > 0 else "error", city_slug=city.slug if city else None, job_id=int(job.id) if job else None, details={"status": job.status if job else "failed", "places_total": total, "changed_places": len(ids), "city_launch_status": city.launch_status if city else None, "city_is_active": bool(city.is_active) if city else None, "warnings": [{"step": "unified_pipeline", "error": str(exc)[:1000]}]})
+        if finalized:
+            send_admin_alert(title="Import completed with warnings" if total > 0 else "Import pipeline failed", message=f"Pipeline прерван. Изменённых мест: {len(ids)}. Публикация города не изменялась.", level="warning" if total > 0 else "error", city_slug=city.slug if city else None, job_id=int(job.id) if job else None, details={"status": job.status if job else "failed", "places_total": total, "changed_places": len(ids), "city_launch_status": city.launch_status if city else None, "city_is_active": bool(city.is_active) if city else None, "warnings": [{"step": "unified_pipeline", "error": str(exc)[:1000]}]})
     db.refresh(job)
     return job
 
@@ -506,9 +545,12 @@ def run_snapshot_refresh_job(db: Session, *, city_id: int, actor_id: str, job_id
     job.current_step = "snapshot_refresh"
     db.commit()
     _refresh_snapshot_light(db, city=city, job=job, source="snapshot_refresh_job")
-    _transition(db, job, "success", actor_id=actor_id)
-    job.finished_at = datetime.utcnow()
-    job.current_step = "snapshot_ready"
+    # If the row left "running" while the snapshot refresh was in flight
+    # (e.g. a concurrent stall-recovery sweep), skip finalizing it as
+    # "success" over whatever truthful terminal state got there first.
+    if _try_finalize(db, job, "success", actor_id=actor_id):
+        job.finished_at = datetime.utcnow()
+        job.current_step = "snapshot_ready"
     db.commit()
     db.refresh(job)
     return job
@@ -544,11 +586,11 @@ def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_
             "address_enrichment": {"scanned_places": 0, "updated": 0, "checked": 0, "blocked_reason": prerequisites["blocked_reason"]},
             "prerequisites": prerequisites,
         }
-        _transition(db, job, "failed", actor_id=actor_id)
-        job.finished_at = datetime.utcnow()
-        job.current_step = STEP_ERROR
-        job.last_error = f"Добор адресов заблокирован: {prerequisites['blocked_reason']}"
-        log_import_event(db, event="address_enrichment_blocked", city_slug=city.slug, actor_id=actor_id, level="warning", message=f"Добор адресов #{job.id} заблокирован: {prerequisites['blocked_reason']}", details={"job_id": job.id, "city_id": city.id, "source": SOURCE_ADDRESS_ENRICHMENT, "prerequisites": prerequisites}, job_id=job.id)
+        if _try_finalize(db, job, "failed", actor_id=actor_id):
+            job.finished_at = datetime.utcnow()
+            job.current_step = STEP_ERROR
+            job.last_error = f"Добор адресов заблокирован: {prerequisites['blocked_reason']}"
+            log_import_event(db, event="address_enrichment_blocked", city_slug=city.slug, actor_id=actor_id, level="warning", message=f"Добор адресов #{job.id} заблокирован: {prerequisites['blocked_reason']}", details={"job_id": job.id, "city_id": city.id, "source": SOURCE_ADDRESS_ENRICHMENT, "prerequisites": prerequisites}, job_id=job.id)
         db.commit()
         db.refresh(job)
         return job
@@ -557,14 +599,16 @@ def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_
     job.step_details = {**dict(job.step_details or {}), "address_enrichment": result, "auto_repair": auto_repair, "prerequisites": prerequisites}
     deadline_exceeded = bool(isinstance(result, dict) and result.get("deadline_exceeded"))
     errors = int(result.get("errors") or 0) if isinstance(result, dict) else 0
-    _transition(db, job, "success_with_warnings" if deadline_exceeded or errors > 0 else "success", actor_id=actor_id)
-    if deadline_exceeded:
-        checked = int(result.get("checked") or 0) if isinstance(result, dict) else 0
-        job.last_error = f"Добор адресов остановлен по таймауту выполнения после проверки {checked} мест."
-    job.finished_at = datetime.utcnow()
-    job.current_step = "snapshot_refresh"
-    db.commit()
-    _refresh_snapshot_light(db, city=city, job=job, source="address_enrichment_finished")
+    if _try_finalize(db, job, "success_with_warnings" if deadline_exceeded or errors > 0 else "success", actor_id=actor_id):
+        if deadline_exceeded:
+            checked = int(result.get("checked") or 0) if isinstance(result, dict) else 0
+            job.last_error = f"Добор адресов остановлен по таймауту выполнения после проверки {checked} мест."
+        job.finished_at = datetime.utcnow()
+        job.current_step = "snapshot_refresh"
+        db.commit()
+        _refresh_snapshot_light(db, city=city, job=job, source="address_enrichment_finished")
+    else:
+        db.commit()
     db.refresh(job)
     return job
 
@@ -586,11 +630,11 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_id
             "photo_diagnostics": photo_diagnostics,
             "prerequisites": prerequisites,
         }
-        _transition(db, job, "failed", actor_id=actor_id)
-        job.finished_at = datetime.utcnow()
-        job.current_step = STEP_ERROR
-        job.last_error = f"Добор фото заблокирован: {prerequisites['blocked_reason']}"
-        log_import_event(db, event="photo_enrichment_blocked", city_slug=city.slug, actor_id=actor_id, level="warning", message=f"Добор фото #{job.id} заблокирован: {prerequisites['blocked_reason']}", details={"job_id": job.id, "city_id": city.id, "source": SOURCE_PHOTO_ENRICHMENT, "prerequisites": prerequisites}, job_id=job.id)
+        if _try_finalize(db, job, "failed", actor_id=actor_id):
+            job.finished_at = datetime.utcnow()
+            job.current_step = STEP_ERROR
+            job.last_error = f"Добор фото заблокирован: {prerequisites['blocked_reason']}"
+            log_import_event(db, event="photo_enrichment_blocked", city_slug=city.slug, actor_id=actor_id, level="warning", message=f"Добор фото #{job.id} заблокирован: {prerequisites['blocked_reason']}", details={"job_id": job.id, "city_id": city.id, "source": SOURCE_PHOTO_ENRICHMENT, "prerequisites": prerequisites}, job_id=job.id)
         db.commit()
         db.refresh(job)
         return job
@@ -610,14 +654,16 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_id
     job.successful_items = scanned
     job.failed_items = len(errors or []) if isinstance(errors, list) else 0
     job.step_details = {**dict(job.step_details or {}), "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair, "prerequisites": prerequisites}
-    _transition(db, job, "success_with_warnings" if created <= 0 and str(photo_diagnostics.get("provider_status") or "") not in {"success", ""} else "success", actor_id=actor_id)
-    if isinstance(result, dict) and result.get("deadline_exceeded"):
-        job.last_error = f"Добор фото остановлен по таймауту выполнения после просмотра {scanned} мест."
-    job.finished_at = datetime.utcnow()
-    job.current_step = "snapshot_refresh"
-    log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair}, job_id=job.id)
-    db.commit()
-    _refresh_snapshot_light(db, city=city, job=job, source="photo_enrichment_finished")
+    if _try_finalize(db, job, "success_with_warnings" if created <= 0 and str(photo_diagnostics.get("provider_status") or "") not in {"success", ""} else "success", actor_id=actor_id):
+        if isinstance(result, dict) and result.get("deadline_exceeded"):
+            job.last_error = f"Добор фото остановлен по таймауту выполнения после просмотра {scanned} мест."
+        job.finished_at = datetime.utcnow()
+        job.current_step = "snapshot_refresh"
+        log_import_event(db, event="photo_enrichment_finished", city_slug=city.slug, actor_id=actor_id, message=f"Добор фото #{job.id}: создано {created}, просмотрено {scanned}, provider={provider_status or 'unknown'}", details={"job_id": job.id, "source": SOURCE_PHOTO_ENRICHMENT, "photo_enrichment": result, "photo_diagnostics": photo_diagnostics, "auto_repair": auto_repair}, job_id=job.id)
+        db.commit()
+        _refresh_snapshot_light(db, city=city, job=job, source="photo_enrichment_finished")
+    else:
+        db.commit()
     db.refresh(job)
     return job
 
@@ -701,22 +747,26 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str, job_id:
         source_status = str((job.step_details or {}).get("source_enrichment_status") or "success")
         auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=ids)
         job.step_details = {**dict(job.step_details or {}), "auto_repair": auto_repair}
-        _transition(db, job, _combine_status(enrichment_only_status, source_status, "success"), actor_id=actor_id)
-        job.finished_at = datetime.utcnow()
-        _refresh_snapshot_light(db, city=city, job=job, source="enrichment_only_finished")
+        # If the row left "running" while this pipeline was in flight (e.g.
+        # a concurrent stall-recovery sweep or admin cancel), skip
+        # finalizing it as success over whatever truthful terminal state
+        # got there first.
+        if _try_finalize(db, job, _combine_status(enrichment_only_status, source_status, "success"), actor_id=actor_id):
+            job.finished_at = datetime.utcnow()
+            db.commit()
+            _refresh_snapshot_light(db, city=city, job=job, source="enrichment_only_finished")
+        else:
+            db.commit()
     except Exception as exc:
-        try:
-            _transition(db, job, "failed", actor_id=actor_id)
-        except InvalidJobTransitionError:
-            pass
-        job.current_step = STEP_ERROR
-        job.last_error = str(exc)[:2000]
-        job.failed_items = max(int(job.failed_items or 0), 1)
-        job.finished_at = datetime.utcnow()
-        job.updated_at = job.finished_at
-        details = dict(job.step_details or {})
-        details["worker_exception"] = {"error": str(exc)[:1000], "failed_at": job.finished_at.isoformat()}
-        job.step_details = details
+        if _try_finalize(db, job, "failed", actor_id=actor_id):
+            job.current_step = STEP_ERROR
+            job.last_error = str(exc)[:2000]
+            job.failed_items = max(int(job.failed_items or 0), 1)
+            job.finished_at = datetime.utcnow()
+            job.updated_at = job.finished_at
+            details = dict(job.step_details or {})
+            details["worker_exception"] = {"error": str(exc)[:1000], "failed_at": job.finished_at.isoformat()}
+            job.step_details = details
         db.commit()
         raise
     db.refresh(job)
@@ -727,14 +777,25 @@ def cancel_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int) 
     # Not routed through _resolve_run_job/load_job_for_run: cancelling a
     # job that is still queued (never claimed by a worker) is a normal,
     # valid action, so this must not require status == "running".
-    job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
+    # FOR UPDATE: locks against a concurrent worker finishing this exact
+    # job (or a concurrent mark_stalled_import_jobs sweep) between the
+    # status check below and the cancel write.
+    job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).with_for_update().first()
     if job is None:
         raise ValueError(f"Задача импорта #{job_id} не найдена")
     if int(job.city_id) != int(city_id):
         raise ValueError(f"Задача импорта #{job_id} принадлежит другому городу")
     if job.status != "running" and job.current_step not in {STEP_QUEUED, "queued"} and job.status in {"success", "failed"}:
         raise ValueError("Задача уже завершена")
-    _transition(db, job, "cancelled", actor_id=actor_id)
+    if not _try_finalize(db, job, "cancelled", actor_id=actor_id):
+        # The row left queued/running (a worker finished it, or a stall
+        # sweep already terminalized it) in the moment between our own
+        # status check above and acquiring the lock — truthfully report
+        # this as "already finished" rather than silently overwriting
+        # whatever terminal state got there first.
+        db.commit()
+        db.refresh(job)
+        raise ValueError("Задача уже завершена")
     job.current_step = STEP_CANCELLED
     job.cancelled_at = datetime.utcnow()
     job.finished_at = datetime.utcnow()

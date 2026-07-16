@@ -16,7 +16,7 @@ from db.session import SessionLocal
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_alert_service import send_admin_alert
-from services.admin_city_import_job_service import _transition
+from services.admin_city_import_job_service import _try_finalize
 from services.admin_city_import_tasks import run_queued_import_jobs
 from services.import_pipeline.progress import worker_progress_snapshot
 from services.import_pipeline.steps import STEP_ERROR
@@ -158,12 +158,20 @@ def run_import_queue_once(limit: int = 1, auth: AdminContext = Depends(admin_req
 @router.post("/import-queue/mark-stalled")
 def mark_stuck_import_jobs(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
     now = datetime.utcnow()
-    jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").all()
+    # FOR UPDATE: locks against a concurrent worker finishing this exact
+    # job (or the automatic mark_stalled_import_jobs sweep) between this
+    # SELECT and the write below.
+    jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").with_for_update().all()
     stuck = [job for job in jobs if _is_stuck(job, now=now)]
     marked: list[int] = []
     for job in stuck:
         city = db.query(City).filter(City.id == job.city_id).first()
         previous_status = job.status
+        if not _try_finalize(db, job, "stalled", actor_id=auth.actor_id):
+            # Someone else (a worker finishing normally, or the automatic
+            # sweep) already terminalized this row — skip it, its real
+            # terminal state must not be overwritten.
+            continue
         details = dict(job.step_details or {})
         details["manual_stalled_recovery"] = {
             "marked_at": now.isoformat(),
@@ -171,7 +179,6 @@ def mark_stuck_import_jobs(auth: AdminContext = Depends(admin_required), db: Ses
             "running_seconds": _running_seconds(job, now=now),
         }
         job.step_details = details
-        _transition(db, job, "stalled", actor_id=auth.actor_id)
         job.current_step = STEP_ERROR
         job.last_error = job.last_error or "Recovered stale import job: no active worker heartbeat / worker process absent"
         job.finished_at = now
