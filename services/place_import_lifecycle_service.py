@@ -110,6 +110,29 @@ def apply_accepted_import_to_place(
     if _is_major_category_change(place.category, incoming_category):
         review_reasons.append("major_category_change")
 
+    # CITYGO-342: a published place must stay live and unmodified while its
+    # proposed diff awaits admin review — proposed field values are never
+    # written onto the live row before approval. The full before/after
+    # change_set is still returned (and persisted into the review queue
+    # item's payload by the caller) so an admin can approve/reject the exact
+    # proposed values later. Only an unpublished place (draft/needs_review/
+    # hidden) may have the diff applied and be hidden immediately, matching
+    # the existing hide-until-reviewed contract for places nobody sees yet.
+    was_public = bool(place.is_published and place.is_visible_in_catalog)
+    if was_public:
+        now = datetime.utcnow()
+        touched_fields: list[str] = []
+        _set_if_changed(place, "last_verified_at", now, touched_fields)
+        _set_if_changed(place, "updated_at", now, touched_fields)
+        return PlaceImportDecision(
+            action="needs_review",
+            status=place.status,
+            is_active=bool(place.is_active),
+            changed_fields=changed_fields,
+            review_reasons=review_reasons,
+            change_set=change_set,
+        )
+
     for field, value in proposed.items():
         _set_if_changed(place, field, value, changed_fields=None)
 
@@ -170,9 +193,11 @@ def _mark_place_for_review(place: Place, changed_fields: list[str]) -> None:
 
 def _hide_for_review(place: Place, changed_fields: list[str]) -> None:
     """Import-diff-triggered review mark (apply_accepted_import_to_place): a
-    structural field change (title/category/address/coordinates) must always
-    hide the place and create review-queue lineage, regardless of current
-    publication state — there is no always-public exception for this path."""
+    structural field change (title/category/address/coordinates) hides the
+    place and creates review-queue lineage. CITYGO-342: the caller only
+    reaches this function for a place that was NOT already public — an
+    already-public place takes the preserve-live-publication branch in
+    apply_accepted_import_to_place instead and never reaches here."""
     now = datetime.utcnow()
     was_public = bool(place.is_published and place.is_visible_in_catalog)
     _set_if_changed(place, "status", NEEDS_REVIEW_STATUS, changed_fields)

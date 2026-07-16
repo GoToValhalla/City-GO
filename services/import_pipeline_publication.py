@@ -22,11 +22,24 @@ def apply_pipeline_publication(
     evidence_allowed: bool = False,
     snapshot_id: int | None = None,
 ) -> None:
+    """CITYGO-339: the mid-pipeline publication step. This runs before any
+    quality-snapshot evidence exists, so it must never auto-publish a place
+    and must never unpublish a place an admin already made live — for an
+    already-public place it only records the canonical decision and creates
+    a review item. A place that is not yet public may still be archived or
+    marked needs_review here (existing, tested import-time safety behavior
+    for invalid coordinates, hard-excluded categories, etc. — see
+    tests/test_import_pipeline_foundation_safety.py). Real live publication
+    is applied later, after real evidence exists, by
+    services/import_publication_finalize.py, or by an explicit admin action.
+    """
     import_decision = assess_place_import_decision(place)
     verdict = evaluate_canonical_publication(place, import_decision=import_decision, evidence_allowed=evidence_allowed)
-    key = apply_canonical_publication_verdict(db, place, verdict, job_id=job.id, snapshot_id=snapshot_id)
+    key = apply_canonical_publication_verdict(
+        db, place, verdict, job_id=job.id, snapshot_id=snapshot_id, record_only=True,
+    )
     counters[key] = counters.get(key, 0) + 1
-    if verdict.outcome == "review":
+    if verdict.outcome in {"review", "reject", "blocked"}:
         ensure_review_item(
             db,
             city_id=city.id,

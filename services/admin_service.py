@@ -15,6 +15,7 @@ from services.admin_audit_service import write_admin_audit_log
 from services.admin_city_import_job_service import queue_city_import_job
 from services.admin_city_import_setup import finish_city_import_setup
 from services.admin_places_filters import apply_place_filters
+from services.canonical_publication_apply import apply_admin_city_publication_place
 from services.place_publication_eligibility import place_publication_eligibility
 from services.place_read_service import build_place_read
 from services.place_service import create_place, get_place_by_id, get_places, get_places_total, update_place
@@ -135,16 +136,11 @@ def publish_place(db: Session, place_id: int, *, actor: str, reason: str | None 
         raise PlacePublicationBlockedError(place_id=place_id, blocked_reason=failed_gates[0], failed_gates=failed_gates)
     old_value = _place_publication_snapshot(place)
     now = datetime.utcnow()
-    place.is_active = True
-    place.status = "active"
-    place.is_published = True
-    place.is_visible_in_catalog = True
-    place.is_searchable = True
-    place.is_route_eligible = True
-    place.publication_status = "published"
-    place.publication_comment = reason
-    place.published_at = now
-    place.unpublished_at = None
+    # CITYGO-343: route eligibility must always come from
+    # evaluate_place_route_eligibility() (via the same canonical writer
+    # city-wide publication uses), never a hardcoded True — a single-place
+    # admin publish and a city-wide publish must behave identically.
+    apply_admin_city_publication_place(place, now=now, reason=reason)
     write_admin_audit_log(
         db,
         actor=actor,

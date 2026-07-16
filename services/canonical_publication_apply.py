@@ -20,7 +20,30 @@ def apply_canonical_publication_verdict(
     job_id: int | None,
     snapshot_id: int | None,
     actor: str = "import_pipeline",
+    record_only: bool = False,
 ) -> str:
+    """Apply a canonical publication verdict.
+
+    CITYGO-339/341: ``record_only=True`` is for import-pipeline call sites
+    that run before any quality-snapshot evidence exists (e.g. the
+    mid-pipeline ``apply_publication_decisions`` step). In that mode this
+    function must never auto-publish a place (never call _set_published) —
+    that is the "publish" outcome the ticket names, and it is reserved for
+    evidence-gated import finalization (services/import_publication_finalize.py,
+    which only runs after real snapshot evidence exists) and explicit admin
+    actions (services/admin_service.py, services/admin_city_publication_service.py).
+
+    record_only does NOT suppress _set_review/_set_archived: hard safety
+    rejection (invalid coordinates, hard-excluded categories, missing
+    titles) and category/policy review-marks have always been allowed to
+    hide/unpublish even an already-live place — see
+    canonical_publication_guard.evaluate_canonical_publication's own
+    "hard safety rejection always wins, even for an already-public place"
+    contract, and tests/test_import_pipeline_foundation_safety.py, which
+    locks in that a place with 0,0 coordinates or a pharmacy/bus_stop
+    category must be archived/route-ineligible even mid-pipeline. That is
+    quality enforcement, not the "publish" action CITYGO-339 targets.
+    """
     _record_decision(db, place, verdict, job_id=job_id, snapshot_id=snapshot_id, actor=actor)
     if verdict.outcome == "preserve_public":
         return "preserved_public"
@@ -32,6 +55,8 @@ def apply_canonical_publication_verdict(
         return "rejected"
     if verdict.outcome == "review":
         _set_review(place, verdict.reasons[0] if verdict.reasons else "needs_review")
+        return "review_required"
+    if record_only:
         return "review_required"
     route_eligible = _route_eligible_for_publish(place)
     _set_published(place, route_eligible=route_eligible, reason=actor)

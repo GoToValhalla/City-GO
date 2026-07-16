@@ -18,6 +18,7 @@ from services.place_import_lifecycle_service import (
     existing_place_must_be_hidden,
     hide_place,
 )
+from services.review_queue_service import ensure_review_item
 
 BAD_TITLE_VALUES = {
     "yes",
@@ -107,6 +108,7 @@ def _cleanup_city(
     public_bad_places = 0
     already_hidden_bad_places = 0
     hidden_applied = 0
+    review_flagged = 0
 
     for place in places:
         category_counter[str(place.category or "none")] += 1
@@ -121,6 +123,7 @@ def _cleanup_city(
 
         reason_counter[reason] += 1
 
+        is_published = bool(place.is_published)
         if place.is_active:
             public_bad_places += 1
         else:
@@ -135,11 +138,35 @@ def _cleanup_city(
                     "category": place.category,
                     "status": place.status,
                     "is_active": place.is_active,
+                    "is_published": is_published,
                     "reason": reason,
                 }
             )
 
-        if apply and place.is_active:
+        if not apply:
+            continue
+
+        # CITYGO-341/CITYGO-344: a published place must never be unpublished
+        # by an automated quality-cleanup pass. Flag it for admin review with
+        # full evidence instead; only an unpublished (not yet live) bad place
+        # may actually be hidden here.
+        if is_published:
+            ensure_review_item(
+                db,
+                city_id=city.id,
+                place_id=place.id,
+                job_id=None,
+                field_name="quality_cleanup",
+                reason=reason,
+                severity="high",
+                payload={
+                    "kind": "quality_cleanup_flag",
+                    "place_status": place.status,
+                    "place_category": place.category,
+                },
+            )
+            review_flagged += 1
+        elif place.is_active:
             status = _target_status_for_reason(reason)
             hide_place(
                 place=place,
@@ -156,6 +183,7 @@ def _cleanup_city(
         "bad_places_public": public_bad_places,
         "bad_places_already_hidden": already_hidden_bad_places,
         "hidden_applied": hidden_applied,
+        "review_flagged": review_flagged,
         "reasons": dict(reason_counter),
         "categories": dict(category_counter),
         "statuses": dict(status_counter),

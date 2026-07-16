@@ -97,7 +97,7 @@ def evaluate_place_route_eligibility(
         "spam_poi" if getattr(place, "is_spam_poi", False) else "",
         "duplicate_suspected" if getattr(place, "is_duplicate_suspected", False) else "",
         "critical_field_expired" if getattr(place, "critical_field_expired", False) else "",
-        "place_archived" if getattr(place, "publication_status", "published") == "archived" else "",
+        _publication_status_reason(place),
     )))
     return RouteEligibilityVerdict(not reasons, reasons, category, _admin_bucket(reasons))
 
@@ -109,7 +109,7 @@ def compile_route_eligible_sql_conditions(context: str = "tourist_walk") -> tupl
         or_(Place.internal_status.is_(None), Place.internal_status != "service_only"),
         Place.lifecycle_status == "active", Place.is_published.is_(True), Place.is_visible_in_catalog.is_(True),
         Place.is_route_eligible.is_(True), Place.publication_status.in_(PUBLICATION_STATUSES),
-        Place.lat.is_not(None), Place.lng.is_not(None), Place.lat != 0.0, Place.lng != 0.0,
+        Place.lat.is_not(None), Place.lng.is_not(None), or_(Place.lat != 0.0, Place.lng != 0.0),
         *tuple(not_(Place.title.ilike(pattern)) for pattern in PLACEHOLDER_SQL_PATTERNS),
         category_ok, Place.place_layer.in_(ROUTE_ALLOWED_PLACE_LAYERS), Place.tourist_eligible.is_(True),
         Place.transport_required.is_(False), Place.route_policy.notin_(NON_WALKING_POLICIES),
@@ -171,6 +171,16 @@ def _layer_reason(place: Any) -> str:
     if getattr(place, "transport_required", False):
         return "transport_required_scope"
     return "non_walking_route_policy" if getattr(place, "route_policy", "city_walking") in NON_WALKING_POLICIES else ""
+
+
+def _publication_status_reason(place: Any) -> str:
+    """Must match compile_route_eligible_sql_conditions's
+    Place.publication_status.in_(PUBLICATION_STATUSES) allowlist exactly
+    (CITYGO-343). Absent attribute (lightweight test DTOs) defaults to the
+    allowed 'published', matching every other _present_and_* helper's
+    fail-open-for-DTOs convention in this module."""
+    value = getattr(place, "publication_status", "published")
+    return "" if value in PUBLICATION_STATUSES else f"publication_status_not_route_allowed:{value}"
 
 
 def _quality_reason(place: Any) -> str:

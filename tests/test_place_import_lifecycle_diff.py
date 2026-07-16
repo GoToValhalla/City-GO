@@ -65,8 +65,46 @@ def test_unchanged_place_is_not_touched():
     assert place.publication_status == "published"
 
 
-def test_changed_place_is_hidden_and_sent_to_review():
+def test_changed_published_place_stays_public_and_unmodified_pending_review():
+    """CITYGO-342: a published place must remain live and its proposed
+    values must NOT be written onto the live row before an admin approves
+    them — only the change_set (before/after) is computed and returned for
+    the review queue."""
     place = _place()
+
+    decision = apply_accepted_import_to_place(
+        place,
+        _item(address="Новая улица, 2"),
+        category_id=10,
+        visit_duration_minutes=75,
+    )
+
+    assert decision.action == "needs_review"
+    assert "address" in decision.changed_fields
+    assert decision.change_set["address"] == {"before": "Улица, 1", "after": "Новая улица, 2"}
+    # live row is untouched — proposed value never overwrote the approved one
+    assert place.address == "Улица, 1"
+    assert place.is_active is True
+    assert place.is_published is True
+    assert place.is_visible_in_catalog is True
+    assert place.is_searchable is True
+    assert place.publication_status == "published"
+    assert place.unpublished_at is None
+
+
+def test_changed_unpublished_place_is_hidden_and_sent_to_review():
+    """A place nobody sees yet (never published) may have its diff applied
+    immediately and stay hidden until review — there is no live catalog
+    entry to protect."""
+    place = _place(
+        is_active=True,
+        is_published=False,
+        is_visible_in_catalog=False,
+        is_route_eligible=False,
+        is_searchable=False,
+        publication_status="needs_review",
+        status="needs_review",
+    )
 
     decision = apply_accepted_import_to_place(
         place,
@@ -85,4 +123,3 @@ def test_changed_place_is_hidden_and_sent_to_review():
     assert place.is_visible_in_catalog is False
     assert place.is_searchable is False
     assert place.is_route_eligible is False
-    assert place.unpublished_at is not None
