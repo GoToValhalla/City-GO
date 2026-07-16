@@ -513,6 +513,42 @@ def test_api_diagnostic_response_includes_new_fields_new(client, db_session: Ses
     assert body["attempts"] == []
 
 
+def test_api_diagnostic_response_includes_steps_and_funnel_accounting_new(client, db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """CITYGO-314/315/316 end-to-end contract check through the real HTTP
+    endpoint: steps, funnel, and funnel_accounting all survive Pydantic
+    response serialization, not just the raw service dict."""
+    city = city_factory(slug="diag-api-funnel-fields")
+    job = _create_job(
+        db_session, city_id=city.id, status="success", finished_at=datetime.utcnow(),
+        step_details={
+            "collecting_places": {
+                "import_diff": {
+                    "funnel": {
+                        "requested": 3, "fetched": 3, "deduplicated": "unavailable", "normalized": 3,
+                        "accepted": 2, "rejected_by_reason": {"missing_name": 1}, "matched_existing": 0,
+                        "created": 2, "updated": 0, "unchanged": 0, "hidden": 0, "sent_to_review": 0, "failed": 0,
+                    },
+                },
+            },
+        },
+    )
+    db_session.add(ImportJobStep(
+        job_id=job.id, step_name="collecting_places", status="success", counters={"total": 3},
+        started_at=datetime.utcnow() - timedelta(seconds=5), finished_at=datetime.utcnow(),
+    ))
+    db_session.commit()
+
+    response = client.get(f"/admin/import-jobs/{job.id}/diagnostic")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["steps"][0]["step_name"] == "collecting_places"
+    assert body["steps"][0]["duration_seconds"] >= 5
+    assert body["funnel"]["requested"] == 3
+    assert body["funnel_accounting"]["ok"] is True
+    assert body["funnel_accounting"]["checked"] is True
+
+
 def test_missing_lifecycle_events_leave_worker_fields_nullable_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
     """A job that has never had any worker-lifecycle event reported (e.g. it
     was processed by the in-process worker loop without the workflow
@@ -537,3 +573,116 @@ def test_missing_lifecycle_events_leave_worker_fields_nullable_new(db_session: S
     assert diagnostic["workflow_name"] is None
     assert diagnostic["workflow_run_id"] is None
     assert diagnostic["workflow_run_url"] is None
+
+
+# --- CITYGO-316: complete funnel + per-step breakdown exposed in diagnostics ---
+
+
+def test_diagnostic_exposes_step_breakdown_from_persisted_import_job_steps_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    city = city_factory(slug="diag-step-breakdown")
+    job = _create_job(db_session, city_id=city.id, status="success", finished_at=datetime.utcnow())
+    step = ImportJobStep(
+        job_id=job.id, step_name="collecting_places", status="success",
+        counters={"total": 10, "processed": 10, "successful": 8},
+        started_at=datetime.utcnow() - timedelta(seconds=12),
+        finished_at=datetime.utcnow(),
+    )
+    db_session.add(step)
+    db_session.commit()
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert len(diagnostic["steps"]) == 1
+    row = diagnostic["steps"][0]
+    assert row["step_name"] == "collecting_places"
+    assert row["status"] == "success"
+    assert row["duration_seconds"] is not None
+    assert row["duration_seconds"] >= 12
+    assert row["counters"] == {"total": 10, "processed": 10, "successful": 8}
+
+
+def test_diagnostic_step_duration_is_none_not_zero_when_step_still_running_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    city = city_factory(slug="diag-step-still-running")
+    job = _create_job(db_session, city_id=city.id, status="running")
+    step = ImportJobStep(job_id=job.id, step_name="finding_addresses", status="started", started_at=datetime.utcnow())
+    db_session.add(step)
+    db_session.commit()
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    row = diagnostic["steps"][0]
+    assert row["finished_at"] is None
+    assert row["duration_seconds"] is None
+    assert row["duration_seconds"] != 0
+
+
+def test_diagnostic_exposes_funnel_from_job_step_details_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    city = city_factory(slug="diag-funnel-exposed")
+    job = _create_job(
+        db_session, city_id=city.id, status="success", finished_at=datetime.utcnow(),
+        step_details={
+            "collecting_places": {
+                "import_diff": {
+                    "status": "success",
+                    "funnel": {
+                        "requested": 5, "fetched": 5, "deduplicated": "unavailable", "normalized": 5,
+                        "accepted": 4, "rejected_by_reason": {"missing_name": 1}, "matched_existing": 0,
+                        "created": 3, "updated": 0, "unchanged": 0, "hidden": 0, "sent_to_review": 1, "failed": 0,
+                    },
+                },
+            },
+        },
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["funnel"]["requested"] == 5
+    assert diagnostic["funnel"]["rejected_by_reason"] == {"missing_name": 1}
+    assert diagnostic["funnel_accounting"]["ok"] is True
+    assert diagnostic["funnel_accounting"]["checked"] is True
+
+
+def test_diagnostic_funnel_and_accounting_are_none_before_any_run_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """A queued job that has never produced a funnel must not show a fake
+    zero funnel or a fake accounting pass — both must be None/unchecked."""
+    city = city_factory(slug="diag-funnel-not-yet")
+    job = _create_job(db_session, city_id=city.id, status="queued")
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["funnel"] is None
+    assert diagnostic["funnel_accounting"]["checked"] is False
+    assert diagnostic["funnel_accounting"]["ok"] is False
+    assert diagnostic["funnel_accounting"]["reason"] == "funnel_missing"
+
+
+def test_diagnostic_surfaces_accounting_mismatch_without_hiding_it_new(db_session: Session, city_factory: Callable[..., Any]) -> None:
+    """If a funnel is ever internally inconsistent, the diagnostic must
+    surface that truthfully — not silently correct it or hide it."""
+    city = city_factory(slug="diag-funnel-mismatch")
+    job = _create_job(
+        db_session, city_id=city.id, status="success", finished_at=datetime.utcnow(),
+        step_details={
+            "collecting_places": {
+                "import_diff": {
+                    "funnel": {
+                        "requested": 99, "fetched": 5, "deduplicated": "unavailable", "normalized": 5,
+                        "accepted": 4, "rejected_by_reason": {"missing_name": 1}, "matched_existing": 0,
+                        "created": 3, "updated": 0, "unchanged": 0, "hidden": 0, "sent_to_review": 1, "failed": 0,
+                    },
+                },
+            },
+        },
+    )
+
+    diagnostic = build_import_job_diagnostic(db_session, job_id=job.id)
+
+    assert diagnostic is not None
+    assert diagnostic["funnel_accounting"]["checked"] is True
+    assert diagnostic["funnel_accounting"]["ok"] is False
+    assert diagnostic["funnel_accounting"]["reason"] == "accounting_mismatch"
+    assert diagnostic["funnel_accounting"]["requested_equation"]["requested"] == 99

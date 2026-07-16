@@ -15,6 +15,8 @@ from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.import_job_step import ImportJobStep
 from models.system_log import SystemLog
+from services.admin_import_display import import_diff
+from services.import_funnel_validation import validate_funnel_accounting
 from services.import_job_step_service import list_job_steps
 from services.import_pipeline.steps import STEP_LABELS, TERMINAL_STEPS
 from services.system_log_service import list_system_logs
@@ -215,6 +217,37 @@ def _failed_steps(steps: list[ImportJobStep]) -> list[dict[str, object]]:
     ]
 
 
+def _step_duration_seconds(row: ImportJobStep) -> int | None:
+    """None (unavailable), never 0, for a step that has not finished yet —
+    a step that genuinely ran for 0 seconds and one that is still running
+    or was never closed out are not the same fact."""
+    if row.finished_at is None:
+        return None
+    return max(0, int((row.finished_at - row.started_at).total_seconds()))
+
+
+def _step_breakdown(steps: list[ImportJobStep]) -> list[dict[str, object]]:
+    """CITYGO-314: every recorded pipeline step (services/import_pipeline/
+    progress.py::set_step, when called with db=) exposed with its terminal
+    state, started/finished timestamps, duration, and the counters recorded
+    at the exact point the step finished — read directly from the
+    already-persisted ImportJobStep rows, nothing here is recomputed from a
+    different source."""
+    return [
+        {
+            "step_name": row.step_name,
+            "step_label": _step_label(row.step_name),
+            "status": row.status,
+            "started_at": row.started_at,
+            "finished_at": row.finished_at,
+            "duration_seconds": _step_duration_seconds(row),
+            "counters": row.counters or {},
+            "error_message": row.error_message,
+        }
+        for row in steps
+    ]
+
+
 def _partial_success_reason(job: CityAdminImportJob, failed_steps: list[dict[str, object]]) -> str | None:
     """partial_success means a non-critical pipeline step failed but the run
     continued (see services/import_pipeline_foundation.py). job.last_error is
@@ -303,8 +336,20 @@ def build_import_job_diagnostic(db: Session, *, job_id: int) -> dict[str, object
     worker_fields = _worker_lifecycle_fields(logs)
     last_completed_step = _last_completed_step(job)
     duration_seconds = _duration_seconds(job)
-    failed_steps = _failed_steps(list_job_steps(db, job.id))
+    job_steps = list_job_steps(db, job.id)
+    failed_steps = _failed_steps(job_steps)
+    steps = _step_breakdown(job_steps)
     partial_success_reason = _partial_success_reason(job, failed_steps)
+    # funnel is read from job.step_details, where
+    # services/import_pipeline/runner.py already stores
+    # summarize_import_results' output (CITYGO-313) — never recomputed here.
+    funnel = import_diff(job).get("funnel")
+    if not isinstance(funnel, dict):
+        funnel = None
+    # CITYGO-315: report whether the already-persisted funnel is internally
+    # consistent — this never alters the funnel, the job, or import
+    # execution, it only surfaces a fact about numbers already computed.
+    accounting = validate_funnel_accounting(funnel)
 
     report = _build_report_text(
         job=job,
@@ -327,6 +372,15 @@ def build_import_job_diagnostic(db: Session, *, job_id: int) -> dict[str, object
         "failure_reason": job.last_error,
         "partial_success_reason": partial_success_reason,
         "failed_steps": failed_steps,
+        "steps": steps,
+        "funnel": funnel,
+        "funnel_accounting": {
+            "ok": accounting.ok,
+            "checked": accounting.checked,
+            "reason": accounting.reason,
+            "requested_equation": accounting.requested_equation,
+            "accepted_equation": accounting.accepted_equation,
+        },
         "started_at": job.started_at,
         "finished_at": job.finished_at,
         "duration_seconds": duration_seconds,

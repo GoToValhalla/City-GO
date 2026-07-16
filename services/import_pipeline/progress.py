@@ -18,7 +18,30 @@ def set_step(
     successful: int | None = None,
     failed: int | None = None,
     detail: dict[str, Any] | None = None,
+    db: Any | None = None,
+    step_failed: bool = False,
 ) -> None:
+    """Advance the job's current step and, when `db` is supplied, record a
+    durable ImportJobStep row alongside it (CITYGO-314: per-step started/
+    finished/duration/counters/terminal state, recorded exactly where the
+    decision is made, never reconstructed later).
+
+    `db` is optional so every pre-existing caller keeps its exact prior
+    behavior — this only adds step history for the callers that opt in by
+    passing db=. The calling convention already used throughout
+    services/import_pipeline/runner.py distinguishes a step's start (a bare
+    set_step(job, step) call, no total/processed/successful/failed/detail)
+    from its finish (a call carrying at least one of those) — that same
+    distinction is reused here to decide "started" vs a terminal
+    ImportJobStep status, instead of inventing a second signal.
+
+    `failed` keeps its pre-existing meaning (how many individual items
+    failed within an otherwise-completed step, e.g. address lookups) and is
+    never used to infer the step's own terminal status — that would
+    conflate "N items failed" with "the step failed" and is not what
+    job.failed_items has ever meant. `step_failed` is a separate, explicit
+    flag callers pass only when the step itself did not complete cleanly.
+    """
     job.current_step = step
     job.updated_at = datetime.utcnow()
     if total is not None:
@@ -33,6 +56,26 @@ def set_step(
         base = dict(job.step_details or {})
         base.update(detail)
         job.step_details = base
+
+    if db is None:
+        return
+
+    from services.import_job_step_service import record_step
+
+    is_entry = total is None and processed is None and successful is None and failed is None and detail is None
+    if is_entry:
+        record_step(db, job_id=int(job.id), step_name=step, status="started")
+        return
+
+    step_counters = {
+        key: value
+        for key, value in (("total", total), ("processed", processed), ("successful", successful), ("failed", failed))
+        if value is not None
+    }
+    if isinstance(detail, dict):
+        step_counters.update(detail)
+    status = "failed" if step_failed else "success"
+    record_step(db, job_id=int(job.id), step_name=step, status=status, counters=step_counters or None)
 
 
 def touch_progress(job: CityAdminImportJob, *, processed: int | None = None) -> None:

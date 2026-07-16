@@ -29,6 +29,34 @@ class ImportJobFailedStep(BaseModel):
     finished_at: datetime | None = None
 
 
+class ImportJobStepBreakdown(BaseModel):
+    """CITYGO-314: one row per persisted pipeline step (services/
+    import_pipeline/progress.py::set_step -> ImportJobStep), read
+    verbatim — never recomputed."""
+
+    step_name: str
+    step_label: str
+    status: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    duration_seconds: int | None = None
+    counters: dict[str, Any] = {}
+    error_message: str | None = None
+
+
+class ImportJobFunnelAccounting(BaseModel):
+    """CITYGO-315: whether the already-persisted funnel is internally
+    consistent. `checked=False` means there was not enough data to verify
+    (e.g. funnel unavailable) — distinct from `ok=True` (verified
+    consistent) and `ok=False, checked=True` (verified inconsistent)."""
+
+    ok: bool
+    checked: bool
+    reason: str | None = None
+    requested_equation: dict[str, Any] = {}
+    accepted_equation: dict[str, Any] = {}
+
+
 class ImportJobDiagnostic(BaseModel):
     job_id: int
     city_id: int
@@ -40,6 +68,9 @@ class ImportJobDiagnostic(BaseModel):
     failure_reason: str | None = None
     partial_success_reason: str | None = None
     failed_steps: list[ImportJobFailedStep] = []
+    steps: list[ImportJobStepBreakdown] = []
+    funnel: dict[str, Any] | None = None
+    funnel_accounting: ImportJobFunnelAccounting | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     duration_seconds: int | None = None

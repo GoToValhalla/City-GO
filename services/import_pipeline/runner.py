@@ -73,7 +73,7 @@ def run_enrichment_pipeline(
         if any(gaps.values()):
             repair = ensure_import_pipeline_schema(db.get_bind().engine)
             warnings.append({"step": "schema_preflight", "status": "repaired", "before": gaps, **repair})
-        set_step(job, STEP_COLLECTING_PLACES)
+        set_step(job, STEP_COLLECTING_PLACES, db=db)
         _log(db, job, city.slug, actor_id, STEP_COLLECTING_PLACES, "started")
         _touch_job(job)
         db.commit()
@@ -114,6 +114,8 @@ def run_enrichment_pipeline(
             processed=total,
             successful=job.places_saved,
             detail={"import_diff": summary},
+            db=db,
+            step_failed=collecting_failed,
         )
         db.commit()
         # A schema error in one scope must not block finding_images when other
@@ -149,6 +151,8 @@ def run_enrichment_pipeline(
             processed=int(addresses.get("checked") or 0),
             successful=int(addresses.get("updated") or 0),
             failed=int(addresses.get("errors") or 0),
+            db=db,
+            step_failed=str(addresses.get("status") or "") == "failed",
         )
         db.commit()
         images = _optional_step(
@@ -192,6 +196,8 @@ def run_enrichment_pipeline(
             processed=int(images.get("scanned_places") or 0),
             successful=int(images.get("created") or 0),
             failed=int(images.get("failed_image_lookup") or images.get("failed") or 0),
+            db=db,
+            step_failed=str(images.get("status") or "") == "failed",
         )
         db.commit()
         db.expire_all()
@@ -199,10 +205,10 @@ def run_enrichment_pipeline(
         for place in places:
             mark_place_for_review(place, reason="import_or_enrichment_changed")
         db.commit()
-        set_step(job, STEP_PREPARING_DESCRIPTIONS, detail={"mode": "manual_required"})
+        set_step(job, STEP_PREPARING_DESCRIPTIONS, detail={"mode": "manual_required"}, db=db)
         cats = normalize_places_categories(db, places=places, apply=True, job_id=int(job.id))
         results["categories"] = cats
-        set_step(job, STEP_CATEGORIES_TAGS, processed=int(cats.get("scanned") or 0), successful=int(cats.get("updated") or 0))
+        set_step(job, STEP_CATEGORIES_TAGS, processed=int(cats.get("scanned") or 0), successful=int(cats.get("updated") or 0), db=db)
         db.commit()
         ids = sorted({int(p.id) for p in places})
         record_place_changes(db, job=job, places=places, since=started)
@@ -211,14 +217,14 @@ def run_enrichment_pipeline(
             has_changes=bool(ids),
             quality={"mode": "foundation", "changed_places": len(ids)},
         )
-        set_step(job, STEP_COMPUTING_QUALITY, processed=len(ids), detail=results["quality"])
-        set_step(job, STEP_COMPUTING_READINESS)
+        set_step(job, STEP_COMPUTING_QUALITY, processed=len(ids), detail=results["quality"], db=db)
+        set_step(job, STEP_COMPUTING_READINESS, db=db)
         readiness = compute_city_readiness(db, city_slug=city.slug) or {}
         results["readiness"] = readiness
-        set_step(job, STEP_COMPUTING_READINESS, detail={"readiness_score": readiness.get("readiness_score")})
+        set_step(job, STEP_COMPUTING_READINESS, detail={"readiness_score": readiness.get("readiness_score")}, db=db)
         if total <= 0:
             raise RuntimeError("OSM import finished without places")
-        set_step(job, STEP_READY_FOR_REVIEW, successful=len(ids), processed=len(ids))
+        set_step(job, STEP_READY_FOR_REVIEW, successful=len(ids), processed=len(ids), db=db)
         job.finished_at = datetime.utcnow()
         job.step_details = {
             **dict(job.step_details or {}),
@@ -426,7 +432,7 @@ def _optional_step(
         warnings.append(skipped)
         set_step(job, step, detail=skipped)
         return skipped
-    set_step(job, step)
+    set_step(job, step, db=db)
     try:
         _log(db, job, slug, actor, step, "started")
         db.commit()
