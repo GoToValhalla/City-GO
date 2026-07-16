@@ -9,6 +9,9 @@ from typing import Any
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+import os
+import uuid
+
 from db.session import SessionLocal
 from core.config import settings
 from models.city import City
@@ -22,6 +25,7 @@ from services.admin_city_import_job_service import (
     SOURCE_SNAPSHOT_REFRESH,
     InvalidJobTransitionError,
     _transition,
+    claim_queued_job,
     run_address_enrichment_job,
     run_city_import_job,
     run_enrichment_only_job,
@@ -35,6 +39,14 @@ from services.import_worker_thresholds import effective_thresholds
 from services.system_log_service import write_system_log
 
 HEAVY_IMPORT_SOURCES = {SOURCE_FULL_IMPORT, SOURCE_ENRICHMENT_ONLY}
+
+
+def _worker_id() -> str:
+    """Opaque per-process identity attached to a job at claim time
+    (CityAdminImportJob.claimed_by) — distinguishes which worker process
+    actually claimed a row, for diagnostics; not used for any locking
+    decision (the row lock itself is what makes the claim atomic)."""
+    return f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
 
 def _available_memory_mb() -> int | None:
@@ -70,22 +82,44 @@ def _safe_mode_block_reason(job: CityAdminImportJob) -> str | None:
     return None
 
 
-def run_import_job_background(city_id: int, *, actor_id: str) -> None:
+def run_import_job_background(city_id: int, *, job_id: int, actor_id: str) -> None:
+    """Runs a job that was already enqueued (a row exists, status="queued")
+    but not yet claimed by anyone. This function performs the ONE atomic
+    claim itself before running — a FastAPI BackgroundTasks callback is
+    just as much an execution path as the worker loop, and must go through
+    claim_queued_job exactly like it does, never call the runner directly
+    on an unclaimed row."""
     with SessionLocal() as db:
-        run_city_import_job(db, city_id=city_id, actor_id=actor_id)
+        job = claim_queued_job(db, job_id=job_id, worker_id=f"background-{os.getpid()}-{uuid.uuid4().hex[:8]}", actor_id=actor_id)
+        run_city_import_job(db, city_id=city_id, actor_id=actor_id, job_id=job.id)
 
 
-def run_enrichment_job_background(city_id: int, *, actor_id: str) -> None:
+def run_enrichment_job_background(city_id: int, *, job_id: int, actor_id: str) -> None:
     with SessionLocal() as db:
-        run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id)
+        job = claim_queued_job(db, job_id=job_id, worker_id=f"background-{os.getpid()}-{uuid.uuid4().hex[:8]}", actor_id=actor_id)
+        run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id, job_id=job.id)
 
 
 def run_all_cities_enrichment_background(*, actor_id: str) -> None:
+    """Enqueues AND claims-and-runs a fresh enrichment job for every city,
+    one at a time — enqueue (queue_city_enrichment_job) and execute
+    (claim_queued_job + run_enrichment_only_job) remain two separate
+    service calls even here, never bridged by a runner auto-selecting or
+    auto-creating a row."""
+    from services.admin_city_import_job_service import queue_city_enrichment_job
+
     with SessionLocal() as db:
         city_ids = [city.id for city in db.query(City).order_by(City.slug.asc()).all()]
     for city_id in city_ids:
         with SessionLocal() as db:
-            run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id)
+            try:
+                enqueued = queue_city_enrichment_job(db, city_id=city_id, actor_id=actor_id)
+                db.commit()
+            except Exception:
+                db.rollback()
+                continue
+            job = claim_queued_job(db, job_id=enqueued.id, worker_id=f"background-{os.getpid()}-{uuid.uuid4().hex[:8]}", actor_id=actor_id)
+            run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id, job_id=job.id)
 
 
 def run_queued_import_jobs(
@@ -190,19 +224,29 @@ def run_queued_import_jobs(
                     details={"city_id": city_id, "source": source},
                 )
                 continue
-            # The claim decision is committed durably BEFORE any SAVEPOINT
-            # begins: it is a truthful record that the worker claimed this
-            # job, and must survive even if the job's own work later fails
-            # and is rolled back.
-            _log_worker_decision(
-                db,
-                event="worker_job_claimed",
-                actor_id=actor_id,
-                message=f"Import worker claiming job #{job_id} (city_id={city_id}, source={source})",
-                job=job,
-                details={"limit": limit, "queued_seconds": _queued_seconds(job), "stalled_marked": stalled},
-            )
-            db.commit()
+            # Atomic claim: under the SAME row lock (SELECT ... FOR UPDATE,
+            # re-acquired inside claim_queued_job) the row is transitioned
+            # queued -> running, started_at/claimed_by are set, and
+            # worker_job_claimed is logged — all committed together before
+            # the lock is released. This replaces the previous two-step
+            # sequence (commit a log entry here, let the runner do its own
+            # queued -> running later) that left a claimed-looking row
+            # still status=queued and unlocked for a second worker to claim.
+            try:
+                job = claim_queued_job(db, job_id=job_id, worker_id=_worker_id(), actor_id=actor_id)
+            except ValueError:
+                # Someone else (another concurrent worker process) claimed
+                # this exact row between our SELECT and our claim attempt —
+                # not an error, just skip it and move to the next job.
+                _log_worker_decision(
+                    db,
+                    event="worker_claim_skipped",
+                    actor_id=actor_id,
+                    message=f"Import worker skipped job #{job_id}: already claimed by another worker",
+                    details={"reason": "already_claimed", "job_id": job_id, "limit": limit},
+                )
+                db.commit()
+                continue
             # A SAVEPOINT taken before this job's own work: runners commit
             # internally on their own success paths (closing this SAVEPOINT
             # early, which is fine — nothing to roll back then), but never

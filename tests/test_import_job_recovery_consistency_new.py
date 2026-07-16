@@ -115,7 +115,11 @@ def test_worker_cannot_complete_an_already_recovered_job_new(db_session, city_fa
     resurrect it back to running/success afterward."""
     city = city_factory(slug="recovery-race-city", launch_status="importing", is_active=False)
     place = Place(city_id=city.id, slug="recovery-race-place", title="Recovery Race Place", lat=54.7, lng=20.5, category="park")
-    job = CityAdminImportJob(city_id=city.id, status="queued", source="admin_city_import")
+    # status="running" (not "queued") — run_enrichment_pipeline no longer
+    # performs its own queued -> running transition (see claim_queued_job),
+    # so this simulates the row exactly as the real caller (run_city_import_job,
+    # after claim_queued_job already claimed it) would hand it off.
+    job = CityAdminImportJob(city_id=city.id, status="running", source="admin_city_import", started_at=datetime.utcnow())
     db_session.add_all([place, job])
     db_session.commit()
 

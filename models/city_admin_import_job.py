@@ -52,5 +52,11 @@ class CityAdminImportJob(Base):
     # truthful terminal state. Never set by normal enqueue/claim/transition
     # code paths.
     lifecycle_flag: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    # Opaque worker/run identity, set exactly once by claim_queued_job() in
+    # the same transaction as the queued->running transition. NULL until
+    # claimed. Never overwritten afterward — a second claim attempt on an
+    # already-claimed row is rejected by the claim query itself (status is
+    # no longer "queued" once this is set).
+    claimed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

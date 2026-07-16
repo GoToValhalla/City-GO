@@ -84,7 +84,10 @@ def test_external_provider_error_visible_in_admin_diagnostics_new(db_session, ci
     }
     monkeypatch.setattr(service, "run_address_backfill", lambda argv: timeout_result)
 
-    job = service.run_address_enrichment_job(db_session, city_id=city.id, actor_id="test-admin")
+    queued = service.queue_city_import_job(db_session, city_id=city.id, actor_id="test-admin")
+    db_session.commit()
+    claimed = service.claim_queued_job(db_session, job_id=queued.id, worker_id="test-worker", actor_id="test-admin")
+    job = service.run_address_enrichment_job(db_session, city_id=city.id, actor_id="test-admin", job_id=claimed.id)
 
     assert job.status == "success_with_warnings"
     assert job.last_error is not None

@@ -40,18 +40,22 @@ def test_repeated_import_keeps_published_city_published_new(db_session, city_fac
     from services import admin_city_import_job_service as job_service
 
     city = _publish(city_factory, slug="import-repeat")
+    queued = job_service.queue_city_import_job(db_session, city_id=city.id, actor_id="qa")
+    db_session.commit()
+    claimed = job_service.claim_queued_job(db_session, job_id=queued.id, worker_id="test-worker", actor_id="qa")
 
     def fake_collection(db, *, job, city, actor_id, force=True, notify_completion=True):
-        return {"import": {"places_saved": 3}, "changed_place_ids": []}
+        return {"import": {"places_saved": 3}, "status": "success", "changed_place_ids": []}
 
-    def fake_source_enrichment(**kwargs):
+    def fake_source_enrichment(db, *, city, job, actor):
+        job.step_details = {**dict(job.step_details or {}), "source_enrichment_status": "success"}
         return {"source_enrichment": "skipped"}
 
     monkeypatch.setattr(job_service, "run_enrichment_pipeline", fake_collection)
     monkeypatch.setattr(job_service, "run_foundation_pipeline", fake_source_enrichment)
     monkeypatch.setattr(job_service, "compute_city_readiness", lambda db, *, city_slug: {"readiness_score": 90})
 
-    job_service.run_city_import_job(db_session, city_id=city.id, actor_id="qa")
+    job_service.run_city_import_job(db_session, city_id=city.id, actor_id="qa", job_id=claimed.id)
     db_session.refresh(city)
 
     assert city.launch_status == "published"

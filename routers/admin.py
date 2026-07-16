@@ -46,6 +46,7 @@ from services.admin_extended_service import (
     replace_admin_route_points,
     update_admin_route,
 )
+from models.city_admin_import_job import CityAdminImportJob
 from services.admin_city_import_tasks import run_import_job_background
 from services.admin_service import (
     PlacePublicationBlockedError,
@@ -136,7 +137,20 @@ def create_city_import(
 ) -> AdminCityImportResponse:
     # actor берётся из auth context, payload.actor игнорируется (deprecated)
     city = create_city_and_queue_import(db, payload, actor=auth.actor_id)
-    background_tasks.add_task(run_import_job_background, city.id, actor_id=auth.actor_id)
+    # create_city_and_queue_import already enqueued exactly one queued row
+    # for this brand-new city (queue_city_import_job internally) — this is
+    # the only active row it can possibly be, so it is safe to look it up
+    # by city_id here rather than changing create_city_and_queue_import's
+    # return type just to thread a job_id through.
+    job = (
+        db.query(CityAdminImportJob)
+        .filter(CityAdminImportJob.city_id == city.id, CityAdminImportJob.status == "queued")
+        .order_by(CityAdminImportJob.created_at.desc())
+        .first()
+    )
+    if job is None:
+        raise HTTPException(status_code=500, detail="Задача импорта не была создана")
+    background_tasks.add_task(run_import_job_background, city.id, job_id=job.id, actor_id=auth.actor_id)
     return AdminCityImportResponse(
         city_id=city.id,
         city_slug=city.slug,

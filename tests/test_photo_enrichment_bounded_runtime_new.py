@@ -168,7 +168,10 @@ def test_run_photo_enrichment_job_marks_success_with_warnings_and_last_error_on_
     }
     monkeypatch.setattr(service, "run_image_enrich", lambda argv: timeout_result)
 
-    job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin")
+    queued = service.queue_city_import_job(db_session, city_id=city.id, actor_id="test-admin")
+    db_session.commit()
+    claimed = service.claim_queued_job(db_session, job_id=queued.id, worker_id="test-worker", actor_id="test-admin")
+    job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin", job_id=claimed.id)
 
     assert job.status == "success_with_warnings"
     assert job.last_error is not None

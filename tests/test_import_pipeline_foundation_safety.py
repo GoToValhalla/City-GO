@@ -89,9 +89,13 @@ def test_failed_non_critical_step_marks_partial_success(db_session, city_factory
         job = _job(db_session, city.id)
     with when("pipeline продолжает работу после сбоя необязательного шага"):
         counters = run_foundation_pipeline(db_session, city=city, job=job, actor="qa")
-        attach_json("Статус операции", {"status": job.status, "counters": counters})
+        # run_foundation_pipeline никогда не пишет job.status напрямую —
+        # исход фазы возвращается через job.step_details["source_enrichment_status"],
+        # а терминализацию родительского job делает только вызывающий код
+        # (см. admin_city_import_job_service._transition).
+        attach_json("Статус операции", {"status": job.step_details.get("source_enrichment_status"), "counters": counters})
     with then("job завершается partial_success и фиксирует один сбой"):
-        assert job.status == "partial_success"
+        assert job.step_details["source_enrichment_status"] == "partial_success"
         assert counters["failed"] == 1
         assert job.step_details["pipeline_counters"]["failed"] == 1
 
@@ -110,5 +114,7 @@ def test_critical_step_failure_marks_job_failed(db_session, city_factory, place_
         with pytest.raises(RuntimeError, match="source unavailable"):
             run_foundation_pipeline(db_session, city=city, job=job, actor="qa")
     with then("job получает failed и сохраняет понятную причину"):
-        assert job.status == "failed"
+        # run_foundation_pipeline никогда не пишет job.status напрямую —
+        # исход фазы возвращается через job.step_details["source_enrichment_status"].
+        assert job.step_details["source_enrichment_status"] == "failed"
         assert job.last_error == "source unavailable"

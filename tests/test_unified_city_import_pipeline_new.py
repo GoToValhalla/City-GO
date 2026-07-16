@@ -1,5 +1,18 @@
+from datetime import datetime
+
 from models.city_admin_import_job import CityAdminImportJob
 from services import admin_city_import_job_service as service
+
+
+def _claimed_job(db_session, *, city_id, source, current_step="queued"):
+    """Simulates the row exactly as claim_queued_job would have left it —
+    status="running", started_at set — since run_city_import_job/
+    run_enrichment_only_job no longer perform their own queued -> running
+    transition (see admin_city_import_job_service.claim_queued_job)."""
+    job = CityAdminImportJob(city_id=city_id, status="running", source=source, current_step=current_step, started_at=datetime.utcnow())
+    db_session.add(job)
+    db_session.commit()
+    return job
 
 
 def test_city_import_runs_collection_then_source_enrichment_new(
@@ -10,25 +23,24 @@ def test_city_import_runs_collection_then_source_enrichment_new(
 ) -> None:
     city = city_factory(slug="unified-pipeline")
     place_factory(city_id=city.id, slug="unified-place", title="Unified Place", category="park")
-    job = CityAdminImportJob(city_id=city.id, status="queued", source=service.SOURCE_FULL_IMPORT, current_step="queued")
-    db_session.add(job)
-    db_session.commit()
+    job = _claimed_job(db_session, city_id=city.id, source=service.SOURCE_FULL_IMPORT)
     calls: list[str] = []
 
     def fake_collection(db, *, job, city, actor_id, force, notify_completion=True):
         calls.append("collection")
         assert notify_completion is False
-        return {"import": {"places_saved": 1}}
+        return {"import": {"places_saved": 1}, "status": "success", "changed_place_ids": []}
 
     def fake_source_enrichment(db, *, city, job, actor):
         calls.append("source_enrichment")
+        job.step_details = {**dict(job.step_details or {}), "source_enrichment_status": "success"}
         return {"found": 1, "fields_enriched": 2, "provider_errors": 0}
 
     monkeypatch.setattr(service, "run_enrichment_pipeline", fake_collection)
     monkeypatch.setattr(service, "run_foundation_pipeline", fake_source_enrichment)
     monkeypatch.setattr(service, "compute_city_readiness", lambda db, *, city_slug: {"readiness_score": 80})
 
-    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa")
+    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
 
     assert calls == ["collection", "source_enrichment"]
     assert result.status == "success"
@@ -58,25 +70,21 @@ def test_foundation_failure_is_not_reported_as_success_new(
 
     city = city_factory(slug="foundation-failure-pipeline")
     place_factory(city_id=city.id, slug="foundation-failure-place", title="Foundation Failure Place", category="park")
-    job = CityAdminImportJob(city_id=city.id, status="queued", source=service.SOURCE_FULL_IMPORT, current_step="queued")
-    db_session.add(job)
-    db_session.commit()
+    job = _claimed_job(db_session, city_id=city.id, source=service.SOURCE_FULL_IMPORT)
 
     def fake_collection(db, *, job, city, actor_id, force, notify_completion=True):
-        job.status = "success"
-        db.commit()
-        return {"import": {"places_saved": 1}}
+        return {"import": {"places_saved": 1}, "status": "success", "changed_place_ids": []}
 
     def fake_source_enrichment(db, *, city, job, actor):
-        job.status = "failed"
         job.last_error = "critical provider setup failure"
+        job.step_details = {**dict(job.step_details or {}), "source_enrichment_status": "failed"}
         return {"found": 1, "failed": 1}
 
     monkeypatch.setattr(service, "run_enrichment_pipeline", fake_collection)
     monkeypatch.setattr(service, "run_foundation_pipeline", fake_source_enrichment)
     monkeypatch.setattr(service, "compute_city_readiness", lambda db, *, city_slug: {"readiness_score": 0})
 
-    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa")
+    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
 
     assert result.status == "failed"
     assert any(w.get("step") == "source_enrichment" for w in result.step_details["warnings"])
@@ -94,24 +102,21 @@ def test_legacy_collection_partial_failure_is_not_reported_as_success_new(
 
     city = city_factory(slug="legacy-partial-pipeline")
     place_factory(city_id=city.id, slug="legacy-partial-place", title="Legacy Partial Place", category="park")
-    job = CityAdminImportJob(city_id=city.id, status="queued", source=service.SOURCE_FULL_IMPORT, current_step="queued")
-    db_session.add(job)
-    db_session.commit()
+    job = _claimed_job(db_session, city_id=city.id, source=service.SOURCE_FULL_IMPORT)
 
     def fake_collection(db, *, job, city, actor_id, force, notify_completion=True):
-        job.status = "partial_success"
         job.last_error = "some import scopes failed"
-        db.commit()
-        return {"import": {"places_saved": 1}}
+        return {"import": {"places_saved": 1}, "status": "partial_success", "changed_place_ids": []}
 
     def fake_source_enrichment(db, *, city, job, actor):
+        job.step_details = {**dict(job.step_details or {}), "source_enrichment_status": "success"}
         return {"found": 1, "fields_enriched": 0, "provider_errors": 0}
 
     monkeypatch.setattr(service, "run_enrichment_pipeline", fake_collection)
     monkeypatch.setattr(service, "run_foundation_pipeline", fake_source_enrichment)
     monkeypatch.setattr(service, "compute_city_readiness", lambda db, *, city_slug: {"readiness_score": 80})
 
-    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa")
+    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
 
     assert result.status == "partial_success"
     assert any(w.get("step") == "collection_and_legacy_enrichment" for w in result.step_details["warnings"])
@@ -129,16 +134,14 @@ def test_run_exception_does_not_hide_as_partial_success_for_unrelated_old_places
 
     city = city_factory(slug="exception-with-old-places")
     place_factory(city_id=city.id, slug="pre-existing-place", title="Pre Existing Place", category="park")
-    job = CityAdminImportJob(city_id=city.id, status="queued", source=service.SOURCE_FULL_IMPORT, current_step="queued")
-    db_session.add(job)
-    db_session.commit()
+    job = _claimed_job(db_session, city_id=city.id, source=service.SOURCE_FULL_IMPORT)
 
     def fake_collection_raises(db, *, job, city, actor_id, force, notify_completion=True):
         raise RuntimeError("provider setup failed")
 
     monkeypatch.setattr(service, "run_enrichment_pipeline", fake_collection_raises)
 
-    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa")
+    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
 
     assert result.status == "failed"
     assert result.last_error and "provider setup failed" in result.last_error
@@ -156,14 +159,11 @@ def test_import_scope_dns_error_finalizes_job_as_partial_or_failed_new(
     with the scope error visible and scopes_failed/error_count > 0."""
 
     city = city_factory(slug="kaliningrad-like-dns-failure")
-    job = CityAdminImportJob(city_id=city.id, status="queued", source=service.SOURCE_FULL_IMPORT, current_step="queued")
-    db_session.add(job)
-    db_session.commit()
+    job = _claimed_job(db_session, city_id=city.id, source=service.SOURCE_FULL_IMPORT)
 
     dns_error = "Failed to resolve overpass-api.de: [Errno -2] Name or service not known"
 
     def fake_collection_all_scopes_fail(db, *, job, city, actor_id, force, notify_completion=True):
-        job.status = "failed"
         job.last_error = f"tourist_core: {dns_error}"
         job.scopes_total = 3
         job.scopes_succeeded = 0
@@ -174,11 +174,11 @@ def test_import_scope_dns_error_finalizes_job_as_partial_or_failed_new(
             "warnings": [{"step": "collecting_places", "error": job.last_error, "kind": "scope_failure"}],
         }
         db.commit()
-        return {"import": {"scopes_total": 3, "scopes_succeeded": 0, "last_error": job.last_error}}
+        return {"import": {"scopes_total": 3, "scopes_succeeded": 0, "last_error": job.last_error}, "status": "failed", "changed_place_ids": []}
 
     monkeypatch.setattr(service, "run_enrichment_pipeline", fake_collection_all_scopes_fail)
 
-    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa")
+    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
 
     assert result.status in {"failed", "partial_success"}
     assert result.status != "success"
@@ -199,23 +199,21 @@ def test_enrichment_only_foundation_failure_is_not_reported_as_success_new(
 ) -> None:
     city = city_factory(slug="enrichment-only-foundation-failure")
     place_factory(city_id=city.id, slug="enrichment-only-place", title="Enrichment Only Place", category="park")
-    job = CityAdminImportJob(city_id=city.id, status="queued", source=service.SOURCE_ENRICHMENT_ONLY, current_step="queued")
-    db_session.add(job)
-    db_session.commit()
+    job = _claimed_job(db_session, city_id=city.id, source=service.SOURCE_ENRICHMENT_ONLY)
 
     def fake_enrichment_only(db, *, job, city, actor_id):
-        job.status = "success"
         job.step_details = {**dict(job.step_details or {}), "changed_place_ids": []}
         db.commit()
+        return {"status": "success"}
 
     def fake_source_enrichment(db, *, city, job, actor):
-        job.status = "failed"
         job.last_error = "critical provider setup failure"
+        job.step_details = {**dict(job.step_details or {}), "source_enrichment_status": "failed"}
         return {"found": 1, "failed": 1}
 
     monkeypatch.setattr(service, "run_enrichment_only_pipeline", fake_enrichment_only)
     monkeypatch.setattr(service, "run_foundation_pipeline", fake_source_enrichment)
 
-    result = service.run_enrichment_only_job(db_session, city_id=city.id, actor_id="qa")
+    result = service.run_enrichment_only_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
 
     assert result.status == "failed"

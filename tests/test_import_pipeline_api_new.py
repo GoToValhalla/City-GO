@@ -53,16 +53,16 @@ def test_failed_import_does_not_fake_snapshot_created_new(db_session, city_facto
     claim a snapshot exists, and must explain why it does not."""
 
     city = city_factory(slug="kaliningrad-like-no-snapshot")
-    job = CityAdminImportJob(city_id=city.id, status="queued", source=job_service.SOURCE_FULL_IMPORT, current_step="queued")
-    db_session.add(job)
+    queued = job_service.queue_city_import_job(db_session, city_id=city.id, actor_id="qa")
     db_session.commit()
+    job = job_service.claim_queued_job(db_session, job_id=queued.id, worker_id="test-worker", actor_id="qa")
 
     def fake_collection_all_scopes_fail(db, *, job, city, actor_id, force, notify_completion=True):
         raise RuntimeError("tourist_core: Failed to resolve overpass-api.de (DNS failure)")
 
     monkeypatch.setattr(job_service, "run_enrichment_pipeline", fake_collection_all_scopes_fail)
 
-    result = job_service.run_city_import_job(db_session, city_id=city.id, actor_id="qa")
+    result = job_service.run_city_import_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
 
     assert result.status == "failed"
     payload = build_import_job_payload(db_session, city)
@@ -80,14 +80,13 @@ def test_admin_import_response_exposes_durable_failure_state_new(db_session, cit
     scope failed — it must not show fake success."""
 
     city = city_factory(slug="kaliningrad-like-durable-failure")
-    job = CityAdminImportJob(city_id=city.id, status="queued", source=job_service.SOURCE_FULL_IMPORT, current_step="queued")
-    db_session.add(job)
+    queued = job_service.queue_city_import_job(db_session, city_id=city.id, actor_id="qa")
     db_session.commit()
+    job = job_service.claim_queued_job(db_session, job_id=queued.id, worker_id="test-worker", actor_id="qa")
 
     dns_error = "tourist_core: Failed to resolve overpass-api.de (DNS failure)"
 
     def fake_collection_all_scopes_fail(db, *, job, city, actor_id, force, notify_completion=True):
-        job.status = "failed"
         job.last_error = dns_error
         job.scopes_total = 3
         job.scopes_succeeded = 0
@@ -98,11 +97,11 @@ def test_admin_import_response_exposes_durable_failure_state_new(db_session, cit
             "warnings": [{"step": "collecting_places", "error": dns_error, "kind": "scope_failure"}],
         }
         db.commit()
-        return {"import": {"scopes_total": 3, "scopes_succeeded": 0, "last_error": dns_error}}
+        return {"import": {"scopes_total": 3, "scopes_succeeded": 0, "last_error": dns_error}, "status": "failed", "changed_place_ids": []}
 
     monkeypatch.setattr(job_service, "run_enrichment_pipeline", fake_collection_all_scopes_fail)
 
-    result = job_service.run_city_import_job(db_session, city_id=city.id, actor_id="qa")
+    result = job_service.run_city_import_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
     assert result.status != "success"
 
     payload = build_import_job_payload(db_session, city)

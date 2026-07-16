@@ -94,13 +94,27 @@ def test_admin_city_import_endpoint_creates_import_request() -> None:
     city.slug = "kaliningrad"
     city.name = "Калининград"
 
-    with patch("routers.admin.create_city_and_queue_import", return_value=city), patch(
-        "routers.admin.run_import_job_background", return_value=None
-    ):
-        response = TestClient(app).post(
-            "/admin/cities/import",
-            json={"name": "Калининград", "actor": "qa"},
-        )
+    queued_job = MagicMock()
+    queued_job.id = 55
+
+    def fake_get_db():
+        db = MagicMock()
+        db.query.return_value.filter.return_value.order_by.return_value.first.return_value = queued_job
+        yield db
+
+    from db.dependencies import get_db
+
+    app.dependency_overrides[get_db] = fake_get_db
+    try:
+        with patch("routers.admin.create_city_and_queue_import", return_value=city), patch(
+            "routers.admin.run_import_job_background", return_value=None
+        ):
+            response = TestClient(app).post(
+                "/admin/cities/import",
+                json={"name": "Калининград", "actor": "qa"},
+            )
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 
     assert response.status_code == 200
     assert response.json()["job_status"] == "queued"

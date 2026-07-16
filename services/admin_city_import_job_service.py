@@ -178,12 +178,81 @@ def load_job_for_run(db: Session, *, job_id: int, city_id: int) -> CityAdminImpo
     this city", which is exactly what let a runner started for one launch
     silently pick up a different, newer row created for the same city in
     the meantime. Raises if the row doesn't exist or belongs to a
-    different city (defensive: callers must never mix up city_id/job_id)."""
+    different city (defensive: callers must never mix up city_id/job_id).
+
+    Requires status == "running": the row must already have been claimed
+    by claim_queued_job() (worker path) or transitioned by the caller
+    itself in the SAME atomic step it was created in (see
+    run_city_import_job's own job_id-less direct-run path). A runner must
+    never perform its own queued -> running transition — the second
+    review round found that doing so let the row sit queued/unlocked
+    between claim and run, so a second worker could claim the same row."""
     job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
     if job is None:
         raise ValueError(f"Задача импорта #{job_id} не найдена")
     if int(job.city_id) != int(city_id):
         raise ValueError(f"Задача импорта #{job_id} принадлежит другому городу")
+    if job.status != "running":
+        raise ValueError(f"Задача импорта #{job_id} не в статусе running (текущий статус: {job.status})")
+    return job
+
+
+def claim_queued_job(db: Session, *, job_id: int, worker_id: str, actor_id: str | None = None) -> CityAdminImportJob:
+    """The ONE atomic claim operation. Locks the exact row (SELECT ...
+    FOR UPDATE), and — while still holding that lock, in the same
+    transaction — transitions queued -> running, sets started_at and
+    claimed_by exactly once, and writes the worker_job_claimed log event.
+    All of this is committed together before the lock is released.
+
+    This replaces the previous two-step sequence (select under
+    FOR UPDATE SKIP LOCKED, commit only a log entry, let the runner do its
+    own queued -> running later): that released the row lock while the row
+    was still status="queued", started_at=NULL, so a second worker's own
+    SKIP LOCKED scan — run after the first worker's SELECT committed but
+    before its runner got around to transitioning the row — could select
+    and claim the very same row a second time.
+
+    Raises ValueError if the row is missing or already claimed/terminal
+    (status != "queued") by the time the lock is acquired — the caller
+    (run_queued_import_jobs) must treat that as "someone else already
+    claimed it" and move on, not retry."""
+    from services.system_log_service import write_system_log
+
+    job = (
+        db.query(CityAdminImportJob)
+        .filter(CityAdminImportJob.id == job_id)
+        .with_for_update()
+        .first()
+    )
+    if job is None:
+        raise ValueError(f"Задача импорта #{job_id} не найдена")
+    if job.status != "queued" or job.started_at is not None or job.finished_at is not None:
+        raise ValueError(f"Задача импорта #{job_id} уже не в состоянии queued (status={job.status})")
+    claim_time = datetime.utcnow()
+    queued_seconds = max(0, int((claim_time - job.created_at).total_seconds())) if job.created_at else None
+    _transition(db, job, "running", actor_id=actor_id)
+    job.started_at = claim_time
+    job.claimed_by = worker_id
+    city = db.query(City).filter(City.id == job.city_id).first()
+    # module="import_worker" (not city_import) — worker_job_claimed is
+    # part of the worker-lifecycle event stream _log_worker_decision/
+    # _worker_lifecycle_fields already read from, and the diagnostic view
+    # segments it alongside worker_job_finished/worker_job_failed by that
+    # module. Writing it under city_import instead would silently split
+    # one job's worker timeline across two modules.
+    write_system_log(
+        db,
+        level="info",
+        module="import_worker",
+        message=f"Import worker claiming job #{job.id} (worker_id={worker_id})",
+        details={"event": "worker_job_claimed", "job_id": job.id, "city_id": job.city_id, "source": job.source, "worker_id": worker_id, "status": job.status, "queued_seconds": queued_seconds},
+        city_slug=city.slug if city is not None else None,
+        request_id=str(job.id),
+        actor_id=actor_id,
+        commit=False,
+    )
+    db.commit()
+    db.refresh(job)
     return job
 
 
@@ -225,21 +294,39 @@ def _preserved_snapshot_context(job: CityAdminImportJob | None, source: str) -> 
 
 def _enqueue_job(db: Session, *, city: City, source: str, actor_id: str | None) -> CityAdminImportJob:
     """Immutable enqueue (fix for CityAdminImportJob lifecycle invariant #1:
-    one admin launch = one new row). Concurrency-safe idempotent winner
-    selection: SELECT ... FOR UPDATE on the city's active row (if any)
-    blocks a concurrent second enqueue until the first transaction commits
-    or rolls back, so two near-simultaneous requests can never both insert
-    an active row for the same city — the second sees the first's
-    committed row and raises DuplicateActiveJobError with its real id,
-    rather than racing to insert a second one. A terminal row for this
-    city (any previous launch/retry) is NEVER reused or reset — a brand
-    new row is always inserted, with previous_job_id pointing at the most
-    recent terminal row so the retry chain is reconstructible without
-    guessing."""
+    one admin launch = one new row).
+
+    Concurrency-safe idempotent winner selection, two layers deep:
+
+    1. SELECT ... FOR UPDATE on the CITY row itself (not the active-job
+       query) serializes every enqueue attempt for this city, including
+       the "no existing active row" case. Locking only the active-job
+       query (the original approach) does not serialize two transactions
+       that both see zero matching rows — a row lock only blocks readers
+       of rows that already exist, so two concurrent enqueue calls could
+       both pass the "no active job" check before either had inserted
+       anything. Locking the city row means every enqueue attempt for
+       that city, including the very first one, contends for the exact
+       same lock and is strictly ordered.
+    2. The partial unique index (uq_city_admin_import_jobs_active_city,
+       see migration d4e8a1f6b3c9) is a second line of defence at the
+       database level, for any process/session that reaches the insert
+       without holding the city lock (e.g. a future code path, or a
+       different isolation level). A unique-violation IntegrityError here
+       is caught, the transaction is rolled back, and the actual winning
+       active row is loaded fresh and reported via a truthful
+       DuplicateActiveJobError — never left as an unhandled crash.
+
+    A terminal row for this city (any previous launch/retry) is NEVER
+    reused or reset — a brand new row is always inserted, with
+    previous_job_id pointing at the most recent terminal row so the retry
+    chain is reconstructible without guessing."""
+    from sqlalchemy.exc import IntegrityError
+
+    db.query(City).filter(City.id == city.id).with_for_update().first()
     active = (
         db.query(CityAdminImportJob)
         .filter(CityAdminImportJob.city_id == city.id, CityAdminImportJob.status.in_(("queued", "running")))
-        .with_for_update()
         .order_by(CityAdminImportJob.created_at.desc())
         .first()
     )
@@ -259,7 +346,23 @@ def _enqueue_job(db: Session, *, city: City, source: str, actor_id: str | None) 
         retry_count=(int(previous.retry_count) + 1) if previous is not None else 0,
     )
     db.add(job)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        winner = (
+            db.query(CityAdminImportJob)
+            .filter(CityAdminImportJob.city_id == city.id, CityAdminImportJob.status.in_(("queued", "running")))
+            .order_by(CityAdminImportJob.created_at.desc())
+            .first()
+        )
+        if winner is None:
+            # Extremely unlikely (the conflicting row would have to have
+            # been rolled back or terminalized between our INSERT failing
+            # and this re-read), but never silently swallow it — the
+            # caller must see a real error either way.
+            raise
+        raise DuplicateActiveJobError(city_id=city.id, job_id=winner.id, job_status=winner.status, source=winner.source)
     log_import_event(
         db, event="import_job_created", city_slug=city.slug, actor_id=actor_id,
         message=f"Создана задача {source} #{job.id}" + (f" (повтор #{previous.id})" if previous is not None else ""),
@@ -272,26 +375,20 @@ def _enqueue_job(db: Session, *, city: City, source: str, actor_id: str | None) 
 def _resolve_run_job(db: Session, *, city_id: int, job_id: int | None) -> CityAdminImportJob:
     """Resolve the exact row a run_*_job runner must operate on.
 
-    job_id, when supplied (the worker path — run_queued_import_jobs
-    already claimed this exact row under FOR UPDATE SKIP LOCKED), is the
-    only source of truth: load_job_for_run rejects a mismatched city_id
-    outright. Without job_id (the synchronous admin-router path, or a
-    direct/CLI caller that never enqueued its own row), the city's current
-    ACTIVE (queued/running) row is used if one exists — never "the latest
-    row regardless of status", which could silently pick up an unrelated
-    terminal row from a previous launch. If no active row exists either,
-    one is created here via the normal immutable _enqueue_job path (the
-    same convenience the old ensure_import_job provided for callers that
-    invoke a runner directly without enqueuing first)."""
-    if job_id is not None:
-        return load_job_for_run(db, job_id=job_id, city_id=city_id)
-    job = _active_job(db, city_id)
-    if job is not None:
-        return job
-    city = db.query(City).filter(City.id == city_id).first()
-    if city is None:
-        raise ValueError(f"Город #{city_id} не найден")
-    return _enqueue_job(db, city=city, source=SOURCE_FULL_IMPORT, actor_id=None)
+    job_id is REQUIRED — enqueue (creating a row) and execute (running a
+    row) are two separate operations, and no runner may bridge them by
+    auto-selecting "the active row" or auto-creating a fresh one. Every
+    execution path (admin API, background task, CLI) must first obtain a
+    job_id from claim_queued_job() (the worker path) or from the row it
+    itself just created via _enqueue_job (the synchronous admin-router
+    path), then pass that exact job_id here. load_job_for_run further
+    requires the row's status already be "running" — a runner never
+    performs its own queued -> running transition (see claim_queued_job's
+    docstring for why that specific gap let two workers claim the same
+    row)."""
+    if job_id is None:
+        raise ValueError("job_id обязателен: раннер не может сам выбирать или создавать задачу")
+    return load_job_for_run(db, job_id=job_id, city_id=city_id)
 
 
 def retry_import_job(db: Session, *, city_id: int, actor_id: str | None = None) -> CityAdminImportJob:
@@ -308,44 +405,39 @@ def retry_import_job(db: Session, *, city_id: int, actor_id: str | None = None) 
     return _enqueue_job(db, city=city, source=SOURCE_FULL_IMPORT, actor_id=actor_id)
 
 
-def run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
+def run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int) -> CityAdminImportJob:
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
         raise ValueError("Город не найден")
+    # _resolve_run_job/load_job_for_run already requires status == "running"
+    # — the row was already claimed (queued -> running) atomically by
+    # claim_queued_job before this function was ever called. This function
+    # must never perform that transition itself.
     job = _resolve_run_job(db, city_id=city_id, job_id=job_id)
-    if job.status == "running":
-        raise ValueError("Импорт уже выполняется")
     if job.current_step == STEP_CANCELLED:
         raise ValueError("Задача отменена. Создайте новую через повтор.")
-    _transition(db, job, "running", actor_id=actor_id)
     job.source = SOURCE_FULL_IMPORT
-    job.started_at = datetime.utcnow()
     job.finished_at = None
     job.last_error = None
     job.scopes_total = db.query(CityImportScope).filter_by(city_id=city_id, enabled=True).count()
     log_import_event(db, event="import_job_started", city_slug=city.slug, actor_id=actor_id, message=f"Старт полного pipeline #{job.id}", details={"job_id": job.id, "source": job.source}, job_id=job.id)
     db.commit()
     try:
+        # run_enrichment_pipeline never writes job.status — it returns this
+        # phase's own outcome in legacy["status"] instead, so job.status
+        # stays "running" for the whole call (see the function's own
+        # comment). job.finished_at is likewise left untouched here.
         legacy = run_enrichment_pipeline(db, job=job, city=city, actor_id=actor_id, force=True, notify_completion=False)
         db.refresh(job)
         db.refresh(city)
-        legacy_status = job.status
+        legacy_status = str(legacy.get("status") or "success")
         ids = [int(v) for v in legacy.get("changed_place_ids", [])]
         warnings = list((job.step_details or {}).get("warnings") or [])
         saved = (job.places_found, job.places_saved, job.scopes_succeeded)
-        # Not routed through _transition: run_enrichment_pipeline (the
-        # "legacy" collection/enrichment phase) may itself have already
-        # driven the row to a terminal legacy_status (captured above) as
-        # its own phase result — that is not a genuine terminal handoff,
-        # it is this same run_city_import_job execution moving on to its
-        # next internal phase (_foundation). The row never left this
-        # worker run/call stack, so this is not the cross-run reuse the
-        # immutable-lifecycle fix targets.
-        job.status = "running"
-        job.finished_at = None
-        db.commit()
         source = _foundation(db, city, job, actor_id, ids)
-        source_status = job.status
+        # run_foundation_pipeline likewise never writes job.status — its
+        # own outcome is in job.step_details["source_enrichment_status"].
+        source_status = str((job.step_details or {}).get("source_enrichment_status") or "success")
         job.places_found, job.places_saved, job.scopes_succeeded = saved
         auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=ids)
         readiness = compute_city_readiness(db, city_slug=city.slug) or {}
@@ -405,15 +497,13 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int
     return job
 
 
-def run_snapshot_refresh_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
+def run_snapshot_refresh_job(db: Session, *, city_id: int, actor_id: str, job_id: int) -> CityAdminImportJob:
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
         raise ValueError("Город не найден")
     job = _resolve_run_job(db, city_id=city_id, job_id=job_id)
-    _transition(db, job, "running", actor_id=actor_id)
     job.source = SOURCE_SNAPSHOT_REFRESH
     job.current_step = "snapshot_refresh"
-    job.started_at = datetime.utcnow()
     db.commit()
     _refresh_snapshot_light(db, city=city, job=job, source="snapshot_refresh_job")
     _transition(db, job, "success", actor_id=actor_id)
@@ -439,15 +529,13 @@ def _enrichment_prerequisites(db: Session, *, city: City) -> dict[str, object]:
     }
 
 
-def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
+def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_id: int) -> CityAdminImportJob:
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
         raise ValueError("Город не найден")
     job = _resolve_run_job(db, city_id=city_id, job_id=job_id)
-    _transition(db, job, "running", actor_id=actor_id)
     job.source = SOURCE_ADDRESS_ENRICHMENT
     job.current_step = "finding_addresses"
-    job.started_at = datetime.utcnow()
     db.commit()
     prerequisites = _enrichment_prerequisites(db, city=city)
     if not prerequisites["ok"]:
@@ -481,15 +569,13 @@ def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_
     return job
 
 
-def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
+def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_id: int) -> CityAdminImportJob:
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
         raise ValueError("Город не найден")
     job = _resolve_run_job(db, city_id=city_id, job_id=job_id)
-    _transition(db, job, "running", actor_id=actor_id)
     job.source = SOURCE_PHOTO_ENRICHMENT
     job.current_step = "finding_images"
-    job.started_at = datetime.utcnow()
     db.commit()
     prerequisites = _enrichment_prerequisites(db, city=city)
     if not prerequisites["ok"]:
@@ -594,26 +680,25 @@ def _alert(db, city, job, changed, readiness, warnings):
     send_admin_alert(title="Import completed with warnings" if warnings else "Import pipeline finished", message=f"{city.name}: {changed} мест обновлено. Публикация города сохранена." if changed else f"{city.name}: изменений нет, публикация сохранена.", level="warning" if warnings else "info", city_slug=city.slug, job_id=int(job.id), details={"status": job.status, "source": job.source, "places_total": total, "changed_places": changed, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active), "readiness": readiness, "auto_repair": auto_repair if isinstance(auto_repair, dict) else None, "warnings": warnings})
 
 
-def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
+def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str, job_id: int) -> CityAdminImportJob:
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
         raise ValueError("Город не найден")
     job = _resolve_run_job(db, city_id=city_id, job_id=job_id)
-    if job.status == "running":
-        raise ValueError("Pipeline уже выполняется")
-    _transition(db, job, "running", actor_id=actor_id)
     job.source = SOURCE_ENRICHMENT_ONLY
-    job.started_at = datetime.utcnow()
     job.finished_at = None
     job.last_error = None
     db.commit()
     try:
-        run_enrichment_only_pipeline(db, job=job, city=city, actor_id=actor_id)
+        # run_enrichment_only_pipeline never writes job.status — its own
+        # outcome is in the returned dict's "status" key.
+        enrichment_only_result = run_enrichment_only_pipeline(db, job=job, city=city, actor_id=actor_id)
         db.refresh(job)
-        enrichment_only_status = job.status
+        enrichment_only_status = str(enrichment_only_result.get("status") or "success")
         ids = [int(v) for v in ((job.step_details or {}).get("changed_place_ids") or [])]
         _foundation(db, city, job, actor_id, ids)
-        source_status = job.status
+        # run_foundation_pipeline likewise never writes job.status.
+        source_status = str((job.step_details or {}).get("source_enrichment_status") or "success")
         auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=ids)
         job.step_details = {**dict(job.step_details or {}), "auto_repair": auto_repair}
         _transition(db, job, _combine_status(enrichment_only_status, source_status, "success"), actor_id=actor_id)
@@ -638,8 +723,15 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str, job_id:
     return job
 
 
-def cancel_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
-    job = _resolve_run_job(db, city_id=city_id, job_id=job_id)
+def cancel_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int) -> CityAdminImportJob:
+    # Not routed through _resolve_run_job/load_job_for_run: cancelling a
+    # job that is still queued (never claimed by a worker) is a normal,
+    # valid action, so this must not require status == "running".
+    job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
+    if job is None:
+        raise ValueError(f"Задача импорта #{job_id} не найдена")
+    if int(job.city_id) != int(city_id):
+        raise ValueError(f"Задача импорта #{job_id} принадлежит другому городу")
     if job.status != "running" and job.current_step not in {STEP_QUEUED, "queued"} and job.status in {"success", "failed"}:
         raise ValueError("Задача уже завершена")
     _transition(db, job, "cancelled", actor_id=actor_id)

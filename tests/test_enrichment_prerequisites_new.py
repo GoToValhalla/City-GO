@@ -8,10 +8,21 @@ from services import admin_city_import_job_service as service
 from services.admin_city_import_job_payload import build_import_job_payload
 
 
+def _queue_and_claim(db_session, *, city_id, actor_id="test-admin"):
+    """queue_city_import_job (enqueue) + claim_queued_job (the one atomic
+    claim) — run_*_job runners require an already-running, explicitly
+    claimed job_id (see admin_city_import_job_service.claim_queued_job);
+    they no longer auto-select or auto-create a row."""
+    job = service.queue_city_import_job(db_session, city_id=city_id, actor_id=actor_id)
+    db_session.commit()
+    return service.claim_queued_job(db_session, job_id=job.id, worker_id="test-worker", actor_id=actor_id)
+
+
 def test_photo_enrichment_with_no_places_exposes_blocked_reason_new(db_session, city_factory) -> None:
     city = city_factory(slug="prereq-photo-no-places-city", launch_status="importing", is_active=False)
+    claimed = _queue_and_claim(db_session, city_id=city.id)
 
-    job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin")
+    job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin", job_id=claimed.id)
 
     assert job.status == "failed"
     assert job.step_details["prerequisites"]["ok"] is False
@@ -22,8 +33,9 @@ def test_photo_enrichment_with_no_places_exposes_blocked_reason_new(db_session, 
 
 def test_photo_enrichment_blocked_run_is_not_silently_reported_as_success_new(db_session, city_factory) -> None:
     city = city_factory(slug="prereq-photo-not-silent-city", launch_status="importing", is_active=False)
+    claimed = _queue_and_claim(db_session, city_id=city.id)
 
-    job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin")
+    job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin", job_id=claimed.id)
 
     diagnostics = job.step_details["photo_diagnostics"]
     assert diagnostics["provider_status"] != "success"
@@ -33,8 +45,9 @@ def test_photo_enrichment_blocked_run_is_not_silently_reported_as_success_new(db
 
 def test_address_enrichment_with_no_places_exposes_blocked_reason_new(db_session, city_factory) -> None:
     city = city_factory(slug="prereq-address-no-places-city", launch_status="importing", is_active=False)
+    claimed = _queue_and_claim(db_session, city_id=city.id)
 
-    job = service.run_address_enrichment_job(db_session, city_id=city.id, actor_id="test-admin")
+    job = service.run_address_enrichment_job(db_session, city_id=city.id, actor_id="test-admin", job_id=claimed.id)
 
     assert job.status == "failed"
     assert job.step_details["prerequisites"]["ok"] is False
@@ -47,8 +60,9 @@ def test_photo_enrichment_creates_real_pending_work_when_prerequisites_met_new(d
     city = city_factory(slug="prereq-photo-runs-city", launch_status="review_required", is_active=False)
     place_factory(city_id=city.id, slug="prereq-photo-place", title="Prereq Photo Place", image_url=None)
     monkeypatch.setattr(service, "run_image_enrich", lambda *_args, **_kwargs: {"scanned_places": 1, "created": 0, "candidates_found": 0, "provider_status": "source_evidence_exhausted", "errors": []})
+    claimed = _queue_and_claim(db_session, city_id=city.id)
 
-    job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin")
+    job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin", job_id=claimed.id)
 
     assert job.step_details["prerequisites"]["ok"] is True
     assert job.step_details["photo_enrichment"]["scanned_places"] == 1
@@ -58,8 +72,9 @@ def test_address_enrichment_creates_real_pending_work_when_prerequisites_met_new
     city = city_factory(slug="prereq-address-runs-city", launch_status="review_required", is_active=False)
     place_factory(city_id=city.id, slug="prereq-address-place", title="Prereq Address Place", address=None)
     monkeypatch.setattr(service, "run_address_backfill", lambda *_args, **_kwargs: {"checked": 1, "updated": 0, "errors": 0})
+    claimed = _queue_and_claim(db_session, city_id=city.id)
 
-    job = service.run_address_enrichment_job(db_session, city_id=city.id, actor_id="test-admin")
+    job = service.run_address_enrichment_job(db_session, city_id=city.id, actor_id="test-admin", job_id=claimed.id)
 
     assert job.step_details["prerequisites"]["ok"] is True
     assert job.step_details["address_enrichment"]["checked"] == 1
@@ -67,7 +82,8 @@ def test_address_enrichment_creates_real_pending_work_when_prerequisites_met_new
 
 def test_admin_payload_exposes_enrichment_prerequisites_top_level_new(db_session, city_factory) -> None:
     city = city_factory(slug="prereq-payload-city", launch_status="importing", is_active=False)
-    service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin")
+    claimed = _queue_and_claim(db_session, city_id=city.id)
+    service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin", job_id=claimed.id)
 
     payload = build_import_job_payload(db_session, city)
 

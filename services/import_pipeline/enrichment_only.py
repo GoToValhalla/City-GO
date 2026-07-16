@@ -42,7 +42,10 @@ def run_enrichment_only_pipeline(
     actor_id: str,
 ) -> dict[str, Any]:
     slug = city.slug
-    job.status = "running"
+    # job.status is NOT written here — it stays whatever the caller already
+    # set it to ("running", via claim_queued_job) for this entire function's
+    # duration. This phase's own outcome is returned in results["status"];
+    # the caller applies exactly one final _transition at the very end.
     job.started_at = job.started_at or datetime.utcnow()
     set_step(job, STEP_RUNNING)
     db.commit()
@@ -134,7 +137,7 @@ def run_enrichment_only_pipeline(
         db.commit()
 
         set_step(job, STEP_READY_FOR_REVIEW, successful=places_total, processed=places_total)
-        job.status = "success"
+        results["status"] = "success"
         job.finished_at = datetime.utcnow()
         city.launch_status = "review_required"
         log_import_event(
@@ -154,11 +157,11 @@ def run_enrichment_only_pipeline(
             level="info",
             city_slug=slug,
             job_id=int(job.id),
-            details={"status": job.status, "source": job.source, "places_total": places_total, "readiness": readiness},
+            details={"status": "success", "source": job.source, "places_total": places_total, "readiness": readiness},
         )
         return results
     except Exception as exc:  # noqa: BLE001
-        job.status = "failed"
+        results["status"] = "failed"
         job.last_error = str(exc)[:2000]
         job.finished_at = datetime.utcnow()
         set_step(job, "error", detail={"error": str(exc)})
@@ -177,7 +180,7 @@ def run_enrichment_only_pipeline(
             level="error",
             city_slug=slug,
             job_id=int(job.id),
-            details={"status": job.status, "source": job.source, "step_details": job.step_details},
+            details={"status": "failed", "source": job.source, "step_details": job.step_details},
         )
         raise
 

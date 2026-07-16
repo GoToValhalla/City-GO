@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from db.session import SessionLocal
 from models.city import City
-from services.admin_city_import_job_service import DuplicateActiveJobError, queue_city_import_job, run_enrichment_only_job
+from services.admin_city_import_job_service import DuplicateActiveJobError, claim_queued_job, queue_city_import_job, run_enrichment_only_job
 from services.city_slug_resolver import resolve_city_by_slug
 
 
@@ -27,13 +27,12 @@ def main(argv: list[str] | None = None) -> dict[str, object]:
         if city is None:
             raise SystemExit(f"City not found: {args.city}")
         try:
-            job = queue_city_import_job(db, city_id=city.id, actor_id=args.actor)
+            created = queue_city_import_job(db, city_id=city.id, actor_id=args.actor)
             db.commit()
+            claimed = claim_queued_job(db, job_id=created.id, worker_id=f"cli-{args.actor}", actor_id=args.actor)
         except DuplicateActiveJobError as exc:
-            job = None
-            job_id = exc.job_id
-        else:
-            job_id = job.id
+            claimed = claim_queued_job(db, job_id=exc.job_id, worker_id=f"cli-{args.actor}", actor_id=args.actor)
+        job_id = claimed.id
         if args.address_limit:
             import services.import_pipeline.enrichment_only as eo
             eo.ADDRESS_LIMIT = args.address_limit

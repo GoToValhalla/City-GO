@@ -6,7 +6,7 @@ from models.city_admin_import_job import CityAdminImportJob
 from models.city_import_scope import CityImportScope
 from models.system_log import SystemLog
 from services.admin_city_import_job_payload import build_import_job_payload
-from services.admin_city_import_job_service import queue_city_import_job, run_city_import_job
+from services.admin_city_import_job_service import claim_queued_job, queue_city_import_job, run_city_import_job
 from services.admin_city_import_runner import summarize_import_results
 from services.admin_city_import_tasks import import_queue_summary, mark_stalled_import_jobs, run_queued_import_jobs
 from services.admin_extended_service import get_admin_cities
@@ -68,19 +68,20 @@ def test_queue_and_run_import_job_new(db_session, monkeypatch) -> None:
     db_session.commit()
     job = queue_city_import_job(db_session, city_id=city.id)
     assert job.status == "queued"
+    claimed = claim_queued_job(db_session, job_id=job.id, worker_id="test-worker")
+    assert claimed.status == "running"
     fake_result = {"results": [{"status": "success", "scope": "tourist_core", "import_result": {"raw_count": 3, "created": 2, "updated": 0}}]}
 
     def _fake_pipeline(db, *, job, city, actor_id, force=True, notify_completion=True):
         assert notify_completion is False
-        job.status = "success"
         job.places_found = 3
         job.places_saved = 2
         job.scopes_succeeded = 1
         db.commit()
-        return {"import": fake_result}
+        return {"import": fake_result, "status": "success", "changed_place_ids": []}
 
     with patch("services.admin_city_import_job_service.run_enrichment_pipeline", side_effect=_fake_pipeline):
-        finished = run_city_import_job(db_session, city_id=city.id, actor_id="tester")
+        finished = run_city_import_job(db_session, city_id=city.id, actor_id="tester", job_id=claimed.id)
     assert finished.status == "success"
     payload = build_import_job_payload(db_session, city)
     assert payload["can_retry"] is True
@@ -231,7 +232,13 @@ def test_non_blocking_photo_failure_keeps_city_review_required_new(db_session, m
     monkeypatch.setattr("services.import_pipeline.runner.run_image_enrich", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("photo api down")))
     monkeypatch.setattr("services.import_pipeline.runner.run_quality_cleanup", lambda *_args, **_kwargs: {"updated": 1})
     monkeypatch.setattr("services.import_pipeline.runner.compute_city_readiness", lambda *_args, **_kwargs: {"readiness_score": 10})
-    run_enrichment_pipeline(db_session, job=job, city=city, actor_id="test-admin")
-    assert job.status == "success_with_warnings"
+    results = run_enrichment_pipeline(db_session, job=job, city=city, actor_id="test-admin")
+    # run_enrichment_pipeline never writes job.status (the caller,
+    # run_city_import_job, combines this phase's outcome with others and
+    # applies exactly one final _transition) — its own outcome is in the
+    # returned dict instead, and job.status stays whatever the caller set
+    # it to before calling this function.
+    assert results["status"] == "success_with_warnings"
+    assert job.status == "queued"
     assert city.launch_status == "review_required"
     assert job.step_details["warnings"][0]["step"] == "finding_images"

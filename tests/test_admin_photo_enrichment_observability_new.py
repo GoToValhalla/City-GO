@@ -35,7 +35,10 @@ def test_photo_enrichment_success_with_zero_created_is_visible_in_details(db_ses
     monkeypatch.setattr(service, "run_image_enrich", fake_run_image_enrich)
     monkeypatch.setattr(service, "log_import_event", fake_log_import_event)
 
-    job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin")
+    queued = service.queue_city_import_job(db_session, city_id=city.id, actor_id="test-admin")
+    db_session.commit()
+    claimed = service.claim_queued_job(db_session, job_id=queued.id, worker_id="test-worker", actor_id="test-admin")
+    job = service.run_photo_enrichment_job(db_session, city_id=city.id, actor_id="test-admin", job_id=claimed.id)
 
     assert job.status == "success_with_warnings"
     assert job.source == service.SOURCE_PHOTO_ENRICHMENT
@@ -67,8 +70,10 @@ def test_photo_enrichment_success_with_zero_created_is_visible_in_details(db_ses
     assert detail["step_details"]["photo_enrichment"]["provider_status"] == "source_evidence_exhausted"
     assert detail["step_details"]["latest_photo_enrichment"]["provider_status"] == "source_evidence_exhausted"
 
-    service.queue_city_snapshot_refresh_job(db_session, city_id=city.id, actor_id="test-admin")
-    snapshot_job = service.run_snapshot_refresh_job(db_session, city_id=city.id, actor_id="test-admin")
+    queued_snapshot = service.queue_city_snapshot_refresh_job(db_session, city_id=city.id, actor_id="test-admin")
+    db_session.commit()
+    claimed_snapshot = service.claim_queued_job(db_session, job_id=queued_snapshot.id, worker_id="test-worker", actor_id="test-admin")
+    snapshot_job = service.run_snapshot_refresh_job(db_session, city_id=city.id, actor_id="test-admin", job_id=claimed_snapshot.id)
     snapshot_detail = get_admin_import_job(db_session, city.id)
     assert snapshot_job.source == service.SOURCE_SNAPSHOT_REFRESH
     assert snapshot_detail is not None

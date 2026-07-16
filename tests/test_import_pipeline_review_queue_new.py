@@ -33,19 +33,18 @@ def test_review_queue_item_requires_persisted_import_job_new(db_session, city_fa
     place = place_factory(city_id=city.id, slug="review-queue-job-persisted-place", title="Review", category="health")
     place.source = "osm"
     place.confidence = 0.9
-    job = CityAdminImportJob(city_id=city.id, status="queued", source=service.SOURCE_FULL_IMPORT, current_step="queued")
-    db_session.add(job)
+    queued = service.queue_city_import_job(db_session, city_id=city.id, actor_id="qa")
     db_session.commit()
+    job = service.claim_queued_job(db_session, job_id=queued.id, worker_id="test-worker", actor_id="qa")
 
     def fake_collection(db, *, job, city, actor_id, force, notify_completion=True):
-        job.status = "success"
         db.commit()
-        return {"import": {"places_saved": 0}, "changed_place_ids": [place.id]}
+        return {"import": {"places_saved": 0}, "status": "success", "changed_place_ids": [place.id]}
 
     monkeypatch.setattr(service, "run_enrichment_pipeline", fake_collection)
     monkeypatch.setattr(service, "compute_city_readiness", lambda db, *, city_slug: {"readiness_score": 80})
 
-    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa")
+    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
 
     assert result.id is not None
     reviews = db_session.query(ReviewQueueItem).filter_by(place_id=place.id).all()

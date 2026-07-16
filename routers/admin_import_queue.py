@@ -16,6 +16,7 @@ from db.session import SessionLocal
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_alert_service import send_admin_alert
+from services.admin_city_import_job_service import _transition
 from services.admin_city_import_tasks import run_queued_import_jobs
 from services.import_pipeline.progress import worker_progress_snapshot
 from services.import_pipeline.steps import STEP_ERROR
@@ -170,7 +171,7 @@ def mark_stuck_import_jobs(auth: AdminContext = Depends(admin_required), db: Ses
             "running_seconds": _running_seconds(job, now=now),
         }
         job.step_details = details
-        job.status = "stalled"
+        _transition(db, job, "stalled", actor_id=auth.actor_id)
         job.current_step = STEP_ERROR
         job.last_error = job.last_error or "Recovered stale import job: no active worker heartbeat / worker process absent"
         job.finished_at = now

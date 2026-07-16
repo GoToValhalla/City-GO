@@ -205,8 +205,11 @@ def cancel_import_job_endpoint(city_id: int, auth: AdminContext = Depends(admin_
         raise HTTPException(404, "Задача импорта не найдена")
     if not item.get("can_cancel"):
         raise HTTPException(409, "Отмена недоступна для текущего статуса")
+    job_id = item.get("job_id")
+    if job_id is None:
+        raise HTTPException(409, "Нет активной задачи для отмены")
     try:
-        cancel_import_job(db, city_id=city_id, actor_id=auth.actor_id)
+        cancel_import_job(db, city_id=city_id, actor_id=auth.actor_id, job_id=int(job_id))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return AdminImportJobActionResponse(city_id=city_id, status="cancelled", message="Сбор и обогащение отменены.")

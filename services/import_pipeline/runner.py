@@ -64,7 +64,12 @@ def run_enrichment_pipeline(
     started = datetime.utcnow()
     warnings: list[dict[str, object]] = []
     results: dict[str, object] = {}
-    job.status = "running"
+    # job.status is NOT written here or anywhere else in this function —
+    # it stays whatever the caller (run_city_import_job, via claim_queued_job)
+    # already set it to ("running") for the entire duration of this phase.
+    # This function's own outcome is returned in results["status"] instead;
+    # the caller combines it with other phases and applies exactly one
+    # final _transition to a terminal status at the very end.
     job.started_at = job.started_at or started
     set_step(job, STEP_RUNNING)
     db.commit()
@@ -242,9 +247,13 @@ def run_enrichment_pipeline(
                 message=f"Pipeline #{job.id}: finished after job was already marked recovered externally; not overwriting status",
                 details={"job_id": job.id},
             )
+            results["status"] = "recovered_externally"
             db.commit()
             return results
-        _finalize_import_status(job, summary=summary, total=total, warnings=warnings)
+        phase_status = _phase_outcome(summary=summary, total=total, warnings=warnings)
+        results["status"] = phase_status
+        if phase_status in {"partial_success", "failed"}:
+            job.last_error = job.last_error or str(summary.get("last_error") or "All import scopes failed")
         if original[0] == "importing":
             city.launch_status = "review_required"
             city.is_active = False
@@ -300,8 +309,12 @@ def run_enrichment_pipeline(
                 raise
             return results
         job.last_error = str(exc)[:2000]
+        # phase_status is this phase's own outcome, returned to the caller
+        # (run_city_import_job) — job.status is never written here; it
+        # stays "running" for the caller to combine with other phases and
+        # terminalize exactly once at the very end.
         if total > 0:
-            job.status = "partial_success"
+            phase_status = "partial_success"
             set_step(job, STEP_READY_FOR_REVIEW, total=total, processed=total, successful=total, detail={"partial_success_after_error": detail})
             if original[0] == "importing":
                 city.launch_status = "review_required"
@@ -309,8 +322,9 @@ def run_enrichment_pipeline(
             else:
                 city.launch_status, city.is_active = original
         else:
-            job.status = "failed"
+            phase_status = "failed"
             city.launch_status, city.is_active = original
+        results["status"] = phase_status
         error_meta = classify_scope_error(str(exc))
         log_import_event(
             db,
@@ -330,7 +344,7 @@ def run_enrichment_pipeline(
                 level="warning",
                 city_slug=city.slug,
                 job_id=int(job.id),
-                details={"status": job.status, "places_total": total, "changed_places": len(ids), "warnings": warnings + [detail]},
+                details={"status": phase_status, "places_total": total, "changed_places": len(ids), "warnings": warnings + [detail]},
             )
         if total <= 0:
             raise
@@ -377,22 +391,23 @@ def _try_refresh_snapshot(db: Session, *, city_id: int, source: str) -> None:
             rollback_session(db)
 
 
-def _finalize_import_status(
-    job: CityAdminImportJob,
+def _phase_outcome(
     *,
     summary: dict[str, object],
     total: int,
     warnings: list[dict[str, object]],
-) -> None:
+) -> str:
+    """This phase's own outcome, returned (never written onto job.status —
+    see run_enrichment_pipeline's own comment on why). The caller combines
+    this with other phases' outcomes via _combine_status and applies
+    exactly one final _transition."""
     scopes_total = int(summary.get("scopes_total") or 0)
     scopes_ok = int(summary.get("scopes_succeeded") or 0)
     if scopes_total > 0 and scopes_ok == 0 and str(summary.get("status") or "").lower() == "failed":
-        job.status = "partial_success" if total > 0 else "failed"
-        job.last_error = job.last_error or str(summary.get("last_error") or "All import scopes failed")
-    elif warnings:
-        job.status = "success_with_warnings"
-    else:
-        job.status = "success"
+        return "partial_success" if total > 0 else "failed"
+    if warnings:
+        return "success_with_warnings"
+    return "success"
 
 
 def _changed(db: Session, city_id: int, since: datetime) -> list[Place]:

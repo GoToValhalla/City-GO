@@ -62,7 +62,10 @@ def test_dns_scope_failure_is_classified_without_db_integrity_mix_new() -> None:
 def test_all_scopes_failed_marks_job_partial_success_with_diagnostics_new(db_session, city_factory, place_factory, monkeypatch) -> None:
     city = city_factory(slug="scope-fail-city", launch_status="published", is_active=True)
     place_factory(city_id=city.id, slug="existing-place", title="Existing", category="park")
-    job = CityAdminImportJob(city_id=city.id, status="queued", source="admin_city_import")
+    # status="running" — run_enrichment_pipeline is called here directly,
+    # simulating the row exactly as its real caller (run_city_import_job,
+    # after claim_queued_job) would hand it off.
+    job = CityAdminImportJob(city_id=city.id, status="running", source="admin_city_import")
     db_session.add(job)
     db_session.commit()
 
@@ -87,7 +90,10 @@ def test_all_scopes_failed_marks_job_partial_success_with_diagnostics_new(db_ses
     assert summary["status"] == "failed"
     assert summary["scope_errors"][0]["kind"] == "source_failure"
     assert summary["scope_errors"][1]["kind"] == "data_integrity"
-    assert job.status == "partial_success"
+    # run_enrichment_pipeline never writes job.status (see its own comment)
+    # — this phase's own outcome is in the returned dict instead.
+    assert result["status"] == "partial_success"
+    assert job.status == "running"
     assert job.finished_at is not None
     assert "ForeignKeyViolation" in (job.last_error or "")
     assert result["import"]["scopes_succeeded"] == 0

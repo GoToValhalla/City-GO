@@ -45,10 +45,17 @@ def run_foundation_pipeline(
 
     if not places:
         _finish_batch(batch, counters, status="success", manual_review_required=manual_review_required)
-        _write_job_counters(job, counters)
+        _write_job_counters(job, counters, phase_status="success")
         db.commit()
         return counters
 
+    # phase_status is this function's own outcome, tracked as a local
+    # variable rather than written onto job.status mid-loop — job.status
+    # is the PARENT job's single terminal-status slot and must not be
+    # mutated by an internal sub-phase (see run_city_import_job, which
+    # combines this phase's outcome with others into exactly one final
+    # _transition at the very end).
+    phase_status = "success"
     for step in FOUNDATION_STEPS:
         record_step(db, job_id=job.id, step_name=step, status="started")
         try:
@@ -66,17 +73,18 @@ def run_foundation_pipeline(
             )
             if step not in NON_CRITICAL_STEPS:
                 _finish_batch(batch, counters, status="failed", manual_review_required=manual_review_required)
-                job.status = "failed"
+                _write_job_counters(job, counters, phase_status="failed")
                 job.last_error = str(exc)[:2000]
+                db.commit()
                 raise
-            job.status = "partial_success"
+            phase_status = "partial_success"
     _finish_batch(
         batch,
         counters,
-        status="partial_success" if job.status == "partial_success" else "success",
+        status="partial_success" if phase_status == "partial_success" else "success",
         manual_review_required=manual_review_required,
     )
-    _write_job_counters(job, counters)
+    _write_job_counters(job, counters, phase_status=phase_status)
     db.commit()
     return counters
 
@@ -125,5 +133,10 @@ def _empty_counters() -> dict[str, int]:
     }
 
 
-def _write_job_counters(job: CityAdminImportJob, counters: dict[str, int]) -> None:
-    job.step_details = {**dict(job.step_details or {}), "pipeline_counters": counters}
+def _write_job_counters(job: CityAdminImportJob, counters: dict[str, int], *, phase_status: str) -> None:
+    """Records this phase's own outcome in step_details (never job.status —
+    see run_foundation_pipeline's phase_status comment). Callers combining
+    multiple phases (run_city_import_job, run_enrichment_only_job) read
+    step_details["source_enrichment_status"] instead of job.status to learn
+    what this phase actually concluded."""
+    job.step_details = {**dict(job.step_details or {}), "pipeline_counters": counters, "source_enrichment_status": phase_status}

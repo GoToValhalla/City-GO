@@ -1,4 +1,11 @@
-"""Финализация admin city import job."""
+"""Финализация admin city import job.
+
+Not currently called from any code path (no import of this module exists
+elsewhere in the repository) — kept only because deleting an unreferenced
+file is outside this task's scope. Both functions route their status
+writes through admin_city_import_job_service._transition rather than
+writing job.status directly, so this file does not need an AST-regression
+allowlist entry."""
 
 from __future__ import annotations
 
@@ -10,6 +17,7 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.place import Place
+from services.admin_city_import_job_service import _transition
 from services.admin_city_import_log import log_import_event
 
 
@@ -32,7 +40,7 @@ def _apply_summary(
         job.last_error = summary.get("last_error") or "Нет scopes для импорта"
     elif status == "failed":
         job.last_error = str(summary.get("last_error") or "Импорт завершился с ошибкой")
-    job.status = status
+    _transition(db, job, status, actor_id=actor_id)
     city.launch_status = "imported" if status == "success" else "import_failed"
     event = "import_job_finished" if status == "success" else "import_job_failed"
     log_import_event(
@@ -45,7 +53,7 @@ def _apply_summary(
 
 
 def _fail_job(db: Session, *, job: CityAdminImportJob, city: City, actor_id: str, error: str) -> None:
-    job.status = "failed"
+    _transition(db, job, "failed", actor_id=actor_id)
     job.last_error = error[:2000]
     job.finished_at = datetime.utcnow()
     city.launch_status = "import_failed"

@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from db.session import SessionLocal
-from services.admin_city_import_job_service import DuplicateActiveJobError, queue_city_import_job, run_city_import_job
+from services.admin_city_import_job_service import DuplicateActiveJobError, claim_queued_job, queue_city_import_job, run_city_import_job
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -26,9 +26,15 @@ def run(argv: list[str] | None = None) -> dict[str, object]:
         try:
             created = queue_city_import_job(db, city_id=args.city_id, actor_id=args.actor)
             db.commit()
-            job_id = created.id
+            claimed = claim_queued_job(db, job_id=created.id, worker_id=f"cli-{args.actor}", actor_id=args.actor)
+            job_id = claimed.id
         except DuplicateActiveJobError as exc:
-            job_id = exc.job_id
+            # An active job already exists for this city — if it's still
+            # queued (not yet claimed by anything else), claim and run it;
+            # if it's already running, this CLI invocation cannot proceed
+            # (the atomic claim itself enforces this).
+            claimed = claim_queued_job(db, job_id=exc.job_id, worker_id=f"cli-{args.actor}", actor_id=args.actor)
+            job_id = claimed.id
         job = run_city_import_job(db, city_id=args.city_id, actor_id=args.actor, job_id=job_id)
         return {
             "job_id": job.id,

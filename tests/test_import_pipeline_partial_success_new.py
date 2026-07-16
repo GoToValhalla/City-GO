@@ -8,7 +8,10 @@ def test_hard_pipeline_failure_after_saved_places_becomes_partial_success_new(db
     city = City(name="Recovered City", slug="recovered-city", country="Россия", launch_status="importing", is_active=False)
     db_session.add(city)
     db_session.flush()
-    job = CityAdminImportJob(city_id=city.id, status="queued", source="admin_city_import")
+    # status="running" — run_enrichment_pipeline is called here directly,
+    # simulating the row exactly as its real caller (run_city_import_job,
+    # after claim_queued_job) would hand it off.
+    job = CityAdminImportJob(city_id=city.id, status="running", source="admin_city_import")
     place = Place(city_id=city.id, slug="recovered-park", title="Recovered Park", lat=55.0, lng=37.0, category="park")
     db_session.add_all([job, place])
     db_session.commit()
@@ -32,7 +35,10 @@ def test_hard_pipeline_failure_after_saved_places_becomes_partial_success_new(db
     persisted_city = db_session.get(City, city_id)
 
     assert result["partial_success_after_error"]["step"] == "computing_readiness"
-    assert persisted_job.status == "partial_success"
+    # run_enrichment_pipeline never writes job.status (see its own comment)
+    # — this phase's own outcome is in the returned dict instead.
+    assert result["status"] == "partial_success"
+    assert persisted_job.status == "running"
     assert persisted_job.current_step == "ready_for_review"
     assert persisted_job.last_error == "readiness down"
     assert persisted_job.step_details["partial_success_after_error"]["places_total"] == 1

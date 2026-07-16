@@ -74,7 +74,10 @@ def test_collecting_places_step_forwards_city_admin_import_job_id(
 ) -> None:
     """The collecting_places OSM stage must receive CityAdminImportJob.id as context."""
     city = city_factory(slug="collecting-places-city", name="Collecting Places City")
-    job = _create_import_job(db_session, city_id=city.id)
+    # status="running" — run_enrichment_pipeline is called here directly,
+    # simulating the row exactly as its real caller (run_city_import_job,
+    # after claim_queued_job) would hand it off.
+    job = _create_import_job(db_session, city_id=city.id, status="running")
     captured: dict[str, Any] = {}
 
     def fake_run_osm_import_only(city_slug: str, *, force: bool = True, city_admin_import_job_id: int | None = None) -> dict[str, Any]:
@@ -101,5 +104,9 @@ def test_collecting_places_step_forwards_city_admin_import_job_id(
         "city_admin_import_job_id": job.id,
     }
     assert job.current_step == STEP_COLLECTING_PLACES
-    assert job.status == "failed"
+    # run_enrichment_pipeline no longer writes job.status (see its own
+    # comment) — with total<=0 it re-raises instead, and the caller
+    # (run_city_import_job) is the one that applies a terminal _transition;
+    # called directly here, job.status stays exactly what it was handed.
+    assert job.status == "running"
     assert "stop after collecting_places contract capture" in (job.last_error or "")
