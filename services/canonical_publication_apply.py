@@ -24,14 +24,16 @@ def apply_canonical_publication_verdict(
 ) -> str:
     """Apply a canonical publication verdict.
 
-    CITYGO-339/341: ``record_only=True`` is for import-pipeline call sites
-    that run before any quality-snapshot evidence exists (e.g. the
-    mid-pipeline ``apply_publication_decisions`` step). In that mode this
-    function must never auto-publish a place (never call _set_published) —
-    that is the "publish" outcome the ticket names, and it is reserved for
-    evidence-gated import finalization (services/import_publication_finalize.py,
-    which only runs after real snapshot evidence exists) and explicit admin
-    actions (services/admin_service.py, services/admin_city_publication_service.py).
+    CITYGO-339/341 + post-CITYGO-339..344 blocker fix: ``record_only=True``
+    is used by every import-side call site — both the mid-pipeline
+    ``apply_publication_decisions`` step (no evidence yet) and
+    services/import_publication_finalize.py (real evidence exists, but a
+    successful import may still only produce a publication PROPOSAL, never
+    a live publish). In that mode this function must never auto-publish a
+    place (never call _set_published) — that is the "publish" outcome
+    these tickets name. Only an explicit admin action (services/
+    admin_service.py's publish_place, services/admin_city_publication_service.py's
+    publish_city) may call this with record_only=False.
 
     record_only does NOT suppress _set_review/_set_archived: hard safety
     rejection (invalid coordinates, hard-excluded categories, missing

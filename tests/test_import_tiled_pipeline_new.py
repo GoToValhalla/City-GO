@@ -243,13 +243,17 @@ def test_tile_failure_does_not_lose_already_completed_tiles_new(db_session, city
 
 
 def test_resume_continues_from_next_unfinished_tile_new(db_session, city_factory):
+    """Resume of the SAME execution: the manually-seeded rows and the
+    orchestrator call below share execution_id="job:555" because both are
+    keyed off the same city_admin_import_job_id (CITYGO-338)."""
     city, scope = _large_scope(db_session, city_factory)
     config = TilePlannerConfig(max_tile_width_deg=0.5, max_tile_height_deg=0.5, max_tile_count=16)
     plan = plan_tiles(city_slug=city.slug, scope_code=scope.code, profile="tourist_core", bbox=scope.bbox, config=config)
     assert plan.tile_count >= 2
 
-    # Simulate a prior interrupted run: tile 1 already completed, rest queued.
-    rows = ensure_tile_runs(db_session, scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
+    # Simulate a prior interrupted run of the same execution: tile 1
+    # already completed, rest queued.
+    rows = ensure_tile_runs(db_session, execution_id="job:555", scope_id=scope.id, city_admin_import_job_id=555, planner_version=plan.planner_version, tiles=plan.tiles)
     db_session.commit()
     mark_tile_running(db_session, rows[0])
     mark_tile_completed(db_session, rows[0], batch_id=None, counters={"created": 1}, retry_attempts=0)
@@ -262,7 +266,7 @@ def test_resume_continues_from_next_unfinished_tile_new(db_session, city_factory
         return []
 
     with patch.object(import_city_osm, "_fetch_osm_objects", side_effect=fetch_and_record):
-        import_city_osm._apply_import_tiled(db_session, city, scope, "tourist_core", plan, None)
+        import_city_osm._apply_import_tiled(db_session, city, scope, "tourist_core", plan, 555)
 
     # tile 1 (already completed before this call) must never be re-fetched
     assert (plan.tiles[0].south, plan.tiles[0].west) not in fetch_calls
@@ -271,10 +275,32 @@ def test_resume_continues_from_next_unfinished_tile_new(db_session, city_factory
     assert set(fetch_calls) == set(remaining)
 
 
-def test_repeated_launch_is_idempotent_and_safe_new(db_session, city_factory):
-    """Calling _apply_import_tiled twice in a row (simulating a repeated
-    manual launch) must not re-run already-completed tiles or duplicate
-    ImportTileRun rows."""
+def test_repeated_launch_with_same_job_id_is_idempotent_and_safe_new(db_session, city_factory):
+    """CITYGO-338: calling _apply_import_tiled twice in a row for the SAME
+    execution (same city_admin_import_job_id, e.g. a worker retrying the
+    same job) must not re-run already-completed tiles or duplicate
+    ImportTileRun rows — the two calls share one execution_id."""
+    city, scope = _large_scope(db_session, city_factory)
+    config = TilePlannerConfig(max_tile_width_deg=0.5, max_tile_height_deg=0.5, max_tile_count=16)
+    plan = plan_tiles(city_slug=city.slug, scope_code=scope.code, profile="tourist_core", bbox=scope.bbox, config=config)
+
+    with patch.object(import_city_osm, "_fetch_osm_objects", return_value=[]):
+        import_city_osm._apply_import_tiled(db_session, city, scope, "tourist_core", plan, 777)
+        fetch_calls_second_run = []
+        with patch.object(import_city_osm, "_fetch_osm_objects", side_effect=lambda *a: fetch_calls_second_run.append(1) or []):
+            import_city_osm._apply_import_tiled(db_session, city, scope, "tourist_core", plan, 777)
+
+    assert fetch_calls_second_run == []  # every tile was already terminal, nothing re-fetched
+    rows = db_session.query(ImportTileRun).filter(ImportTileRun.scope_id == scope.id).all()
+    assert len(rows) == plan.tile_count  # no duplicate rows created by the second call
+    assert all(row.execution_id == "job:777" for row in rows)
+
+
+def test_new_execution_without_job_id_reprocesses_every_tile_new(db_session, city_factory):
+    """CITYGO-338: a NEW execution (no job id -> a fresh execution_id is
+    minted each call) must create fresh rows and process every tile, even
+    though an earlier execution of the same scope already completed all
+    of its tiles. Nothing from the earlier execution is deleted."""
     city, scope = _large_scope(db_session, city_factory)
     config = TilePlannerConfig(max_tile_width_deg=0.5, max_tile_height_deg=0.5, max_tile_count=16)
     plan = plan_tiles(city_slug=city.slug, scope_code=scope.code, profile="tourist_core", bbox=scope.bbox, config=config)
@@ -285,9 +311,87 @@ def test_repeated_launch_is_idempotent_and_safe_new(db_session, city_factory):
         with patch.object(import_city_osm, "_fetch_osm_objects", side_effect=lambda *a: fetch_calls_second_run.append(1) or []):
             import_city_osm._apply_import_tiled(db_session, city, scope, "tourist_core", plan, None)
 
-    assert fetch_calls_second_run == []  # every tile was already terminal, nothing re-fetched
+    assert len(fetch_calls_second_run) == plan.tile_count  # every tile refetched by the new execution
     rows = db_session.query(ImportTileRun).filter(ImportTileRun.scope_id == scope.id).all()
-    assert len(rows) == plan.tile_count  # no duplicate rows created by the second call
+    assert len(rows) == plan.tile_count * 2  # first execution's rows preserved as history, second execution's rows added
+    execution_ids = {row.execution_id for row in rows}
+    assert len(execution_ids) == 2  # two distinct executions, never sharing a checkpoint
+
+
+def test_concurrent_executions_do_not_share_checkpoints_new(db_session, city_factory):
+    """CITYGO-338: two 'concurrent' executions (two different job ids for
+    the same scope) never see each other's tile rows."""
+    from services.import_tile_run_service import ensure_tile_runs
+
+    city, scope = _large_scope(db_session, city_factory)
+    config = TilePlannerConfig(max_tile_width_deg=0.5, max_tile_height_deg=0.5, max_tile_count=16)
+    plan = plan_tiles(city_slug=city.slug, scope_code=scope.code, profile="tourist_core", bbox=scope.bbox, config=config)
+
+    rows_a = ensure_tile_runs(db_session, execution_id="job:101", scope_id=scope.id, city_admin_import_job_id=101, planner_version=plan.planner_version, tiles=plan.tiles)
+    db_session.commit()
+    mark_tile_running(db_session, rows_a[0])
+    mark_tile_completed(db_session, rows_a[0], batch_id=None, counters=None, retry_attempts=0)
+    db_session.commit()
+
+    rows_b = ensure_tile_runs(db_session, execution_id="job:202", scope_id=scope.id, city_admin_import_job_id=202, planner_version=plan.planner_version, tiles=plan.tiles)
+    db_session.commit()
+
+    assert all(row.status == "queued" for row in rows_b)  # execution B never sees execution A's completed tile
+    assert next_unfinished_tile_run(rows_b) is not None
+    assert next_unfinished_tile_run(rows_b).tile_id == rows_b[0].tile_id
+
+
+def test_diagnostics_are_scoped_to_one_execution_new(db_session, city_factory):
+    """CITYGO-338: tile_progress_diagnostics for one execution's rows must
+    not be inflated by a different execution's rows for the same scope."""
+    from services.import_tile_run_service import ensure_tile_runs
+
+    city, scope = _large_scope(db_session, city_factory)
+    config = TilePlannerConfig(max_tile_width_deg=0.5, max_tile_height_deg=0.5, max_tile_count=16)
+    plan = plan_tiles(city_slug=city.slug, scope_code=scope.code, profile="tourist_core", bbox=scope.bbox, config=config)
+
+    rows_a = ensure_tile_runs(db_session, execution_id="job:301", scope_id=scope.id, city_admin_import_job_id=301, planner_version=plan.planner_version, tiles=plan.tiles)
+    db_session.commit()
+    for row in rows_a:
+        mark_tile_running(db_session, row)
+        mark_tile_completed(db_session, row, batch_id=None, counters=None, retry_attempts=0)
+    db_session.commit()
+
+    rows_b = ensure_tile_runs(db_session, execution_id="job:302", scope_id=scope.id, city_admin_import_job_id=302, planner_version=plan.planner_version, tiles=plan.tiles)
+    db_session.commit()
+
+    diag_b = tile_progress_diagnostics(rows_b)
+    assert diag_b["total_tiles"] == plan.tile_count  # only execution B's rows, not A's + B's combined
+    assert diag_b["completed"] == 0
+    assert diag_b["queued"] == plan.tile_count
+
+
+def test_failed_tile_gets_explicit_retry_within_retry_budget_new(db_session, city_factory):
+    """CITYGO-338: a failed tile within the current execution is
+    automatically requeued (retry_failed_tile_runs) up to
+    MAX_TILE_RETRY_ATTEMPTS, then stays terminal."""
+    from services.import_tile_run_service import MAX_TILE_RETRY_ATTEMPTS, ensure_tile_runs, retry_failed_tile_runs
+
+    city, scope = _small_scope(db_session, city_factory)
+    plan = plan_tiles(city_slug=city.slug, scope_code=scope.code, profile="tourist_core", bbox=scope.bbox)
+    rows = ensure_tile_runs(db_session, execution_id="job:401", scope_id=scope.id, city_admin_import_job_id=401, planner_version=plan.planner_version, tiles=plan.tiles)
+    db_session.commit()
+
+    mark_tile_running(db_session, rows[0])
+    mark_tile_failed(db_session, rows[0], failure_reason="boom", retry_attempts=MAX_TILE_RETRY_ATTEMPTS - 1)
+    db_session.commit()
+
+    requeued = retry_failed_tile_runs(db_session, rows)
+    assert requeued == 1
+    assert rows[0].status == "queued"
+
+    mark_tile_running(db_session, rows[0])
+    mark_tile_failed(db_session, rows[0], failure_reason="boom again", retry_attempts=MAX_TILE_RETRY_ATTEMPTS)
+    db_session.commit()
+
+    requeued_again = retry_failed_tile_runs(db_session, rows)
+    assert requeued_again == 0  # retry budget exhausted, stays failed (terminal)
+    assert rows[0].status == "failed"
 
 
 # --- full diagnostics ---
@@ -317,7 +421,7 @@ def test_ensure_tile_runs_creates_one_row_per_tile_new(db_session, city_factory)
     config = TilePlannerConfig(max_tile_width_deg=0.5, max_tile_height_deg=0.5, max_tile_count=16)
     plan = plan_tiles(city_slug="large-city", scope_code=scope.code, profile="tourist_core", bbox=scope.bbox, config=config)
 
-    rows = ensure_tile_runs(db_session, scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
+    rows = ensure_tile_runs(db_session, execution_id="test-exec", scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
 
     assert len(rows) == plan.tile_count
     assert all(row.status == "queued" for row in rows)
@@ -329,9 +433,9 @@ def test_ensure_tile_runs_is_idempotent_no_duplicate_rows_new(db_session, city_f
     config = TilePlannerConfig(max_tile_width_deg=0.5, max_tile_height_deg=0.5, max_tile_count=16)
     plan = plan_tiles(city_slug="large-city", scope_code=scope.code, profile="tourist_core", bbox=scope.bbox, config=config)
 
-    ensure_tile_runs(db_session, scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
+    ensure_tile_runs(db_session, execution_id="test-exec", scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
     db_session.commit()
-    ensure_tile_runs(db_session, scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
+    ensure_tile_runs(db_session, execution_id="test-exec", scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
     db_session.commit()
 
     rows = db_session.query(ImportTileRun).filter(ImportTileRun.scope_id == scope.id).all()
@@ -342,7 +446,7 @@ def test_next_unfinished_tile_run_skips_terminal_rows_new(db_session, city_facto
     _, scope = _large_scope(db_session, city_factory)
     config = TilePlannerConfig(max_tile_width_deg=0.5, max_tile_height_deg=0.5, max_tile_count=16)
     plan = plan_tiles(city_slug="large-city", scope_code=scope.code, profile="tourist_core", bbox=scope.bbox, config=config)
-    rows = ensure_tile_runs(db_session, scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
+    rows = ensure_tile_runs(db_session, execution_id="test-exec", scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
     db_session.commit()
 
     mark_tile_running(db_session, rows[0])
@@ -357,7 +461,7 @@ def test_next_unfinished_tile_run_skips_terminal_rows_new(db_session, city_facto
 def test_next_unfinished_tile_run_returns_none_when_all_terminal_new(db_session, city_factory):
     _, scope = _small_scope(db_session, city_factory)
     plan = plan_tiles(city_slug="small-city", scope_code=scope.code, profile="tourist_core", bbox=scope.bbox)
-    rows = ensure_tile_runs(db_session, scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
+    rows = ensure_tile_runs(db_session, execution_id="test-exec", scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
     db_session.commit()
     mark_tile_running(db_session, rows[0])
     mark_tile_completed(db_session, rows[0], batch_id=None, counters=None, retry_attempts=0)
@@ -369,7 +473,7 @@ def test_next_unfinished_tile_run_returns_none_when_all_terminal_new(db_session,
 def test_mark_tile_failed_preserves_failure_reason_and_retry_attempts_new(db_session, city_factory):
     _, scope = _small_scope(db_session, city_factory)
     plan = plan_tiles(city_slug="small-city", scope_code=scope.code, profile="tourist_core", bbox=scope.bbox)
-    rows = ensure_tile_runs(db_session, scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
+    rows = ensure_tile_runs(db_session, execution_id="test-exec", scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
     db_session.commit()
 
     mark_tile_running(db_session, rows[0])
@@ -386,7 +490,7 @@ def test_tile_progress_diagnostics_reports_queued_running_completed_failed_skipp
     _, scope = _large_scope(db_session, city_factory)
     config = TilePlannerConfig(max_tile_width_deg=0.3, max_tile_height_deg=0.3, max_tile_count=64)
     plan = plan_tiles(city_slug="large-city", scope_code=scope.code, profile="tourist_core", bbox=scope.bbox, config=config)
-    rows = ensure_tile_runs(db_session, scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
+    rows = ensure_tile_runs(db_session, execution_id="test-exec", scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
     db_session.commit()
 
     mark_tile_running(db_session, rows[0])
@@ -412,7 +516,7 @@ def test_tile_progress_diagnostics_eta_none_when_nothing_finished_new(db_session
     _, scope = _large_scope(db_session, city_factory)
     config = TilePlannerConfig(max_tile_width_deg=0.3, max_tile_height_deg=0.3, max_tile_count=64)
     plan = plan_tiles(city_slug="large-city", scope_code=scope.code, profile="tourist_core", bbox=scope.bbox, config=config)
-    rows = ensure_tile_runs(db_session, scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
+    rows = ensure_tile_runs(db_session, execution_id="test-exec", scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
     db_session.commit()
 
     from datetime import datetime, timedelta
@@ -425,7 +529,7 @@ def test_tile_progress_diagnostics_eta_none_when_nothing_finished_new(db_session
 def test_tile_progress_diagnostics_progress_pct_100_when_all_complete_new(db_session, city_factory):
     _, scope = _small_scope(db_session, city_factory)
     plan = plan_tiles(city_slug="small-city", scope_code=scope.code, profile="tourist_core", bbox=scope.bbox)
-    rows = ensure_tile_runs(db_session, scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
+    rows = ensure_tile_runs(db_session, execution_id="test-exec", scope_id=scope.id, city_admin_import_job_id=None, planner_version=plan.planner_version, tiles=plan.tiles)
     db_session.commit()
     mark_tile_running(db_session, rows[0])
     mark_tile_completed(db_session, rows[0], batch_id=None, counters=None, retry_attempts=0)

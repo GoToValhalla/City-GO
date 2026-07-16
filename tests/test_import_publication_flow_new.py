@@ -85,12 +85,16 @@ def test_import_evidence_blocks_stale_snapshot_job_new() -> None:
     assert "snapshot_job_mismatch" in reasons
 
 
-def test_successful_import_publishes_eligible_place_to_catalog_new(
+def test_successful_import_proposes_publication_without_going_live_new(
     db_session: Session,
     city_factory,
     place_factory,
     monkeypatch,
 ) -> None:
+    """Blocker fix: a successful import with fresh, ready evidence must only
+    produce a publication PROPOSAL (recorded decision + city marked
+    review_required) — it must never call publish_city()/publish_place() or
+    set is_published/is_visible_in_catalog/launch_status="published"."""
     city = city_factory(slug="import-publish-city", launch_status="review_required", is_active=False)
     place = _trusted_place(place_factory, city, slug="import-publish-cafe", title="Import Cafe", category="coffee", address="Main 1")
     job = CityAdminImportJob(city_id=city.id, status="success", source="admin_city_import")
@@ -111,11 +115,13 @@ def test_successful_import_publishes_eligible_place_to_catalog_new(
     db_session.refresh(place)
     db_session.refresh(city)
 
-    assert result["status"] == "published"
-    assert place.is_published is True
-    assert place.is_visible_in_catalog is True
-    assert city.launch_status == "published"
-    assert get_places(db_session, city_slug=city.slug)
+    assert result["status"] == "ready_for_review"
+    assert result["city_marked_ready_for_review"] is True
+    assert place.is_published is False
+    assert place.is_visible_in_catalog is False
+    assert city.launch_status == "review_required"
+    assert city.is_active is False
+    assert get_places(db_session, city_slug=city.slug) == []
 
 
 def test_partial_import_does_not_publish_new(db_session: Session, city_factory, place_factory) -> None:
@@ -200,11 +206,13 @@ def test_finalize_is_idempotent_new(db_session: Session, city_factory, place_fac
 
     first = finalize_import_publication(db_session, city=city, job=job, place_ids=[place.id], import_status="success")
     second = finalize_import_publication(db_session, city=city, job=job, place_ids=[place.id], import_status="success")
+    db_session.refresh(place)
     decisions = db_session.query(PlacePublicationDecision).filter_by(place_id=place.id).count()
 
-    assert first["status"] == "published"
-    assert second["status"] == "published"
+    assert first["status"] == "ready_for_review"
+    assert second["status"] == "ready_for_review"
     assert decisions >= 2
+    assert place.is_published is False
 
 
 def test_published_place_survives_import_review_mark_new(db_session: Session, place_factory) -> None:

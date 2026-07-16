@@ -7,6 +7,7 @@ import re
 import sys
 import urllib.parse
 import urllib.request
+import uuid
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +47,7 @@ from services.import_tile_run_service import (
     mark_tile_failed,
     mark_tile_running,
     next_unfinished_tile_run,
+    retry_failed_tile_runs,
     tile_progress_diagnostics,
 )
 
@@ -712,14 +714,28 @@ def _apply_import_tiled(
     existing _apply_import, unmodified — one ImportBatch per tile) fully
     independently, in the tile plan's deterministic sequence order.
 
-    Resume (CITYGO-320): services/import_tile_run_service.py persists one
-    ImportTileRun row per tile before any fetch happens. A tile already
-    marked "completed" from a prior run is never re-fetched or re-applied
-    — ensure_tile_runs()/next_unfinished_tile_run() find exactly where a
-    crashed or interrupted run left off, by the tile's own deterministic
-    tile_id, not by row order or elapsed time. Already-completed tiles'
-    real Place/SourceObservation rows are never touched again — nothing is
-    lost on a retry of the whole scope.
+    Resume (CITYGO-320) + execution identity (CITYGO-338):
+    services/import_tile_run_service.py persists one ImportTileRun row per
+    (execution_id, tile_id) before any fetch happens. execution_id is
+    derived from city_admin_import_job_id when a job exists — retrying the
+    SAME job (same job.id, see services/admin_city_import_job_service.py's
+    retry path) resumes via the same execution_id, finding exactly where a
+    crashed or interrupted run left off, never re-fetching or re-applying
+    an already-completed tile. When there is no job (a bare CLI --apply
+    run), a fresh execution_id is minted for this call — that run's
+    checkpoints can never be resumed by identity and can never collide
+    with a concurrent run's checkpoints. A brand-new import execution
+    (a new job, or a new no-job CLI invocation) always gets its own
+    execution_id and therefore its own fresh rows, processing every tile
+    even if an older execution already completed the same coordinates —
+    older executions' rows are never deleted, they remain as history.
+    Already-completed tiles' real Place/SourceObservation rows are never
+    touched again — nothing is lost on a retry of the same execution.
+
+    Failed tiles get one explicit retry pass per call
+    (retry_failed_tile_runs, bounded by MAX_TILE_RETRY_ATTEMPTS) before
+    resuming — a tile that has failed repeatedly stays terminal rather
+    than being retried forever.
 
     No new places are duplicated: each tile's own ImportBatch reuses the
     exact same SourceObservation idempotency scoping and
@@ -729,13 +745,16 @@ def _apply_import_tiled(
     once per tile instead of once per scope.
     """
     run_started_at = datetime.utcnow()
+    execution_id = f"job:{city_admin_import_job_id}" if city_admin_import_job_id is not None else f"adhoc:{uuid.uuid4()}"
     tile_runs = ensure_tile_runs(
         db,
+        execution_id=execution_id,
         scope_id=scope.id,
         city_admin_import_job_id=city_admin_import_job_id,
         planner_version=tile_plan.planner_version,
         tiles=tile_plan.tiles,
     )
+    retry_failed_tile_runs(db, tile_runs)
     db.commit()
 
     aggregate = {field: 0 for field in _TILE_RESULT_COUNTER_FIELDS}
@@ -839,6 +858,7 @@ def _apply_import_tiled(
         "raw_count": None,
         **aggregate,
         "tile_diagnostics": {
+            "execution_id": execution_id,
             "total_tiles": progress["total_tiles"],
             "completed": progress["completed"],
             "failed": progress["failed"],

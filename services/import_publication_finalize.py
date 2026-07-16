@@ -1,4 +1,18 @@
-"""Finalize import publication: fresh snapshot evidence, place and city publish."""
+"""Finalize import evidence: fresh readiness snapshot + publication proposal.
+
+Blocker fix (post-CITYGO-339..344): this module must NEVER call
+publish_city()/publish_place() or set any city/place publication or
+visibility flag. A successful import only produces evidence (a fresh
+readiness snapshot) and a publication PROPOSAL — recorded
+PlacePublicationDecision rows plus the city moved to the existing
+"review_required" workflow state (a metadata marker, not a visibility
+flag; see models/city.py's launch_status and the identical precedent in
+services/import_pipeline/enrichment_only.py). Only an explicit,
+authenticated admin action (services/admin_service.py's publish_place,
+services/admin_city_publication_service.py's publish_city, reached only
+through routers/admin*.py endpoints) may ever flip is_active/is_published/
+is_visible_in_catalog/launch_status="published".
+"""
 
 from __future__ import annotations
 
@@ -9,7 +23,6 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.place import Place
-from services.admin_city_publication_service import publish_city
 from services.canonical_publication_apply import apply_canonical_publication_verdict
 from services.canonical_publication_guard import (
     SUCCESS_IMPORT_STATUSES,
@@ -19,6 +32,9 @@ from services.canonical_publication_guard import (
 )
 from services.city_readiness.score import latest_city_readiness_snapshot, recalculate_city_readiness_snapshot
 from services.review_queue_service import ensure_review_item
+
+CITY_STATUS_REVIEW_REQUIRED = "review_required"
+CITY_STATUS_PUBLISHED = "published"
 
 
 def finalize_import_publication(
@@ -52,8 +68,16 @@ def finalize_import_publication(
             import_decision=assess_place_import_decision(place),
             evidence_allowed=allowed,
         )
+        # record_only=True: a successful import produces a publication
+        # PROPOSAL (a recorded PlacePublicationDecision + review item), it
+        # must never itself flip is_published/is_visible_in_catalog/etc. on
+        # a place. Hard-safety archiving/review-marking for genuinely bad
+        # data (invalid coordinates, hard-excluded categories) still
+        # applies unconditionally — see
+        # canonical_publication_apply.apply_canonical_publication_verdict's
+        # own docstring for why that is quality enforcement, not "publish".
         key = apply_canonical_publication_verdict(
-            db, place, verdict, job_id=job.id, snapshot_id=snapshot_id,
+            db, place, verdict, job_id=job.id, snapshot_id=snapshot_id, record_only=True,
         )
         counters[key] = counters.get(key, 0) + 1
         if verdict.outcome == "review":
@@ -63,26 +87,15 @@ def finalize_import_publication(
             )
     if not allowed:
         return _publication_failure(job, block_reasons, counters=counters, snapshot=snapshot_payload)
-    published_count = int(counters.get("auto_published", 0)) + int(counters.get("limited_published", 0))
-    if published_count <= 0:
-        preserved = int(counters.get("preserved_public", 0))
-        if preserved > 0 and city.launch_status == "published":
-            return {
-                "status": "published",
-                "idempotent": True,
-                "snapshot_id": snapshot_id,
-                "counters": counters,
-                "city_published": True,
-            }
+    proposable_count = int(counters.get("review_required", 0)) + int(counters.get("preserved_public", 0))
+    if proposable_count <= 0:
         return _publication_failure(job, ("no_publishable_places",), counters=counters, snapshot=snapshot_payload)
-    city_result = _maybe_publish_city(db, city=city, job=job, allowed=True, counters=counters)
-    if city_result.get("city_publish_failed"):
-        return _publication_failure(job, tuple(city_result["reasons"]), counters=counters, snapshot=snapshot_payload)
+    city_marked = _mark_city_ready_for_review(city)
     return {
-        "status": "published",
+        "status": "ready_for_review",
         "snapshot_id": snapshot_id,
         "counters": counters,
-        "city_published": city_result.get("city_published", False),
+        "city_marked_ready_for_review": city_marked,
         "readiness_score": snapshot_payload.get("readiness_score") if snapshot_payload else None,
     }
 
@@ -102,17 +115,18 @@ def persist_import_readiness_snapshot(db: Session, *, city_slug: str, job_id: in
     return payload
 
 
-def _maybe_publish_city(db: Session, *, city: City, job: CityAdminImportJob, allowed: bool, counters: dict[str, int]) -> dict[str, object]:
-    if not allowed or city.launch_status == "published":
-        return {"city_published": city.launch_status == "published"}
-    published_count = int(counters.get("auto_published", 0)) + int(counters.get("limited_published", 0))
-    if published_count <= 0:
-        return {"city_published": False, "reasons": ("no_publishable_places",)}
-    try:
-        publish_city(db, city.id, actor="import_pipeline", reason=f"import_job_{job.id}")
-        return {"city_published": True}
-    except ValueError as exc:
-        return {"city_publish_failed": True, "reasons": (str(exc),)}
+def _mark_city_ready_for_review(city: City) -> bool:
+    """Blocker fix: this NEVER calls publish_city() and never sets
+    is_active/is_published/is_visible_in_catalog. It only moves the city's
+    workflow-state marker to the existing "review_required" launch_status
+    (same precedent as services/import_pipeline/enrichment_only.py) so an
+    admin sees the city needs a publication decision. An already-published
+    city is left untouched — evidence from a later import must never
+    downgrade a live city's status either."""
+    if city.launch_status == CITY_STATUS_PUBLISHED:
+        return False
+    city.launch_status = CITY_STATUS_REVIEW_REQUIRED
+    return True
 
 
 def _target_places(db: Session, city_id: int, place_ids: list[int]) -> list[Place]:
