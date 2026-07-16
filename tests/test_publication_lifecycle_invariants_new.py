@@ -227,6 +227,32 @@ def test_citygo_343_publish_place_uses_evaluated_route_eligibility_not_hardcoded
     assert published.is_route_eligible is False
 
 
+def test_stage2_validation_publish_place_grants_route_eligible_true_for_qualifying_place(db_session, city_factory, place_factory):
+    """Stage 2 production validation blocker (found 2026-07-16): a place
+    that genuinely qualifies for routes (museum, active, tourist_catalog,
+    not transport-required) must become is_route_eligible=True on publish
+    — apply_admin_city_publication_place used to evaluate the route policy
+    BEFORE setting is_published/is_visible_in_catalog, so the policy always
+    saw a draft and returned False regardless of the place's real
+    category/quality. The only prior regression test for this path used
+    transport_required=True, which is excluded from routes independently
+    of the publish-timing bug, so it never caught this."""
+    city = city_factory(slug="stage2-validation-route-eligible-city")
+    place = place_factory(
+        city_id=city.id, slug="stage2-validation-route-eligible-place", category="museum",
+        is_published=False, is_visible_in_catalog=False, is_route_eligible=False,
+        is_searchable=False, publication_status="draft",
+    )
+    place.canonical_category = "museum"
+    db_session.commit()
+
+    published = publish_place(db_session, place.id, actor="admin-test")
+
+    assert published.is_published is True
+    assert published.is_route_eligible is True
+    assert published.route_exclusion_reason is None
+
+
 def test_citygo_343_python_sql_coordinate_zero_parity(db_session, city_factory, place_factory):
     city = city_factory(slug="citygo-343-city-2")
     place = place_factory(

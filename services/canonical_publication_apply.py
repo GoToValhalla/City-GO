@@ -60,18 +60,29 @@ def apply_canonical_publication_verdict(
         return "review_required"
     if record_only:
         return "review_required"
-    route_eligible = _route_eligible_for_publish(place)
-    _set_published(place, route_eligible=route_eligible, reason=actor)
-    return "auto_published" if route_eligible else "limited_published"
+    route_verdict = _route_eligibility_verdict_for_publish(place)
+    _set_published(place, route_eligible=route_verdict.eligible, reason=actor)
+    return "auto_published" if route_verdict.eligible else "limited_published"
 
 
 def apply_admin_city_publication_place(place: Place, *, now: datetime, reason: str | None) -> None:
-    verdict = evaluate_place_route_eligibility(place)
+    """Stage 2 production validation blocker fix (found 2026-07-16): this
+    used to call evaluate_place_route_eligibility(place) BEFORE the place
+    was actually published (is_published/is_visible_in_catalog still
+    False at that point), so the policy always saw a draft and returned
+    eligible=False with reasons like draft_or_unpublished/
+    not_visible_in_catalog — every place published through this function
+    (both the single-place and city-wide admin paths) got
+    is_route_eligible=False regardless of its real category/quality.
+    _route_eligibility_verdict_for_publish() below already solves this
+    exact problem correctly for the import-pipeline path via a probe
+    object; reuse it here instead of duplicating the logic."""
+    verdict = _route_eligibility_verdict_for_publish(place)
     _set_published(place, route_eligible=verdict.eligible, reason=reason, now=now)
     place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons[:5])
 
 
-def _route_eligible_for_publish(place: Place) -> bool:
+def _route_eligibility_verdict_for_publish(place: Place):
     """Route eligibility must always come from route_eligibility_policy (the
     single source of truth for pharmacy/service/transport/etc. exclusion),
     never from the import quality gate's own category allowlist. The place
@@ -79,23 +90,36 @@ def _route_eligible_for_publish(place: Place) -> bool:
     if those flags already hold — matching the pattern already used by
     place_publication_eligibility's own probe for the same reason."""
     if place.is_active and place.is_published and place.is_visible_in_catalog:
-        return evaluate_place_route_eligibility(place).eligible
+        return evaluate_place_route_eligibility(place)
+    # Every field evaluate_place_route_eligibility reads must be copied from
+    # the real place, defaulting only when the real place's own value is
+    # None (an in-memory, not-yet-flushed Place() has None for every
+    # column with a server-side default — getattr(place, name, default)
+    # cannot help there since the attribute exists and is just None).
     probe = Place(
         city_id=place.city_id,
         title=place.title,
         category=place.category,
         canonical_category=place.canonical_category,
-        place_layer=place.place_layer,
+        place_layer=place.place_layer or "tourist_catalog",
         lat=place.lat,
         lng=place.lng,
         is_active=True,
         status=place.status or "active",
+        internal_status=place.internal_status or "active",
+        lifecycle_status=place.lifecycle_status or "active",
         is_published=True,
         is_visible_in_catalog=True,
+        route_policy=place.route_policy or "city_walking",
+        tourist_eligible=True if place.tourist_eligible is None else place.tourist_eligible,
+        transport_required=bool(place.transport_required),
+        quality_tier=place.quality_tier or "silver",
+        publication_status="published",
         is_spam_poi=bool(getattr(place, "is_spam_poi", False)),
         is_duplicate_suspected=bool(getattr(place, "is_duplicate_suspected", False)),
+        critical_field_expired=bool(getattr(place, "critical_field_expired", False)),
     )
-    return evaluate_place_route_eligibility(probe).eligible
+    return evaluate_place_route_eligibility(probe)
 
 
 def _record_decision(

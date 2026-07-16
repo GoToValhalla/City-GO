@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import inspect
+import tempfile
+from pathlib import Path
+
+from sqlalchemy import create_engine, inspect
 
 from db.base import Base
 from tests.allure_support import title
@@ -80,6 +83,42 @@ def test_test_database_contains_critical_tables(engine) -> None:
     assert "place_photo_candidates" in tables
     assert "place_publication_decisions" in tables
     assert "admin_audit_logs" in tables
+
+
+@title("Реальный `alembic upgrade head` (не create_all) создаёт place_publication_decisions")
+def test_alembic_upgrade_head_creates_place_publication_decisions_table() -> None:
+    """Stage 2 production validation blocker (found 2026-07-16): the
+    PlacePublicationDecision ORM model existed without a matching Alembic
+    migration, so a real database migrated only via `alembic upgrade head`
+    (exactly what docker-compose's migrate service does) was missing this
+    table while every test using Base.metadata.create_all() stayed green.
+    This test exercises the real Alembic upgrade path directly — not
+    create_all — so it would have caught the gap."""
+    from alembic import command
+    from alembic.config import Config
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        db_path = Path(tmp_dir) / "alembic_head_check.db"
+        root = Path(__file__).resolve().parent.parent
+        cfg = Config(str(root / "alembic.ini"))
+        cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+        import os
+
+        previous = os.environ.get("DATABASE_URL")
+        os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
+        try:
+            command.upgrade(cfg, "head")
+        finally:
+            if previous is None:
+                os.environ.pop("DATABASE_URL", None)
+            else:
+                os.environ["DATABASE_URL"] = previous
+
+        engine = create_engine(f"sqlite:///{db_path}")
+        tables = set(inspect(engine).get_table_names())
+        engine.dispose()
+
+    assert "place_publication_decisions" in tables
 
 
 @title("ReviewQueueItem schema допускает nullable job_id для не-import ручной очереди")
