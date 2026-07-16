@@ -319,7 +319,7 @@ def validate_route_response(raw: str, http_status: int) -> SmokeResult:
     partial_reason = str(payload.get("partial_reason") or "")
     has_honest_reason = _has_honest_weak_reason(status, quality_status, partial_reason, payload)
 
-    if status in {"failed", "empty", "preview_failed"}:
+    if status in {"failed", "empty", "preview_failed", "no_route"}:
         return SmokeResult("route_quick", "failed", _route_failure_diagnostic_detail(status, payload), http_status)
     if _contains_forbidden_route_junk(points):
         return SmokeResult("route_quick", "failed", "route_contains_forbidden_junk", http_status)

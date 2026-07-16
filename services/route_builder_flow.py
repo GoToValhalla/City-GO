@@ -593,7 +593,21 @@ def _apply_adaptive_metadata(final_route: object, plan: RoutePlan, gate: object,
     for name, value in fields.items():
         setattr(final_route, name, value)
     status = str(fields["route_quality_status"])
-    if status in {"algorithm_error", "failed"}:
+    # route_quality_status == "failed" is returned by evaluate_quality_gates
+    # for two genuinely different situations (services/route_quality_gates.py
+    # ::_status): an assembled route that violates an explicit user exclusion
+    # (a real algorithm bug — there IS a route, and it should not exist) and
+    # a route with zero points (`if not route: return "failed"` — an honest
+    # "no eligible candidates were found", already correctly reported by
+    # RouteFinalizeService/route_status_service.route_status() as
+    # final_route.status == "no_route"). Only the first case is an actual
+    # failure; forcing final_route.status = "failed" for the second case
+    # overwrote the honest "no_route" status with a misleading "failed" one
+    # for the ordinary, expected empty-city/empty-radius outcome — this is
+    # the exact HTTP 200 status=failed/quality_status=failed/total_places=0
+    # production symptom. Only override when the route actually has points
+    # (the exclusion-violation case) or the algorithm genuinely errored.
+    if status == "algorithm_error" or (status == "failed" and getattr(final_route, "total_places", 0)):
         final_route.status = "failed"
     elif status in {"partial", "degraded"} and getattr(final_route, "total_places", 0):
         final_route.status = "partial_route"
