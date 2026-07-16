@@ -41,6 +41,9 @@ DEFAULT_ROUTE_SMOKE_LAT = 40.1792
 DEFAULT_ROUTE_SMOKE_LNG = 44.4991
 ROUTE_SMOKE_BUDGET_MINUTES = 120
 RAW_TECHNICAL_CODE = re.compile(r"^[a-z0-9]+(?:_[a-z0-9]+){1,}$")
+SAFE_TOKEN_MAX_LEN = 40
+_UNSAFE_TOKEN_CHARS = re.compile(r"[^a-z0-9_-]+")
+_ROUTE_FAILURE_ERROR_KEYS = ("error_code", "error_class", "error", "exception", "code", "kind")
 TRACEBACK_MARKERS = ("Traceback (most recent call last)", "sqlalchemy.exc", "pydantic_core", "Internal Server Error")
 PLACEHOLDER_TITLE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^\s*культурн(?:ое|ый|ая)\s+(?:место|объект)\s+osm\s+\d+\s*$", re.IGNORECASE),
@@ -317,7 +320,7 @@ def validate_route_response(raw: str, http_status: int) -> SmokeResult:
     has_honest_reason = _has_honest_weak_reason(status, quality_status, partial_reason, payload)
 
     if status in {"failed", "empty", "preview_failed"}:
-        return SmokeResult("route_quick", "failed", f"status_{status}", http_status)
+        return SmokeResult("route_quick", "failed", _route_failure_diagnostic_detail(status, payload), http_status)
     if _contains_forbidden_route_junk(points):
         return SmokeResult("route_quick", "failed", "route_contains_forbidden_junk", http_status)
     raw_code_path = _public_payload_raw_technical_code_path(payload)
@@ -334,6 +337,83 @@ def validate_route_response(raw: str, http_status: int) -> SmokeResult:
     if has_honest_reason and (status == "partial_route" or quality_status == "weak" or partial_reason or total_places < minimum_points or _has_large_budget_overflow(payload)):
         reason = f"honest_{status or quality_status or 'limited'}_{reason}"
     return SmokeResult("route_quick", "ok", reason, http_status)
+
+
+def _sanitize_safe_token(value: Any) -> str | None:
+    """Lowercase, strip to [a-z0-9_-] only, hard-cap the length. Returns
+    None for anything that sanitizes down to nothing — a missing/blank/
+    entirely-unsafe value must be omitted, never replaced with a
+    fabricated placeholder."""
+    if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    text = _UNSAFE_TOKEN_CHARS.sub("_", text)
+    text = re.sub(r"[_-]+", "_", text).strip("_-")
+    if not text:
+        return None
+    return text[:SAFE_TOKEN_MAX_LEN]
+
+
+def _last_debug_trace_entry(payload: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    trace = payload.get("debug_trace")
+    if not isinstance(trace, list) or not trace:
+        return None
+    last = trace[-1]
+    return last if isinstance(last, Mapping) else None
+
+
+def _route_failure_diagnostic_detail(status: str, payload: Mapping[str, Any]) -> str:
+    """Compact, safe diagnostic detail for a failed/empty/preview_failed
+    route response — built ONLY from a fixed set of existing, already-
+    public response fields (status, partial_reason, quality_status,
+    total_places, warning identifiers, final debug_trace stage/error),
+    every value sanitized and length-capped. Never includes the raw
+    response body, stack traces, coordinates, addresses, tokens, user
+    data, place titles, or any other free text. Missing fields are
+    omitted, never fabricated — this only reorganizes data the backend
+    already returned in the response body, it never invents anything."""
+    parts = [f"status_{status}"]
+
+    reason = _sanitize_safe_token(payload.get("partial_reason"))
+    if reason:
+        parts.append(f"reason_{reason}")
+
+    quality = _sanitize_safe_token(payload.get("quality_status") or payload.get("route_quality_status"))
+    if quality:
+        parts.append(f"quality_{quality}")
+
+    points = payload.get("points") if isinstance(payload.get("points"), list) else []
+    total_places = payload.get("total_places")
+    if not isinstance(total_places, (int, float)) or isinstance(total_places, bool):
+        total_places = len(points)
+    parts.append(f"points_{int(total_places)}")
+
+    warning_types: list[str] = []
+    for field_name in ("warnings", "user_warnings"):
+        value = payload.get(field_name)
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            token = _sanitize_safe_token(item)
+            if token and token not in warning_types:
+                warning_types.append(token)
+    if warning_types:
+        parts.append(f"warn_{'_'.join(warning_types[:3])}")
+
+    last_stage = _last_debug_trace_entry(payload)
+    if last_stage is not None:
+        stage = _sanitize_safe_token(last_stage.get("stage"))
+        if stage:
+            parts.append(f"stage_{stage}")
+        for key in _ROUTE_FAILURE_ERROR_KEYS:
+            error_token = _sanitize_safe_token(last_stage.get(key))
+            if error_token:
+                parts.append(f"error_{error_token}")
+                break
+
+    return "__".join(parts)
 
 
 def minimum_points_for_budget(budget_minutes: int) -> int:

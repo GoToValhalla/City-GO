@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 
 import pytest
 
@@ -141,7 +143,157 @@ def test_production_smoke_validates_route_response() -> None:
     assert not failed_empty.ok
     assert failed_empty.detail == "expected_min_2_points_got_1"
     assert not failed_status.ok
-    assert failed_status.detail == "status_failed"
+    assert failed_status.detail == "status_failed__points_5"
+
+
+# --- route_quick failed/empty/preview_failed safe diagnostic detail ---
+
+
+@title("route_quick failed status includes sanitized partial_reason")
+def test_route_quick_failed_detail_includes_partial_reason() -> None:
+    result = validate_route_response(
+        '{"status":"failed","total_places":0,"partial_reason":"Not Enough Places!!"}', 200
+    )
+
+    assert not result.ok
+    assert result.detail == "status_failed__reason_not_enough_places__points_0"
+
+
+@title("route_quick failed status includes sanitized quality_status")
+def test_route_quick_failed_detail_includes_quality_status() -> None:
+    result = validate_route_response(
+        '{"status":"empty","total_places":0,"quality_status":"WEAK"}', 200
+    )
+
+    assert not result.ok
+    assert result.detail == "status_empty__quality_weak__points_0"
+
+    fallback = validate_route_response(
+        '{"status":"empty","total_places":0,"route_quality_status":"low"}', 200
+    )
+    assert fallback.detail == "status_empty__quality_low__points_0"
+
+
+@title("route_quick failed status includes final debug_trace stage and error")
+def test_route_quick_failed_detail_includes_debug_trace_stage_and_error() -> None:
+    result = validate_route_response(
+        json.dumps(
+            {
+                "status": "preview_failed",
+                "total_places": 0,
+                "debug_trace": [
+                    {"stage": "candidate_scoring", "status": "ok"},
+                    {"stage": "route_assembly", "error_code": "NO_CANDIDATES_LEFT"},
+                ],
+            }
+        ),
+        200,
+    )
+
+    assert not result.ok
+    assert result.detail == "status_preview_failed__points_0__stage_route_assembly__error_no_candidates_left"
+
+
+@title("route_quick failed detail omits missing optional fields instead of fabricating them")
+def test_route_quick_failed_detail_omits_missing_fields() -> None:
+    result = validate_route_response('{"status":"failed"}', 200)
+
+    assert not result.ok
+    assert result.detail == "status_failed__points_0"
+    assert "reason_" not in result.detail
+    assert "quality_" not in result.detail
+    assert "stage_" not in result.detail
+    assert "error_" not in result.detail
+
+
+@title("route_quick failed detail sanitizes and truncates malicious/long free text")
+def test_route_quick_failed_detail_sanitizes_malicious_input() -> None:
+    malicious_reason = "'; DROP TABLE places; -- <script>alert(1)</script> " + ("x" * 200)
+    result = validate_route_response(
+        json.dumps({"status": "failed", "total_places": 0, "partial_reason": malicious_reason}),
+        200,
+    )
+
+    assert not result.ok
+    assert "DROP" not in result.detail
+    assert "<script>" not in result.detail
+    assert ";" not in result.detail
+    assert "'" not in result.detail
+    assert " " not in result.detail
+    # every token, including the sanitized reason, is capped
+    for token in result.detail.split("__"):
+        assert len(token) <= len("reason_") + 40
+    assert re.fullmatch(r"[a-z0-9_]+", result.detail)
+
+
+@title("route_quick failed detail never includes coordinates, addresses, or place titles")
+def test_route_quick_failed_detail_never_includes_sensitive_fields() -> None:
+    result = validate_route_response(
+        json.dumps(
+            {
+                "status": "failed",
+                "total_places": 1,
+                "points": [
+                    {
+                        "title": "Кафе Секретное",
+                        "address": "ул. Тайная, 42",
+                        "lat": 40.123456,
+                        "lng": 44.654321,
+                        "category": "cafe",
+                    }
+                ],
+                "user": {"token": "super-secret-token", "id": 42},
+                "request": {"lat": 40.123456, "lng": 44.654321},
+            }
+        ),
+        200,
+    )
+
+    assert not result.ok
+    assert "секретное" not in result.detail.lower()
+    assert "тайная" not in result.detail.lower()
+    assert "40" not in result.detail
+    assert "44" not in result.detail
+    assert "token" not in result.detail
+    assert "super-secret" not in result.detail
+
+
+@title("route_quick failed detail never includes the full response body or a stack trace")
+def test_route_quick_failed_detail_never_includes_raw_body_or_traceback() -> None:
+    raw = json.dumps(
+        {
+            "status": "failed",
+            "total_places": 0,
+            "partial_reason": "no_candidates",
+            "debug_trace": [
+                {
+                    "stage": "route_assembly",
+                    "error": "boom",
+                    "traceback": "Traceback (most recent call last):\n  File \"x.py\", line 1\nValueError: boom",
+                }
+            ],
+        }
+    )
+    result = validate_route_response(raw, 200)
+
+    assert not result.ok
+    assert "Traceback" not in result.detail
+    assert "File \"" not in result.detail
+    assert "line 1" not in result.detail
+    assert len(result.detail) < len(raw)
+
+
+@title("route_quick successful and partial-route detail behavior is unchanged")
+def test_route_quick_success_and_partial_detail_unchanged() -> None:
+    ok = validate_route_response('{"status":"ready","total_places":3}', 200)
+    assert ok.ok
+    assert ok.detail == "points_3"
+
+    partial = validate_route_response(
+        json.dumps({"status": "partial_route", "total_places": 2, "partial_reason": "Мест не хватило для полного бюджета"}), 200
+    )
+    assert partial.ok
+    assert partial.detail == "honest_partial_route_points_2"
 
 
 @title("Production smoke summary lists failed checks without response bodies")
