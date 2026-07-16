@@ -20,6 +20,8 @@ from services.admin_city_import_job_service import (
     SOURCE_FULL_IMPORT,
     SOURCE_PHOTO_ENRICHMENT,
     SOURCE_SNAPSHOT_REFRESH,
+    InvalidJobTransitionError,
+    _transition,
     run_address_enrichment_job,
     run_city_import_job,
     run_enrichment_only_job,
@@ -102,7 +104,18 @@ def run_queued_import_jobs(
         # dry_run never claims or mutates anything, so marking stalled jobs
         # (a mutation) must not happen either — it stays purely observational.
         stalled = 0 if dry_run else mark_stalled_import_jobs(db, actor_id=actor_id)
-        query = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "queued")
+        # started_at/finished_at IS NULL, on top of status == "queued", is
+        # the fix for the production Job #1 corruption: a row can end up
+        # status="queued" while carrying started_at/finished_at from an
+        # earlier, unrelated worker run (the old reset-in-place bug). Under
+        # the new immutable lifecycle this combination should never occur
+        # for a genuine new row, but the filter is what makes the claim
+        # query itself refuse such a row rather than trusting status alone.
+        query = db.query(CityAdminImportJob).filter(
+            CityAdminImportJob.status == "queued",
+            CityAdminImportJob.started_at.is_(None),
+            CityAdminImportJob.finished_at.is_(None),
+        )
         if city_slug:
             query = query.join(City, CityAdminImportJob.city_id == City.id).filter(City.slug == city_slug)
         query = query.order_by(CityAdminImportJob.created_at.asc(), CityAdminImportJob.id.asc())
@@ -206,15 +219,15 @@ def run_queued_import_jobs(
             savepoint = db.begin_nested()
             try:
                 if source == SOURCE_ENRICHMENT_ONLY:
-                    run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id)
+                    run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
                 elif source == SOURCE_SNAPSHOT_REFRESH:
-                    run_snapshot_refresh_job(db, city_id=city_id, actor_id=actor_id)
+                    run_snapshot_refresh_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
                 elif source == SOURCE_ADDRESS_ENRICHMENT:
-                    run_address_enrichment_job(db, city_id=city_id, actor_id=actor_id)
+                    run_address_enrichment_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
                 elif source == SOURCE_PHOTO_ENRICHMENT:
-                    run_photo_enrichment_job(db, city_id=city_id, actor_id=actor_id)
+                    run_photo_enrichment_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
                 else:
-                    run_city_import_job(db, city_id=city_id, actor_id=actor_id)
+                    run_city_import_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
                 processed += 1
                 claimed_jobs.append({"job_id": job_id, "terminal_status": str(job.status)})
                 _log_worker_decision(
@@ -326,7 +339,10 @@ def _mark_worker_exception(db: Session, *, job_id: int, error: str) -> CityAdmin
     job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
     if job is None:
         return None
-    job.status = "failed"
+    try:
+        _transition(db, job, "failed", actor_id="import-worker")
+    except InvalidJobTransitionError:
+        pass
     job.current_step = STEP_ERROR
     job.last_error = error[:2000]
     job.failed_items = max(int(job.failed_items or 0), 1)
@@ -346,7 +362,7 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
     for job in stalled:
         city = db.query(City).filter(City.id == job.city_id).first()
         previous_status = job.status
-        job.status = "stalled"
+        _transition(db, job, "stalled", actor_id=actor_id)
         job.finished_at = current
         job.last_error = job.last_error or "Import job stalled: no heartbeat before timeout"
         set_step(job, STEP_ERROR, detail={"stalled_at": current.isoformat(), "stalled": True})

@@ -1,11 +1,17 @@
-"""Retry/attempt history contract: CityAdminImportJob reuses one row across
-retries (status/last_error/started_at/finished_at all overwritten in place,
-retry_count incremented) — but the durable, append-only system_logs table is
-never overwritten. build_import_job_diagnostic's "attempts" field segments
-that raw timeline into distinct start/end/result records per retry, so a
-worker crash followed by a later successful/failed retry stays
-distinguishable and no earlier terminal result is silently hidden by a
-later one."""
+"""_job_attempts' log-segmentation contract, exercised directly against a
+single job's raw system_logs rows.
+
+Under the current immutable lifecycle (see
+services/admin_city_import_job_service.py) a genuine admin retry always
+creates a brand-new CityAdminImportJob row (previous_job_id chain — see
+test_import_job_lifecycle_new.py for that contract). This module instead
+covers a row that legitimately logs more than one worker_job_claimed
+event within its OWN lifetime (e.g. legacy rows from before the immutable
+fix, or a future within-row retry mechanism): build_import_job_diagnostic's
+"attempts" field must still segment that raw timeline into distinct
+start/end/result records, so a worker crash followed by a later
+successful/failed attempt stays distinguishable and no earlier terminal
+result is silently hidden by a later one."""
 
 from __future__ import annotations
 

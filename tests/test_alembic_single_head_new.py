@@ -12,10 +12,10 @@ def _script():
 
 class TestAlembicSingleHead(unittest.TestCase):
  def test_exactly_one_head(self):self.assertEqual(len(_script().get_heads()),1)
- def test_known_head_revision(self):self.assertIn("b3e7f1a4c8d2",_script().get_heads())
+ def test_known_head_revision(self):self.assertIn("d4e8a1f6b3c9",_script().get_heads())
  def test_exactly_one_base(self):self.assertEqual(len([r.revision for r in _script().walk_revisions() if r.down_revision is None]),1)
  def test_known_base_revision(self):self.assertIn("e48f13974bc8",[r.revision for r in _script().walk_revisions() if r.down_revision is None])
- def test_total_revision_count(self):self.assertEqual(sum(1 for _ in _script().walk_revisions()),72)
+ def test_total_revision_count(self):self.assertEqual(sum(1 for _ in _script().walk_revisions()),73)
  def test_env_metadata_covers_all_tables(self):
   from db.base import Base
   import models  # noqa: F401

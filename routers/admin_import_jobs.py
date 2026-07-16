@@ -28,7 +28,7 @@ from services.admin_city_import_job_service import (
     queue_city_import_job,
     queue_city_photo_enrichment_job,
     queue_city_snapshot_refresh_job,
-    reset_import_job_to_queued,
+    retry_import_job as retry_import_job_service,
 )
 from services.admin_city_import_tasks import import_queue_summary
 from services.admin_city_publication_service import preview_city_publication, publish_city
@@ -163,9 +163,12 @@ def start_import_job(city_id: int, auth: AdminContext = Depends(admin_required),
     if not item.get("can_run"):
         if item.get("can_retry"):
             try:
-                reset_import_job_to_queued(db, city_id=city_id)
+                retry_import_job_service(db, city_id=city_id, actor_id=auth.actor_id)
+            except DuplicateActiveJobError as exc:
+                raise _duplicate_job_conflict(exc) from exc
             except ValueError as exc:
                 raise HTTPException(409, str(exc)) from exc
+            db.commit()
             return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Текущий запуск уже был reviewable/failed. Вместо /run автоматически выполнен /retry.")
         raise HTTPException(409, "Запуск недоступен для текущего статуса")
     try:
@@ -186,9 +189,12 @@ def retry_import_job(city_id: int, auth: AdminContext = Depends(admin_required),
     if not item.get("can_retry"):
         raise HTTPException(409, "Повтор недоступен для текущего статуса")
     try:
-        reset_import_job_to_queued(db, city_id=city_id)
+        retry_import_job_service(db, city_id=city_id, actor_id=auth.actor_id)
+    except DuplicateActiveJobError as exc:
+        raise _duplicate_job_conflict(exc) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+    db.commit()
     return AdminImportJobActionResponse(city_id=city_id, status="queued", message="Повтор полного сбора и обогащения поставлен в очередь.")
 
 

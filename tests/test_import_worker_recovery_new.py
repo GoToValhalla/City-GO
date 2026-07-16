@@ -68,7 +68,12 @@ def test_mark_stalled_import_job_preserves_published_destination_state(db_sessio
     assert city.is_active is True
 
 
-def test_queue_city_import_job_resets_previous_failure_state(db_session, city_factory):
+def test_queue_city_import_job_creates_new_row_after_previous_failure(db_session, city_factory):
+    """Immutable lifecycle: a new launch after a terminal failure creates a
+    brand-new row (previous_job_id pointing at the failed one) rather than
+    resetting the failed row in place — see
+    services/admin_city_import_job_service.py and
+    tests/test_import_job_lifecycle_new.py for the full contract."""
     city = city_factory(slug="zelenogradsk", launch_status="published", is_active=True)
     job = CityAdminImportJob(
         city_id=city.id,
@@ -88,9 +93,14 @@ def test_queue_city_import_job_resets_previous_failure_state(db_session, city_fa
     queued = queue_city_import_job(db_session, city_id=city.id, actor_id="test-admin")
     db_session.commit()
 
-    assert queued.id == job.id
+    assert queued.id != job.id
+    assert queued.previous_job_id == job.id
     assert queued.status == "queued"
     assert queued.current_step == "queued"
     assert queued.failed_items == 0
     assert queued.last_error is None
     assert "warnings" not in dict(queued.step_details or {})
+    # the old row is untouched — history is never rewritten
+    db_session.refresh(job)
+    assert job.status == "failed"
+    assert job.last_error == "old failure"

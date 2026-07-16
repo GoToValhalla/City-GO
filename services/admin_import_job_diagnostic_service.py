@@ -185,6 +185,49 @@ def _job_attempts(logs: list[SystemLog]) -> list[dict[str, object]]:
     return attempts
 
 
+def _retry_chain(db: Session, job: CityAdminImportJob) -> list[dict[str, object]]:
+    """Walk previous_job_id backwards to the first launch, oldest first.
+    Bounded defensively (a genuine chain is never long) in case of a data
+    anomaly that would otherwise loop forever."""
+    chain: list[dict[str, object]] = []
+    current_id = job.previous_job_id
+    seen: set[int] = set()
+    while current_id is not None and current_id not in seen and len(chain) < 200:
+        seen.add(current_id)
+        prior = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == current_id).first()
+        if prior is None:
+            break
+        chain.append(
+            {
+                "job_id": prior.id,
+                "status": prior.status,
+                "source": prior.source,
+                "created_at": prior.created_at,
+                "finished_at": prior.finished_at,
+            }
+        )
+        current_id = prior.previous_job_id
+    chain.reverse()
+    return chain
+
+
+def _legacy_corruption(job: CityAdminImportJob) -> tuple[bool, str | None]:
+    """Detects the exact production Job #1 shape: a row whose status and
+    started_at/finished_at contradict each other, or one already flagged by
+    the legacy-repair command via lifecycle_flag. Never inferred as
+    anything other than "flag it" — no attempt is made here to guess what
+    the row's true state should have been."""
+    if job.lifecycle_flag:
+        return True, f"lifecycle_flag={job.lifecycle_flag}"
+    if job.status == "queued" and (job.started_at is not None or job.finished_at is not None):
+        return True, "status=queued but started_at/finished_at already set"
+    if job.status == "running" and job.finished_at is not None:
+        return True, "status=running but finished_at already set"
+    if job.status in TERMINAL_STATUSES and job.started_at is None:
+        return True, "terminal status but started_at was never set"
+    return False, None
+
+
 def _last_completed_step(job: CityAdminImportJob) -> str | None:
     if job.current_step in TERMINAL_STEPS or job.status in TERMINAL_STATUSES:
         return job.current_step
@@ -340,6 +383,8 @@ def build_import_job_diagnostic(db: Session, *, job_id: int) -> dict[str, object
     failed_steps = _failed_steps(job_steps)
     steps = _step_breakdown(job_steps)
     partial_success_reason = _partial_success_reason(job, failed_steps)
+    retry_chain = _retry_chain(db, job)
+    legacy_corrupted, legacy_corrupted_reason = _legacy_corruption(job)
     # funnel is read from job.step_details, where
     # services/import_pipeline/runner.py already stores
     # summarize_import_results' output (CITYGO-313) — never recomputed here.
@@ -369,6 +414,10 @@ def build_import_job_diagnostic(db: Session, *, job_id: int) -> dict[str, object
         "status": job.status,
         "current_step": job.current_step,
         "last_completed_step": last_completed_step,
+        "previous_job_id": job.previous_job_id,
+        "retry_chain": retry_chain,
+        "legacy_corrupted": legacy_corrupted,
+        "legacy_corrupted_reason": legacy_corrupted_reason,
         "failure_reason": job.last_error,
         "partial_success_reason": partial_success_reason,
         "failed_steps": failed_steps,

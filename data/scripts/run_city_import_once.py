@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from db.session import SessionLocal
-from services.admin_city_import_job_service import ensure_import_job, run_city_import_job
+from services.admin_city_import_job_service import DuplicateActiveJobError, queue_city_import_job, run_city_import_job
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -23,9 +23,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def run(argv: list[str] | None = None) -> dict[str, object]:
     args = parse_args(argv)
     with SessionLocal() as db:
-        ensure_import_job(db, city_id=args.city_id)
-        db.commit()
-        job = run_city_import_job(db, city_id=args.city_id, actor_id=args.actor)
+        try:
+            created = queue_city_import_job(db, city_id=args.city_id, actor_id=args.actor)
+            db.commit()
+            job_id = created.id
+        except DuplicateActiveJobError as exc:
+            job_id = exc.job_id
+        job = run_city_import_job(db, city_id=args.city_id, actor_id=args.actor, job_id=job_id)
         return {
             "job_id": job.id,
             "city_id": job.city_id,

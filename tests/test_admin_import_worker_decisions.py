@@ -141,7 +141,7 @@ def test_import_worker_blocked_job_stays_queued_and_is_picked_up_once_memory_rec
     assert job.last_error is None
     assert job.finished_at is None
 
-    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
         queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
         queued_job.status = "success"
         queued_job.finished_at = datetime.utcnow()
@@ -172,7 +172,7 @@ def test_import_worker_allows_heavy_job_when_enabled_and_host_memory_is_sufficie
     city = city_factory(slug="worker-heavy-allowed", name="Worker Heavy Allowed")
     job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
 
-    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
         queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
         queued_job.status = "success"
         queued_job.finished_at = datetime.utcnow()
@@ -211,7 +211,7 @@ def test_healthy_post_start_memory_does_not_self_deadlock_new(
     city = city_factory(slug="worker-post-start-healthy", name="Worker Post Start Healthy")
     job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
 
-    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
         queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
         queued_job.status = "success"
         queued_job.finished_at = datetime.utcnow()
@@ -268,7 +268,7 @@ def test_import_worker_allows_light_jobs_in_safe_mode(
     city = city_factory(slug="worker-safe-mode-allow", name="Worker Safe Mode Allow")
     job = _create_import_job(db_session, city_id=city.id, source="admin_address_enrichment")
 
-    def fake_run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+    def fake_run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
         queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
         queued_job.status = "success"
         queued_job.finished_at = datetime.utcnow()
@@ -295,7 +295,7 @@ def test_import_worker_safe_mode_off_allows_full_import(
     city = city_factory(slug="worker-safe-mode-off", name="Worker Safe Mode Off")
     job = _create_import_job(db_session, city_id=city.id, source="admin_city_import")
 
-    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
         queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
         queued_job.status = "success"
         queued_job.finished_at = datetime.utcnow()
@@ -321,7 +321,7 @@ def test_import_worker_logs_claim_and_finish_for_queued_job(
     city = city_factory(slug="worker-claim", name="Worker Claim")
     job = _create_import_job(db_session, city_id=city.id)
 
-    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str) -> CityAdminImportJob:
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
         queued_job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).one()
         queued_job.status = "success"
         queued_job.started_at = queued_job.started_at or datetime.utcnow()

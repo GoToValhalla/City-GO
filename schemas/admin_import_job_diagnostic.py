@@ -57,6 +57,16 @@ class ImportJobFunnelAccounting(BaseModel):
     accepted_equation: dict[str, Any] = {}
 
 
+class ImportJobRetryChainEntry(BaseModel):
+    """One prior job in this city's retry chain, oldest first."""
+
+    job_id: int
+    status: str
+    source: str
+    created_at: datetime
+    finished_at: datetime | None = None
+
+
 class ImportJobDiagnostic(BaseModel):
     job_id: int
     city_id: int
@@ -65,6 +75,16 @@ class ImportJobDiagnostic(BaseModel):
     status: str
     current_step: str
     last_completed_step: str | None = None
+    previous_job_id: int | None = None
+    retry_chain: list[ImportJobRetryChainEntry] = []
+    # True when this row's own status/started_at/finished_at combination is
+    # internally contradictory (e.g. status="queued" but started_at is
+    # already set) or was explicitly flagged by the legacy-repair command —
+    # the exact shape of the production Job #1 corruption. The diagnostic
+    # must say so plainly instead of presenting the contradiction as a
+    # normal in-progress job.
+    legacy_corrupted: bool = False
+    legacy_corrupted_reason: str | None = None
     failure_reason: str | None = None
     partial_success_reason: str | None = None
     failed_steps: list[ImportJobFailedStep] = []

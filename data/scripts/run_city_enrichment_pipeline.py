@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from db.session import SessionLocal
 from models.city import City
-from services.admin_city_import_job_service import ensure_import_job, run_enrichment_only_job
+from services.admin_city_import_job_service import DuplicateActiveJobError, queue_city_import_job, run_enrichment_only_job
 from services.city_slug_resolver import resolve_city_by_slug
 
 
@@ -26,15 +26,21 @@ def main(argv: list[str] | None = None) -> dict[str, object]:
         city = resolve_city_by_slug(db, args.city)
         if city is None:
             raise SystemExit(f"City not found: {args.city}")
-        job = ensure_import_job(db, city_id=city.id)
-        db.commit()
+        try:
+            job = queue_city_import_job(db, city_id=city.id, actor_id=args.actor)
+            db.commit()
+        except DuplicateActiveJobError as exc:
+            job = None
+            job_id = exc.job_id
+        else:
+            job_id = job.id
         if args.address_limit:
             import services.import_pipeline.enrichment_only as eo
             eo.ADDRESS_LIMIT = args.address_limit
         if args.image_limit:
             import services.import_pipeline.enrichment_only as eo
             eo.IMAGE_LIMIT = args.image_limit
-        finished = run_enrichment_only_job(db, city_id=city.id, actor_id=args.actor)
+        finished = run_enrichment_only_job(db, city_id=city.id, actor_id=args.actor, job_id=job_id)
         return {"job_id": finished.id, "status": finished.status, "current_step": finished.current_step}
 
 
