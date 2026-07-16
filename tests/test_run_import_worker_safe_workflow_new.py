@@ -172,14 +172,19 @@ def test_workflow_posts_worker_events_to_existing_backend_endpoint_new() -> None
 
 
 def test_workflow_only_associates_job_id_when_actually_claimed_new() -> None:
+    """job_id is only ever set from CLAIMED_JOB_ID (never invented). The
+    JSON payload's job_id key is populated by the embedded Python
+    serializer (_int_or_none("JOB_ID")) from the JOB_ID env var, which is
+    always set to "${CLAIMED_JOB_ID:-}" — an empty/unset CLAIMED_JOB_ID
+    becomes an empty JOB_ID, which _int_or_none() maps to None, which is
+    then dropped from the payload entirely (not emitted as job_id: null)."""
     text = _workflow_text()
 
     assert 'CLAIMED_JOB_ID=""' in text
     assert "refresh_claimed_job_id" in text
     assert "running_job_ids" in text
-    job_field_idx = text.index('job_field="\\"job_id\\":')
-    condition_idx = text.rindex('if [ -n "${CLAIMED_JOB_ID:-}" ]; then', 0, job_field_idx)
-    assert condition_idx < job_field_idx
+    assert 'JOB_ID="${CLAIMED_JOB_ID:-}"' in text
+    assert '"job_id": _int_or_none("JOB_ID")' in text
 
 
 def test_workflow_health_degradation_reports_stop_reason_new() -> None:

@@ -93,7 +93,21 @@ exit 0
 """,
         encoding="utf-8",
     )
-    for name in ("curl", "docker", "awk", "sleep"):
+    # GNU coreutils `timeout` is not guaranteed to exist on every dev/CI
+    # host (e.g. it is absent by default on macOS) even though the real
+    # production runner (runs-on: ubuntu-latest) and the real SSH target
+    # both have it — stub it here as a passthrough so this test's PATH
+    # behaves like the real Linux environment the workflow actually runs
+    # in, instead of silently changing what MEM_PERCENT_RAW/MEM_USAGE
+    # resolve to.
+    (bin_dir / "timeout").write_text(
+        """#!/usr/bin/env bash
+shift
+exec "$@"
+""",
+        encoding="utf-8",
+    )
+    for name in ("curl", "docker", "awk", "sleep", "timeout"):
         (bin_dir / name).chmod(0o755)
 
     loop_script = _extract_monitor_loop_script()
@@ -102,6 +116,12 @@ exit 0
         f"""#!/usr/bin/env bash
 set -uo pipefail
 section() {{ echo; echo "=== $1 ==="; }}
+# report_worker_event/refresh_claimed_job_id are defined earlier in the
+# real script, before "section \\"monitor loop\\"" — this test only
+# extracts the loop body, so stub them as harmless no-ops (ADMIN_API_TOKEN
+# is unset, so the real function would also return immediately).
+report_worker_event() {{ :; }}
+refresh_claimed_job_id() {{ :; }}
 WORKER_ID=fake-worker-id
 RUNTIME_HOST_FLOOR_MB=256
 RUNTIME_CGROUP_PERCENT=85

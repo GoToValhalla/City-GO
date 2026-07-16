@@ -131,22 +131,82 @@ jobs:
           # backend logging endpoint (POST /admin/system-logs/worker-event,
           # which reuses write_system_log — no new logging system). Silent,
           # best-effort: a failed report must never fail or slow down the
-          # worker run itself. job_id is included only when a job has
-          # actually been claimed (CLAIMED_JOB_ID set) — never invented.
+          # worker run itself, and never changes worker success/failure.
+          # job_id is included only when a job has actually been claimed
+          # (CLAIMED_JOB_ID set) — never invented.
+          #
+          # The JSON payload is built with a real serializer (python3
+          # json.dumps), not string concatenation: bash concatenation
+          # cannot safely quote a value it does not control (a stray `"`,
+          # backslash, or a non-numeric CLAIMED_JOB_ID — e.g. a partial
+          # curl/python error string swallowed by `|| true` in
+          # refresh_claimed_job_id — silently produces invalid JSON, which
+          # the backend correctly rejects with 422). Optional fields are
+          # passed as trailing key=value arguments (stop_reason=..., etc.,
+          # matching AdminWorkerEventRequest's own field names exactly);
+          # job_id/exit_code/oom_killed are coerced to their real JSON
+          # types (int/bool/null) in one place, not re-derived per call site.
           report_worker_event() {
             local event="$1"; shift
             [ -n "${ADMIN_API_TOKEN:-}" ] || return 0
-            local extra_json="$1"
-            local job_field=""
-            if [ -n "${CLAIMED_JOB_ID:-}" ]; then
-              job_field="\"job_id\": ${CLAIMED_JOB_ID}, "
-            fi
-            curl -sS --max-time 8 -o /dev/null \
+            local stop_reason="" stop_source="" exit_code="" oom_killed=""
+            local pair key value
+            for pair in "$@"; do
+              key="${pair%%=*}"
+              value="${pair#*=}"
+              case "$key" in
+                stop_reason) stop_reason="$value" ;;
+                stop_source) stop_source="$value" ;;
+                exit_code) exit_code="$value" ;;
+                oom_killed) oom_killed="$value" ;;
+              esac
+            done
+            EVENT="$event" JOB_ID="${CLAIMED_JOB_ID:-}" WORKER_RUN_ID="${WORKFLOW_RUN_ID:-}" \
+            WORKFLOW_NAME_ARG="${WORKFLOW_NAME:-}" GITHUB_RUN_ID="${WORKFLOW_RUN_ID:-}" GITHUB_RUN_URL="${WORKFLOW_RUN_URL:-}" \
+            STOP_REASON_ARG="$stop_reason" STOP_SOURCE_ARG="$stop_source" EXIT_CODE_ARG="$exit_code" OOM_KILLED_ARG="$oom_killed" \
+            python3 > /tmp/worker_event_payload.json <<'PYEOF'
+          import json, os, sys
+
+          def _int_or_none(name):
+              raw = os.environ.get(name, "")
+              if not raw:
+                  return None
+              try:
+                  return int(raw)
+              except ValueError:
+                  return None
+
+          def _bool_or_none(name):
+              raw = os.environ.get(name, "")
+              return {"true": True, "false": False}.get(raw)
+
+          payload = {
+              "event": os.environ["EVENT"],
+              "job_id": _int_or_none("JOB_ID"),
+              "worker_run_id": os.environ.get("WORKER_RUN_ID") or None,
+              "workflow_name": os.environ.get("WORKFLOW_NAME_ARG") or None,
+              "github_run_id": os.environ.get("GITHUB_RUN_ID") or None,
+              "github_run_url": os.environ.get("GITHUB_RUN_URL") or None,
+              "stop_reason": os.environ.get("STOP_REASON_ARG") or None,
+              "stop_source": os.environ.get("STOP_SOURCE_ARG") or None,
+              "exit_code": _int_or_none("EXIT_CODE_ARG"),
+              "oom_killed": _bool_or_none("OOM_KILLED_ARG"),
+          }
+          payload = {key: value for key, value in payload.items() if value is not None}
+          json.dump(payload, sys.stdout)
+          PYEOF
+            RESPONSE_CODE=$(curl -sS --max-time 8 -o /tmp/worker_event_response.json -w '%{http_code}' \
               -H "Authorization: Bearer ${ADMIN_API_TOKEN}" \
               -H "Content-Type: application/json" \
               -X POST "https://citygo.autismishe.online/api/admin/system-logs/worker-event" \
-              -d "{\"event\": \"${event}\", ${job_field}\"worker_run_id\": \"${WORKFLOW_RUN_ID:-}\", \"workflow_name\": \"${WORKFLOW_NAME:-}\", \"github_run_id\": \"${WORKFLOW_RUN_ID:-}\", \"github_run_url\": \"${WORKFLOW_RUN_URL:-}\"${extra_json}}" \
-              2>&1 || true
+              --data-binary @/tmp/worker_event_payload.json 2>/tmp/worker_event_curl.err || echo "000")
+            case "$RESPONSE_CODE" in
+              2??) ;;
+              *)
+                echo "WARN: worker-event report for '${event}' returned HTTP ${RESPONSE_CODE}: $(head -c 500 /tmp/worker_event_response.json 2>/dev/null | tr -d '\n')" >&2
+                ;;
+            esac
+            return 0
           }
 
           # Best-effort: pick up the job_id the worker actually claimed (if
@@ -163,7 +223,7 @@ jobs:
 
           cleanup() {
             section "cleanup: always stop and remove import-worker"
-            report_worker_event "workflow_cleanup" ", \"stop_reason\": \"${STOP_REASON:-unknown}\""
+            report_worker_event "workflow_cleanup" "stop_reason=${STOP_REASON:-unknown}"
             docker compose stop -t 30 import-worker 2>&1 || echo "(stop failed or already stopped)"
             # Remove the container, not just stop it: a leftover stopped
             # container can be reused as-is by a later `docker compose up`
@@ -224,7 +284,8 @@ jobs:
           fi
           WORKER_ID="$(docker compose ps -aq import-worker 2>/dev/null || true)"
           test -n "$WORKER_ID" || (echo "ERROR: worker container was not created" >&2; exit 1)
-          report_worker_event "worker_run_started" ""
+          echo "worker_id=${WORKER_ID}"
+          report_worker_event "worker_run_started"
 
           section "effective worker limits"
           docker inspect -f 'memory_limit={{.HostConfig.Memory}} memory_swap={{.HostConfig.MemorySwap}} nano_cpus={{.HostConfig.NanoCpus}} restart={{.HostConfig.RestartPolicy.Name}}' "$WORKER_ID"
@@ -244,62 +305,73 @@ jobs:
             sleep 5
             ELAPSED=$((ELAPSED + 5))
 
+            # Check container state FIRST, using only the saved WORKER_ID —
+            # never rediscovered. If the container has already exited (a
+            # fast, successful diagnostics_only run routinely does), stop
+            # the loop immediately: do not treat an exited container as
+            # missing, and do not spend a `docker stats` call (which has no
+            # built-in timeout and can stall) probing a container that is
+            # no longer running. `docker stats` is only ever consulted
+            # below while the container is confirmed still running.
             WORKER_STATE="$(docker inspect -f '{{.State.Status}}' "$WORKER_ID" 2>/dev/null || echo unknown)"
+            echo "t=${ELAPSED}s worker_state=${WORKER_STATE}"
+
+            if [ "$WORKER_STATE" != "running" ]; then
+              STOP_REASON="worker_exited_state_${WORKER_STATE}"
+              refresh_claimed_job_id
+              report_worker_event "worker_stop_requested" "stop_reason=${STOP_REASON}" "stop_source=monitor_loop"
+              break
+            fi
+
             HEALTH_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 https://citygo.autismishe.online/api/health || echo "000")
             READY_CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 https://citygo.autismishe.online/api/ready || echo "000")
             AVAILABLE_MB=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
-            MEM_USAGE=$(docker stats --no-stream --format '{{.MemUsage}}' "$WORKER_ID" 2>/dev/null | head -n1 || true)
-            MEM_PERCENT_RAW=$(docker stats --no-stream --format '{{.MemPerc}}' "$WORKER_ID" 2>/dev/null | head -n1 | tr -d '%' || true)
+            MEM_USAGE=$(timeout 5s docker stats --no-stream --format '{{.MemUsage}}' "$WORKER_ID" 2>/dev/null | head -n1 || true)
+            MEM_PERCENT_RAW=$(timeout 5s docker stats --no-stream --format '{{.MemPerc}}' "$WORKER_ID" 2>/dev/null | head -n1 | tr -d '%' || true)
             MEM_PERCENT=${MEM_PERCENT_RAW%.*}
             MEM_PERCENT=${MEM_PERCENT:-999}
 
             if [ "$HEALTH_CODE" != "200" ] || [ "$READY_CODE" != "200" ]; then
               HEALTH_FAIL_STREAK=$((HEALTH_FAIL_STREAK + 1))
               refresh_claimed_job_id
-              report_worker_event "worker_health_check_failed" ", \"stop_reason\": \"health_check_failed_health=${HEALTH_CODE}_ready=${READY_CODE}_streak=${HEALTH_FAIL_STREAK}\""
+              report_worker_event "worker_health_check_failed" "stop_reason=health_check_failed_health=${HEALTH_CODE}_ready=${READY_CODE}_streak=${HEALTH_FAIL_STREAK}"
             else
               HEALTH_FAIL_STREAK=0
             fi
 
             echo "t=${ELAPSED}s worker_state=${WORKER_STATE} health=${HEALTH_CODE} ready=${READY_CODE} health_fail_streak=${HEALTH_FAIL_STREAK} host_available_mb=${AVAILABLE_MB} worker_mem='${MEM_USAGE}' worker_mem_percent=${MEM_PERCENT}"
 
-            if [ "$WORKER_STATE" != "running" ]; then
-              STOP_REASON="worker_exited_state_${WORKER_STATE}"
-              refresh_claimed_job_id
-              report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
-              break
-            fi
             if [ "$HEALTH_FAIL_STREAK" -ge "$HEALTH_FAIL_THRESHOLD" ]; then
               STOP_REASON="public_health_degraded"
               echo "ERROR: public health degraded for ${HEALTH_FAIL_STREAK} consecutive checks; stopping worker." >&2
-              report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
+              report_worker_event "worker_stop_requested" "stop_reason=${STOP_REASON}" "stop_source=monitor_loop"
               break
             fi
             if [ "$AVAILABLE_MB" -lt "$RUNTIME_HOST_FLOOR_MB" ]; then
               STOP_REASON="host_memory_floor"
               echo "ERROR: host memory crossed runtime floor; stopping worker." >&2
-              report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
+              report_worker_event "worker_stop_requested" "stop_reason=${STOP_REASON}" "stop_source=monitor_loop"
               break
             fi
             case "$MEM_PERCENT" in
               ''|*[!0-9]*)
                 STOP_REASON="worker_memory_reading_unknown"
                 echo "ERROR: worker memory percentage is unknown; stopping worker fail-closed." >&2
-                report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
+                report_worker_event "worker_stop_requested" "stop_reason=${STOP_REASON}" "stop_source=monitor_loop"
                 break
                 ;;
             esac
             if [ "$MEM_PERCENT" -ge "$RUNTIME_CGROUP_PERCENT" ]; then
               STOP_REASON="worker_cgroup_soft_limit"
               echo "ERROR: worker reached cgroup soft limit; stopping worker." >&2
-              report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
+              report_worker_event "worker_stop_requested" "stop_reason=${STOP_REASON}" "stop_source=monitor_loop"
               break
             fi
           done
 
           if [ "$ELAPSED" -ge "$MAX_RUNTIME_SECONDS" ]; then
             STOP_REASON="max_runtime_reached"
-            report_worker_event "worker_stop_requested" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\""
+            report_worker_event "worker_stop_requested" "stop_reason=${STOP_REASON}" "stop_source=monitor_loop"
           fi
           echo "monitor loop ended: reason=${STOP_REASON} elapsed=${ELAPSED}s"
 
@@ -315,7 +387,12 @@ jobs:
           docker compose logs --tail=250 import-worker 2>&1 || true
           docker compose logs --tail=100 backend 2>&1 || true
           docker compose logs --tail=100 db 2>&1 || true
-          docker stats --no-stream 2>&1 || true
+          # `docker stats` is diagnostic-only here, never a required signal
+          # for the pass/fail decision (that comes from `docker inspect`
+          # below) — bounded with `timeout` since it has no built-in
+          # timeout of its own and can stall against an already-exited
+          # container.
+          timeout 5s docker stats --no-stream 2>&1 || true
           free -h 2>&1 || true
 
           WORKER_EXIT_CODE=$(docker inspect -f '{{.State.ExitCode}}' "$WORKER_ID" 2>/dev/null || echo unknown)
@@ -326,13 +403,12 @@ jobs:
           cleanup
           trap - EXIT
 
-          EXIT_CODE_JSON="null"
-          case "$WORKER_EXIT_CODE" in ''|*[!0-9]*) ;; *) EXIT_CODE_JSON="$WORKER_EXIT_CODE" ;; esac
-          OOM_JSON="null"
-          [ "$WORKER_OOM" = "true" ] && OOM_JSON="true"
-          [ "$WORKER_OOM" = "false" ] && OOM_JSON="false"
-          report_worker_event "worker_run_finished" ", \"stop_reason\": \"${STOP_REASON}\", \"stop_source\": \"monitor_loop\", \"exit_code\": ${EXIT_CODE_JSON}, \"oom_killed\": ${OOM_JSON}"
+          report_worker_event "worker_run_finished" "stop_reason=${STOP_REASON}" "stop_source=monitor_loop" "exit_code=${WORKER_EXIT_CODE}" "oom_killed=${WORKER_OOM}"
 
+          # Mode-independent hard failures: an OOM-kill or a non-zero/
+          # unknown exit code is a real problem in EVERY mode, including
+          # diagnostics_only and dry_run — these are never expected
+          # outcomes of a container that "just ran and exited quickly".
           if [ "$WORKER_OOM" = "true" ] || [ "$WORKER_EXIT_CODE" = "137" ]; then
             echo "ERROR: worker was OOM-killed." >&2
             exit 1
@@ -347,10 +423,41 @@ jobs:
             echo "ERROR: worker exited with code ${WORKER_EXIT_CODE}." >&2
             exit 1
           fi
+
+          # Mode-independent safety-guard failures: these describe the
+          # HOST/backend's own health during the run (public health,
+          # host memory, worker cgroup pressure, an unreadable memory
+          # reading, or the workflow's own runtime ceiling) — not the
+          # worker's business outcome — so they apply the same way in
+          # every run_mode.
           if [ "$STOP_REASON" = "public_health_degraded" ] || [ "$STOP_REASON" = "host_memory_floor" ] || [ "$STOP_REASON" = "worker_cgroup_soft_limit" ] || [ "$STOP_REASON" = "worker_memory_reading_unknown" ] || [ "$STOP_REASON" = "max_runtime_reached" ]; then
             echo "ERROR: worker run ended by safety guard (${STOP_REASON})." >&2
             exit 1
           fi
+
+          # diagnostics_only: exit code 0 with a normal exited-state stop
+          # reason (worker_exited_state_*) IS success — no job claim is
+          # required, and a quick container exit is the expected, correct
+          # behavior. Everything above this point (exit-code/OOM/safety-
+          # guard checks) still applies identically; only the "worker
+          # actually claimed/finished a job" business-outcome check below
+          # is skipped for this mode, since diagnostics_only never claims
+          # anything by design (run_diagnostics_only() in
+          # data/scripts/run_admin_import_worker.py performs a read-only
+          # queue report and always returns 0).
+          if [ "$RUN_MODE" = "diagnostics_only" ]; then
+            echo "=== diagnostics_only completed successfully (exit_code=0, stop_reason=${STOP_REASON}) ==="
+            exit 0
+          fi
+
+          # safe_one_job / dry_run: the worker's own exit code already
+          # encodes the business outcome (run_admin_import_worker.py exits
+          # 1 when safe_one_job claimed nothing, or when a claimed job
+          # never reached a terminal status; dry_run exits 0 for an empty
+          # queue, which is its correct success). WORKER_EXIT_CODE was
+          # already confirmed to be 0 above, so there is nothing further
+          # to check here beyond what the exit-code/OOM/safety-guard
+          # checks above already covered.
           REMOTE_EOF
 
       - name: Upload run report
