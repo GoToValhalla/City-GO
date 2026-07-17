@@ -16,7 +16,7 @@ from db.session import SessionLocal
 from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from services.admin_alert_service import send_admin_alert
-from services.admin_city_import_job_service import _try_finalize
+from services.admin_city_import_job_service import finalize_import_job
 from services.admin_city_import_tasks import run_queued_import_jobs
 from services.import_pipeline.progress import worker_progress_snapshot
 from services.import_pipeline.steps import STEP_ERROR
@@ -158,10 +158,12 @@ def run_import_queue_once(limit: int = 1, auth: AdminContext = Depends(admin_req
 @router.post("/import-queue/mark-stalled")
 def mark_stuck_import_jobs(auth: AdminContext = Depends(admin_required), db: Session = Depends(get_db)) -> dict[str, object]:
     now = datetime.utcnow()
-    # FOR UPDATE: locks against a concurrent worker finishing this exact
-    # job (or the automatic mark_stalled_import_jobs sweep) between this
-    # SELECT and the write below.
-    jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").with_for_update().all()
+    # No FOR UPDATE here: this batch SELECT only needs to name candidates —
+    # finalize_import_job re-selects and re-locks each exact row itself
+    # before writing anything, so a worker finishing normally (or the
+    # automatic mark_stalled_import_jobs sweep) in the moment between this
+    # SELECT and the per-row finalize call below is still caught.
+    jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").all()
     stuck = [job for job in jobs if _is_stuck(job, now=now)]
     marked: list[int] = []
     for candidate in stuck:
@@ -176,12 +178,12 @@ def mark_stuck_import_jobs(auth: AdminContext = Depends(admin_required), db: Ses
         # Administrative action — no expected_claimed_by (default sentinel
         # means "override whoever holds it"), consistent with the fact
         # `stuck` was already selected under this same request's own
-        # FOR UPDATE lock above. _try_finalize still re-selects the exact
+        # FOR UPDATE lock above. finalize_import_job still re-selects the exact
         # row fresh (populate_existing + FOR UPDATE) and re-verifies
         # status/finished_at before writing anything, so a worker
         # finishing normally (or the automatic sweep) in the moment
         # between the batch SELECT above and this call is still caught.
-        result = _try_finalize(
+        result = finalize_import_job(
             db, job_id=candidate.id, new_status="stalled", actor_id=auth.actor_id,
             fields={
                 "step_details": details,

@@ -16,7 +16,7 @@ from schemas.user_route import (
     UserRouteSlotOptions,
     UserRouteUpdateRequest,
 )
-from services.place_public_visibility import apply_public_place_visibility
+from services.route_eligibility import apply_route_eligible_filters
 from services.route_geometry import walk_minutes_between
 from services.user_route_place_loader import load_ordered_places, load_place
 from services.user_route_recalc_service import UserRouteRecalcService
@@ -72,7 +72,7 @@ class UserRouteEditService:
             return UserRouteAlternativesResponse(route_id=route.route_id, place_id=place_id, options=[])
         used_ids = {point.place_id for point in route.points}
         query = db.query(Place).filter(Place.category == current.category)
-        query = apply_public_place_visibility(query).filter(~Place.id.in_([int(item) for item in used_ids if item.isdigit()]))
+        query = apply_route_eligible_filters(query).filter(~Place.id.in_([int(item) for item in used_ids if item.isdigit()]))
         options = sorted(
             query.limit(30).all(),
             key=lambda place: walk_minutes_between(current.lat, current.lng, float(place.lat), float(place.lng)),
@@ -87,7 +87,7 @@ class UserRouteEditService:
         lat, lng = _start_location(request)
         slots: list[UserRouteSlotOptions] = []
         for slot in request.slots:
-            query = apply_public_place_visibility(db.query(Place).filter(Place.category == slot.category))
+            query = apply_route_eligible_filters(db.query(Place).filter(Place.category == slot.category))
             if request.city_id:
                 query = query.join(Place.city).filter_by(slug=request.city_id)
             places = sorted(
@@ -108,7 +108,7 @@ def _load_places_by_ids(db: Session, ids: list[str]) -> list[Place]:
     numeric_ids = [int(item) for item in ids if item.isdigit()]
     if not numeric_ids:
         return []
-    places = apply_public_place_visibility(db.query(Place).filter(Place.id.in_(numeric_ids))).all()
+    places = apply_route_eligible_filters(db.query(Place).filter(Place.id.in_(numeric_ids))).all()
     by_id = {int(place.id): place for place in places}
     return [by_id[item] for item in numeric_ids if item in by_id]
 

@@ -106,8 +106,19 @@ _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
 # Distinguishes "caller passed expected_claimed_by=None because it wants to
 # require an unclaimed row" (not applicable here, claimed_by is never None
 # on a running row) from "caller passed no expected_claimed_by argument at
-# all, meaning ownership is not checked" — used by _try_finalize.
+# all, meaning ownership is not checked" — used by finalize_import_job.
 _UNSET = object()
+
+# Starting statuses finalize_import_job accepts, per requested terminal
+# transition. "running" covers every normal worker/runner completion and
+# every recovery sweep (stall, admin mark-stalled). "queued" exists only so
+# cancel can terminalize a row a worker never claimed (started_at/claimed_by
+# still NULL) through the SAME lock-check-write primitive as every other
+# terminal write, instead of a second, separately-maintained code path.
+_FINALIZE_FROM_STATUSES: dict[str, frozenset[str]] = {
+    "running": frozenset({"success", "success_with_warnings", "partial_success", "failed", "stalled", "cancelled"}),
+    "queued": frozenset({"cancelled", "failed"}),
+}
 
 
 class InvalidJobTransitionError(ValueError):
@@ -146,11 +157,11 @@ def _transition(db: Session, job: CityAdminImportJob, new_status: str, *, actor_
 
 
 class FinalizeResult:
-    """Outcome of _try_finalize. `job` is only meaningful when `ok` is True
-    — it is the freshly locked-and-reloaded row, never the caller's older
-    in-memory instance. Callers must discard whatever ORM object they held
-    before calling _try_finalize and use `result.job` for every subsequent
-    field write; the old object may be reflecting a status this
+    """Outcome of finalize_import_job. `job` is only meaningful when `ok` is
+    True — it is the freshly locked-and-reloaded row, never the caller's
+    older in-memory instance. Callers must discard whatever ORM object they
+    held before calling finalize_import_job and use `result.job` for every
+    subsequent field write; the old object may be reflecting a status this
     transaction never actually observed under lock."""
 
     __slots__ = ("ok", "job", "reason")
@@ -164,7 +175,7 @@ class FinalizeResult:
         return self.ok
 
 
-def _try_finalize(
+def finalize_import_job(
     db: Session,
     *,
     job_id: int,
@@ -173,9 +184,19 @@ def _try_finalize(
     actor_id: str | None = None,
     fields: dict[str, object] | None = None,
 ) -> FinalizeResult:
-    """The ONE atomic terminal-finalization primitive. Database-authoritative:
-    never trusts a caller's already-loaded ORM object, because that object
-    can be reflecting a status this transaction/connection never actually
+    """The ONE atomic, database-authoritative terminal-finalization
+    primitive for CityAdminImportJob. This is the ONLY function in the
+    codebase allowed to write status/finished_at/last_error/current_step/
+    step_details/counters onto a job as a terminal write — every runner,
+    the worker loop's exception handler, the automatic stall sweep, the
+    manual admin mark-stalled endpoint, and cancel all route their terminal
+    writes through this single function, so lock discipline, staleness
+    handling, and ownership rules cannot drift apart between call sites
+    again (see git history: status-only checks, then row locks, then
+    stale-refresh, each patched in isolation, never as one contract).
+
+    Never trusts a caller's already-loaded ORM object: that object can be
+    reflecting a status this transaction/connection never actually
     observed under lock — a commit made by a DIFFERENT PostgreSQL
     transaction does not expire or refresh objects already attached to
     this Session (expire_on_commit only fires on THIS Session's own
@@ -185,86 +206,121 @@ def _try_finalize(
     real two-connection reproduction.
 
     Sequence, all inside one uninterrupted transaction:
+    0. db.no_autoflush for the whole body. Without this, the SELECT ... FOR
+       UPDATE below would itself trigger SQLAlchemy's autoflush of any
+       pending change on this job (or any other dirty object in the same
+       Session) BEFORE the lock is acquired — sending an UPDATE built from
+       whatever stale local attributes the caller happened to be holding,
+       ahead of and independent from the lock-protected read/write this
+       function performs. That defeats the entire point of the lock: the
+       row would already carry stale data by the time it's re-selected.
     1. SELECT ... FOR UPDATE by job_id (with populate_existing() so even an
        object already in this Session's identity map is overwritten with
        the row's current, lock-protected DB state — never served stale
        from the session cache).
     2. While still holding that lock, verify:
-       - status == "running" (only a running row may be finalized here —
-         claim_queued_job is the only writer of queued -> running, and
-         terminalizing a queued row belongs to cancel_import_job's own
-         separate, explicitly-gated path, not this function);
+       - status is a valid starting status for new_status (see
+         _FINALIZE_FROM_STATUSES — "running" for normal completion/
+         recovery, "queued" additionally allowed only for cancelling a
+         job no worker ever claimed);
        - claimed_by == expected_claimed_by, UNLESS the caller passed no
          expected_claimed_by at all (the sentinel default), which means
          "administrative action, intentionally overriding whoever holds
          it" (mark_stalled_import_jobs, cancel_import_job, the manual
-         admin mark-stalled endpoint) — those already re-select the row
-         under their own FOR UPDATE immediately before calling this, so
-         ownership is irrelevant to them by design;
+         admin mark-stalled endpoint);
        - finished_at IS NULL (a row that already has a finished_at was
          terminalized by someone else, even if a bug elsewhere left
          status somehow still "running" — never trust status alone).
-    3. If any check fails: write NOTHING (not even a partial field), log a
-       diagnostic event, return FinalizeResult(ok=False, job=None,
-       reason=...). The lock is released by the caller's own commit/rollback
-       exactly as before — this function never commits or rolls back itself,
-       so it composes with the caller's existing transaction/SAVEPOINT
-       structure.
+    3. If any check fails:
+       - write NOTHING to the row (not even a partial field);
+       - if the job_id happens to already be present in this Session's
+         identity map (e.g. the caller's own stale `job` object from
+         before this call), db.expire() it — this discards every pending
+         Python-side attribute change on THAT object, so a later, unrelated
+         db.commit() in the same Session can never flush a stale
+         status/finished_at/last_error the caller never meant to persist
+         (the exact failure mode named "stale ORM object reused after
+         finalization"). Only this one job's identity-map entry is
+         touched — every OTHER dirty object in the Session (unrelated
+         cities, places, log rows the caller is also about to commit) is
+         left completely untouched, so a losing finalize never forces the
+         caller to lose unrelated legitimate work.
+       - log a diagnostic event, return FinalizeResult(ok=False, job=None,
+         reason=...). The lock itself is released by the caller's own
+         commit/rollback exactly as before — this function never commits
+         or rolls back itself, so it composes with the caller's existing
+         transaction/SAVEPOINT structure.
     4. If all checks pass: apply `_transition` (status + updated_at) and
        every key/value in `fields` onto the freshly loaded row in the SAME
-       Python statement block, so nothing between the lock acquisition and
-       the field writes can observe or race on an inconsistent row. Returns
+       Python statement block, then db.flush() so the UPDATE is sent to
+       PostgreSQL (and would surface any constraint violation) while the
+       lock is still held, before returning. Returns
        FinalizeResult(ok=True, job=<freshly loaded row>) — the caller must
        use `result.job`, not its own older object, for anything further.
+       The caller still owns commit(); this function only flushes.
 
     Called with expected_claimed_by=<worker/run identity> from a normal
     runner's own finalization (it must prove it still owns the row);
     called with no expected_claimed_by (administrative override) from
-    mark_stalled_import_jobs/cancel_import_job/mark_stuck_import_jobs,
-    which have already re-locked the row for their own status check right
-    before calling this."""
-    job = (
-        db.query(CityAdminImportJob)
-        .filter(CityAdminImportJob.id == job_id)
-        .populate_existing()
-        .with_for_update()
-        .first()
-    )
-    if job is None:
-        return FinalizeResult(ok=False, job=None, reason="job_not_found")
-    current_status = str(job.status)
-    ownership_checked = expected_claimed_by is not _UNSET
-    if current_status != "running" or job.finished_at is not None or (ownership_checked and job.claimed_by != expected_claimed_by):
-        reason = (
-            "already_terminalized" if current_status != "running" or job.finished_at is not None
-            else "lost_ownership"
+    mark_stalled_import_jobs/cancel_import_job/mark_stuck_import_jobs."""
+    with db.no_autoflush:
+        job = (
+            db.query(CityAdminImportJob)
+            .filter(CityAdminImportJob.id == job_id)
+            .populate_existing()
+            .with_for_update()
+            .first()
         )
-        log_import_event(
-            db, event="import_job_finalize_skipped_recovered_externally", city_slug=None, actor_id=actor_id, level="warning",
-            message=(
-                f"Job #{job.id} finalize to {new_status} skipped ({reason}): "
-                f"db status={current_status!r} finished_at={job.finished_at!r} claimed_by={job.claimed_by!r} "
-                f"(this run expected claimed_by={expected_claimed_by!r})"
-            ),
-            details={
-                "job_id": job.id, "attempted_status": new_status, "actual_status": current_status,
-                "actual_finished_at": job.finished_at.isoformat() if job.finished_at else None,
-                "actual_claimed_by": job.claimed_by, "expected_claimed_by": None if not ownership_checked else expected_claimed_by,
-                "reason": reason,
-            },
-            job_id=job.id,
-        )
-        return FinalizeResult(ok=False, job=None, reason=reason)
-    # Allowed-transition validation (queued/running -> ...) still applies —
-    # _transition itself raises InvalidJobTransitionError for anything not
-    # in _ALLOWED_TRANSITIONS. Since we just verified status == "running"
-    # under lock, the only way this raises here is new_status itself being
-    # an invalid target for "running", which is a caller bug, not a race —
-    # let it propagate rather than swallowing it as a race outcome.
-    _transition(db, job, new_status, actor_id=actor_id)
-    for key, value in (fields or {}).items():
-        setattr(job, key, value)
-    return FinalizeResult(ok=True, job=job)
+        if job is None:
+            return FinalizeResult(ok=False, job=None, reason="job_not_found")
+        current_status = str(job.status)
+        allowed_targets = _FINALIZE_FROM_STATUSES.get(current_status, frozenset())
+        ownership_checked = expected_claimed_by is not _UNSET
+        ownership_ok = not ownership_checked or job.claimed_by == expected_claimed_by
+        status_ok = new_status in allowed_targets and job.finished_at is None
+        if not status_ok or not ownership_ok:
+            reason = "already_terminalized" if not status_ok else "lost_ownership"
+            log_import_event(
+                db, event="import_job_finalize_skipped_recovered_externally", city_slug=None, actor_id=actor_id, level="warning",
+                message=(
+                    f"Job #{job.id} finalize to {new_status} skipped ({reason}): "
+                    f"db status={current_status!r} finished_at={job.finished_at!r} claimed_by={job.claimed_by!r} "
+                    f"(this run expected claimed_by={expected_claimed_by!r})"
+                ),
+                details={
+                    "job_id": job.id, "attempted_status": new_status, "actual_status": current_status,
+                    "actual_finished_at": job.finished_at.isoformat() if job.finished_at else None,
+                    "actual_claimed_by": job.claimed_by, "expected_claimed_by": None if not ownership_checked else expected_claimed_by,
+                    "reason": reason,
+                },
+                job_id=job.id,
+            )
+            # Detach this exact row's identity-map entry from the Session
+            # entirely (db.expunge, not db.expire): expiring alone only
+            # discards attribute state that was ALREADY pending at the
+            # moment of rejection — it does not stop a caller from writing
+            # to the (now-expired-but-still-attached) object again
+            # afterward, which SQLAlchemy would then autoflush/commit like
+            # any other dirty object. expunge makes every future attribute
+            # write on this object inert: an expunged instance is no
+            # longer session-managed, so nothing it does can ever reach
+            # the database through THIS Session again, no matter what a
+            # caller does to it after seeing ok=False. This is what makes
+            # "a later caller commit cannot flush stale target values" true
+            # unconditionally, not just for writes that predate this call.
+            if job in db:
+                db.expunge(job)
+            return FinalizeResult(ok=False, job=None, reason=reason)
+        # _transition itself raises InvalidJobTransitionError for anything
+        # not in _ALLOWED_TRANSITIONS — a second, independent guard on top
+        # of the _FINALIZE_FROM_STATUSES check above (e.g. this catches a
+        # caller bug requesting a transition never valid for "running" at
+        # all, not just one lost to a race).
+        _transition(db, job, new_status, actor_id=actor_id)
+        for key, value in (fields or {}).items():
+            setattr(job, key, value)
+        db.flush()
+        return FinalizeResult(ok=True, job=job)
 
 
 def queue_city_import_job(db: Session, *, city_id: int, actor_id: str | None = None) -> CityAdminImportJob:
@@ -543,16 +599,20 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int
     # must never perform that transition itself.
     job = _resolve_run_job(db, city_id=city_id, job_id=job_id)
     # Fixed once, right after the row is resolved: this run's proof of
-    # ownership for its eventual _try_finalize call. claim_queued_job set
+    # ownership for its eventual finalize_import_job call. claim_queued_job set
     # claimed_by in the same transaction as queued -> running, so this is
     # exactly the identity that claimed this exact row — never re-read
     # later from a possibly-stale in-memory `job` object.
     expected_claimed_by = job.claimed_by
     if job.current_step == STEP_CANCELLED:
         raise ValueError("Задача отменена. Создайте новую через повтор.")
+    # finished_at/last_error are guaranteed NULL here: the immutable-row
+    # lifecycle (_enqueue_job) always inserts a fresh row per launch/retry,
+    # and claim_queued_job performs the queued -> running transition
+    # exactly once per row — there is no prior execution's terminal state
+    # on this row to reset. Terminal fields are written exactly once, by
+    # finalize_import_job, at the end of this function.
     job.source = SOURCE_FULL_IMPORT
-    job.finished_at = None
-    job.last_error = None
     job.scopes_total = db.query(CityImportScope).filter_by(city_id=city_id, enabled=True).count()
     log_import_event(db, event="import_job_started", city_slug=city.slug, actor_id=actor_id, message=f"Старт полного pipeline #{job.id}", details={"job_id": job.id, "source": job.source}, job_id=job.id)
     db.commit()
@@ -606,7 +666,7 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int
         # the fields below are written — the row's real terminal state
         # (set by whoever actually holds the lock first) is never
         # overwritten with this run's own late-arriving result.
-        result = _try_finalize(
+        result = finalize_import_job(
             db, job_id=job.id, new_status=combined_status, expected_claimed_by=expected_claimed_by, actor_id=actor_id,
             fields={
                 "finished_at": finished_at,
@@ -619,6 +679,13 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int
             city.last_import_at = finished_at
             _refresh_snapshot_light(db, city=city, job=job, source="import_worker_finished")
             log_import_event(db, event="unified_import_pipeline_finished", city_slug=city.slug, actor_id=actor_id, message=f"Полный pipeline #{job.id}: {len(ids)} изменений; auto-repair {auto_repair.get('repaired_count', 0)}; публикация города сохранена", details={"job_id": job.id, "changed_places": len(ids), "warnings": warnings, "auto_repair": auto_repair, "city_launch_status": city.launch_status, "city_is_active": bool(city.is_active)}, job_id=job.id)
+        else:
+            # finalize_import_job rejected the write and expunged the
+            # stale `job` object from this Session — it is no longer
+            # session-managed and must never be touched again (including
+            # db.refresh below). Re-fetch a fresh, session-attached row so
+            # the function's return value is always usable by its caller.
+            job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
         db.commit()
         if result.ok:
             job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).first()
@@ -636,7 +703,7 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int
             # only truthful signal that *this* run made meaningful progress.
             # total > 0 (city has any place, possibly from a prior run) must not
             # by itself downgrade a hard failure of this run to partial_success.
-            result = _try_finalize(
+            result = finalize_import_job(
                 db, job_id=job.id, new_status="partial_success" if ids else "failed",
                 expected_claimed_by=expected_claimed_by, actor_id=actor_id,
                 fields={"finished_at": finished_at, "last_error": str(exc)[:2000]},
@@ -647,6 +714,10 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int
                 if city is not None:
                     city.last_import_at = finished_at
                     _refresh_snapshot_light(db, city=city, job=job, source="import_pipeline_failed")
+            else:
+                # Same reasoning as the success path above: the stale
+                # object was expunged by finalize_import_job's rejection.
+                job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
         db.commit()
         if finalized:
             job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).first()
@@ -664,15 +735,21 @@ def run_snapshot_refresh_job(db: Session, *, city_id: int, actor_id: str, job_id
     job.source = SOURCE_SNAPSHOT_REFRESH
     job.current_step = "snapshot_refresh"
     db.commit()
-    _refresh_snapshot_light(db, city=city, job=job, source="snapshot_refresh_job")
-    # Atomic, database-authoritative finalization — see _try_finalize's
+    # Computed as a pure, non-writing step (no separate commit on this
+    # possibly-soon-to-be-stale `job` object) and folded into
+    # finalize_import_job's own atomic fields= write below — a prior
+    # version wrote step_details here via its own db.commit() BEFORE the
+    # row was locked, which was itself an unprotected terminal-adjacent
+    # write racing against a concurrent stall/cancel.
+    step_details, _snapshot = _build_light_snapshot_step_details(db, city=city, job=job, source="snapshot_refresh_job")
+    # Atomic, database-authoritative finalization — see finalize_import_job's
     # docstring. If the row left "running" while the snapshot refresh was
     # in flight (e.g. a concurrent stall-recovery sweep committed by a
     # different connection), result.ok is False and nothing is written —
     # whatever truthful terminal state got there first is never overwritten.
-    result = _try_finalize(
+    result = finalize_import_job(
         db, job_id=job.id, new_status="success", expected_claimed_by=expected_claimed_by, actor_id=actor_id,
-        fields={"finished_at": datetime.utcnow(), "current_step": "snapshot_ready"},
+        fields={"finished_at": datetime.utcnow(), "current_step": "snapshot_ready", "step_details": step_details},
     )
     db.commit()
     job = result.job if result.ok else db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).first()
@@ -711,7 +788,7 @@ def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_
             "address_enrichment": {"scanned_places": 0, "updated": 0, "checked": 0, "blocked_reason": prerequisites["blocked_reason"]},
             "prerequisites": prerequisites,
         }
-        finalize_result = _try_finalize(
+        finalize_result = finalize_import_job(
             db, job_id=job.id, new_status="failed", expected_claimed_by=expected_claimed_by, actor_id=actor_id,
             fields={
                 "finished_at": datetime.utcnow(),
@@ -735,7 +812,7 @@ def run_address_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_
     if deadline_exceeded:
         checked = int(backfill_result.get("checked") or 0) if isinstance(backfill_result, dict) else 0
         last_error = f"Добор адресов остановлен по таймауту выполнения после проверки {checked} мест."
-    finalize_result = _try_finalize(
+    finalize_result = finalize_import_job(
         db, job_id=job.id, new_status="success_with_warnings" if deadline_exceeded or errors > 0 else "success",
         expected_claimed_by=expected_claimed_by, actor_id=actor_id,
         fields={
@@ -774,7 +851,7 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_id
             "photo_diagnostics": photo_diagnostics,
             "prerequisites": prerequisites,
         }
-        finalize_result = _try_finalize(
+        finalize_result = finalize_import_job(
             db, job_id=job.id, new_status="failed", expected_claimed_by=expected_claimed_by, actor_id=actor_id,
             fields={
                 "finished_at": datetime.utcnow(),
@@ -802,7 +879,7 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_id
     last_error = None
     if isinstance(enrich_result, dict) and enrich_result.get("deadline_exceeded"):
         last_error = f"Добор фото остановлен по таймауту выполнения после просмотра {scanned} мест."
-    finalize_result = _try_finalize(
+    finalize_result = finalize_import_job(
         db, job_id=job.id,
         new_status="success_with_warnings" if created <= 0 and str(photo_diagnostics.get("provider_status") or "") not in {"success", ""} else "success",
         expected_claimed_by=expected_claimed_by, actor_id=actor_id,
@@ -831,7 +908,12 @@ def run_photo_enrichment_job(db: Session, *, city_id: int, actor_id: str, job_id
     return job
 
 
-def _refresh_snapshot_light(db: Session, *, city: City, job: CityAdminImportJob, source: str) -> dict[str, object]:
+def _build_light_snapshot_step_details(db: Session, *, city: City, job: CityAdminImportJob, source: str) -> tuple[dict[str, object], dict[str, object]]:
+    """Pure computation, no write: returns (updated step_details, snapshot).
+    Split out from _refresh_snapshot_light so a caller that still needs to
+    go through finalize_import_job can fold the resulting step_details into
+    that single atomic write instead of writing it separately beforehand on
+    a not-yet-locked row."""
     total = db.query(Place).filter(Place.city_id == city.id).count()
     published = db.query(Place).filter(Place.city_id == city.id, Place.is_published.is_(True)).count()
     without_address = db.query(Place).filter(Place.city_id == city.id, Place.address.is_(None)).count()
@@ -850,6 +932,21 @@ def _refresh_snapshot_light(db: Session, *, city: City, job: CityAdminImportJob,
     details[SNAPSHOT_KEY] = snapshot
     details["data_coverage"] = coverage
     details["change_summary"] = changes
+    return details, snapshot
+
+
+def _refresh_snapshot_light(db: Session, *, city: City, job: CityAdminImportJob, source: str) -> dict[str, object]:
+    """Side-effecting wrapper for callers AFTER a successful
+    finalize_import_job — safe because `job` here is always the freshly
+    locked/reloaded result.job, still within the same open transaction
+    finalize_import_job's own SELECT ... FOR UPDATE started, so this
+    additional step_details write cannot race with anything: the row's
+    lock is held continuously from the finalize call through this
+    function's own commit(). Never call this BEFORE finalize_import_job —
+    use _build_light_snapshot_step_details directly and fold the result
+    into finalize_import_job's own `fields=` instead (see
+    run_snapshot_refresh_job)."""
+    details, snapshot = _build_light_snapshot_step_details(db, city=city, job=job, source=source)
     job.step_details = details
     job.updated_at = datetime.utcnow()
     db.commit()
@@ -895,9 +992,9 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str, job_id:
         raise ValueError("Город не найден")
     job = _resolve_run_job(db, city_id=city_id, job_id=job_id)
     expected_claimed_by = job.claimed_by
+    # finished_at/last_error are guaranteed NULL here — see the equivalent
+    # comment in run_city_import_job.
     job.source = SOURCE_ENRICHMENT_ONLY
-    job.finished_at = None
-    job.last_error = None
     db.commit()
     try:
         # run_enrichment_only_pipeline never writes job.status — its own
@@ -911,13 +1008,13 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str, job_id:
         source_status = str((job.step_details or {}).get("source_enrichment_status") or "success")
         auto_repair = _run_auto_repair(db, city=city, job=job, changed_place_ids=ids)
         step_details = {**dict(job.step_details or {}), "auto_repair": auto_repair}
-        # Atomic, database-authoritative finalization — see _try_finalize.
+        # Atomic, database-authoritative finalization — see finalize_import_job.
         # If the row left "running" while this pipeline was in flight (e.g.
         # a concurrent stall-recovery sweep or admin cancel, possibly
         # committed by an entirely different connection), result.ok is
         # False and nothing is written — whatever truthful terminal state
         # got there first is never overwritten.
-        result = _try_finalize(
+        result = finalize_import_job(
             db, job_id=job.id, new_status=_combine_status(enrichment_only_status, source_status, "success"),
             expected_claimed_by=expected_claimed_by, actor_id=actor_id,
             fields={"finished_at": datetime.utcnow(), "step_details": step_details},
@@ -933,7 +1030,7 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str, job_id:
         finished_at = datetime.utcnow()
         details = dict(job.step_details or {})
         details["worker_exception"] = {"error": str(exc)[:1000], "failed_at": finished_at.isoformat()}
-        result = _try_finalize(
+        result = finalize_import_job(
             db, job_id=job.id, new_status="failed", expected_claimed_by=expected_claimed_by, actor_id=actor_id,
             fields={
                 "current_step": STEP_ERROR,
@@ -952,42 +1049,40 @@ def run_enrichment_only_job(db: Session, *, city_id: int, actor_id: str, job_id:
 
 
 def cancel_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int) -> CityAdminImportJob:
-    """Administrative action: not routed through _try_finalize (which only
-    accepts status=="running") because cancelling a job that is still
-    queued (never claimed by a worker) is also a normal, valid action.
-    Instead performs its own single atomic lock-check-write sequence:
-    SELECT ... FOR UPDATE with populate_existing() re-selects the exact
-    row fresh from the database (never trusting any object this Session
-    may already hold), re-checks status/finished_at under that lock, and
-    writes every terminal field in the same block before releasing the
-    lock via commit — the same discipline _try_finalize enforces for the
-    runner paths, just with queued additionally allowed as a valid
-    starting status.
+    """Administrative action, routed through the same canonical
+    finalize_import_job() every other terminal write uses —
+    _FINALIZE_FROM_STATUSES allows "queued" -> "cancelled" specifically so
+    a job no worker ever claimed can also be cancelled through this one
+    lock-check-write primitive, instead of a second, separately-maintained
+    implementation of the same discipline.
 
     An admin cancel intentionally overrides whoever currently "owns" the
-    row (there is no claimed_by check here) — that is the whole point of
-    a manual cancel action."""
-    job = (
-        db.query(CityAdminImportJob)
-        .filter(CityAdminImportJob.id == job_id)
-        .populate_existing()
-        .with_for_update()
-        .first()
-    )
-    if job is None:
+    row (no expected_claimed_by is passed) — that is the whole point of a
+    manual cancel action.
+
+    The city_id ownership check is a cheap unlocked pre-check: it exists to
+    reject "you're cancelling the wrong city's job" caller mistakes, not to
+    participate in the concurrency contract — the actual race-safety
+    (status/finished_at re-verified under FOR UPDATE) is entirely
+    finalize_import_job's responsibility."""
+    job_city_id = db.query(CityAdminImportJob.city_id).filter(CityAdminImportJob.id == job_id).scalar()
+    if job_city_id is None:
         raise ValueError(f"Задача импорта #{job_id} не найдена")
-    if int(job.city_id) != int(city_id):
+    if int(job_city_id) != int(city_id):
         raise ValueError(f"Задача импорта #{job_id} принадлежит другому городу")
-    if job.status not in {"queued", "running"} or job.finished_at is not None:
+    now = datetime.utcnow()
+    result = finalize_import_job(
+        db, job_id=job_id, new_status="cancelled", actor_id=actor_id,
+        fields={"current_step": STEP_CANCELLED, "cancelled_at": now, "finished_at": now},
+    )
+    if not result.ok:
         # Either genuinely already terminal, or left queued/running out
         # from under this call between whatever the caller last observed
-        # and this function acquiring the lock — either way, truthfully
-        # report "already finished" rather than overwriting real state.
+        # and finalize_import_job acquiring the lock — either way,
+        # truthfully report "already finished" rather than overwriting
+        # real state.
         raise ValueError("Задача уже завершена")
-    _transition(db, job, "cancelled", actor_id=actor_id)
-    job.current_step = STEP_CANCELLED
-    job.cancelled_at = datetime.utcnow()
-    job.finished_at = datetime.utcnow()
+    job = result.job
     city = db.query(City).filter(City.id == city_id).first()
     if city:
         log_import_event(db, event="import_job_cancelled", city_slug=city.slug, actor_id=actor_id, message=f"Импорт #{job.id} отменён без изменения публикации города", details={"job_id": job.id, "source": job.source}, job_id=job.id)

@@ -3,8 +3,8 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from models.place import Place
-from services.place_public_visibility import apply_public_place_visibility
 from services.place_staleness_policy import is_route_usable_place
+from services.route_eligibility import apply_route_eligible_filters
 from services.route_geometry import distance_meters
 
 
@@ -27,7 +27,7 @@ def _query_candidates(db: Session, route: object) -> list[Place]:
     if city_id is not None:
         query = query.filter(Place.city_id == city_id)
 
-    query = apply_public_place_visibility(query)
+    query = apply_route_eligible_filters(query)
 
     return list(query.all())
 

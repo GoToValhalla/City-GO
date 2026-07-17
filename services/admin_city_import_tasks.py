@@ -23,8 +23,7 @@ from services.admin_city_import_job_service import (
     SOURCE_FULL_IMPORT,
     SOURCE_PHOTO_ENRICHMENT,
     SOURCE_SNAPSHOT_REFRESH,
-    _transition,
-    _try_finalize,
+    finalize_import_job,
     claim_queued_job,
     run_address_enrichment_job,
     run_city_import_job,
@@ -32,7 +31,7 @@ from services.admin_city_import_job_service import (
     run_photo_enrichment_job,
     run_snapshot_refresh_job,
 )
-from services.import_pipeline.progress import is_stalled, set_step
+from services.import_pipeline.progress import is_stalled
 from services.import_pipeline.steps import STEP_ERROR
 from services.admin_city_import_job_payload import refresh_import_job_snapshot
 from services.import_worker_thresholds import effective_thresholds
@@ -393,7 +392,7 @@ def _log_worker_decision(
 def _mark_worker_exception(db: Session, *, job_id: int, error: str, expected_claimed_by: str) -> CityAdminImportJob | None:
     # expected_claimed_by is required (this worker's own claim identity,
     # the same one passed to claim_queued_job for this exact job_id) —
-    # _try_finalize re-selects the row under FOR UPDATE and verifies BOTH
+    # finalize_import_job re-selects the row under FOR UPDATE and verifies BOTH
     # status=="running" AND claimed_by==expected_claimed_by before writing
     # anything. If the row already left "running" (e.g. a concurrent
     # stall-recovery sweep or admin cancel raced ahead of this exception
@@ -410,7 +409,7 @@ def _mark_worker_exception(db: Session, *, job_id: int, error: str, expected_cla
         return None
     details = dict(job_for_details.step_details or {})
     details["worker_exception"] = {"error": error[:1000], "failed_at": finished_at.isoformat()}
-    result = _try_finalize(
+    result = finalize_import_job(
         db, job_id=job_id, new_status="failed", expected_claimed_by=expected_claimed_by, actor_id="import-worker",
         fields={
             "current_step": STEP_ERROR,
@@ -428,21 +427,46 @@ def _mark_worker_exception(db: Session, *, job_id: int, error: str, expected_cla
 
 def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: datetime | None = None) -> int:
     current = now or datetime.utcnow()
-    # FOR UPDATE: two concurrent stall-sweeps (e.g. a cron tick overlapping
-    # an admin's manual "mark stalled" click) must not both decide to stall
-    # the same row from a stale, unlocked read — the second sweep's SELECT
-    # blocks until the first sweep's transaction commits or rolls back, so
-    # it then sees the row's real current status.
-    jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").with_for_update().all()
-    stalled = [job for job in jobs if is_stalled(job, now=current)]
+    # This batch SELECT (no FOR UPDATE) only needs to name candidates —
+    # finalize_import_job below re-selects and re-locks each exact row
+    # itself before writing anything, so two concurrent stall-sweeps (e.g.
+    # a cron tick overlapping an admin's manual "mark stalled" click, or a
+    # worker finishing normally in the same moment) can never both act on
+    # the same row: whichever finalize_import_job call acquires the row's
+    # lock first wins, and the other sees status is no longer "running"
+    # and writes nothing.
+    jobs = db.query(CityAdminImportJob).filter(CityAdminImportJob.status == "running").all()
+    candidates = [job for job in jobs if is_stalled(job, now=current)]
     alerts: list[dict[str, object]] = []
-    for job in stalled:
-        city = db.query(City).filter(City.id == job.city_id).first()
-        previous_status = job.status
-        _transition(db, job, "stalled", actor_id=actor_id)
-        job.finished_at = current
-        job.last_error = job.last_error or "Import job stalled: no heartbeat before timeout"
-        set_step(job, STEP_ERROR, detail={"stalled_at": current.isoformat(), "stalled": True})
+    marked = 0
+    for candidate in candidates:
+        job_id = int(candidate.id)
+        city_id = int(candidate.city_id)
+        last_error = candidate.last_error or "Import job stalled: no heartbeat before timeout"
+        step_details = dict(candidate.step_details or {})
+        step_details.update({"stalled_at": current.isoformat(), "stalled": True})
+        # Administrative override — no expected_claimed_by — since this
+        # sweep does not care who claimed the row, only whether it is
+        # genuinely still running and unfinished by the time
+        # finalize_import_job's own lock is acquired.
+        result = finalize_import_job(
+            db, job_id=job_id, new_status="stalled", actor_id=actor_id,
+            fields={
+                "finished_at": current,
+                "last_error": last_error,
+                "current_step": STEP_ERROR,
+                "step_details": step_details,
+                "updated_at": current,
+            },
+        )
+        if not result.ok:
+            # Someone else (a worker finishing normally, or a concurrent
+            # sweep/admin action) already terminalized this row between the
+            # batch SELECT above and this call — skip it, its real terminal
+            # state must not be overwritten.
+            continue
+        job = result.job
+        city = db.query(City).filter(City.id == city_id).first()
         city_slug = city.slug if city is not None else None
         if city is not None and city.launch_status == "importing":
             city.launch_status = "import_failed"
@@ -457,7 +481,7 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
                 "job_id": int(job.id),
                 "city_id": int(job.city_id),
                 "source": job.source,
-                "previous_status": previous_status,
+                "previous_status": "running",
                 "new_status": "stalled",
                 "last_error": job.last_error,
             },
@@ -467,11 +491,12 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
             commit=False,
         )
         try:
-            refresh_import_job_snapshot(db, city_id=int(job.city_id), source="stalled_job_recovery")
+            refresh_import_job_snapshot(db, city_id=city_id, source="stalled_job_recovery")
         except Exception:
             pass
         alerts.append({"job_id": int(job.id), "city_slug": city_slug, "source": job.source, "last_error": job.last_error})
-    if stalled:
+        marked += 1
+    if marked:
         db.commit()
         for alert in alerts:
             send_admin_alert(
@@ -482,7 +507,7 @@ def mark_stalled_import_jobs(db, *, actor_id: str = "import-worker", now: dateti
                 job_id=int(alert["job_id"]),
                 details=alert,
             )
-    return len(stalled)
+    return marked
 
 
 def import_queue_summary(db) -> dict[str, Any]:

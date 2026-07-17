@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 
 from models.place import Place
 from schemas.user_route import UserRouteBuildRequest, UserRouteState
-from services.place_public_visibility import apply_public_place_visibility
 from services.route_diversity_policy import normalize_category
+from services.route_eligibility import apply_route_eligible_filters
 from services.user_route_recalc_service import UserRouteRecalcService
 
 RELATED_SLOT_CATEGORIES: dict[str, tuple[str, ...]] = {
@@ -95,7 +95,7 @@ class UserRouteSlotBuildService:
     def _selected_place(self, db: Session, place_id: int | None, requested: str, used_ids: set[int]) -> Place | None:
         if not place_id or place_id in used_ids:
             return None
-        query = apply_public_place_visibility(db.query(Place).filter(Place.id == place_id))
+        query = apply_route_eligible_filters(db.query(Place).filter(Place.id == place_id))
         place = query.first()
         if place is None:
             return None
@@ -107,7 +107,7 @@ class UserRouteSlotBuildService:
         categories = RELATED_SLOT_CATEGORIES.get(requested, (requested,)) if requested else ()
         if not categories:
             return None
-        query = apply_public_place_visibility(db.query(Place).filter(Place.category.in_(categories)))
+        query = apply_route_eligible_filters(db.query(Place).filter(Place.category.in_(categories)))
         if request.city_id:
             query = query.join(Place.city).filter_by(slug=request.city_id)
         if used_ids:
