@@ -3,9 +3,13 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from sqlalchemy import inspect
+
 from models.user_route_state_registry import UserRouteStateRegistry
 
 ROOT = Path(__file__).resolve().parent.parent
+REGISTRY_SERVICE = ROOT / "services/user_route_state_registry_service.py"
+CLEANUP_SERVICE = ROOT / "services/route_state_cleanup_service.py"
 
 
 def _function(tree: ast.AST, name: str) -> ast.FunctionDef:
@@ -31,11 +35,29 @@ def _call_positions(function: ast.FunctionDef, names: set[str]) -> dict[str, int
     return positions
 
 
+def _runtime_python_files():
+    for directory in (ROOT / "services", ROOT / "routers", ROOT / "core"):
+        yield from directory.rglob("*.py")
+
+
 def test_registry_cleanup_index_matches_query_order_new() -> None:
     table = UserRouteStateRegistry.__table__
     indexes = {
         index.name: tuple(column.name for column in index.columns)
         for index in table.indexes
+    }
+
+    assert indexes["ix_user_route_state_registry_expires_at_route_id"] == (
+        "expires_at",
+        "route_id",
+    )
+    assert "ix_user_route_state_registry_expires_at" not in indexes
+
+
+def test_database_schema_has_cleanup_index_new(db_session) -> None:
+    indexes = {
+        index["name"]: tuple(index["column_names"])
+        for index in inspect(db_session.get_bind()).get_indexes("user_route_state_registry")
     }
 
     assert indexes["ix_user_route_state_registry_expires_at_route_id"] == (
@@ -58,7 +80,7 @@ def test_cleanup_index_migration_replaces_legacy_index_new() -> None:
 
 
 def test_cleanup_owner_never_locks_public_evidence_new() -> None:
-    cleanup_source = (ROOT / "services/route_state_cleanup_service.py").read_text(encoding="utf-8")
+    cleanup_source = CLEANUP_SERVICE.read_text(encoding="utf-8")
 
     assert "models.city" not in cleanup_source
     assert "models.place" not in cleanup_source
@@ -68,9 +90,7 @@ def test_cleanup_owner_never_locks_public_evidence_new() -> None:
 
 
 def test_request_lock_order_is_registry_then_public_evidence_new() -> None:
-    tree = ast.parse(
-        (ROOT / "services/user_route_state_registry_service.py").read_text(encoding="utf-8")
-    )
+    tree = ast.parse(REGISTRY_SERVICE.read_text(encoding="utf-8"))
 
     register = _function(tree, "register_initial_route_state")
     register_calls = _call_positions(register, {"_locked_registry", "lock_public_route_state"})
@@ -81,41 +101,33 @@ def test_request_lock_order_is_registry_then_public_evidence_new() -> None:
     assert verify_calls["with_for_update"] < verify_calls["lock_public_route_state"]
 
 
-def test_registry_service_is_only_runtime_expiry_writer_new() -> None:
-    violations: list[str] = []
-    allowed = ROOT / "services/user_route_state_registry_service.py"
+def test_registry_service_is_only_runtime_orm_owner_new() -> None:
+    violations = [
+        str(path.relative_to(ROOT))
+        for path in _runtime_python_files()
+        if path != REGISTRY_SERVICE
+        and "UserRouteStateRegistry" in path.read_text(encoding="utf-8")
+    ]
 
-    for directory in (ROOT / "services", ROOT / "routers", ROOT / "core"):
-        for path in directory.rglob("*.py"):
-            if path == allowed:
-                continue
-            source = path.read_text(encoding="utf-8")
-            if "UserRouteStateRegistry" not in source:
-                continue
-            tree = ast.parse(source, filename=str(path))
-            for node in ast.walk(tree):
-                targets: list[ast.expr] = []
-                if isinstance(node, ast.Assign):
-                    targets.extend(node.targets)
-                elif isinstance(node, ast.AnnAssign):
-                    targets.append(node.target)
-                elif isinstance(node, ast.AugAssign):
-                    targets.append(node.target)
-                for target in targets:
-                    if isinstance(target, ast.Attribute) and target.attr == "expires_at":
-                        violations.append(f"{path.relative_to(ROOT)}:{target.lineno}")
-
-    assert not violations, "registry expiry must have one runtime writer:\n" + "\n".join(violations)
+    assert not violations, (
+        "route-state registry ORM ownership escaped the registry service:\n"
+        + "\n".join(violations)
+    )
 
 
-def test_no_raw_registry_update_bypasses_lifecycle_owner_new() -> None:
+def test_no_raw_registry_write_bypasses_lifecycle_owners_new() -> None:
     violations: list[str] = []
 
-    for directory in (ROOT / "services", ROOT / "routers", ROOT / "core"):
-        for path in directory.rglob("*.py"):
-            source = path.read_text(encoding="utf-8")
-            normalized = " ".join(source.lower().split())
-            if "update user_route_state_registry" in normalized:
-                violations.append(str(path.relative_to(ROOT)))
+    for path in _runtime_python_files():
+        normalized = " ".join(path.read_text(encoding="utf-8").lower().split())
+        if "update user_route_state_registry" in normalized:
+            violations.append(f"{path.relative_to(ROOT)}:UPDATE")
+        if "insert into user_route_state_registry" in normalized:
+            violations.append(f"{path.relative_to(ROOT)}:INSERT")
+        if "delete from user_route_state_registry" in normalized and path != CLEANUP_SERVICE:
+            violations.append(f"{path.relative_to(ROOT)}:DELETE")
 
-    assert not violations, "raw registry UPDATE bypasses lifecycle owner:\n" + "\n".join(violations)
+    assert not violations, (
+        "raw registry writes bypass lifecycle ownership:\n"
+        + "\n".join(violations)
+    )
