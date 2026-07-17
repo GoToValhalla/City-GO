@@ -5,11 +5,11 @@ from collections.abc import Callable
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from db.session import SessionLocal
 from models.route_build_event import RouteBuildEvent
 
 
 def record_route_build(
-    db: Session,
     route: object,
     *,
     source: str,
@@ -17,6 +17,12 @@ def record_route_build(
     city_id: str | None = None,
     user_id: str | None = None,
 ) -> bool:
+    """Persist analytics in an isolated transaction.
+
+    Route-state request sessions must never be committed or rolled back by
+    analytics. Failure is intentionally non-fatal for the completed request.
+    """
+    db = SessionLocal()
     try:
         db.add(_event(route, source, latency_ms, city_id, user_id))
         db.commit()
@@ -24,6 +30,8 @@ def record_route_build(
     except SQLAlchemyError:
         db.rollback()
         return False
+    finally:
+        db.close()
 
 
 def _event(
