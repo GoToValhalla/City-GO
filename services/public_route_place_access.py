@@ -79,12 +79,12 @@ def lock_public_route_state(
     *,
     require_eligible: bool,
 ) -> PublicRouteScope | None:
-    """Lock route identity and optionally the full public eligibility evidence.
+    """Lock public evidence using the global City -> Place order.
 
-    Callers must already hold the route-registry lock when one exists. The fixed
-    order is registry -> City -> Place. Existing signed state uses
-    require_eligible=False so stale points can be reconciled. Newly issued state
-    uses require_eligible=True and cannot contain a hidden or ineligible place.
+    Callers with a registry record already hold that registry lock. City and
+    Place use shared row locks so independent public route requests remain
+    concurrent, while admin publication writers take conflicting exclusive
+    locks in the same City -> ordered Places sequence.
     """
     ids = _strict_numeric_ids(point.place_id for point in route.points)
     if ids is None or len(set(ids)) != len(ids):
@@ -101,7 +101,7 @@ def lock_public_route_state(
                 City.is_active.is_(True),
                 City.launch_status == "published",
             )
-            .with_for_update()
+            .with_for_update(read=True)
             .first()
         )
         return PublicRouteScope(city_id=int(city.id), city_slug=str(city.slug)) if city is not None else None
@@ -121,7 +121,7 @@ def lock_public_route_state(
             City.is_active.is_(True),
             City.launch_status == "published",
         )
-        .with_for_update()
+        .with_for_update(read=True)
         .first()
     )
     if city is None or (context_slug and str(city.slug) != context_slug):
@@ -132,7 +132,7 @@ def lock_public_route_state(
     locked_places = (
         query.filter(Place.id.in_(ids))
         .order_by(Place.id.asc())
-        .with_for_update()
+        .with_for_update(read=True)
         .all()
     )
     if len(locked_places) != len(ids) or {int(place.id) for place in locked_places} != set(ids):
