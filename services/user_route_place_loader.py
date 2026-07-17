@@ -4,24 +4,21 @@ from sqlalchemy.orm import Session
 
 from models.place import Place
 from schemas.user_route import UserRouteState
-from services.route_eligibility import apply_public_route_eligible_filters
+from services.public_route_place_access import (
+    load_public_route_place,
+    load_public_route_places,
+    resolve_route_city_id,
+)
 
 
 def load_ordered_places(db: Session, route: UserRouteState) -> list[Place]:
-    ids = [int(point.place_id) for point in route.points if point.place_id.isdigit()]
-    if not ids:
-        return []
-
-    query = db.query(Place).filter(Place.id.in_(ids))
-    places = apply_public_route_eligible_filters(query).all()
-
-    by_id = {int(place.id): place for place in places}
-    return [by_id[place_id] for place_id in ids if place_id in by_id]
+    city_id = resolve_route_city_id(db, route)
+    return load_public_route_places(
+        db,
+        [point.place_id for point in route.points],
+        city_id=city_id,
+    )
 
 
-def load_place(db: Session, place_id: str | None) -> Place | None:
-    if place_id is None or not place_id.isdigit():
-        return None
-
-    query = db.query(Place).filter(Place.id == int(place_id))
-    return apply_public_route_eligible_filters(query).first()
+def load_place(db: Session, place_id: str | None, *, city_id: int | None = None) -> Place | None:
+    return load_public_route_place(db, place_id, city_id=city_id)
