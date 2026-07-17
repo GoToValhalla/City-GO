@@ -106,3 +106,16 @@ def test_registry_service_is_only_runtime_expiry_writer_new() -> None:
                         violations.append(f"{path.relative_to(ROOT)}:{target.lineno}")
 
     assert not violations, "registry expiry must have one runtime writer:\n" + "\n".join(violations)
+
+
+def test_no_raw_registry_update_bypasses_lifecycle_owner_new() -> None:
+    violations: list[str] = []
+
+    for directory in (ROOT / "services", ROOT / "routers", ROOT / "core"):
+        for path in directory.rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            normalized = " ".join(source.lower().split())
+            if "update user_route_state_registry" in normalized:
+                violations.append(str(path.relative_to(ROOT)))
+
+    assert not violations, "raw registry UPDATE bypasses lifecycle owner:\n" + "\n".join(violations)
