@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from schemas.user_route import UserRouteCorrectRequest, UserRouteIntent, UserRoutePoint, UserRouteState
+from services.public_route_place_access import PublicRouteScope
 from services.route_finalize_service import FinalRoute
 from services.user_route_correction_policy import shorten_target_place_id
 from services.user_route_correct_service import UserRouteCorrectService
@@ -44,7 +45,7 @@ def _place(place_id: int, category: str = "cafe"):
 def _state() -> UserRouteState:
     return UserRouteState(
         route_id="route",
-        context=UserRouteIntent(lat=54.96, lng=20.48, time_budget_minutes=120),
+        context=UserRouteIntent(lat=54.96, lng=20.48, city_id="test-city", time_budget_minutes=120),
         total_places=2,
         total_minutes=40,
         total_estimated_minutes=45,
@@ -71,8 +72,14 @@ def _point(place_id: str, position: int, score: float, minutes: int) -> UserRout
 
 
 def test_remove_place_recalculates_current_route() -> None:
+    places = [_place(1), _place(2, "museum")]
     request = UserRouteCorrectRequest(current_route=_state(), action="remove_place", target_place_id="1")
-    result = UserRouteCorrectService().correct(_Db([_place(1), _place(2, "museum")]), request)
+    with (
+        patch("services.user_route_correct_service.resolve_route_scope", return_value=PublicRouteScope(1, "test-city")),
+        patch("services.user_route_correct_service.load_ordered_places", return_value=places),
+        patch("services.user_route_correction_actions.find_replacement_place", return_value=None),
+    ):
+        result = UserRouteCorrectService().correct(_Db(places), request)
     assert result.revision == 2
     assert [point.place_id for point in result.points] == ["2"]
 
@@ -85,7 +92,8 @@ def test_shorten_route_selects_lowest_value_per_minute() -> None:
 
 
 def test_replacement_loader_finds_same_category_not_in_route() -> None:
-    with patch("services.user_route_replacement_loader.resolve_route_city_id", return_value=1):
+    scope = PublicRouteScope(1, "test-city")
+    with patch("services.user_route_replacement_loader.resolve_route_scope", return_value=scope):
         replacement = find_replacement_place(
             _Db([_place(1), _place(2, "museum"), _place(3)]),
             route=_state(),
@@ -97,12 +105,17 @@ def test_replacement_loader_finds_same_category_not_in_route() -> None:
 
 
 def test_avoid_category_rebuilds_with_target_category() -> None:
+    places = [_place(2, "museum")]
     request = UserRouteCorrectRequest(current_route=_state(), action="avoid_category", target_place_id="2")
     final = FinalRoute("new", [], 0, 0, 0.0)
     builder = MagicMock()
     builder.build_route.return_value = final
-    with patch("services.user_route_correct_service.RouteBuilderService", return_value=builder):
-        result = UserRouteCorrectService().correct(_Db([_place(2, "museum")]), request)
+    with (
+        patch("services.user_route_correct_service.resolve_route_scope", return_value=PublicRouteScope(1, "test-city")),
+        patch("services.user_route_correct_service.load_ordered_places", return_value=places),
+        patch("services.user_route_correct_service.RouteBuilderService", return_value=builder),
+    ):
+        result = UserRouteCorrectService().correct(_Db(places), request)
     called_request = builder.build_route.call_args.kwargs["request"]
     assert result.route_id == "new"
     assert called_request.avoided_categories == ["museum"]
