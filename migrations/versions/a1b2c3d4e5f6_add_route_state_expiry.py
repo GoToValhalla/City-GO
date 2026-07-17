@@ -18,10 +18,16 @@ def upgrade() -> None:
         "user_route_state_registry",
         sa.Column("expires_at", sa.DateTime(), nullable=True),
     )
+    bind = op.get_bind()
+    expiry_expression = (
+        "CURRENT_TIMESTAMP + INTERVAL '1 day'"
+        if bind.dialect.name == "postgresql"
+        else "datetime(CURRENT_TIMESTAMP, '+1 day')"
+    )
     op.execute(
         sa.text(
             "UPDATE user_route_state_registry "
-            "SET expires_at = CURRENT_TIMESTAMP "
+            f"SET expires_at = {expiry_expression} "
             "WHERE expires_at IS NULL"
         )
     )
