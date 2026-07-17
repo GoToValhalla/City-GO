@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import threading
 
+import pytest
+
 from db.session import SessionLocal
+from models.place import Place
+from models.user_route_state_registry import UserRouteStateRegistry
 from schemas.user_route import UserRouteIntent, UserRoutePoint, UserRouteState
 from services.user_route_state_registry_service import (
     UserRouteStateConflictError,
@@ -48,6 +52,7 @@ def test_admin_hide_cannot_commit_between_state_validation_and_revision_commit_n
     release_route = threading.Event()
     admin_done = threading.Event()
     order: list[str] = []
+    errors: list[BaseException] = []
 
     def route_mutation() -> None:
         db = SessionLocal()
@@ -58,6 +63,9 @@ def test_admin_hide_cannot_commit_between_state_validation_and_revision_commit_n
             release_route.wait(timeout=5)
             db.commit()
             order.append("route")
+        except BaseException as exc:
+            db.rollback()
+            errors.append(exc)
         finally:
             db.close()
 
@@ -65,10 +73,13 @@ def test_admin_hide_cannot_commit_between_state_validation_and_revision_commit_n
         evidence_locked.wait(timeout=5)
         db = SessionLocal()
         try:
-            row = db.get(type(place), place.id)
+            row = db.get(Place, place.id)
             row.is_route_eligible = False
             db.commit()
             order.append("admin")
+        except BaseException as exc:
+            db.rollback()
+            errors.append(exc)
         finally:
             db.close()
             admin_done.set()
@@ -83,7 +94,10 @@ def test_admin_hide_cannot_commit_between_state_validation_and_revision_commit_n
     route_thread.join(timeout=10)
     admin_thread.join(timeout=10)
 
+    assert not errors
     assert order == ["route", "admin"]
+    pg_session.query(UserRouteStateRegistry).filter_by(route_id=previous.route_id).delete()
+    pg_session.commit()
 
 
 def test_admin_hide_that_commits_first_prevents_revision_issuance_new(pg_session, pg_city, pg_category) -> None:
@@ -93,7 +107,7 @@ def test_admin_hide_that_commits_first_prevents_revision_issuance_new(pg_session
 
     admin = SessionLocal()
     try:
-        row = admin.get(type(place), place.id)
+        row = admin.get(Place, place.id)
         row.is_route_eligible = False
         admin.commit()
     finally:
@@ -102,3 +116,6 @@ def test_admin_hide_that_commits_first_prevents_revision_issuance_new(pg_session
     registry = verify_current_route_state(pg_session, previous, lock=True)
     with pytest.raises(UserRouteStateConflictError):
         advance_route_state(pg_session, previous=previous, next_state=previous, registry=registry)
+    pg_session.rollback()
+    pg_session.query(UserRouteStateRegistry).filter_by(route_id=previous.route_id).delete()
+    pg_session.commit()
