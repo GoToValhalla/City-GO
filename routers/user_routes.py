@@ -32,15 +32,14 @@ from services.user_route_correct_service import UserRouteCorrectService
 from services.user_route_edit_service import UserRouteEditService
 from services.user_route_session_service import UserRouteSessionError, UserRouteSessionService
 from services.user_route_state_integrity import UserRouteStateIntegrityError
-from services.user_route_state_registry_service import (
+from services.user_route_state_lifecycle_service import (
+    RouteStateLifecycleService,
     UserRouteStateConflictError,
-    advance_route_state,
-    register_initial_route_state,
-    verify_current_route_state,
 )
 
 router = APIRouter(prefix="/user-routes", tags=["user-routes"])
-_ROUTE_STATE_ERRORS = (UserRouteStateConflictError, UserRouteStateIntegrityError, SQLAlchemyError)
+_ROUTE_STATE_ERRORS = (UserRouteStateConflictError, UserRouteStateIntegrityError)
+_lifecycle = RouteStateLifecycleService()
 
 
 @router.post("/build", response_model=UserRouteState)
@@ -55,7 +54,7 @@ def build_user_route(payload: UserRouteBuildRequest, db: Session = Depends(get_d
     started = perf_counter()
     try:
         route = UserRouteBuildService().build(db=db, request=resolved_payload)
-        issued = register_initial_route_state(db, sanitize_user_route_state(route))
+        issued = _lifecycle.issue_initial(db, route)
         db.commit()
     except RouteBuilderV2Error as exc:
         db.rollback()
@@ -66,9 +65,11 @@ def build_user_route(payload: UserRouteBuildRequest, db: Session = Depends(get_d
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _database_http_error(exc) from exc
 
     record_route_build(
-        db,
         issued,
         source=f"user_route_build:{payload.build_mode}",
         latency_ms=_latency_ms(started),
@@ -82,9 +83,9 @@ def build_user_route(payload: UserRouteBuildRequest, db: Session = Depends(get_d
 def preview_user_route(payload: UserRoutePreviewRequest, db: Session = Depends(get_db)) -> UserRouteState:
     try:
         route = UserRouteBuildService().build(db=db, request=UserRouteBuildRequest(**payload.model_dump()))
-        issued = register_initial_route_state(
+        issued = _lifecycle.issue_initial(
             db,
-            sanitize_user_route_state(route.model_copy(update={"status": "preview"})),
+            route.model_copy(update={"status": "preview"}),
         )
         db.commit()
         return issued
@@ -97,6 +98,9 @@ def preview_user_route(payload: UserRoutePreviewRequest, db: Session = Depends(g
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _database_http_error(exc) from exc
     except Exception as exc:
         db.rollback()
         print(f"user_route_preview_failed: {exc.__class__.__name__}: {exc}")
@@ -120,7 +124,6 @@ def correct_user_route(payload: UserRouteCorrectRequest, db: Session = Depends(g
         lambda: UserRouteCorrectService().correct(db=db, request=payload),
     )
     record_route_build(
-        db,
         issued,
         source=f"user_route_correct:{payload.action}",
         latency_ms=_latency_ms(started),
@@ -169,15 +172,19 @@ def read_user_route_alternatives_from_state(
 ) -> UserRouteAlternativesResponse:
     _ensure_route_id_matches(route_id, payload)
     try:
-        # Hold the current-revision lock through option generation so a concurrent
-        # mutation cannot supersede the state between verification and query use.
-        verify_current_route_state(db, payload, lock=True)
-        result = UserRouteEditService().alternatives(db, payload, place_id)
+        result = _lifecycle.run_verified_read(
+            db,
+            payload,
+            lambda: UserRouteEditService().alternatives(db, payload, place_id),
+        )
         db.commit()
-        return result
+        return result  # type: ignore[return-value]
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _database_http_error(exc) from exc
 
 
 @router.post("/{route_id}/add-place", response_model=UserRouteState)
@@ -198,16 +205,22 @@ def start_user_route_session(
 ) -> UserRouteSessionState:
     _ensure_route_id_matches(route_id, payload.current_route)
     try:
-        verify_current_route_state(db, payload.current_route, lock=True)
-        result = UserRouteSessionService().start(db, payload)
+        result = _lifecycle.run_verified_read(
+            db,
+            payload.current_route,
+            lambda: UserRouteSessionService().start(db, payload),
+        )
         db.commit()
-        return result
+        return result  # type: ignore[return-value]
     except UserRouteSessionError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_session_invalid_request", "message": str(exc)}) from exc
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _database_http_error(exc) from exc
 
 
 @router.post("/sessions/{session_id}/action", response_model=UserRouteSessionState)
@@ -225,10 +238,7 @@ def update_user_route_session(
         raise HTTPException(status_code=422, detail={"code": "route_session_invalid_transition", "message": str(exc)}) from exc
     except SQLAlchemyError as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "route_session_conflict", "message": "Concurrent session update failed."},
-        ) from exc
+        raise _database_http_error(exc) from exc
 
 
 def _mutate_route_state(
@@ -237,19 +247,15 @@ def _mutate_route_state(
     mutation: Callable[[], UserRouteState],
 ) -> UserRouteState:
     try:
-        registry = verify_current_route_state(db, previous, lock=True)
-        next_state = sanitize_user_route_state(mutation())
-        issued = advance_route_state(
-            db,
-            previous=previous,
-            next_state=next_state,
-            registry=registry,
-        )
+        issued = _lifecycle.mutate(db, previous, mutation)
         db.commit()
         return issued
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _database_http_error(exc) from exc
     except Exception:
         db.rollback()
         raise
@@ -314,6 +320,16 @@ def _route_state_http_error(exc: BaseException) -> HTTPException:
         detail={
             "code": "route_state_conflict",
             "message": "Route state is missing, stale, modified, or already superseded.",
+        },
+    )
+
+
+def _database_http_error(exc: BaseException) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={
+            "code": "route_state_database_unavailable",
+            "message": "Route state storage is temporarily unavailable.",
         },
     )
 
