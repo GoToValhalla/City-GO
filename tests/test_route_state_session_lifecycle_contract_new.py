@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -8,33 +9,38 @@ import pytest
 import core.route_state_cleanup_scheduler as cleanup_scheduler
 import main as app_main
 import services.user_route_state_lifecycle_service as lifecycle_module
+from services.user_route_session_service import UserRouteSessionService
 from services.user_route_state_lifecycle_service import (
     RouteStateLifecycleService,
     UserRouteStateConflictError,
 )
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def test_preview_state_cannot_start_session_new(monkeypatch) -> None:
     verified: list[tuple[object, bool]] = []
-    operation_called = False
+    service_called = False
 
     def fake_verify(_db, state, *, lock):
         verified.append((state, lock))
         return object()
 
-    def operation():
-        nonlocal operation_called
-        operation_called = True
+    def fake_start(_self, _db, _request):
+        nonlocal service_called
+        service_called = True
         return object()
 
     monkeypatch.setattr(lifecycle_module, "verify_current_route_state", fake_verify)
+    monkeypatch.setattr(UserRouteSessionService, "start", fake_start)
     state = SimpleNamespace(status="preview")
+    request = SimpleNamespace(current_route=state)
 
     with pytest.raises(UserRouteStateConflictError):
-        RouteStateLifecycleService().start_session(object(), state, operation)
+        RouteStateLifecycleService().start_session(object(), request)
 
     assert verified == [(state, True)]
-    assert operation_called is False
+    assert service_called is False
 
 
 def test_ready_state_starts_session_after_locked_verification_new(monkeypatch) -> None:
@@ -46,14 +52,16 @@ def test_ready_state_starts_session_after_locked_verification_new(monkeypatch) -
         sequence.append("verify")
         return object()
 
-    def operation():
+    def fake_start(_self, _db, _request):
         sequence.append("start")
         return expected
 
     monkeypatch.setattr(lifecycle_module, "verify_current_route_state", fake_verify)
+    monkeypatch.setattr(UserRouteSessionService, "start", fake_start)
     state = SimpleNamespace(status="ready")
+    request = SimpleNamespace(current_route=state)
 
-    result = RouteStateLifecycleService().start_session(object(), state, operation)
+    result = RouteStateLifecycleService().start_session(object(), request)
 
     assert result is expected
     assert sequence == ["verify", "start"]
@@ -65,16 +73,30 @@ def test_lifecycle_facade_has_no_generic_verified_write_callback_new() -> None:
     assert hasattr(service, "read_alternatives")
     assert hasattr(service, "start_session")
     assert not hasattr(service, "run_verified_read")
+    assert not hasattr(service, "verify")
 
 
 def test_router_uses_explicit_read_and_session_contracts_new() -> None:
-    from pathlib import Path
-
-    source = (Path(__file__).resolve().parents[1] / "routers/user_routes.py").read_text(encoding="utf-8")
+    source = (ROOT / "routers/user_routes.py").read_text(encoding="utf-8")
 
     assert "_lifecycle.read_alternatives(" in source
     assert "_lifecycle.start_session(" in source
     assert "run_verified_read" not in source
+    assert "lambda: UserRouteSessionService().start" not in source
+
+
+def test_session_start_service_is_only_called_by_lifecycle_owner_new() -> None:
+    lifecycle_path = ROOT / "services/user_route_state_lifecycle_service.py"
+    violations: list[str] = []
+
+    for directory in (ROOT / "services", ROOT / "routers", ROOT / "core"):
+        for path in directory.rglob("*.py"):
+            if path == lifecycle_path:
+                continue
+            if "UserRouteSessionService().start(" in path.read_text(encoding="utf-8"):
+                violations.append(str(path.relative_to(ROOT)))
+
+    assert not violations, "session start bypasses lifecycle owner:\n" + "\n".join(violations)
 
 
 def test_owned_scheduler_external_cancellation_is_normalized_after_drain_new(monkeypatch) -> None:
