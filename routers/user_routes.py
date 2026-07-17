@@ -29,6 +29,11 @@ from services.user_route_build_service import RouteBuildTimeoutError, UserRouteB
 from services.user_route_correct_service import UserRouteCorrectService
 from services.user_route_edit_service import UserRouteEditService
 from services.user_route_session_service import UserRouteSessionError, UserRouteSessionService
+from services.user_route_state_integrity import (
+    UserRouteStateIntegrityError,
+    sign_user_route_state,
+    verify_user_route_state,
+)
 
 router = APIRouter(prefix="/user-routes", tags=["user-routes"])
 
@@ -60,7 +65,7 @@ def build_user_route(
         city_id=payload.city_id,
         user_id=payload.user_id,
     )
-    return sanitize_user_route_state(route)
+    return _signed_public_route(route)
 
 
 @router.post("/preview", response_model=UserRouteState)
@@ -70,13 +75,13 @@ def preview_user_route(
 ) -> UserRouteState:
     try:
         route = UserRouteBuildService().build(db=db, request=UserRouteBuildRequest(**payload.model_dump()))
-        return sanitize_user_route_state(route.model_copy(update={"status": "preview"}))
+        return _signed_public_route(route.model_copy(update={"status": "preview"}))
     except RouteBuilderV2Error as exc:
         raise HTTPException(status_code=422, detail={"code": "route_builder_v2_invalid_request", "message": str(exc)}) from exc
     except Exception as exc:
         print(f"user_route_preview_failed: {exc.__class__.__name__}: {exc}")
         is_timeout = isinstance(exc, RouteBuildTimeoutError)
-        return sanitize_user_route_state(UserRouteState(
+        failed = UserRouteState(
             route_id="preview-unavailable",
             status="preview_failed",
             partial_reason="route_preview_deadline_exceeded" if is_timeout else "route_preview_mapping_failed",
@@ -107,7 +112,8 @@ def preview_user_route(
                     "message": "Preview route build exceeded internal deadline." if is_timeout else "Preview route build failed.",
                 }
             ],
-        ))
+        )
+        return _signed_public_route(failed)
 
 
 @router.post("/build-structured", response_model=UserRouteStructuredBuildResponse)
@@ -123,6 +129,7 @@ def correct_user_route(
     payload: UserRouteCorrectRequest,
     db: Session = Depends(get_db),
 ) -> UserRouteState:
+    _verify_current_route(payload.current_route)
     started = perf_counter()
     route = UserRouteCorrectService().correct(db=db, request=payload)
     record_route_build(
@@ -133,7 +140,7 @@ def correct_user_route(
         city_id=route.context.city_id,
         user_id=route.context.user_id,
     )
-    return sanitize_user_route_state(route)
+    return _signed_public_route(route)
 
 
 @router.post("/{route_id}/update", response_model=UserRouteState)
@@ -144,7 +151,7 @@ def update_user_route(
 ) -> UserRouteState:
     _ensure_current_route_matches(route_id, payload.current_route)
     route = UserRouteEditService().update_order(db, payload)
-    return sanitize_user_route_state(route.model_copy(update={"route_id": route_id}))
+    return _signed_public_route(route.model_copy(update={"route_id": route_id}))
 
 
 @router.post("/{route_id}/replace-place", response_model=UserRouteState)
@@ -155,7 +162,7 @@ def replace_user_route_place(
 ) -> UserRouteState:
     _ensure_current_route_matches(route_id, payload.current_route)
     route = UserRouteEditService().replace_place(db, payload)
-    return sanitize_user_route_state(route.model_copy(update={"route_id": route_id}))
+    return _signed_public_route(route.model_copy(update={"route_id": route_id}))
 
 
 @router.get("/{route_id}/alternatives/{place_id}", response_model=UserRouteAlternativesResponse)
@@ -187,7 +194,7 @@ def add_user_route_place(
 ) -> UserRouteState:
     _ensure_current_route_matches(route_id, payload.current_route)
     route = UserRouteEditService().add_place(db, payload)
-    return sanitize_user_route_state(route.model_copy(update={"route_id": route_id}))
+    return _signed_public_route(route.model_copy(update={"route_id": route_id}))
 
 
 @router.post("/{route_id}/session/start", response_model=UserRouteSessionState)
@@ -215,7 +222,22 @@ def update_user_route_session(
         raise HTTPException(status_code=422, detail={"code": "route_session_invalid_transition", "message": str(exc)}) from exc
 
 
+def _signed_public_route(route: UserRouteState) -> UserRouteState:
+    return sign_user_route_state(sanitize_user_route_state(route))
+
+
+def _verify_current_route(current_route: UserRouteState) -> None:
+    try:
+        verify_user_route_state(current_route)
+    except UserRouteStateIntegrityError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "route_state_integrity_failed", "message": "Route state is missing, stale, or modified."},
+        ) from exc
+
+
 def _ensure_current_route_matches(route_id: str, current_route: UserRouteState) -> None:
+    _verify_current_route(current_route)
     payload_route_id = str(current_route.route_id)
     if payload_route_id == str(route_id):
         return
