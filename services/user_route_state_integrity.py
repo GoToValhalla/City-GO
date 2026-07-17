@@ -21,9 +21,7 @@ def sign_user_route_state(state: UserRouteState) -> UserRouteState:
 
 def verify_user_route_state(state: UserRouteState) -> None:
     supplied = str(state.state_token or "")
-    if not supplied and not _is_production():
-        # Legacy local/unit fixtures remain usable. Production never permits
-        # unsigned route state and always requires a dedicated secret.
+    if not supplied and _is_test():
         return
     expected = hmac.new(_secret(), _canonical_payload(state), hashlib.sha256).hexdigest()
     if not supplied or not hmac.compare_digest(supplied, expected):
@@ -31,12 +29,7 @@ def verify_user_route_state(state: UserRouteState) -> None:
 
 
 def _canonical_payload(state: UserRouteState) -> bytes:
-    payload = {
-        "route_id": str(state.route_id),
-        "revision": int(state.revision),
-        "city_slug": str(state.context.city_id or ""),
-        "place_ids": [str(point.place_id) for point in state.points],
-    }
+    payload = state.model_dump(mode="json", exclude={"state_token"})
     return json.dumps(payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode("utf-8")
 
 
@@ -51,3 +44,7 @@ def _secret() -> bytes:
 
 def _is_production() -> bool:
     return str(settings.app_env or "").strip().lower() in {"prod", "production"}
+
+
+def _is_test() -> bool:
+    return str(settings.app_env or "").strip().lower() in {"test", "testing"}
