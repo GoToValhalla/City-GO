@@ -172,13 +172,13 @@ def read_user_route_alternatives_from_state(
 ) -> UserRouteAlternativesResponse:
     _ensure_route_id_matches(route_id, payload)
     try:
-        result = _lifecycle.run_verified_read(
+        result = _lifecycle.read_alternatives(
             db,
             payload,
             lambda: UserRouteEditService().alternatives(db, payload, place_id),
         )
         db.commit()
-        return result  # type: ignore[return-value]
+        return result
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
@@ -205,13 +205,13 @@ def start_user_route_session(
 ) -> UserRouteSessionState:
     _ensure_route_id_matches(route_id, payload.current_route)
     try:
-        result = _lifecycle.run_verified_read(
+        result = _lifecycle.start_session(
             db,
             payload.current_route,
             lambda: UserRouteSessionService().start(db, payload),
         )
         db.commit()
-        return result  # type: ignore[return-value]
+        return result
     except UserRouteSessionError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_session_invalid_request", "message": str(exc)}) from exc
