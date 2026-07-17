@@ -19,5 +19,6 @@ class UserRouteStateRegistry(Base):
     city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False, index=True)
     place_ids: Mapped[list[int]] = mapped_column(_json, nullable=False, default=list)
     token_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
