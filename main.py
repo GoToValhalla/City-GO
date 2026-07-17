@@ -25,16 +25,16 @@ from core.router_setup import include_app_routers
 from core.version import get_backend_version
 from db.dependencies import get_db
 from services.feature_toggle_service import is_toggle_enabled
+from services.user_route_state_integrity import validate_route_state_runtime_config
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    validate_route_state_runtime_config()
     if _is_production():
         missing: list[str] = []
         if not str(settings.admin_api_token or "").strip():
             missing.append("ADMIN_API_TOKEN")
-        if not str(settings.user_route_state_secret or "").strip():
-            missing.append("USER_ROUTE_STATE_SECRET")
         if missing:
             raise RuntimeError("Missing required production secrets: " + ", ".join(missing))
 
@@ -56,7 +56,6 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
-
 
 app.add_middleware(
     CORSMiddleware,
