@@ -3,15 +3,16 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from models.place import Place
+from schemas.user_route import UserRouteState
 from services.place_staleness_policy import is_route_usable_place
-from services.route_eligibility import apply_public_route_eligible_filters
+from services.public_route_place_access import apply_public_route_city_scope, resolve_route_city_id
 from services.route_geometry import distance_meters
 
 
 def find_replacement_place(
     db: Session,
     *,
-    route: object,
+    route: UserRouteState,
     category: str | None,
     excluded_ids: set[str],
 ) -> Place | None:
@@ -20,15 +21,9 @@ def find_replacement_place(
     return min(filtered, key=lambda place: _distance_from_start(place, route), default=None)
 
 
-def _query_candidates(db: Session, route: object) -> list[Place]:
-    query = db.query(Place)
-
-    city_id = getattr(getattr(route, "context", None), "city_id", None)
-    if city_id is not None:
-        query = query.filter(Place.city_id == city_id)
-
-    query = apply_public_route_eligible_filters(query)
-
+def _query_candidates(db: Session, route: UserRouteState) -> list[Place]:
+    city_id = resolve_route_city_id(db, route)
+    query = apply_public_route_city_scope(db.query(Place), city_id=city_id)
     return list(query.all())
 
 
@@ -49,8 +44,6 @@ def _has_coordinates(place: Place) -> bool:
     return isinstance(getattr(place, "lat", None), (int, float)) and isinstance(getattr(place, "lng", None), (int, float))
 
 
-def _distance_from_start(place: Place, route: object) -> float:
-    ctx = getattr(route, "context", None)
-    lat = float(getattr(ctx, "lat", 0.0) or 0.0)
-    lng = float(getattr(ctx, "lng", 0.0) or 0.0)
-    return distance_meters(lat, lng, float(place.lat), float(place.lng))
+def _distance_from_start(place: Place, route: UserRouteState) -> float:
+    ctx = route.context
+    return distance_meters(float(ctx.lat or 0.0), float(ctx.lng or 0.0), float(place.lat), float(place.lng))
