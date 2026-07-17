@@ -8,10 +8,10 @@ import pytest
 
 from models.user_route_state_registry import UserRouteStateRegistry
 from schemas.user_route import UserRouteIntent, UserRoutePoint, UserRouteState
+from services.route_state_cleanup_service import cleanup_expired_route_states
 from services.user_route_state_registry_service import (
     UserRouteStateConflictError,
     advance_route_state,
-    cleanup_expired_route_states,
     register_initial_route_state,
     verify_current_route_state,
 )
@@ -74,14 +74,29 @@ def test_advance_invalidates_previous_revision_even_for_noop_new(db_session, cit
     place = place_factory(city_id=city.id, slug="registry-noop-place", category="museum")
     previous = register_initial_route_state(db_session, _state(place, city.slug))
     registry = verify_current_route_state(db_session, previous, lock=True)
+    original_expiry = registry.expires_at
     noop = previous.model_copy(update={"warnings": ["No change"], "has_warnings": True, "warning_count": 1})
 
     issued = advance_route_state(db_session, previous=previous, next_state=noop, registry=registry)
 
     assert issued.revision == previous.revision + 1
+    assert registry.expires_at > original_expiry
     with pytest.raises(UserRouteStateConflictError):
         verify_current_route_state(db_session, previous, lock=False)
     assert verify_current_route_state(db_session, issued, lock=False).revision == issued.revision
+
+
+def test_read_only_verification_does_not_renew_ttl_new(db_session, city_factory, place_factory) -> None:
+    city = city_factory(slug="registry-read-only-city")
+    place = place_factory(city_id=city.id, slug="registry-read-only-place", category="museum")
+    issued = register_initial_route_state(db_session, _state(place, city.slug, route_id="registry-read-only"))
+    registry = db_session.get(UserRouteStateRegistry, issued.route_id)
+    assert registry is not None
+    original_expiry = registry.expires_at
+
+    verified = verify_current_route_state(db_session, issued, lock=False)
+
+    assert verified.expires_at == original_expiry
 
 
 def test_advance_rejects_scope_change_new(db_session, city_factory, place_factory) -> None:
@@ -129,8 +144,17 @@ def test_expired_registry_is_rejected_and_cleaned_in_bounded_batches_new(db_sess
 
     with pytest.raises(UserRouteStateConflictError):
         verify_current_route_state(db_session, issued[0], lock=False)
-    assert cleanup_expired_route_states(db_session, now=datetime.utcnow(), limit=2) == 2
+    assert cleanup_expired_route_states(db_session, cutoff=datetime.utcnow(), limit=2) == 2
     assert db_session.query(UserRouteStateRegistry).count() == 1
+
+
+def test_cleanup_never_deletes_future_expiry_new(db_session, city_factory, place_factory) -> None:
+    city = city_factory(slug="registry-future-city")
+    place = place_factory(city_id=city.id, slug="registry-future-place", category="museum")
+    issued = register_initial_route_state(db_session, _state(place, city.slug, route_id="registry-future"))
+
+    assert cleanup_expired_route_states(db_session, cutoff=datetime.utcnow(), limit=10) == 0
+    assert db_session.get(UserRouteStateRegistry, issued.route_id) is not None
 
 
 def test_router_owns_complete_route_state_lifecycle_new() -> None:
@@ -141,6 +165,7 @@ def test_router_owns_complete_route_state_lifecycle_new() -> None:
         if isinstance(node, ast.Call) and isinstance(node.func, (ast.Name, ast.Attribute))
     }
     assert {"register_initial_route_state", "verify_current_route_state", "advance_route_state"} <= calls
+    assert "cleanup_expired_route_states" not in calls
 
 
 def test_route_services_do_not_commit_or_rollback_request_transactions_new() -> None:
@@ -164,9 +189,18 @@ def test_session_transitions_registry_and_public_evidence_use_row_locks_new() ->
     assert "begin_nested" in session_source
 
 
-def test_route_state_registry_has_expiry_and_cleanup_contract_new() -> None:
-    model_source = (ROOT / "models/user_route_state_registry.py").read_text(encoding="utf-8")
-    service_source = (ROOT / "services/user_route_state_registry_service.py").read_text(encoding="utf-8")
-    assert "expires_at" in model_source
-    assert "cleanup_expired_route_states" in service_source
-    assert ".limit(" in service_source
+def test_route_state_cleanup_is_atomic_and_isolated_new() -> None:
+    registry_source = (ROOT / "services/user_route_state_registry_service.py").read_text(encoding="utf-8")
+    cleanup_source = (ROOT / "services/route_state_cleanup_service.py").read_text(encoding="utf-8")
+    runner_source = (ROOT / "core/route_state_cleanup_runner.py").read_text(encoding="utf-8")
+
+    assert "cleanup_expired_route_states" not in registry_source
+    assert "WITH expired AS" in cleanup_source
+    assert "FOR UPDATE SKIP LOCKED" in cleanup_source
+    assert cleanup_source.count("expires_at <=") >= 4
+    assert ".all()" not in cleanup_source
+    assert "db.commit()" not in cleanup_source
+    assert "db.rollback()" not in cleanup_source
+    assert "SessionLocal()" in runner_source
+    assert "db.commit()" in runner_source
+    assert "db.rollback()" in runner_source
