@@ -117,7 +117,7 @@ def advance_route_state(
     registry.city_id = next_scope.city_id
     registry.place_ids = _place_ids(signed)
     registry.token_digest = _token_digest(signed)
-    registry.expires_at = _next_expiry(db)
+    registry.expires_at = _next_expiry(db, after=registry.expires_at)
     db.flush()
     return signed
 
@@ -166,8 +166,11 @@ def _database_now(db: Session) -> datetime:
     return value
 
 
-def _next_expiry(db: Session) -> datetime:
-    return _database_now(db) + ROUTE_STATE_TTL
+def _next_expiry(db: Session, *, after: datetime | None = None) -> datetime:
+    candidate = _database_now(db) + ROUTE_STATE_TTL
+    if after is not None and candidate <= after:
+        return after + timedelta(microseconds=1)
+    return candidate
 
 
 def _is_expired(db: Session, registry: UserRouteStateRegistry) -> bool:
