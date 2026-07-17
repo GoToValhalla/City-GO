@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from models.place import Place
 from schemas.user_route import UserRouteState
-from services.route_eligibility import apply_route_eligible_filters
+from services.route_eligibility import apply_public_route_eligible_filters
 
 
 def load_ordered_places(db: Session, route: UserRouteState) -> list[Place]:
@@ -13,7 +13,7 @@ def load_ordered_places(db: Session, route: UserRouteState) -> list[Place]:
         return []
 
     query = db.query(Place).filter(Place.id.in_(ids))
-    places = apply_route_eligible_filters(query).all()
+    places = apply_public_route_eligible_filters(query).all()
 
     by_id = {int(place.id): place for place in places}
     return [by_id[place_id] for place_id in ids if place_id in by_id]
@@ -24,4 +24,4 @@ def load_place(db: Session, place_id: str | None) -> Place | None:
         return None
 
     query = db.query(Place).filter(Place.id == int(place_id))
-    return apply_route_eligible_filters(query).first()
+    return apply_public_route_eligible_filters(query).first()
