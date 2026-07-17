@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from time import perf_counter
-from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
@@ -30,7 +31,7 @@ from services.user_route_build_service import RouteBuildTimeoutError, UserRouteB
 from services.user_route_correct_service import UserRouteCorrectService
 from services.user_route_edit_service import UserRouteEditService
 from services.user_route_session_service import UserRouteSessionError, UserRouteSessionService
-from services.user_route_state_integrity import UserRouteStateIntegrityError, sign_user_route_state
+from services.user_route_state_integrity import UserRouteStateIntegrityError
 from services.user_route_state_registry_service import (
     UserRouteStateConflictError,
     advance_route_state,
@@ -39,6 +40,7 @@ from services.user_route_state_registry_service import (
 )
 
 router = APIRouter(prefix="/user-routes", tags=["user-routes"])
+_ROUTE_STATE_ERRORS = (UserRouteStateConflictError, UserRouteStateIntegrityError, SQLAlchemyError)
 
 
 @router.post("/build", response_model=UserRouteState)
@@ -61,7 +63,7 @@ def build_user_route(payload: UserRouteBuildRequest, db: Session = Depends(get_d
     except RouteBuildTimeoutError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_build_deadline_exceeded", "message": str(exc)}) from exc
-    except (UserRouteStateConflictError, UserRouteStateIntegrityError) as exc:
+    except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
 
@@ -80,41 +82,25 @@ def build_user_route(payload: UserRouteBuildRequest, db: Session = Depends(get_d
 def preview_user_route(payload: UserRoutePreviewRequest, db: Session = Depends(get_db)) -> UserRouteState:
     try:
         route = UserRouteBuildService().build(db=db, request=UserRouteBuildRequest(**payload.model_dump()))
-        return _signed_public_route(route.model_copy(update={"status": "preview"}))
-    except RouteBuilderV2Error as exc:
-        raise HTTPException(status_code=422, detail={"code": "route_builder_v2_invalid_request", "message": str(exc)}) from exc
-    except Exception as exc:
-        print(f"user_route_preview_failed: {exc.__class__.__name__}: {exc}")
-        is_timeout = isinstance(exc, RouteBuildTimeoutError)
-        failed = UserRouteState(
-            route_id="preview-unavailable",
-            status="preview_failed",
-            partial_reason="route_preview_deadline_exceeded" if is_timeout else "route_preview_mapping_failed",
-            context=payload,
-            total_places=0,
-            total_minutes=0,
-            total_estimated_minutes=0,
-            estimated_distance=0.0,
-            has_warnings=True,
-            warning_count=1,
-            quality_score=0.0,
-            quality_status="failed",
-            warnings=["Маршрут не удалось предварительно собрать."],
-            user_warnings=[{
-                "type": "route",
-                "severity": "warning",
-                "user_message": "Маршрут не удалось предварительно собрать.",
-                "affected_place_ids": [],
-                "action_hint": "Попробуйте изменить время, интересы или стартовую точку.",
-            }],
-            debug_trace=[{
-                "stage": "preview_response_mapping",
-                "status": "failed",
-                "error": exc.__class__.__name__,
-                "message": "Preview route build exceeded internal deadline." if is_timeout else "Preview route build failed.",
-            }],
+        issued = register_initial_route_state(
+            db,
+            sanitize_user_route_state(route.model_copy(update={"status": "preview"})),
         )
-        return _signed_public_route(failed)
+        db.commit()
+        return issued
+    except RouteBuilderV2Error as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail={"code": "route_builder_v2_invalid_request", "message": str(exc)}) from exc
+    except RouteBuildTimeoutError as exc:
+        db.rollback()
+        return _failed_preview(payload, exc)
+    except _ROUTE_STATE_ERRORS as exc:
+        db.rollback()
+        raise _route_state_http_error(exc) from exc
+    except Exception as exc:
+        db.rollback()
+        print(f"user_route_preview_failed: {exc.__class__.__name__}: {exc}")
+        return _failed_preview(payload, exc)
 
 
 @router.post("/build-structured", response_model=UserRouteStructuredBuildResponse)
@@ -204,14 +190,16 @@ def start_user_route_session(
 ) -> UserRouteSessionState:
     _ensure_route_id_matches(route_id, payload.current_route)
     try:
-        _verify_registered_state(db, payload.current_route, lock=True)
+        # Hold the registry row through session discovery/creation. Mutating the
+        # same route and starting a session are therefore serialized.
+        verify_current_route_state(db, payload.current_route, lock=True)
         result = UserRouteSessionService().start(db, payload)
         db.commit()
         return result
     except UserRouteSessionError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_session_invalid_request", "message": str(exc)}) from exc
-    except (UserRouteStateConflictError, UserRouteStateIntegrityError) as exc:
+    except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
 
@@ -229,6 +217,12 @@ def update_user_route_session(
     except UserRouteSessionError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_session_invalid_transition", "message": str(exc)}) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "route_session_conflict", "message": "Concurrent session update failed."},
+        ) from exc
 
 
 def _mutate_route_state(
@@ -239,10 +233,17 @@ def _mutate_route_state(
     try:
         registry = verify_current_route_state(db, previous, lock=True)
         next_state = sanitize_user_route_state(mutation())
-        issued = advance_route_state(db, previous=previous, next_state=next_state, registry=registry)
+        # Every accepted request, including a semantic no-op with a warning,
+        # advances once. There is one lifecycle and old tokens cannot be replayed.
+        issued = advance_route_state(
+            db,
+            previous=previous,
+            next_state=next_state,
+            registry=registry,
+        )
         db.commit()
         return issued
-    except (UserRouteStateConflictError, UserRouteStateIntegrityError) as exc:
+    except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
     except Exception:
@@ -253,12 +254,47 @@ def _mutate_route_state(
 def _verify_registered_state(db: Session, state: UserRouteState, *, lock: bool) -> None:
     try:
         verify_current_route_state(db, state, lock=lock)
-    except (UserRouteStateConflictError, UserRouteStateIntegrityError) as exc:
+    except _ROUTE_STATE_ERRORS as exc:
+        db.rollback()
         raise _route_state_http_error(exc) from exc
 
 
-def _signed_public_route(route: UserRouteState) -> UserRouteState:
-    return sign_user_route_state(sanitize_user_route_state(route))
+def _failed_preview(payload: UserRoutePreviewRequest, exc: BaseException) -> UserRouteState:
+    is_timeout = isinstance(exc, RouteBuildTimeoutError)
+    return sanitize_user_route_state(
+        UserRouteState(
+            route_id="preview-unavailable",
+            status="preview_failed",
+            partial_reason="route_preview_deadline_exceeded" if is_timeout else "route_preview_mapping_failed",
+            context=payload,
+            total_places=0,
+            total_minutes=0,
+            total_estimated_minutes=0,
+            estimated_distance=0.0,
+            has_warnings=True,
+            warning_count=1,
+            quality_score=0.0,
+            quality_status="failed",
+            warnings=["Маршрут не удалось предварительно собрать."],
+            user_warnings=[
+                {
+                    "type": "route",
+                    "severity": "warning",
+                    "user_message": "Маршрут не удалось предварительно собрать.",
+                    "affected_place_ids": [],
+                    "action_hint": "Попробуйте изменить время, интересы или стартовую точку.",
+                }
+            ],
+            debug_trace=[
+                {
+                    "stage": "preview_response_mapping",
+                    "status": "failed",
+                    "error": exc.__class__.__name__,
+                    "message": "Preview route build exceeded internal deadline." if is_timeout else "Preview route build failed.",
+                }
+            ],
+        )
+    )
 
 
 def _ensure_route_id_matches(route_id: str, current_route: UserRouteState) -> None:
@@ -276,7 +312,7 @@ def _ensure_route_id_matches(route_id: str, current_route: UserRouteState) -> No
     )
 
 
-def _route_state_http_error(exc: Exception) -> HTTPException:
+def _route_state_http_error(exc: BaseException) -> HTTPException:
     return HTTPException(
         status_code=409,
         detail={
