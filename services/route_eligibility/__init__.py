@@ -8,8 +8,10 @@ from services.route_eligibility_policy import (
 )
 from services.route_eligibility.query_filters import (
     admin_preview_route_eligible_sql_conditions,
+    apply_public_route_eligible_filters,
     apply_route_eligible_filters,
     is_route_forbidden_category,
+    public_route_eligible_sql_conditions,
     route_eligible_sql_conditions,
 )
 
@@ -20,10 +22,12 @@ __all__ = [
     "RouteEligibilityVerdict",
     "HARD_EXCLUDED_CATEGORIES",
     "admin_preview_route_eligible_sql_conditions",
+    "apply_public_route_eligible_filters",
     "apply_route_eligible_filters",
     "canonical_category_for_place",
     "compile_route_eligible_sql_conditions",
     "evaluate_place_route_eligibility",
     "is_route_forbidden_category",
+    "public_route_eligible_sql_conditions",
     "route_eligible_sql_conditions",
 ]
