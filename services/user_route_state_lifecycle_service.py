@@ -22,7 +22,7 @@ from services.user_route_state_registry_service import (
     verify_current_route_state,
 )
 
-_SESSION_STARTABLE_STATUSES = frozenset({"ready"})
+_SESSION_STARTABLE_STATUSES = frozenset({"ready", "partial_route", "corrected"})
 _READ_ONLY_STATUSES = frozenset({"preview", "preview_failed"})
 
 
@@ -82,7 +82,7 @@ class RouteStateLifecycleService:
         db: Session,
         request: UserRouteSessionStartRequest,
     ) -> UserRouteSessionState:
-        """Start the separate session aggregate from a full, current route."""
+        """Start the separate session aggregate from a usable, current route."""
         from services.user_route_session_service import UserRouteSessionService
 
         state = request.current_route
