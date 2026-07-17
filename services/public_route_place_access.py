@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from sqlalchemy.orm import Query, Session
 
@@ -18,7 +18,6 @@ class PublicRouteScope:
 
 
 def resolve_public_city_scope(db: Session, city_slug: str | None) -> PublicRouteScope | None:
-    """Resolve a public city slug to one typed database scope."""
     slug = str(city_slug or "").strip()
     if not slug:
         return None
@@ -39,13 +38,6 @@ def resolve_intent_scope(db: Session, intent: UserRouteIntent) -> PublicRouteSco
 
 
 def resolve_route_scope(db: Session, route: UserRouteState) -> PublicRouteScope | None:
-    """Validate the complete route identity and derive one authoritative scope.
-
-    Every point ID must be a unique positive decimal ID, every row must exist, all
-    rows must belong to one active published city, and an explicit context city
-    slug must resolve to that same city. Any inconsistency invalidates the whole
-    route instead of silently dropping or re-scoping points.
-    """
     raw_ids = [point.place_id for point in route.points]
     if not raw_ids:
         return resolve_intent_scope(db, route.context)
@@ -76,15 +68,12 @@ def resolve_route_scope(db: Session, route: UserRouteState) -> PublicRouteScope 
 
     scope = PublicRouteScope(city_id=int(row.id), city_slug=str(row.slug))
     context_slug = str(route.context.city_id or "").strip()
-    if context_slug:
-        context_scope = resolve_public_city_scope(db, context_slug)
-        if context_scope != scope:
-            return None
+    if context_slug and resolve_public_city_scope(db, context_slug) != scope:
+        return None
     return scope
 
 
 def public_route_place_query(db: Session, *, scope: PublicRouteScope | None) -> Query:
-    """The only public route-place query constructor."""
     query = apply_public_route_eligible_filters(db.query(Place))
     if scope is None:
         return query.filter(False)
@@ -117,6 +106,26 @@ def load_public_route_places(
         return []
     by_id = {int(place.id): place for place in places}
     return [by_id[place_id] for place_id in ids]
+
+
+def reconcile_public_route_places(
+    db: Session,
+    route: UserRouteState,
+    *,
+    scope: PublicRouteScope | None,
+) -> list[Place]:
+    """Return only currently eligible DB rows for an already validated route.
+
+    The route identity itself must be valid, but places that became ineligible
+    after the route was issued are removed deterministically instead of being
+    echoed back from stale client state.
+    """
+    ids = _strict_numeric_ids(point.place_id for point in route.points)
+    if ids is None or scope is None:
+        return []
+    places = public_route_place_query(db, scope=scope).filter(Place.id.in_(ids)).all()
+    by_id = {int(place.id): place for place in places}
+    return [by_id[place_id] for place_id in ids if place_id in by_id]
 
 
 def _strict_numeric_ids(values: Iterable[object]) -> list[int] | None:
