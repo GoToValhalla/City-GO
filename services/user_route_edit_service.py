@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
+from models.city import City
 from models.place import Place
 from schemas.user_route import (
     UserRouteAddPlaceRequest,
@@ -16,7 +17,7 @@ from schemas.user_route import (
     UserRouteSlotOptions,
     UserRouteUpdateRequest,
 )
-from services.route_eligibility import apply_route_eligible_filters
+from services.route_eligibility import apply_public_route_eligible_filters
 from services.route_geometry import walk_minutes_between
 from services.user_route_place_loader import load_ordered_places, load_place
 from services.user_route_recalc_service import UserRouteRecalcService
@@ -37,7 +38,7 @@ class UserRouteEditService:
         replacement = load_place(db, request.new_place_id)
         if replacement is None:
             places = [place for place in places if str(place.id) != request.old_place_id]
-            warning = "Новое место не найдено или не опубликовано. Старая точка удалена."
+            warning = "Новое место недоступно для публичного маршрута. Старая точка удалена."
         else:
             places = [replacement if str(place.id) == request.old_place_id else place for place in places]
             warning = "Место заменено."
@@ -56,7 +57,7 @@ class UserRouteEditService:
                 places=places,
                 intent=request.current_route.context,
                 revision=request.current_route.revision + 1,
-                extra_warnings=["Место не найдено или не опубликовано."],
+                extra_warnings=["Место недоступно для публичного маршрута."],
             )
         next_places = _insert_place(places, place, request.insert_after_place_id)
         return UserRouteRecalcService().recalc(
@@ -72,7 +73,11 @@ class UserRouteEditService:
             return UserRouteAlternativesResponse(route_id=route.route_id, place_id=place_id, options=[])
         used_ids = {point.place_id for point in route.points}
         query = db.query(Place).filter(Place.category == current.category)
-        query = apply_route_eligible_filters(query).filter(~Place.id.in_([int(item) for item in used_ids if item.isdigit()]))
+        query = apply_public_route_eligible_filters(query)
+        current_city_slug = getattr(current, "city_slug", None)
+        if current_city_slug:
+            query = query.filter(Place.city.has(City.slug == current_city_slug))
+        query = query.filter(~Place.id.in_([int(item) for item in used_ids if item.isdigit()]))
         options = sorted(
             query.limit(30).all(),
             key=lambda place: walk_minutes_between(current.lat, current.lng, float(place.lat), float(place.lng)),
@@ -87,9 +92,9 @@ class UserRouteEditService:
         lat, lng = _start_location(request)
         slots: list[UserRouteSlotOptions] = []
         for slot in request.slots:
-            query = apply_route_eligible_filters(db.query(Place).filter(Place.category == slot.category))
+            query = apply_public_route_eligible_filters(db.query(Place).filter(Place.category == slot.category))
             if request.city_id:
-                query = query.join(Place.city).filter_by(slug=request.city_id)
+                query = query.filter(Place.city.has(City.slug == request.city_id))
             places = sorted(
                 query.limit(30).all(),
                 key=lambda place: walk_minutes_between(lat, lng, float(place.lat), float(place.lng)),
@@ -108,7 +113,7 @@ def _load_places_by_ids(db: Session, ids: list[str]) -> list[Place]:
     numeric_ids = [int(item) for item in ids if item.isdigit()]
     if not numeric_ids:
         return []
-    places = apply_route_eligible_filters(db.query(Place).filter(Place.id.in_(numeric_ids))).all()
+    places = apply_public_route_eligible_filters(db.query(Place).filter(Place.id.in_(numeric_ids))).all()
     by_id = {int(place.id): place for place in places}
     return [by_id[item] for item in numeric_ids if item in by_id]
 
