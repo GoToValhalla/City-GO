@@ -71,6 +71,35 @@ def test_ready_state_starts_session_after_locked_verification_new(monkeypatch) -
     assert sequence == ["verify", "start"]
 
 
+def test_preview_state_is_read_only_for_every_mutation_new(monkeypatch) -> None:
+    registry = object()
+    state = SimpleNamespace(status="preview")
+
+    def fake_verify(_db, candidate, *, lock):
+        assert candidate is state
+        assert lock is True
+        return registry
+
+    monkeypatch.setattr(lifecycle_module, "verify_current_route_state", fake_verify)
+
+    with pytest.raises(UserRouteStateConflictError, match="read-only"):
+        RouteStateLifecycleService()._lock_mutable(object(), state)
+
+
+def test_non_preview_state_can_enter_mutation_contract_new(monkeypatch) -> None:
+    registry = object()
+    state = SimpleNamespace(status="partial_route")
+
+    def fake_verify(_db, candidate, *, lock):
+        assert candidate is state
+        assert lock is True
+        return registry
+
+    monkeypatch.setattr(lifecycle_module, "verify_current_route_state", fake_verify)
+
+    assert RouteStateLifecycleService()._lock_mutable(object(), state) is registry
+
+
 def test_lifecycle_facade_exposes_only_concrete_public_operations_new() -> None:
     service = RouteStateLifecycleService()
 
@@ -116,17 +145,25 @@ def test_concrete_mutations_lock_before_domain_operation_new() -> None:
     source = LIFECYCLE_PATH.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
+    lifecycle_class = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "RouteStateLifecycleService")
+    methods = {
+        node.name: node
+        for node in lifecycle_class.body
+        if isinstance(node, ast.FunctionDef)
+    }
     for name in ("correct", "update_order", "replace_place", "add_place"):
-        function = next(node for node in tree.body if isinstance(node, ast.ClassDef) for node in node.body if isinstance(node, ast.FunctionDef) and node.name == name)
-        function_source = ast.get_source_segment(source, function) or ""
-        verify_position = function_source.find("verify_current_route_state")
+        function_source = ast.get_source_segment(source, methods[name]) or ""
+        lock_position = function_source.find("self._lock_mutable")
         service_position = min(
             position
             for marker in ("UserRouteCorrectService()", "UserRouteEditService()")
             if (position := function_source.find(marker)) >= 0
         )
-        assert verify_position >= 0
-        assert verify_position < service_position
+        assert lock_position >= 0
+        assert lock_position < service_position
+
+    lock_source = ast.get_source_segment(source, methods["_lock_mutable"]) or ""
+    assert lock_source.find("verify_current_route_state") < lock_source.find("_READ_ONLY_STATUSES")
 
 
 def test_session_start_service_is_only_called_by_lifecycle_owner_new() -> None:
