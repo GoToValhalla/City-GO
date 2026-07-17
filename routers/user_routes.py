@@ -168,8 +168,16 @@ def read_user_route_alternatives_from_state(
     db: Session = Depends(get_db),
 ) -> UserRouteAlternativesResponse:
     _ensure_route_id_matches(route_id, payload)
-    _verify_registered_state(db, payload, lock=False)
-    return UserRouteEditService().alternatives(db, payload, place_id)
+    try:
+        # Hold the current-revision lock through option generation so a concurrent
+        # mutation cannot supersede the state between verification and query use.
+        verify_current_route_state(db, payload, lock=True)
+        result = UserRouteEditService().alternatives(db, payload, place_id)
+        db.commit()
+        return result
+    except _ROUTE_STATE_ERRORS as exc:
+        db.rollback()
+        raise _route_state_http_error(exc) from exc
 
 
 @router.post("/{route_id}/add-place", response_model=UserRouteState)
@@ -190,8 +198,6 @@ def start_user_route_session(
 ) -> UserRouteSessionState:
     _ensure_route_id_matches(route_id, payload.current_route)
     try:
-        # Hold the registry row through session discovery/creation. Mutating the
-        # same route and starting a session are therefore serialized.
         verify_current_route_state(db, payload.current_route, lock=True)
         result = UserRouteSessionService().start(db, payload)
         db.commit()
@@ -233,8 +239,6 @@ def _mutate_route_state(
     try:
         registry = verify_current_route_state(db, previous, lock=True)
         next_state = sanitize_user_route_state(mutation())
-        # Every accepted request, including a semantic no-op with a warning,
-        # advances once. There is one lifecycle and old tokens cannot be replayed.
         issued = advance_route_state(
             db,
             previous=previous,
@@ -249,14 +253,6 @@ def _mutate_route_state(
     except Exception:
         db.rollback()
         raise
-
-
-def _verify_registered_state(db: Session, state: UserRouteState, *, lock: bool) -> None:
-    try:
-        verify_current_route_state(db, state, lock=lock)
-    except _ROUTE_STATE_ERRORS as exc:
-        db.rollback()
-        raise _route_state_http_error(exc) from exc
 
 
 def _failed_preview(payload: UserRoutePreviewRequest, exc: BaseException) -> UserRouteState:
