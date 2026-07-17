@@ -50,9 +50,14 @@ def test_cleanup_scheduler_is_bounded_and_survives_iteration_failures_new() -> N
 def test_cleanup_scheduler_restarts_after_completed_task_new(monkeypatch) -> None:
     completed = SimpleNamespace(done=lambda: True)
     replacement = object()
-    scheduler._task = completed
+    monkeypatch.setattr(scheduler, "_task", completed)
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-    monkeypatch.setattr(scheduler.asyncio, "create_task", lambda _coroutine: replacement)
+
+    def fake_create_task(coroutine):
+        coroutine.close()
+        return replacement
+
+    monkeypatch.setattr(scheduler.asyncio, "create_task", fake_create_task)
 
     scheduler.start_route_state_cleanup_scheduler()
 
