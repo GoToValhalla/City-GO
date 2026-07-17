@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     dog_friendly_tag_id: int | None = None
 
     admin_api_token: str = ""
+    user_route_state_secret: str = ""
 
     verification_scheduler_enabled: bool = False
     verification_scheduler_interval_hours: int = 24
