@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_SERVICE = ROOT / "services/user_route_state_registry_service.py"
 LIFECYCLE_SERVICE = ROOT / "services/user_route_state_lifecycle_service.py"
 CLEANUP_SERVICE = ROOT / "services/route_state_cleanup_service.py"
+PUBLIC_ACCESS_SERVICE = ROOT / "services/public_route_place_access.py"
+ADMIN_PUBLICATION_SERVICE = ROOT / "services/admin_city_publication_service.py"
 ROUTER = ROOT / "routers/user_routes.py"
 ANALYTICS_SERVICE = ROOT / "services/route_analytics_service.py"
 
@@ -104,6 +106,29 @@ def test_request_lock_order_is_registry_then_public_evidence_new() -> None:
     assert verify_calls["with_for_update"] < verify_calls["lock_public_route_state"]
 
 
+def test_public_evidence_readers_use_shared_locks_new() -> None:
+    source = PUBLIC_ACCESS_SERVICE.read_text(encoding="utf-8")
+
+    assert source.count("with_for_update(read=True)") >= 3
+    assert ".with_for_update()" not in source
+    assert ".order_by(Place.id.asc())" in source
+
+
+def test_admin_publication_writers_lock_city_then_ordered_places_new() -> None:
+    source = ADMIN_PUBLICATION_SERVICE.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    for function_name in ("publish_city", "unpublish_city"):
+        function = _function(tree, function_name)
+        text = ast.get_source_segment(source, function) or ""
+        city_lock = text.find("db.query(City)")
+        place_lock = text.find("db.query(Place)")
+        assert city_lock >= 0
+        assert place_lock > city_lock
+        assert ".order_by(Place.id.asc())" in text
+        assert text.count(".with_for_update()") >= 2
+
+
 def test_router_uses_only_public_lifecycle_facade_new() -> None:
     source = ROUTER.read_text(encoding="utf-8")
 
@@ -172,8 +197,8 @@ def test_database_errors_are_not_domain_conflicts_new() -> None:
     source = ROUTER.read_text(encoding="utf-8")
 
     assert "_ROUTE_STATE_ERRORS = (UserRouteStateConflictError, UserRouteStateIntegrityError)" in source
-    assert 'status_code=503' in source
-    assert 'route_state_database_unavailable' in source
+    assert "status_code=503" in source
+    assert "route_state_database_unavailable" in source
 
 
 def test_route_analytics_uses_isolated_session_new() -> None:
