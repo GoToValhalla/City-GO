@@ -85,12 +85,13 @@ def test_shorten_route_selects_lowest_value_per_minute() -> None:
 
 
 def test_replacement_loader_finds_same_category_not_in_route() -> None:
-    replacement = find_replacement_place(
-        _Db([_place(1), _place(2, "museum"), _place(3)]),
-        route=_state(),
-        category="cafe",
-        excluded_ids={"1", "2"},
-    )
+    with patch("services.user_route_replacement_loader.resolve_route_city_id", return_value=1):
+        replacement = find_replacement_place(
+            _Db([_place(1), _place(2, "museum"), _place(3)]),
+            route=_state(),
+            category="cafe",
+            excluded_ids={"1", "2"},
+        )
     assert replacement is not None
     assert replacement.id == 3
 
