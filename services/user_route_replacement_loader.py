@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from models.place import Place
 from schemas.user_route import UserRouteState
 from services.place_staleness_policy import is_route_usable_place
-from services.public_route_place_access import apply_public_route_city_scope, resolve_route_city_id
+from services.public_route_place_access import public_route_place_query, resolve_route_scope
 from services.route_geometry import distance_meters
 
 
@@ -16,15 +16,12 @@ def find_replacement_place(
     category: str | None,
     excluded_ids: set[str],
 ) -> Place | None:
-    candidates = _query_candidates(db, route)
+    scope = resolve_route_scope(db, route)
+    if scope is None:
+        return None
+    candidates = public_route_place_query(db, scope=scope).all()
     filtered = tuple(filter(lambda place: _usable(place, category, excluded_ids), candidates))
     return min(filtered, key=lambda place: _distance_from_start(place, route), default=None)
-
-
-def _query_candidates(db: Session, route: UserRouteState) -> list[Place]:
-    city_id = resolve_route_city_id(db, route)
-    query = apply_public_route_city_scope(db.query(Place), city_id=city_id)
-    return list(query.all())
 
 
 def _usable(place: Place, category: str | None, excluded_ids: set[str]) -> bool:
