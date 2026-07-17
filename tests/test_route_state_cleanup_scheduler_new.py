@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+import core.route_state_cleanup_scheduler as scheduler
 from services.user_route_state_registry_service import (
     ACTIVE_ROUTE_STATE_TTL,
     PREVIEW_ROUTE_STATE_TTL,
@@ -43,6 +45,46 @@ def test_cleanup_scheduler_is_bounded_and_survives_iteration_failures_new() -> N
     assert "except Exception" in source
     assert "logger.exception" in source
     assert "not _task.done()" in source
+
+
+def test_cleanup_scheduler_restarts_after_completed_task_new(monkeypatch) -> None:
+    completed = SimpleNamespace(done=lambda: True)
+    replacement = object()
+    scheduler._task = completed
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(scheduler.asyncio, "create_task", lambda _coroutine: replacement)
+
+    scheduler.start_route_state_cleanup_scheduler()
+
+    assert scheduler._task is replacement
+
+
+def test_cleanup_scheduler_continues_after_iteration_failure_new(monkeypatch) -> None:
+    calls = 0
+
+    async def fake_to_thread(_function):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("cleanup failed")
+        raise asyncio.CancelledError
+
+    async def no_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr(scheduler.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(scheduler.asyncio, "sleep", no_sleep)
+
+    async def exercise() -> None:
+        try:
+            await scheduler._scheduler_loop()
+        except asyncio.CancelledError:
+            return
+        raise AssertionError("scheduler loop must propagate cancellation")
+
+    asyncio.run(exercise())
+
+    assert calls == 2
 
 
 def test_cleanup_remains_outside_route_request_lifecycle_new() -> None:
