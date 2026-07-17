@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 from models.place import Place
 from schemas.user_route import UserRouteBuildRequest, UserRouteState
 from services.public_route_place_access import (
-    apply_public_route_city_scope,
+    PublicRouteScope,
     load_public_route_place,
-    resolve_intent_city_id,
+    public_route_place_query,
+    resolve_intent_scope,
 )
 from services.route_diversity_policy import normalize_category
 from services.user_route_recalc_service import UserRouteRecalcService
@@ -43,16 +44,16 @@ class UserRouteSlotBuildService:
         places: list[Place] = []
         matches: list[SlotMatch] = []
         used_ids: set[int] = set()
-        city_id = resolve_intent_city_id(db, request)
+        scope = resolve_intent_scope(db, request)
 
         for index, slot in enumerate(request.route_slots, 1):
             slot_id = str(slot.get("slot_id") or f"slot-{index}")
             requested = normalize_category(slot.get("category") or slot.get("type"))
             required = bool(slot.get("required", True))
             selected_id = _optional_int(slot.get("selected_place_id"))
-            place = self._selected_place(db, selected_id, requested, used_ids, city_id=city_id) if selected_id else None
+            place = self._selected_place(db, selected_id, requested, used_ids, scope=scope) if selected_id else None
             if place is None:
-                place = self._first_slot_candidate(db, request, requested, used_ids, city_id=city_id)
+                place = self._first_slot_candidate(db, requested, used_ids, scope=scope)
             if place is None:
                 status = "missing_required" if required else "missing_optional"
                 matches.append(SlotMatch(slot_id, requested, None, status, f"Не нашли подходящую точку для слота {requested or slot_id}."))
@@ -104,11 +105,11 @@ class UserRouteSlotBuildService:
         requested: str,
         used_ids: set[int],
         *,
-        city_id: int | None = None,
+        scope: PublicRouteScope | None,
     ) -> Place | None:
         if not place_id or place_id in used_ids:
             return None
-        place = load_public_route_place(db, str(place_id), city_id=city_id)
+        place = load_public_route_place(db, str(place_id), scope=scope)
         if place is None:
             return None
         if requested and not _category_matches(requested, getattr(place, "category", None)):
@@ -118,21 +119,15 @@ class UserRouteSlotBuildService:
     def _first_slot_candidate(
         self,
         db: Session,
-        request: UserRouteBuildRequest,
         requested: str,
         used_ids: set[int],
         *,
-        city_id: int | None = None,
+        scope: PublicRouteScope | None,
     ) -> Place | None:
-        if city_id is None:
-            city_id = resolve_intent_city_id(db, request)
         categories = RELATED_SLOT_CATEGORIES.get(requested, (requested,)) if requested else ()
         if not categories:
             return None
-        query = apply_public_route_city_scope(
-            db.query(Place).filter(Place.category.in_(categories)),
-            city_id=city_id,
-        )
+        query = public_route_place_query(db, scope=scope).filter(Place.category.in_(categories))
         if used_ids:
             query = query.filter(~Place.id.in_(sorted(used_ids)))
         return query.order_by(Place.id.asc()).first()
