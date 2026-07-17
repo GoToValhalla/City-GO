@@ -21,6 +21,10 @@ from core.place_verification_scheduler import (
 from core.public_access_middleware import public_access_middleware
 from core.readiness import check_database_ready
 from core.request_logging import log_request
+from core.route_state_cleanup_scheduler import (
+    start_route_state_cleanup_scheduler,
+    stop_route_state_cleanup_scheduler,
+)
 from core.router_setup import include_app_routers
 from core.version import get_backend_version
 from db.dependencies import get_db
@@ -40,9 +44,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     start_place_verification_scheduler()
     start_import_worker_scheduler()
+    start_route_state_cleanup_scheduler()
     try:
         yield
     finally:
+        await stop_route_state_cleanup_scheduler()
         await stop_import_worker_scheduler()
         await stop_place_verification_scheduler()
 
@@ -88,25 +94,3 @@ include_app_routers(app)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@app.get("/version")
-def version() -> dict[str, str]:
-    return get_backend_version()
-
-
-@app.get("/ready", response_model=None)
-def ready() -> JSONResponse | dict[str, str]:
-    db_ready, reason = check_database_ready()
-    if db_ready:
-        return {"status": "ok", "database": "ok"}
-    return JSONResponse(
-        status_code=503,
-        content={"status": "error", "database": reason},
-    )
-
-
-@app.get("/features/public")
-def public_features(db: Session = Depends(get_db)) -> dict[str, bool]:
-    """Expose only public feature flags required by public clients."""
-    return {"tma_enabled": is_toggle_enabled(db, "tma_enabled")}
