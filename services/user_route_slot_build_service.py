@@ -52,7 +52,7 @@ class UserRouteSlotBuildService:
             selected_id = _optional_int(slot.get("selected_place_id"))
             place = self._selected_place(db, selected_id, requested, used_ids, city_id=city_id) if selected_id else None
             if place is None:
-                place = self._first_slot_candidate(db, requested, used_ids, city_id=city_id)
+                place = self._first_slot_candidate(db, request, requested, used_ids, city_id=city_id)
             if place is None:
                 status = "missing_required" if required else "missing_optional"
                 matches.append(SlotMatch(slot_id, requested, None, status, f"Не нашли подходящую точку для слота {requested or slot_id}."))
@@ -104,7 +104,7 @@ class UserRouteSlotBuildService:
         requested: str,
         used_ids: set[int],
         *,
-        city_id: int | None,
+        city_id: int | None = None,
     ) -> Place | None:
         if not place_id or place_id in used_ids:
             return None
@@ -118,11 +118,14 @@ class UserRouteSlotBuildService:
     def _first_slot_candidate(
         self,
         db: Session,
+        request: UserRouteBuildRequest,
         requested: str,
         used_ids: set[int],
         *,
-        city_id: int | None,
+        city_id: int | None = None,
     ) -> Place | None:
+        if city_id is None:
+            city_id = resolve_intent_city_id(db, request)
         categories = RELATED_SLOT_CATEGORIES.get(requested, (requested,)) if requested else ()
         if not categories:
             return None
