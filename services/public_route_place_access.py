@@ -73,13 +73,18 @@ def resolve_route_scope(db: Session, route: UserRouteState) -> PublicRouteScope 
     return scope
 
 
-def lock_public_route_state(db: Session, route: UserRouteState) -> PublicRouteScope | None:
-    """Lock and revalidate all publication evidence used to issue route state.
+def lock_public_route_state(
+    db: Session,
+    route: UserRouteState,
+    *,
+    require_eligible: bool,
+) -> PublicRouteScope | None:
+    """Lock route identity and optionally the full public eligibility evidence.
 
     Callers must already hold the route-registry lock when one exists. The fixed
-    lock order is registry -> City -> Place. PostgreSQL UPDATEs on City/Place
-    acquire the same row locks, so an admin hide/unpublish cannot commit between
-    this validation and the caller's transaction commit.
+    order is registry -> City -> Place. Existing signed state uses
+    require_eligible=False so stale points can be reconciled. Newly issued state
+    uses require_eligible=True and cannot contain a hidden or ineligible place.
     """
     ids = _strict_numeric_ids(point.place_id for point in route.points)
     if ids is None or len(set(ids)) != len(ids):
@@ -101,11 +106,10 @@ def lock_public_route_state(db: Session, route: UserRouteState) -> PublicRouteSc
         )
         return PublicRouteScope(city_id=int(city.id), city_slug=str(city.slug)) if city is not None else None
 
-    city_ids = {
-        int(value)
-        for (value,) in db.query(Place.city_id).filter(Place.id.in_(ids)).all()
-        if value is not None
-    }
+    preliminary = db.query(Place.id, Place.city_id).filter(Place.id.in_(ids)).all()
+    if len(preliminary) != len(ids) or any(row.city_id is None for row in preliminary):
+        return None
+    city_ids = {int(row.city_id) for row in preliminary}
     if len(city_ids) != 1:
         return None
     city_id = next(iter(city_ids))
@@ -123,21 +127,17 @@ def lock_public_route_state(db: Session, route: UserRouteState) -> PublicRouteSc
     if city is None or (context_slug and str(city.slug) != context_slug):
         return None
 
+    scope = PublicRouteScope(city_id=int(city.id), city_slug=str(city.slug))
+    query = public_route_place_query(db, scope=scope) if require_eligible else db.query(Place).filter(Place.city_id == scope.city_id)
     locked_places = (
-        public_route_place_query(
-            db,
-            scope=PublicRouteScope(city_id=int(city.id), city_slug=str(city.slug)),
-        )
-        .filter(Place.id.in_(ids))
+        query.filter(Place.id.in_(ids))
         .order_by(Place.id.asc())
         .with_for_update()
         .all()
     )
-    if len(locked_places) != len(ids):
+    if len(locked_places) != len(ids) or {int(place.id) for place in locked_places} != set(ids):
         return None
-    if {int(place.id) for place in locked_places} != set(ids):
-        return None
-    return PublicRouteScope(city_id=int(city.id), city_slug=str(city.slug))
+    return scope
 
 
 def public_route_place_query(db: Session, *, scope: PublicRouteScope | None) -> Query:
