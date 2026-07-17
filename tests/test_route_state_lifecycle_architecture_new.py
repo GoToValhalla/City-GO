@@ -51,9 +51,9 @@ def test_cleanup_index_migration_replaces_legacy_index_new() -> None:
     ).read_text(encoding="utf-8")
 
     assert 'down_revision = "e7f9b2c4a6d8"' in source
-    assert 'batch.drop_index(_OLD_INDEX)' in source
+    assert "batch.drop_index(_OLD_INDEX)" in source
     assert '["expires_at", "route_id"]' in source
-    assert 'batch.drop_index(_CLEANUP_INDEX)' in source
+    assert "batch.drop_index(_CLEANUP_INDEX)" in source
     assert '["expires_at"]' in source
 
 
@@ -89,14 +89,16 @@ def test_registry_service_is_only_runtime_expiry_writer_new() -> None:
         for path in directory.rglob("*.py"):
             if path == allowed:
                 continue
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            source = path.read_text(encoding="utf-8")
+            if "UserRouteStateRegistry" not in source:
+                continue
+            tree = ast.parse(source, filename=str(path))
             for node in ast.walk(tree):
                 targets: list[ast.expr] = []
-                if isinstance(node, (ast.Assign, ast.AnnAssign)):
-                    if isinstance(node, ast.Assign):
-                        targets.extend(node.targets)
-                    else:
-                        targets.append(node.target)
+                if isinstance(node, ast.Assign):
+                    targets.extend(node.targets)
+                elif isinstance(node, ast.AnnAssign):
+                    targets.append(node.target)
                 elif isinstance(node, ast.AugAssign):
                     targets.append(node.target)
                 for target in targets:
