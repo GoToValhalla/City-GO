@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from time import perf_counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -28,7 +27,6 @@ from services.public_route_sanitizer import sanitize_user_route_state
 from services.route_analytics_service import record_route_build
 from services.route_builder_v2_service import RouteBuilderV2Error
 from services.user_route_build_service import RouteBuildTimeoutError, UserRouteBuildService
-from services.user_route_correct_service import UserRouteCorrectService
 from services.user_route_edit_service import UserRouteEditService
 from services.user_route_session_service import UserRouteSessionError, UserRouteSessionService
 from services.user_route_state_integrity import UserRouteStateIntegrityError
@@ -118,11 +116,19 @@ def build_structured_user_route(
 @router.post("/correct", response_model=UserRouteState)
 def correct_user_route(payload: UserRouteCorrectRequest, db: Session = Depends(get_db)) -> UserRouteState:
     started = perf_counter()
-    issued = _mutate_route_state(
-        db,
-        payload.current_route,
-        lambda: UserRouteCorrectService().correct(db=db, request=payload),
-    )
+    try:
+        issued = _lifecycle.correct(db, payload)
+        db.commit()
+    except _ROUTE_STATE_ERRORS as exc:
+        db.rollback()
+        raise _route_state_http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _database_http_error(exc) from exc
+    except Exception:
+        db.rollback()
+        raise
+
     record_route_build(
         issued,
         source=f"user_route_correct:{payload.action}",
@@ -140,7 +146,19 @@ def update_user_route(
     db: Session = Depends(get_db),
 ) -> UserRouteState:
     _ensure_route_id_matches(route_id, payload.current_route)
-    return _mutate_route_state(db, payload.current_route, lambda: UserRouteEditService().update_order(db, payload))
+    try:
+        issued = _lifecycle.update_order(db, payload)
+        db.commit()
+        return issued
+    except _ROUTE_STATE_ERRORS as exc:
+        db.rollback()
+        raise _route_state_http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _database_http_error(exc) from exc
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.post("/{route_id}/replace-place", response_model=UserRouteState)
@@ -150,7 +168,19 @@ def replace_user_route_place(
     db: Session = Depends(get_db),
 ) -> UserRouteState:
     _ensure_route_id_matches(route_id, payload.current_route)
-    return _mutate_route_state(db, payload.current_route, lambda: UserRouteEditService().replace_place(db, payload))
+    try:
+        issued = _lifecycle.replace_place(db, payload)
+        db.commit()
+        return issued
+    except _ROUTE_STATE_ERRORS as exc:
+        db.rollback()
+        raise _route_state_http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _database_http_error(exc) from exc
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.get("/{route_id}/alternatives/{place_id}", response_model=UserRouteAlternativesResponse)
@@ -190,7 +220,19 @@ def add_user_route_place(
     db: Session = Depends(get_db),
 ) -> UserRouteState:
     _ensure_route_id_matches(route_id, payload.current_route)
-    return _mutate_route_state(db, payload.current_route, lambda: UserRouteEditService().add_place(db, payload))
+    try:
+        issued = _lifecycle.add_place(db, payload)
+        db.commit()
+        return issued
+    except _ROUTE_STATE_ERRORS as exc:
+        db.rollback()
+        raise _route_state_http_error(exc) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise _database_http_error(exc) from exc
+    except Exception:
+        db.rollback()
+        raise
 
 
 @router.post("/{route_id}/session/start", response_model=UserRouteSessionState)
@@ -231,26 +273,6 @@ def update_user_route_session(
     except SQLAlchemyError as exc:
         db.rollback()
         raise _database_http_error(exc) from exc
-
-
-def _mutate_route_state(
-    db: Session,
-    previous: UserRouteState,
-    mutation: Callable[[], UserRouteState],
-) -> UserRouteState:
-    try:
-        issued = _lifecycle.mutate(db, previous, mutation)
-        db.commit()
-        return issued
-    except _ROUTE_STATE_ERRORS as exc:
-        db.rollback()
-        raise _route_state_http_error(exc) from exc
-    except SQLAlchemyError as exc:
-        db.rollback()
-        raise _database_http_error(exc) from exc
-    except Exception:
-        db.rollback()
-        raise
 
 
 def _failed_preview(payload: UserRoutePreviewRequest, exc: BaseException) -> UserRouteState:
