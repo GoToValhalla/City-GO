@@ -155,7 +155,11 @@ def _token_digest(state: UserRouteState) -> str:
 
 
 def _database_now(db: Session) -> datetime:
-    expression = "clock_timestamp()" if db.get_bind().dialect.name == "postgresql" else "CURRENT_TIMESTAMP"
+    expression = (
+        "clock_timestamp() AT TIME ZONE 'UTC'"
+        if db.get_bind().dialect.name == "postgresql"
+        else "CURRENT_TIMESTAMP"
+    )
     value = db.execute(text(f"SELECT {expression}")).scalar_one()
     if isinstance(value, str):
         return datetime.fromisoformat(value)
