@@ -73,6 +73,73 @@ def resolve_route_scope(db: Session, route: UserRouteState) -> PublicRouteScope 
     return scope
 
 
+def lock_public_route_state(db: Session, route: UserRouteState) -> PublicRouteScope | None:
+    """Lock and revalidate all publication evidence used to issue route state.
+
+    Callers must already hold the route-registry lock when one exists. The fixed
+    lock order is registry -> City -> Place. PostgreSQL UPDATEs on City/Place
+    acquire the same row locks, so an admin hide/unpublish cannot commit between
+    this validation and the caller's transaction commit.
+    """
+    ids = _strict_numeric_ids(point.place_id for point in route.points)
+    if ids is None or len(set(ids)) != len(ids):
+        return None
+
+    context_slug = str(route.context.city_id or "").strip()
+    if not ids:
+        if not context_slug:
+            return None
+        city = (
+            db.query(City)
+            .filter(
+                City.slug == context_slug,
+                City.is_active.is_(True),
+                City.launch_status == "published",
+            )
+            .with_for_update()
+            .first()
+        )
+        return PublicRouteScope(city_id=int(city.id), city_slug=str(city.slug)) if city is not None else None
+
+    city_ids = {
+        int(value)
+        for (value,) in db.query(Place.city_id).filter(Place.id.in_(ids)).all()
+        if value is not None
+    }
+    if len(city_ids) != 1:
+        return None
+    city_id = next(iter(city_ids))
+
+    city = (
+        db.query(City)
+        .filter(
+            City.id == city_id,
+            City.is_active.is_(True),
+            City.launch_status == "published",
+        )
+        .with_for_update()
+        .first()
+    )
+    if city is None or (context_slug and str(city.slug) != context_slug):
+        return None
+
+    locked_places = (
+        public_route_place_query(
+            db,
+            scope=PublicRouteScope(city_id=int(city.id), city_slug=str(city.slug)),
+        )
+        .filter(Place.id.in_(ids))
+        .order_by(Place.id.asc())
+        .with_for_update()
+        .all()
+    )
+    if len(locked_places) != len(ids):
+        return None
+    if {int(place.id) for place in locked_places} != set(ids):
+        return None
+    return PublicRouteScope(city_id=int(city.id), city_slug=str(city.slug))
+
+
 def public_route_place_query(db: Session, *, scope: PublicRouteScope | None) -> Query:
     query = apply_public_route_eligible_filters(db.query(Place))
     if scope is None:
@@ -114,12 +181,7 @@ def reconcile_public_route_places(
     *,
     scope: PublicRouteScope | None,
 ) -> list[Place]:
-    """Return only currently eligible DB rows for an already validated route.
-
-    The route identity itself must be valid, but places that became ineligible
-    after the route was issued are removed deterministically instead of being
-    echoed back from stale client state.
-    """
+    """Return only currently eligible DB rows for an already validated route."""
     ids = _strict_numeric_ids(point.place_id for point in route.points)
     if ids is None or scope is None:
         return []
