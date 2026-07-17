@@ -39,8 +39,8 @@ def cleanup_expired_route_states(
                 FROM user_route_state_registry
                 WHERE expires_at <= {cutoff_expression}
                 ORDER BY expires_at, route_id
-                FOR UPDATE SKIP LOCKED
                 LIMIT :limit
+                FOR UPDATE SKIP LOCKED
             )
             DELETE FROM user_route_state_registry AS registry
             USING expired
