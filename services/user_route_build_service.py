@@ -54,7 +54,7 @@ class UserRouteBuildService:
             profile=build_user_profile_from_signals(db, execution_request.user_id),
         )
         self._check_deadline(deadline)
-        state = final_route_to_state(final, execution_request, revision=1, status="ready")
+        state = final_route_to_state(final, execution_request, revision=1)
         return attach_route_builder_v2_result(state, route_builder_plan)
 
     def _check_deadline(self, deadline: float) -> None:
@@ -67,12 +67,10 @@ class UserRouteBuildService:
         start_address = (request.start_address or "").strip()
         if not start_address:
             return request
-
         city_name = self._city_name(db, request.city_id)
         point = GeocodingService().geocode(start_address, city_name)
         if point is None:
             return request
-
         return request.model_copy(
             update={
                 "lat": point.lat,
