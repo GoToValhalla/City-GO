@@ -21,5 +21,10 @@ def load_ordered_places(db: Session, route: UserRouteState) -> list[Place]:
     )
 
 
-def load_place(db: Session, place_id: str | None, *, scope: PublicRouteScope | None) -> Place | None:
+def load_place(
+    db: Session,
+    place_id: str | None,
+    *,
+    scope: PublicRouteScope | None = None,
+) -> Place | None:
     return load_public_route_place(db, place_id, scope=scope)
