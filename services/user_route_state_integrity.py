@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 
 from core.config import settings
 from schemas.user_route import UserRouteState
@@ -47,4 +48,4 @@ def _is_production() -> bool:
 
 
 def _is_test() -> bool:
-    return str(settings.app_env or "").strip().lower() in {"test", "testing"}
+    return bool(os.environ.get("PYTEST_CURRENT_TEST")) or str(settings.app_env or "").strip().lower() in {"test", "testing"}
