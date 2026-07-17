@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import asyncio
 from pathlib import Path
+from threading import Event as ThreadEvent
 from types import SimpleNamespace
 
 import core.route_state_cleanup_scheduler as scheduler
@@ -37,23 +38,23 @@ def test_cleanup_scheduler_is_wired_into_application_lifespan_new() -> None:
     assert "stop_route_state_cleanup_scheduler" in calls
 
 
-def test_cleanup_scheduler_is_bounded_and_survives_iteration_failures_new() -> None:
+def test_cleanup_scheduler_owns_thread_lifecycle_new() -> None:
     source = (ROOT / "core/route_state_cleanup_scheduler.py").read_text(encoding="utf-8")
 
+    assert "ThreadEvent" in source
+    assert "_active_batch" in source
+    assert "asyncio.shield(batch)" in source
+    assert "task.cancel()" not in source
     assert "ROUTE_STATE_CLEANUP_MAX_BATCHES_PER_RUN" in source
     assert "ROUTE_STATE_CLEANUP_BATCH_LIMIT" in source
-    assert "except Exception" in source
-    assert "logger.exception" in source
-    assert "not _task.done()" in source
-    assert "stop_event.is_set()" in source
-    assert "task.cancel()" not in source
 
 
 def test_cleanup_scheduler_restarts_after_completed_task_new(monkeypatch) -> None:
     completed = SimpleNamespace(done=lambda: True)
     replacement = object()
     monkeypatch.setattr(scheduler, "_task", completed)
-    monkeypatch.setattr(scheduler, "_stop_event", None)
+    monkeypatch.setattr(scheduler, "_wake_event", None)
+    monkeypatch.setattr(scheduler, "_thread_stop_event", None)
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
     def fake_create_task(coroutine):
@@ -65,7 +66,8 @@ def test_cleanup_scheduler_restarts_after_completed_task_new(monkeypatch) -> Non
     scheduler.start_route_state_cleanup_scheduler()
 
     assert scheduler._task is replacement
-    assert scheduler._stop_event is not None
+    assert scheduler._wake_event is not None
+    assert isinstance(scheduler._thread_stop_event, ThreadEvent)
 
 
 def test_cleanup_scheduler_continues_after_iteration_failure_new(monkeypatch) -> None:
@@ -82,18 +84,19 @@ def test_cleanup_scheduler_continues_after_iteration_failure_new(monkeypatch) ->
     monkeypatch.setattr(scheduler.asyncio, "to_thread", fake_to_thread)
 
     async def exercise() -> None:
-        await scheduler._scheduler_loop(asyncio.Event())
+        await scheduler._scheduler_loop(asyncio.Event(), ThreadEvent())
 
     asyncio.run(exercise())
 
     assert calls == 2
 
 
-def test_cleanup_scheduler_shutdown_waits_for_active_batch_new(monkeypatch) -> None:
+def test_external_scheduler_cancellation_waits_for_active_batch_new(monkeypatch) -> None:
     async def exercise() -> None:
         batch_started = asyncio.Event()
         release_batch = asyncio.Event()
-        stop_event = asyncio.Event()
+        wake_event = asyncio.Event()
+        thread_stop_event = ThreadEvent()
 
         async def fake_to_thread(_function, _stop_event):
             batch_started.set()
@@ -101,21 +104,52 @@ def test_cleanup_scheduler_shutdown_waits_for_active_batch_new(monkeypatch) -> N
             return 0
 
         monkeypatch.setattr(scheduler.asyncio, "to_thread", fake_to_thread)
-        task = asyncio.create_task(scheduler._scheduler_loop(stop_event))
+        task = asyncio.create_task(scheduler._scheduler_loop(wake_event, thread_stop_event))
         await batch_started.wait()
 
-        stop_event.set()
+        task.cancel()
         await asyncio.sleep(0)
-        assert not task.done(), "shutdown must not abandon a running cleanup transaction"
+        assert not task.done(), "cancellation must not abandon an active cleanup thread"
 
         release_batch.set()
-        await task
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(exercise())
+
+
+def test_stop_does_not_release_ownership_before_batch_drains_new(monkeypatch) -> None:
+    async def exercise() -> None:
+        batch_started = asyncio.Event()
+        release_batch = asyncio.Event()
+
+        async def fake_to_thread(_function, _stop_event):
+            batch_started.set()
+            await release_batch.wait()
+            return 0
+
+        monkeypatch.setattr(scheduler.asyncio, "to_thread", fake_to_thread)
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+        scheduler.start_route_state_cleanup_scheduler()
+        await batch_started.wait()
+
+        stop_task = asyncio.create_task(scheduler.stop_route_state_cleanup_scheduler())
+        await asyncio.sleep(0)
+        assert scheduler._task is not None
+        scheduler.start_route_state_cleanup_scheduler()
+        assert scheduler._task is not None
+
+        release_batch.set()
+        await stop_task
+        assert scheduler._task is None
 
     asyncio.run(exercise())
 
 
 def test_bounded_cleanup_stops_before_next_batch_after_shutdown_new(monkeypatch) -> None:
-    stop_event = asyncio.Event()
+    stop_event = ThreadEvent()
     calls = 0
 
     def fake_run_once(*, limit):
