@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TypeVar
 
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,9 @@ from services.user_route_state_registry_service import (
     verify_current_route_state,
 )
 
+_T = TypeVar("_T")
+_SESSION_STARTABLE_STATUSES = frozenset({"ready"})
+
 
 class RouteStateLifecycleService:
     """Single public owner of the route-state lifecycle.
@@ -20,6 +24,10 @@ class RouteStateLifecycleService:
     Routers and route/session services must use this facade instead of calling
     registry primitives directly. The caller owns commit/rollback; this service
     owns issue/verify/mutate sequencing and the registry -> evidence lock order.
+
+    Operations are explicit by effect. Read-only alternatives and session start
+    are separate contracts so a write operation cannot be hidden behind a generic
+    verified-read callback.
     """
 
     def issue_initial(self, db: Session, state: UserRouteState) -> UserRouteState:
@@ -43,13 +51,33 @@ class RouteStateLifecycleService:
             registry=registry,
         )
 
-    def run_verified_read(
+    def read_alternatives(
         self,
         db: Session,
         state: UserRouteState,
-        operation: Callable[[], object],
-    ) -> object:
+        operation: Callable[[], _T],
+    ) -> _T:
         verify_current_route_state(db, state, lock=True)
+        return operation()
+
+    def start_session(
+        self,
+        db: Session,
+        state: UserRouteState,
+        operation: Callable[[], _T],
+    ) -> _T:
+        """Start the separate session aggregate from a full, current route.
+
+        Preview states are intentionally not promoted implicitly. A client must
+        build a full route first, which receives the active-route TTL. Registry
+        verification and session creation remain in the caller's one transaction.
+        """
+        verify_current_route_state(db, state, lock=True)
+        normalized_status = str(state.status or "").strip().lower()
+        if normalized_status not in _SESSION_STARTABLE_STATUSES:
+            raise UserRouteStateConflictError(
+                f"Route state status {normalized_status or '<empty>'!r} cannot start a session."
+            )
         return operation()
 
 
