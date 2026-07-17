@@ -41,6 +41,7 @@ class UserRouteSessionService:
             db.query(RouteSession)
             .filter(RouteSession.route_id == route.id, RouteSession.status.in_(ACTIVE_STATUSES))
             .order_by(RouteSession.id.desc())
+            .with_for_update()
             .first()
         )
         expected_place_ids = [int(place.id) for place in places]
