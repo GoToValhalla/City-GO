@@ -160,10 +160,15 @@ def test_concrete_mutations_lock_before_domain_operation_new() -> None:
             if (position := function_source.find(marker)) >= 0
         )
         assert lock_position >= 0
+        assert service_position >= 0
         assert lock_position < service_position
 
     lock_source = ast.get_source_segment(source, methods["_lock_mutable"]) or ""
-    assert lock_source.find("verify_current_route_state") < lock_source.find("_READ_ONLY_STATUSES")
+    verify_position = lock_source.find("verify_current_route_state")
+    status_position = lock_source.find("_READ_ONLY_STATUSES")
+    assert verify_position >= 0
+    assert status_position >= 0
+    assert verify_position < status_position
 
 
 def test_session_start_service_is_only_called_by_lifecycle_owner_new() -> None:
