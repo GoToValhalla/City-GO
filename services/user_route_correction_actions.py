@@ -8,7 +8,6 @@ from services.user_route_correction_policy import (
     same_category,
     shorten_target_place_id,
 )
-from services.user_route_place_loader import load_place
 from services.user_route_replacement_loader import find_replacement_place
 
 
@@ -18,10 +17,16 @@ def corrected_places(db: Session, request: UserRouteCorrectRequest, places: list
     if request.action == "extend_route":
         return _with_replacement(db, request, places, None)
     if request.action == "remove_place":
+        target = _place_by_id(places, request.target_place_id)
+        if target is None:
+            return places
         remaining = _without_place(places, request.target_place_id)
-        target = load_place(db, request.target_place_id)
         return _with_replacement(db, request, remaining, same_category(target))
     return places
+
+
+def _place_by_id(places: list, place_id: str | None):
+    return next((place for place in places if str(place.id) == str(place_id)), None)
 
 
 def _without_place(places: list, place_id: str | None) -> list:
