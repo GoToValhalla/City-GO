@@ -3,9 +3,10 @@ from __future__ import annotations
 import threading
 
 from db.session import SessionLocal
+from models.route import Route
 from models.route_session import RouteSession, RouteSessionPoint
 from models.user_route_state_registry import UserRouteStateRegistry
-from schemas.user_route import UserRouteIntent, UserRoutePoint, UserRouteSessionActionRequest, UserRouteState
+from schemas.user_route import UserRouteIntent, UserRoutePoint, UserRouteSessionActionRequest, UserRouteSessionStartRequest, UserRouteState
 from services.user_route_session_service import UserRouteSessionError, UserRouteSessionService
 from services.user_route_state_registry_service import (
     UserRouteStateConflictError,
@@ -70,7 +71,6 @@ def test_concurrent_terminal_actions_cannot_overwrite_same_session_point_new(pg_
     place = make_published_place(pg_session, city=pg_city, category=pg_category)
     route = _route(place, pg_city.slug, f"session-race-{place.id}")
     issued = register_initial_route_state(pg_session, route)
-    from schemas.user_route import UserRouteSessionStartRequest
     state = UserRouteSessionService().start(pg_session, UserRouteSessionStartRequest(current_route=issued, user_id="pg-user"))
     pg_session.commit()
     start = threading.Barrier(2)
@@ -99,5 +99,6 @@ def test_concurrent_terminal_actions_cannot_overwrite_same_session_point_new(pg_
     session_ids = [row[0] for row in pg_session.query(RouteSession.id).filter(RouteSession.id == state.session_id).all()]
     pg_session.query(RouteSessionPoint).filter(RouteSessionPoint.session_id.in_(session_ids)).delete(synchronize_session=False)
     pg_session.query(RouteSession).filter(RouteSession.id.in_(session_ids)).delete(synchronize_session=False)
+    pg_session.query(Route).filter(Route.city_id == pg_city.id).delete(synchronize_session=False)
     pg_session.query(UserRouteStateRegistry).filter(UserRouteStateRegistry.route_id == issued.route_id).delete()
     pg_session.commit()
