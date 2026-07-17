@@ -25,8 +25,6 @@ def start_route_state_cleanup_scheduler() -> None:
     global _state, _task, _thread_stop_event, _wake_event
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return
-    # Ownership remains present throughout running and stopping. A restart is
-    # permitted only after the previous scheduler task itself reaches done().
     if _task is not None:
         return
 
@@ -53,16 +51,22 @@ async def stop_route_state_cleanup_scheduler() -> None:
     if wake_event is not None:
         wake_event.set()
 
-    try:
-        await asyncio.shield(task)
-    except asyncio.CancelledError:
-        # Cancellation of the owned scheduler task is normalized after its loop
-        # has drained the active thread batch. Cancellation of this caller is
-        # propagated, but ownership is deliberately retained until the task's
-        # done callback runs, preventing stop/start overlap.
-        if task.done() and task.cancelled():
-            return
-        raise
+    caller_cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.done() and task.cancelled():
+                break
+            caller_cancelled = True
+            continue
+
+    if task.done() and not task.cancelled():
+        exception = task.exception()
+        if exception is not None:
+            raise exception
+    if caller_cancelled:
+        raise asyncio.CancelledError
 
 
 def _finalize_scheduler_ownership(task: Task[None]) -> None:
@@ -76,13 +80,15 @@ def _finalize_scheduler_ownership(task: Task[None]) -> None:
     _state = "stopped"
     if task.cancelled():
         logger.info("route-state cleanup scheduler cancelled after drain")
-    elif task.exception() is not None:
+        return
+    exception = task.exception()
+    if exception is not None:
         logger.error(
             "route-state cleanup scheduler stopped with error",
-            exc_info=(type(task.exception()), task.exception(), task.exception().__traceback__),
+            exc_info=(type(exception), exception, exception.__traceback__),
         )
-    else:
-        logger.info("route-state cleanup scheduler stopped")
+        return
+    logger.info("route-state cleanup scheduler stopped")
 
 
 async def _scheduler_loop(wake_event: Event, thread_stop_event: ThreadEvent) -> None:
