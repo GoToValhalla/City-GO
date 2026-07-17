@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,13 @@ _json = JSONB().with_variant(JSON(), "sqlite")
 
 class UserRouteStateRegistry(Base):
     __tablename__ = "user_route_state_registry"
+    __table_args__ = (
+        Index(
+            "ix_user_route_state_registry_expires_at_route_id",
+            "expires_at",
+            "route_id",
+        ),
+    )
 
     route_id: Mapped[str] = mapped_column(String(255), primary_key=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -22,7 +29,6 @@ class UserRouteStateRegistry(Base):
     expires_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
-        index=True,
         default=lambda: datetime.utcnow() + timedelta(hours=24),
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
