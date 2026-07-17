@@ -5,7 +5,6 @@ from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from models.place import Place
 from models.route import Route
 from models.route_session import RouteSession, RouteSessionPoint
 from schemas.user_route import (
@@ -28,6 +27,7 @@ class UserRouteSessionError(ValueError):
 
 class UserRouteSessionService:
     def start(self, db: Session, request: UserRouteSessionStartRequest) -> UserRouteSessionState:
+        """Create or return one active session while the caller owns commit/rollback."""
         route_state = request.current_route
         scope = resolve_route_scope(db, route_state)
         places = load_ordered_places(db, route_state)
@@ -36,6 +36,9 @@ class UserRouteSessionService:
         if len(places) != len(route_state.points):
             raise UserRouteSessionError("Route contains places that are no longer available")
 
+        # The locked Route row serializes active-session discovery and creation for
+        # one logical user route. A missing Route is claimed through a savepoint so
+        # a uniqueness race never rolls back the caller's outer transaction.
         route = self._ensure_locked_route_record(db, route_state, scope)
         existing = (
             db.query(RouteSession)
@@ -73,12 +76,17 @@ class UserRouteSessionService:
                     is_skipped=False,
                 )
             )
-        db.commit()
-        db.refresh(session)
+        db.flush()
         return _session_state(session)
 
     def apply_action(self, db: Session, session_id: int, request: UserRouteSessionActionRequest) -> UserRouteSessionState:
-        session = db.query(RouteSession).filter(RouteSession.id == session_id).first()
+        """Apply one state transition under a row lock; caller owns commit."""
+        session = (
+            db.query(RouteSession)
+            .filter(RouteSession.id == session_id)
+            .with_for_update()
+            .first()
+        )
         if session is None:
             raise UserRouteSessionError("Route session not found")
         if session.status in TERMINAL_STATUSES and request.action not in {"abandon"}:
@@ -93,11 +101,13 @@ class UserRouteSessionService:
             session.status = "active"
             session.paused_at = None
         elif request.action == "finish":
+            _require_status(session, ACTIVE_STATUSES)
             session.status = "completed"
             session.completed_at = datetime.utcnow()
         elif request.action == "abandon":
-            session.status = "abandoned"
-            session.completed_at = datetime.utcnow()
+            if session.status not in TERMINAL_STATUSES:
+                session.status = "abandoned"
+                session.completed_at = datetime.utcnow()
         elif request.action in {"complete_point", "skip_point", "remove_point"}:
             _require_status(session, {"active", "paused"})
             point = _target_point(session, request.place_id)
@@ -112,8 +122,7 @@ class UserRouteSessionService:
             raise UserRouteSessionError(f"Unsupported route session action: {request.action}")
 
         session.updated_at = datetime.utcnow()
-        db.commit()
-        db.refresh(session)
+        db.flush()
         return _session_state(session)
 
     def _ensure_locked_route_record(
@@ -125,11 +134,9 @@ class UserRouteSessionService:
         slug = _route_slug(route_state.route_id)
         route = db.query(Route).filter(Route.slug == slug).with_for_update().first()
         if route is not None:
-            if int(route.city_id) != scope.city_id:
-                raise UserRouteSessionError("Stored route city does not match the signed route state")
-            return route
+            return _validate_route_scope(route, scope)
 
-        route = Route(
+        candidate = Route(
             city_id=scope.city_id,
             slug=slug,
             title=_route_title(route_state),
@@ -139,16 +146,24 @@ class UserRouteSessionService:
             route_mode="walk",
             is_active=True,
         )
-        db.add(route)
         try:
-            db.flush()
-            return route
+            with db.begin_nested():
+                db.add(candidate)
+                db.flush()
         except IntegrityError:
-            db.rollback()
+            # Only the savepoint is rolled back. No caller-owned pending work is
+            # discarded and the outer transaction remains usable.
             route = db.query(Route).filter(Route.slug == slug).with_for_update().first()
-            if route is None or int(route.city_id) != scope.city_id:
-                raise UserRouteSessionError("Concurrent route creation produced an incompatible route")
-            return route
+            if route is None:
+                raise UserRouteSessionError("Concurrent route creation could not be resolved")
+            return _validate_route_scope(route, scope)
+        return candidate
+
+
+def _validate_route_scope(route: Route, scope: PublicRouteScope) -> Route:
+    if int(route.city_id) != scope.city_id:
+        raise UserRouteSessionError("Stored route city does not match the signed route state")
+    return route
 
 
 def _session_place_ids(session: RouteSession) -> list[int]:
@@ -198,18 +213,26 @@ def _complete_point(session: RouteSession, point: RouteSessionPoint) -> None:
     point.is_visited = True
     point.is_skipped = False
     point.visited_at = datetime.utcnow()
+    point.skipped_at = None
     indexes = set(session.visited_point_indexes or [])
     indexes.add(int(point.ordering_index))
     session.visited_point_indexes = sorted(indexes)
+    skipped = set(session.skipped_point_indexes or [])
+    skipped.discard(int(point.ordering_index))
+    session.skipped_point_indexes = sorted(skipped)
 
 
 def _skip_point(session: RouteSession, point: RouteSessionPoint) -> None:
     point.is_skipped = True
     point.is_visited = False
     point.skipped_at = datetime.utcnow()
+    point.visited_at = None
     indexes = set(session.skipped_point_indexes or [])
     indexes.add(int(point.ordering_index))
     session.skipped_point_indexes = sorted(indexes)
+    visited = set(session.visited_point_indexes or [])
+    visited.discard(int(point.ordering_index))
+    session.visited_point_indexes = sorted(visited)
 
 
 def _advance_current_index(session: RouteSession) -> None:
@@ -220,9 +243,8 @@ def _advance_current_index(session: RouteSession) -> None:
         session.completed_at = datetime.utcnow()
         return
     session.current_point_index = int(next_open.ordering_index)
-    if session.status == "paused":
-        return
-    session.status = "active"
+    if session.status != "paused":
+        session.status = "active"
 
 
 def _route_slug(route_id: str) -> str:
@@ -236,9 +258,7 @@ def _route_title(route_state: UserRouteState) -> str:
 
 
 def _public_status(status: str) -> str:
-    if status in {"active", "paused", "completed", "abandoned"}:
-        return status
-    return "planned"
+    return status if status in {"active", "paused", "completed", "abandoned"} else "planned"
 
 
 def _require_status(session: RouteSession, allowed: set[str]) -> None:
