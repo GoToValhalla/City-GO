@@ -7,18 +7,14 @@ from schemas.user_route import UserRouteState
 from services.public_route_place_access import (
     PublicRouteScope,
     load_public_route_place,
-    load_public_route_places,
+    reconcile_public_route_places,
     resolve_route_scope,
 )
 
 
 def load_ordered_places(db: Session, route: UserRouteState) -> list[Place]:
     scope = resolve_route_scope(db, route)
-    return load_public_route_places(
-        db,
-        [point.place_id for point in route.points],
-        scope=scope,
-    )
+    return reconcile_public_route_places(db, route, scope=scope)
 
 
 def load_place(
