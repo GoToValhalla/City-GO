@@ -112,6 +112,23 @@ def test_router_uses_only_concrete_lifecycle_mutations_new() -> None:
     assert "lambda:" not in source
 
 
+def test_concrete_mutations_lock_before_domain_operation_new() -> None:
+    source = LIFECYCLE_PATH.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    for name in ("correct", "update_order", "replace_place", "add_place"):
+        function = next(node for node in tree.body if isinstance(node, ast.ClassDef) for node in node.body if isinstance(node, ast.FunctionDef) and node.name == name)
+        function_source = ast.get_source_segment(source, function) or ""
+        verify_position = function_source.find("verify_current_route_state")
+        service_position = min(
+            position
+            for marker in ("UserRouteCorrectService()", "UserRouteEditService()")
+            if (position := function_source.find(marker)) >= 0
+        )
+        assert verify_position >= 0
+        assert verify_position < service_position
+
+
 def test_session_start_service_is_only_called_by_lifecycle_owner_new() -> None:
     violations: list[str] = []
 
@@ -141,7 +158,7 @@ def test_scheduler_ownership_is_finalized_only_by_done_callback_new() -> None:
     assert "_state = \"stopped\"" in finalize_source
 
 
-def test_cancelled_stop_retains_ownership_until_scheduler_task_done_new(monkeypatch) -> None:
+def test_cancelled_stop_waits_for_scheduler_task_before_propagating_new(monkeypatch) -> None:
     async def exercise() -> None:
         release = asyncio.Event()
 
@@ -159,14 +176,16 @@ def test_cancelled_stop_retains_ownership_until_scheduler_task_done_new(monkeypa
         stop_task = asyncio.create_task(cleanup_scheduler.stop_route_state_cleanup_scheduler())
         await asyncio.sleep(0)
         stop_task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await stop_task
+        await asyncio.sleep(0)
 
+        assert not stop_task.done()
         assert cleanup_scheduler._task is task
         assert cleanup_scheduler._state == "stopping"
 
         release.set()
         await task
+        with pytest.raises(asyncio.CancelledError):
+            await stop_task
         await asyncio.sleep(0)
 
         assert cleanup_scheduler._task is None
