@@ -86,6 +86,7 @@ class RouteUserWarning(BaseModel):
 
 class UserRouteState(BaseModel):
     route_id: str
+    state_token: str | None = None
     revision: int = 1
     status: str = "ready"
     partial_reason: str | None = None
