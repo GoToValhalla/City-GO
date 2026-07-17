@@ -13,7 +13,6 @@ from services.public_route_place_access import lock_public_route_state, resolve_
 from services.user_route_state_integrity import sign_user_route_state, verify_user_route_state
 
 ROUTE_STATE_TTL = timedelta(hours=24)
-ROUTE_STATE_CLEANUP_BATCH_SIZE = 100
 
 
 class UserRouteStateConflictError(ValueError):
@@ -21,8 +20,11 @@ class UserRouteStateConflictError(ValueError):
 
 
 def register_initial_route_state(db: Session, state: UserRouteState) -> UserRouteState:
-    """Atomically claim a route id and issue state from locked public evidence."""
-    cleanup_expired_route_states(db)
+    """Atomically claim a route id and issue state from locked public evidence.
+
+    Expired-row cleanup is deliberately not part of this request transaction.
+    Cleanup has a separate owner and a separate short-lived transaction.
+    """
     signed = sign_user_route_state(state)
     preliminary_scope = resolve_route_scope(db, signed)
     if preliminary_scope is None:
@@ -117,33 +119,6 @@ def advance_route_state(
     registry.expires_at = _next_expiry()
     db.flush()
     return signed
-
-
-def cleanup_expired_route_states(
-    db: Session,
-    *,
-    now: datetime | None = None,
-    limit: int = ROUTE_STATE_CLEANUP_BATCH_SIZE,
-) -> int:
-    """Bounded opportunistic cleanup; every new registration removes old state."""
-    cutoff = now or datetime.utcnow()
-    route_ids = [
-        route_id
-        for (route_id,) in (
-            db.query(UserRouteStateRegistry.route_id)
-            .filter(UserRouteStateRegistry.expires_at <= cutoff)
-            .order_by(UserRouteStateRegistry.expires_at.asc())
-            .limit(max(1, int(limit)))
-            .all()
-        )
-    ]
-    if not route_ids:
-        return 0
-    return int(
-        db.query(UserRouteStateRegistry)
-        .filter(UserRouteStateRegistry.route_id.in_(route_ids))
-        .delete(synchronize_session=False)
-    )
 
 
 def _locked_registry(db: Session, route_id: str) -> UserRouteStateRegistry | None:
