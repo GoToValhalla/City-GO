@@ -36,9 +36,6 @@ class UserRouteSessionService:
         if len(places) != len(route_state.points):
             raise UserRouteSessionError("Route contains places that are no longer available")
 
-        # The locked Route row serializes active-session discovery and creation for
-        # one logical user route. A missing Route is claimed through a savepoint so
-        # a uniqueness race never rolls back the caller's outer transaction.
         route = self._ensure_locked_route_record(db, route_state, scope)
         existing = (
             db.query(RouteSession)
@@ -113,6 +110,8 @@ class UserRouteSessionService:
             point = _target_point(session, request.place_id)
             if point is None:
                 raise UserRouteSessionError("Route session point not found")
+            if point.is_visited or point.is_skipped:
+                raise UserRouteSessionError("Route session point is already finalized")
             if request.action == "complete_point":
                 _complete_point(session, point)
             else:
@@ -151,8 +150,6 @@ class UserRouteSessionService:
                 db.add(candidate)
                 db.flush()
         except IntegrityError:
-            # Only the savepoint is rolled back. No caller-owned pending work is
-            # discarded and the outer transaction remains usable.
             route = db.query(Route).filter(Route.slug == slug).with_for_update().first()
             if route is None:
                 raise UserRouteSessionError("Concurrent route creation could not be resolved")
