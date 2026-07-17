@@ -79,7 +79,7 @@ def publish_city(
     reason: str | None = None,
     override_readiness_gate: bool = False,
 ) -> CityPublicationResult | None:
-    city = db.query(City).filter(City.id == city_id).first()
+    city = db.query(City).filter(City.id == city_id).with_for_update().first()
     if city is None:
         return None
 
@@ -92,7 +92,13 @@ def publish_city(
                 + "). Явный override_readiness_gate=true требуется для публикации без готового снапшота."
             )
 
-    places = db.query(Place).filter(Place.city_id == city.id).order_by(Place.id.asc()).all()
+    places = (
+        db.query(Place)
+        .filter(Place.city_id == city.id)
+        .order_by(Place.id.asc())
+        .with_for_update()
+        .all()
+    )
     publishable_places = [place for place in places if place_publication_eligibility(place).eligible]
     if not publishable_places:
         raise ValueError("Нельзя опубликовать город: нет ни одного места, прошедшего публичный quality gate.")
@@ -143,11 +149,17 @@ def publish_city(
 
 
 def unpublish_city(db: Session, city_id: int, *, actor: str, reason: str) -> CityPublicationResult | None:
-    city = db.query(City).filter(City.id == city_id).first()
+    city = db.query(City).filter(City.id == city_id).with_for_update().first()
     if city is None:
         return None
 
-    places = db.query(Place).filter(Place.city_id == city.id).all()
+    places = (
+        db.query(Place)
+        .filter(Place.city_id == city.id)
+        .order_by(Place.id.asc())
+        .with_for_update()
+        .all()
+    )
     now = datetime.utcnow()
     old_value = _city_publication_snapshot(city)
 
