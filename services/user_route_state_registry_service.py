@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timedelta
 
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -30,7 +31,7 @@ def register_initial_route_state(db: Session, state: UserRouteState) -> UserRout
     if preliminary_scope is None:
         raise UserRouteStateConflictError("Route state has no valid public scope.")
 
-    expires_at = _next_expiry()
+    expires_at = _next_expiry(db)
     values = {
         "route_id": str(signed.route_id),
         "revision": int(signed.revision),
@@ -77,7 +78,7 @@ def verify_current_route_state(
     if lock:
         query = query.with_for_update()
     registry = query.first()
-    if registry is None or _is_expired(registry):
+    if registry is None or _is_expired(db, registry):
         raise UserRouteStateConflictError("Route state is not registered or has expired.")
 
     scope = (
@@ -98,7 +99,7 @@ def advance_route_state(
     registry: UserRouteStateRegistry,
 ) -> UserRouteState:
     """Issue one new revision while registry and all public evidence are locked."""
-    if str(registry.route_id) != str(previous.route_id) or _is_expired(registry):
+    if str(registry.route_id) != str(previous.route_id) or _is_expired(db, registry):
         raise UserRouteStateConflictError("Locked registry is invalid or expired.")
 
     previous_scope = lock_public_route_state(db, previous, require_eligible=False)
@@ -116,7 +117,7 @@ def advance_route_state(
     registry.city_id = next_scope.city_id
     registry.place_ids = _place_ids(signed)
     registry.token_digest = _token_digest(signed)
-    registry.expires_at = _next_expiry()
+    registry.expires_at = _next_expiry(db)
     db.flush()
     return signed
 
@@ -153,9 +154,17 @@ def _token_digest(state: UserRouteState) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def _next_expiry() -> datetime:
-    return datetime.utcnow() + ROUTE_STATE_TTL
+def _database_now(db: Session) -> datetime:
+    expression = "clock_timestamp()" if db.get_bind().dialect.name == "postgresql" else "CURRENT_TIMESTAMP"
+    value = db.execute(text(f"SELECT {expression}")).scalar_one()
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    return value
 
 
-def _is_expired(registry: UserRouteStateRegistry) -> bool:
-    return registry.expires_at <= datetime.utcnow()
+def _next_expiry(db: Session) -> datetime:
+    return _database_now(db) + ROUTE_STATE_TTL
+
+
+def _is_expired(db: Session, registry: UserRouteStateRegistry) -> bool:
+    return registry.expires_at <= _database_now(db)
