@@ -8,7 +8,7 @@ import os
 from core.config import settings
 from schemas.user_route import UserRouteState
 
-_LOCAL_SECRET = "city-go-local-route-state-integrity"
+_TEST_SECRET = "city-go-test-route-state-integrity"
 
 
 class UserRouteStateIntegrityError(ValueError):
@@ -22,11 +22,19 @@ def sign_user_route_state(state: UserRouteState) -> UserRouteState:
 
 def verify_user_route_state(state: UserRouteState) -> None:
     supplied = str(state.state_token or "")
-    if not supplied and _is_test() and not _is_production():
+    if not supplied and _is_test():
         return
     expected = hmac.new(_secret(), _canonical_payload(state), hashlib.sha256).hexdigest()
     if not supplied or not hmac.compare_digest(supplied, expected):
         raise UserRouteStateIntegrityError("Route state signature is missing or invalid.")
+
+
+def validate_route_state_runtime_config() -> None:
+    """Fail before serving traffic; APP_ENV is not trusted as a security boundary."""
+    if _is_test():
+        return
+    if not str(settings.user_route_state_secret or "").strip():
+        raise RuntimeError("USER_ROUTE_STATE_SECRET is required outside the test runtime.")
 
 
 def _canonical_payload(state: UserRouteState) -> bytes:
@@ -38,13 +46,9 @@ def _secret() -> bytes:
     configured = str(settings.user_route_state_secret or "").strip()
     if configured:
         return configured.encode("utf-8")
-    if _is_production():
-        raise UserRouteStateIntegrityError("USER_ROUTE_STATE_SECRET is required in production.")
-    return _LOCAL_SECRET.encode("utf-8")
-
-
-def _is_production() -> bool:
-    return str(settings.app_env or "").strip().lower() in {"prod", "production"}
+    if _is_test():
+        return _TEST_SECRET.encode("utf-8")
+    raise UserRouteStateIntegrityError("USER_ROUTE_STATE_SECRET is required outside the test runtime.")
 
 
 def _is_test() -> bool:
