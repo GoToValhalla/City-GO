@@ -13,7 +13,8 @@ from schemas.user_route import UserRouteState
 from services.public_route_place_access import lock_public_route_state, resolve_route_scope
 from services.user_route_state_integrity import sign_user_route_state, verify_user_route_state
 
-ROUTE_STATE_TTL = timedelta(hours=24)
+ACTIVE_ROUTE_STATE_TTL = timedelta(hours=24)
+PREVIEW_ROUTE_STATE_TTL = timedelta(hours=1)
 
 
 class UserRouteStateConflictError(ValueError):
@@ -31,7 +32,7 @@ def register_initial_route_state(db: Session, state: UserRouteState) -> UserRout
     if preliminary_scope is None:
         raise UserRouteStateConflictError("Route state has no valid public scope.")
 
-    expires_at = _next_expiry(db)
+    expires_at = _next_expiry(db, state=signed)
     values = {
         "route_id": str(signed.route_id),
         "revision": int(signed.revision),
@@ -117,7 +118,7 @@ def advance_route_state(
     registry.city_id = next_scope.city_id
     registry.place_ids = _place_ids(signed)
     registry.token_digest = _token_digest(signed)
-    registry.expires_at = _next_expiry(db, after=registry.expires_at)
+    registry.expires_at = _next_expiry(db, state=signed, after=registry.expires_at)
     db.flush()
     return signed
 
@@ -166,8 +167,17 @@ def _database_now(db: Session) -> datetime:
     return value
 
 
-def _next_expiry(db: Session, *, after: datetime | None = None) -> datetime:
-    candidate = _database_now(db) + ROUTE_STATE_TTL
+def _state_ttl(state: UserRouteState) -> timedelta:
+    return PREVIEW_ROUTE_STATE_TTL if str(state.status or "").strip().lower() == "preview" else ACTIVE_ROUTE_STATE_TTL
+
+
+def _next_expiry(
+    db: Session,
+    *,
+    state: UserRouteState,
+    after: datetime | None = None,
+) -> datetime:
+    candidate = _database_now(db) + _state_ttl(state)
     if after is not None and candidate <= after:
         return after + timedelta(microseconds=1)
     return candidate
