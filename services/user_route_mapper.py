@@ -19,15 +19,16 @@ def final_route_to_state(
     intent: UserRouteIntent,
     *,
     revision: int = 1,
-    status: str = "ready",
+    status: str | None = None,
 ) -> UserRouteState:
     explanation = ExplainabilityService().build_route_explanation(final)
     points = list(getattr(final, "points", []) or [])
     raw_warnings = [str(item) for item in getattr(final, "warnings", []) or []]
+    resolved_status = str(status or getattr(final, "status", None) or "ready")
     return UserRouteState(
         route_id=str(final.route_id),
         revision=revision,
-        status=str(getattr(final, "status", None) or status),
+        status=resolved_status,
         partial_reason=getattr(final, "partial_reason", None),
         context=intent,
         total_places=int(getattr(final, "total_places", len(points)) or len(points)),
