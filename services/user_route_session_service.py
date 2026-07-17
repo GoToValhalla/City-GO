@@ -2,19 +2,21 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from models.city import City
 from models.place import Place
 from models.route import Route
 from models.route_session import RouteSession, RouteSessionPoint
 from schemas.user_route import (
     UserRouteSessionActionRequest,
+    UserRouteSessionPointState,
     UserRouteSessionStartRequest,
     UserRouteSessionState,
-    UserRouteSessionPointState,
     UserRouteState,
 )
+from services.public_route_place_access import PublicRouteScope, resolve_route_scope
+from services.user_route_place_loader import load_ordered_places
 
 ACTIVE_STATUSES = {"planned", "active", "paused"}
 TERMINAL_STATUSES = {"completed", "abandoned"}
@@ -27,16 +29,24 @@ class UserRouteSessionError(ValueError):
 class UserRouteSessionService:
     def start(self, db: Session, request: UserRouteSessionStartRequest) -> UserRouteSessionState:
         route_state = request.current_route
-        if not route_state.points:
-            raise UserRouteSessionError("Cannot start an empty route")
-        route = self._ensure_route_record(db, route_state)
+        scope = resolve_route_scope(db, route_state)
+        places = load_ordered_places(db, route_state)
+        if scope is None or not route_state.points:
+            raise UserRouteSessionError("Cannot start an invalid or empty route")
+        if len(places) != len(route_state.points):
+            raise UserRouteSessionError("Route contains places that are no longer available")
+
+        route = self._ensure_locked_route_record(db, route_state, scope)
         existing = (
             db.query(RouteSession)
             .filter(RouteSession.route_id == route.id, RouteSession.status.in_(ACTIVE_STATUSES))
             .order_by(RouteSession.id.desc())
             .first()
         )
+        expected_place_ids = [int(place.id) for place in places]
         if existing is not None:
+            if _session_place_ids(existing) != expected_place_ids:
+                raise UserRouteSessionError("Active route session does not match the current route state")
             return _session_state(existing)
 
         session = RouteSession(
@@ -50,18 +60,15 @@ class UserRouteSessionService:
         )
         db.add(session)
         db.flush()
-        for index, point in enumerate(route_state.points):
-            place_id = _place_id(point.place_id)
-            if place_id is None:
-                raise UserRouteSessionError(f"Route point {point.place_id} is not a persisted place")
+        for index, place in enumerate(places):
             db.add(
                 RouteSessionPoint(
                     session_id=session.id,
-                    place_id=place_id,
+                    place_id=int(place.id),
                     ordering_index=index,
-                    title=point.title,
-                    lat=point.lat,
-                    lng=point.lng,
+                    title=place.title,
+                    lat=float(place.lat),
+                    lng=float(place.lng),
                     is_visited=False,
                     is_skipped=False,
                 )
@@ -109,16 +116,21 @@ class UserRouteSessionService:
         db.refresh(session)
         return _session_state(session)
 
-    def _ensure_route_record(self, db: Session, route_state: UserRouteState) -> Route:
+    def _ensure_locked_route_record(
+        self,
+        db: Session,
+        route_state: UserRouteState,
+        scope: PublicRouteScope,
+    ) -> Route:
         slug = _route_slug(route_state.route_id)
-        route = db.query(Route).filter(Route.slug == slug).first()
+        route = db.query(Route).filter(Route.slug == slug).with_for_update().first()
         if route is not None:
+            if int(route.city_id) != scope.city_id:
+                raise UserRouteSessionError("Stored route city does not match the signed route state")
             return route
-        city = _city_for_route(db, route_state)
-        if city is None:
-            raise UserRouteSessionError("Route city not found")
+
         route = Route(
-            city_id=city.id,
+            city_id=scope.city_id,
             slug=slug,
             title=_route_title(route_state),
             short_description=str((route_state.explanation or {}).get("summary") or "User route session"),
@@ -128,8 +140,19 @@ class UserRouteSessionService:
             is_active=True,
         )
         db.add(route)
-        db.flush()
-        return route
+        try:
+            db.flush()
+            return route
+        except IntegrityError:
+            db.rollback()
+            route = db.query(Route).filter(Route.slug == slug).with_for_update().first()
+            if route is None or int(route.city_id) != scope.city_id:
+                raise UserRouteSessionError("Concurrent route creation produced an incompatible route")
+            return route
+
+
+def _session_place_ids(session: RouteSession) -> list[int]:
+    return [int(point.place_id) for point in sorted(list(session.points or []), key=lambda item: int(item.ordering_index))]
 
 
 def _session_state(session: RouteSession) -> UserRouteSessionState:
@@ -202,20 +225,6 @@ def _advance_current_index(session: RouteSession) -> None:
     session.status = "active"
 
 
-def _city_for_route(db: Session, route_state: UserRouteState) -> City | None:
-    city_slug = route_state.context.city_id or route_state.context.visit_city_id or (route_state.points[0].city_slug if route_state.points else None)
-    if city_slug:
-        city = db.query(City).filter(City.slug == str(city_slug)).first()
-        if city is not None:
-            return city
-    first_place_id = _place_id(route_state.points[0].place_id) if route_state.points else None
-    if first_place_id:
-        place = db.query(Place).filter(Place.id == first_place_id).first()
-        if place is not None:
-            return db.query(City).filter(City.id == place.city_id).first()
-    return None
-
-
 def _route_slug(route_id: str) -> str:
     safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in str(route_id))[:180]
     return f"user-route-{safe or 'unknown'}"
@@ -235,16 +244,6 @@ def _public_status(status: str) -> str:
 def _require_status(session: RouteSession, allowed: set[str]) -> None:
     if session.status not in allowed:
         raise UserRouteSessionError(f"Invalid session transition from {session.status}")
-
-
-def _place_id(value: str | int | None) -> int | None:
-    if value is None:
-        return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
 
 
 def _iso(value: object) -> str | None:
