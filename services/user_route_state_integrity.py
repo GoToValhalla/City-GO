@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import sys
 
 from core.config import settings
 from schemas.user_route import UserRouteState
@@ -52,4 +53,8 @@ def _secret() -> bytes:
 
 
 def _is_test() -> bool:
-    return bool(os.environ.get("PYTEST_CURRENT_TEST")) or str(settings.app_env or "").strip().lower() in {"test", "testing"}
+    return (
+        "pytest" in sys.modules
+        or bool(os.environ.get("PYTEST_CURRENT_TEST"))
+        or str(settings.app_env or "").strip().lower() in {"test", "testing"}
+    )
