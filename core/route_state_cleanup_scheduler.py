@@ -17,7 +17,7 @@ _task: Task[None] | None = None
 
 def start_route_state_cleanup_scheduler() -> None:
     global _task
-    if _task is not None:
+    if _task is not None and not _task.done():
         return
     _task = asyncio.create_task(_scheduler_loop())
     logger.info("route-state cleanup scheduler started")
@@ -39,7 +39,12 @@ async def stop_route_state_cleanup_scheduler() -> None:
 
 async def _scheduler_loop() -> None:
     while True:
-        await asyncio.to_thread(_run_bounded_cleanup)
+        try:
+            await asyncio.to_thread(_run_bounded_cleanup)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("route-state cleanup scheduler iteration failed")
         await asyncio.sleep(ROUTE_STATE_CLEANUP_INTERVAL_SECONDS)
 
 
