@@ -18,59 +18,71 @@ _task: Task[None] | None = None
 _wake_event: Event | None = None
 _thread_stop_event: ThreadEvent | None = None
 _active_batch: Task[int] | None = None
+_state = "stopped"
 
 
 def start_route_state_cleanup_scheduler() -> None:
-    global _task, _thread_stop_event, _wake_event
+    global _state, _task, _thread_stop_event, _wake_event
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return
-    if _task is not None and not _task.done():
+    # Ownership remains present throughout running and stopping. A restart is
+    # permitted only after the previous scheduler task itself reaches done().
+    if _task is not None:
         return
+
     _wake_event = asyncio.Event()
     _thread_stop_event = ThreadEvent()
-    _task = asyncio.create_task(_scheduler_loop(_wake_event, _thread_stop_event))
+    task = asyncio.create_task(_scheduler_loop(_wake_event, _thread_stop_event))
+    _task = task
+    _state = "running"
+    task.add_done_callback(_finalize_scheduler_ownership)
     logger.info("route-state cleanup scheduler started")
 
 
 async def stop_route_state_cleanup_scheduler() -> None:
-    global _active_batch, _task, _thread_stop_event, _wake_event
+    global _state
     task = _task
     wake_event = _wake_event
     thread_stop_event = _thread_stop_event
     if task is None:
         return
 
+    _state = "stopping"
     if thread_stop_event is not None:
         thread_stop_event.set()
     if wake_event is not None:
         wake_event.set()
 
-    caller_cancelled = False
     try:
         await asyncio.shield(task)
     except asyncio.CancelledError:
-        # If the owned scheduler task was cancelled externally, its loop has
-        # already drained the active thread batch in its finally block. Normalize
-        # that terminal state so application shutdown can continue. If this stop
-        # coroutine itself was cancelled, preserve the caller cancellation after
-        # owned work is drained.
-        caller_cancelled = not task.cancelled()
-    finally:
-        batch = _active_batch
-        if batch is not None and not batch.done():
-            try:
-                await asyncio.shield(batch)
-            except asyncio.CancelledError:
-                caller_cancelled = True
-        if _task is task:
-            _task = None
-            _wake_event = None
-            _thread_stop_event = None
-            _active_batch = None
+        # Cancellation of the owned scheduler task is normalized after its loop
+        # has drained the active thread batch. Cancellation of this caller is
+        # propagated, but ownership is deliberately retained until the task's
+        # done callback runs, preventing stop/start overlap.
+        if task.done() and task.cancelled():
+            return
+        raise
 
-    logger.info("route-state cleanup scheduler stopped")
-    if caller_cancelled:
-        raise asyncio.CancelledError
+
+def _finalize_scheduler_ownership(task: Task[None]) -> None:
+    global _active_batch, _state, _task, _thread_stop_event, _wake_event
+    if _task is not task:
+        return
+    _task = None
+    _wake_event = None
+    _thread_stop_event = None
+    _active_batch = None
+    _state = "stopped"
+    if task.cancelled():
+        logger.info("route-state cleanup scheduler cancelled after drain")
+    elif task.exception() is not None:
+        logger.error(
+            "route-state cleanup scheduler stopped with error",
+            exc_info=(type(task.exception()), task.exception(), task.exception().__traceback__),
+        )
+    else:
+        logger.info("route-state cleanup scheduler stopped")
 
 
 async def _scheduler_loop(wake_event: Event, thread_stop_event: ThreadEvent) -> None:
