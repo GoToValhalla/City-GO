@@ -48,9 +48,18 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        await _stop_schedulers()
+
+
+async def _stop_schedulers() -> None:
+    """Stop every owned scheduler even if an earlier stop raises or is cancelled."""
+    try:
         await stop_route_state_cleanup_scheduler()
-        await stop_import_worker_scheduler()
-        await stop_place_verification_scheduler()
+    finally:
+        try:
+            await stop_import_worker_scheduler()
+        finally:
+            await stop_place_verification_scheduler()
 
 
 def _is_production() -> bool:
