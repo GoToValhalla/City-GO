@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from collections.abc import Iterable
+
 from sqlalchemy.orm import Query, Session
 
 from models.city import City
@@ -8,48 +11,59 @@ from schemas.user_route import UserRouteIntent, UserRouteState
 from services.route_eligibility import apply_public_route_eligible_filters
 
 
-def resolve_public_city_id(db: Session, city_slug: str | None) -> int | None:
-    """Resolve a public city slug to its database ID, fail closed otherwise."""
-    if not city_slug:
+@dataclass(frozen=True)
+class PublicRouteScope:
+    city_id: int
+    city_slug: str
+
+
+def resolve_public_city_scope(db: Session, city_slug: str | None) -> PublicRouteScope | None:
+    """Resolve a public city slug to one typed database scope."""
+    slug = str(city_slug or "").strip()
+    if not slug:
         return None
     row = (
-        db.query(City.id)
+        db.query(City.id, City.slug)
         .filter(
-            City.slug == city_slug,
+            City.slug == slug,
             City.is_active.is_(True),
             City.launch_status == "published",
         )
         .first()
     )
-    return int(row[0]) if row is not None else None
+    return PublicRouteScope(city_id=int(row.id), city_slug=str(row.slug)) if row is not None else None
 
 
-def resolve_intent_city_id(db: Session, intent: UserRouteIntent) -> int | None:
-    return resolve_public_city_id(db, intent.city_id)
+def resolve_intent_scope(db: Session, intent: UserRouteIntent) -> PublicRouteScope | None:
+    return resolve_public_city_scope(db, intent.city_id)
 
 
-def resolve_route_city_id(db: Session, route: UserRouteState) -> int | None:
-    """Derive one authoritative city scope from DB rows referenced by a route.
+def resolve_route_scope(db: Session, route: UserRouteState) -> PublicRouteScope | None:
+    """Validate the complete route identity and derive one authoritative scope.
 
-    Client-supplied point.city_slug is never trusted. Existing point IDs must all
-    exist and belong to exactly one city. For an empty route, the public city slug
-    in route.context is resolved through the database.
+    Every point ID must be a unique positive decimal ID, every row must exist, all
+    rows must belong to one active published city, and an explicit context city
+    slug must resolve to that same city. Any inconsistency invalidates the whole
+    route instead of silently dropping or re-scoping points.
     """
-    ids = _numeric_ids(point.place_id for point in route.points)
-    if not ids:
-        return resolve_intent_city_id(db, route.context)
+    raw_ids = [point.place_id for point in route.points]
+    if not raw_ids:
+        return resolve_intent_scope(db, route.context)
 
-    unique_ids = set(ids)
-    rows = db.query(Place.id, Place.city_id).filter(Place.id.in_(unique_ids)).all()
-    if len(rows) != len(unique_ids):
+    ids = _strict_numeric_ids(raw_ids)
+    if ids is None or len(set(ids)) != len(ids):
         return None
-    city_ids = {int(row.city_id) for row in rows if row.city_id is not None}
+
+    rows = db.query(Place.id, Place.city_id).filter(Place.id.in_(ids)).all()
+    if len(rows) != len(ids) or any(row.city_id is None for row in rows):
+        return None
+    city_ids = {int(row.city_id) for row in rows}
     if len(city_ids) != 1:
         return None
 
     city_id = next(iter(city_ids))
-    public_city = (
-        db.query(City.id)
+    row = (
+        db.query(City.id, City.slug)
         .filter(
             City.id == city_id,
             City.is_active.is_(True),
@@ -57,35 +71,61 @@ def resolve_route_city_id(db: Session, route: UserRouteState) -> int | None:
         )
         .first()
     )
-    return city_id if public_city is not None else None
-
-
-def apply_public_route_city_scope(query: Query, *, city_id: int | None) -> Query:
-    """Apply the complete public route contract plus one authoritative city."""
-    query = apply_public_route_eligible_filters(query)
-    if city_id is None:
-        return query.filter(False)
-    return query.filter(Place.city_id == city_id)
-
-
-def load_public_route_place(db: Session, place_id: str | None, *, city_id: int | None) -> Place | None:
-    if place_id is None or not place_id.isdigit():
+    if row is None:
         return None
-    query = db.query(Place).filter(Place.id == int(place_id))
-    return apply_public_route_city_scope(query, city_id=city_id).first()
+
+    scope = PublicRouteScope(city_id=int(row.id), city_slug=str(row.slug))
+    context_slug = str(route.context.city_id or "").strip()
+    if context_slug:
+        context_scope = resolve_public_city_scope(db, context_slug)
+        if context_scope != scope:
+            return None
+    return scope
 
 
-def load_public_route_places(db: Session, place_ids: list[str], *, city_id: int | None) -> list[Place]:
-    ids = _numeric_ids(place_ids)
-    if not ids or city_id is None:
+def public_route_place_query(db: Session, *, scope: PublicRouteScope | None) -> Query:
+    """The only public route-place query constructor."""
+    query = apply_public_route_eligible_filters(db.query(Place))
+    if scope is None:
+        return query.filter(False)
+    return query.filter(Place.city_id == scope.city_id)
+
+
+def load_public_route_place(
+    db: Session,
+    place_id: str | None,
+    *,
+    scope: PublicRouteScope | None,
+) -> Place | None:
+    parsed = _strict_numeric_ids([place_id])
+    if parsed is None:
+        return None
+    return public_route_place_query(db, scope=scope).filter(Place.id == parsed[0]).first()
+
+
+def load_public_route_places(
+    db: Session,
+    place_ids: list[str],
+    *,
+    scope: PublicRouteScope | None,
+) -> list[Place]:
+    ids = _strict_numeric_ids(place_ids)
+    if ids is None or not ids or len(set(ids)) != len(ids) or scope is None:
         return []
-    places = apply_public_route_city_scope(
-        db.query(Place).filter(Place.id.in_(set(ids))),
-        city_id=city_id,
-    ).all()
+    places = public_route_place_query(db, scope=scope).filter(Place.id.in_(ids)).all()
+    if len(places) != len(ids):
+        return []
     by_id = {int(place.id): place for place in places}
-    return [by_id[place_id] for place_id in ids if place_id in by_id]
+    return [by_id[place_id] for place_id in ids]
 
 
-def _numeric_ids(values) -> list[int]:
-    return [int(value) for value in values if isinstance(value, str) and value.isdigit()]
+def _strict_numeric_ids(values: Iterable[object]) -> list[int] | None:
+    result: list[int] = []
+    for value in values:
+        if not isinstance(value, str) or not value.isdigit():
+            return None
+        parsed = int(value)
+        if parsed <= 0:
+            return None
+        result.append(parsed)
+    return result
