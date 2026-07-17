@@ -53,7 +53,7 @@ class UserRouteSlotBuildService:
             selected_id = _optional_int(slot.get("selected_place_id"))
             place = self._selected_place(db, selected_id, requested, used_ids, scope=scope) if selected_id else None
             if place is None:
-                place = self._first_slot_candidate(db, requested, used_ids, scope=scope)
+                place = self._first_slot_candidate(db, request, requested, used_ids, scope=scope)
             if place is None:
                 status = "missing_required" if required else "missing_optional"
                 matches.append(SlotMatch(slot_id, requested, None, status, f"Не нашли подходящую точку для слота {requested or slot_id}."))
@@ -105,7 +105,7 @@ class UserRouteSlotBuildService:
         requested: str,
         used_ids: set[int],
         *,
-        scope: PublicRouteScope | None,
+        scope: PublicRouteScope | None = None,
     ) -> Place | None:
         if not place_id or place_id in used_ids:
             return None
@@ -119,15 +119,17 @@ class UserRouteSlotBuildService:
     def _first_slot_candidate(
         self,
         db: Session,
+        request: UserRouteBuildRequest,
         requested: str,
         used_ids: set[int],
         *,
-        scope: PublicRouteScope | None,
+        scope: PublicRouteScope | None = None,
     ) -> Place | None:
+        effective_scope = scope or resolve_intent_scope(db, request)
         categories = RELATED_SLOT_CATEGORIES.get(requested, (requested,)) if requested else ()
         if not categories:
             return None
-        query = public_route_place_query(db, scope=scope).filter(Place.category.in_(categories))
+        query = public_route_place_query(db, scope=effective_scope).filter(Place.category.in_(categories))
         if used_ids:
             query = query.filter(~Place.id.in_(sorted(used_ids)))
         return query.order_by(Place.id.asc()).first()
