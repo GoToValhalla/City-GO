@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 
-from schemas.user_route import UserRouteState
 from services.user_route_state_registry_service import (
     ACTIVE_ROUTE_STATE_TTL,
     PREVIEW_ROUTE_STATE_TTL,
@@ -14,8 +14,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_preview_states_have_shorter_ttl_than_active_states_new() -> None:
-    preview = UserRouteState(route_id="preview", status="preview")
-    active = UserRouteState(route_id="active", status="ready")
+    preview = SimpleNamespace(status="preview")
+    active = SimpleNamespace(status="ready")
 
     assert _state_ttl(preview) == PREVIEW_ROUTE_STATE_TTL
     assert _state_ttl(active) == ACTIVE_ROUTE_STATE_TTL
