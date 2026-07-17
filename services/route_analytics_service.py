@@ -10,7 +10,8 @@ from models.route_build_event import RouteBuildEvent
 
 
 def record_route_build(
-    route: object,
+    route_or_db: object,
+    route: object | None = None,
     *,
     source: str,
     latency_ms: int,
@@ -19,12 +20,14 @@ def record_route_build(
 ) -> bool:
     """Persist analytics in an isolated transaction.
 
-    Route-state request sessions must never be committed or rolled back by
-    analytics. Failure is intentionally non-fatal for the completed request.
+    The optional second positional argument preserves legacy ``(db, route)``
+    callers, but the supplied caller Session is deliberately ignored. Route-state
+    request sessions must never be committed or rolled back by analytics.
     """
+    event_route = route_or_db if route is None else route
     db = SessionLocal()
     try:
-        db.add(_event(route, source, latency_ms, city_id, user_id))
+        db.add(_event(event_route, source, latency_ms, city_id, user_id))
         db.commit()
         return True
     except SQLAlchemyError:
