@@ -52,4 +52,4 @@ def _secret() -> bytes:
 
 
 def _is_test() -> bool:
-    return bool(os.environ.get("PYTEST_CURRENT_TEST")) or str(settings.app_env or "").strip().lower() in {"test", "testing"}
+    return bool(os.environ.get("PYTEST_CURRENT_TEST"))
