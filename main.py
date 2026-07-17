@@ -18,9 +18,9 @@ from core.place_verification_scheduler import (
     start_place_verification_scheduler,
     stop_place_verification_scheduler,
 )
+from core.public_access_middleware import public_access_middleware
 from core.readiness import check_database_ready
 from core.request_logging import log_request
-from core.public_access_middleware import public_access_middleware
 from core.router_setup import include_app_routers
 from core.version import get_backend_version
 from db.dependencies import get_db
@@ -29,12 +29,17 @@ from services.feature_toggle_service import is_toggle_enabled
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    # Fail-fast: в production admin token обязателен.
-    if settings.app_env == "production" and not settings.admin_api_token:
-        raise RuntimeError(
-            "ADMIN_API_TOKEN must be set in production. "
-            "Set it via environment variable before starting the app."
-        )
+    if settings.app_env == "production":
+        missing: list[str] = []
+        if not str(settings.admin_api_token or "").strip():
+            missing.append("ADMIN_API_TOKEN")
+        if not str(settings.user_route_state_secret or "").strip():
+            missing.append("USER_ROUTE_STATE_SECRET")
+        if missing:
+            raise RuntimeError(
+                "Missing required production secrets: " + ", ".join(missing)
+            )
+
     start_place_verification_scheduler()
     start_import_worker_scheduler()
     try:
@@ -102,8 +107,5 @@ def ready() -> JSONResponse | dict[str, str]:
 
 @app.get("/features/public")
 def public_features(db: Session = Depends(get_db)) -> dict[str, bool]:
-    """Unauthenticated read of feature flags the public frontend needs
-    before rendering a gated surface (e.g. the Telegram Mini App). Not a
-    general toggle-read API — deliberately limited to the flags that a
-    public client must check client-side."""
+    """Expose only public feature flags required by public clients."""
     return {"tma_enabled": is_toggle_enabled(db, "tma_enabled")}
