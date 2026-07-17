@@ -51,7 +51,7 @@ def register_initial_route_state(db: Session, state: UserRouteState) -> UserRout
 
     db.execute(statement)
     registry = _locked_registry(db, str(signed.route_id))
-    locked_scope = lock_public_route_state(db, signed)
+    locked_scope = lock_public_route_state(db, signed, require_eligible=True)
     if (
         registry is None
         or locked_scope is None
@@ -78,7 +78,11 @@ def verify_current_route_state(
     if registry is None or _is_expired(registry):
         raise UserRouteStateConflictError("Route state is not registered or has expired.")
 
-    scope = lock_public_route_state(db, state) if lock else resolve_route_scope(db, state)
+    scope = (
+        lock_public_route_state(db, state, require_eligible=False)
+        if lock
+        else resolve_route_scope(db, state)
+    )
     if scope is None or not _matches(registry, state, city_id=scope.city_id):
         raise UserRouteStateConflictError("Route state is stale or does not match the current server revision.")
     return registry
@@ -95,13 +99,13 @@ def advance_route_state(
     if str(registry.route_id) != str(previous.route_id) or _is_expired(registry):
         raise UserRouteStateConflictError("Locked registry is invalid or expired.")
 
-    previous_scope = lock_public_route_state(db, previous)
+    previous_scope = lock_public_route_state(db, previous, require_eligible=False)
     if previous_scope is None or not _matches(registry, previous, city_id=previous_scope.city_id):
         raise UserRouteStateConflictError("Previous route state lost ownership before advancement.")
 
     expected_revision = int(previous.revision) + 1
     next_state = next_state.model_copy(update={"route_id": previous.route_id, "revision": expected_revision})
-    next_scope = lock_public_route_state(db, next_state)
+    next_scope = lock_public_route_state(db, next_state, require_eligible=True)
     if next_scope is None or next_scope.city_id != previous_scope.city_id:
         raise UserRouteStateConflictError("Next route state has no valid matching public scope.")
 
