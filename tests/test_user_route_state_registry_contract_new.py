@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import ast
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from models.user_route_state_registry import UserRouteStateRegistry
 from schemas.user_route import UserRouteIntent, UserRoutePoint, UserRouteState
 from services.user_route_state_registry_service import (
     UserRouteStateConflictError,
     advance_route_state,
+    cleanup_expired_route_states,
     register_initial_route_state,
     verify_current_route_state,
 )
@@ -98,6 +101,38 @@ def test_advance_rejects_scope_change_new(db_session, city_factory, place_factor
         )
 
 
+def test_advance_rejects_place_that_lost_route_eligibility_new(db_session, city_factory, place_factory) -> None:
+    city = city_factory(slug="registry-eligibility-city")
+    place = place_factory(city_id=city.id, slug="registry-eligibility-place", category="museum")
+    previous = register_initial_route_state(db_session, _state(place, city.slug))
+    registry = verify_current_route_state(db_session, previous, lock=True)
+    place.is_route_eligible = False
+    db_session.flush()
+
+    with pytest.raises(UserRouteStateConflictError):
+        advance_route_state(db_session, previous=previous, next_state=previous, registry=registry)
+
+
+def test_expired_registry_is_rejected_and_cleaned_in_bounded_batches_new(db_session, city_factory, place_factory) -> None:
+    city = city_factory(slug="registry-expiry-city")
+    places = [
+        place_factory(city_id=city.id, slug=f"registry-expiry-place-{index}", category="museum")
+        for index in range(3)
+    ]
+    issued = [
+        register_initial_route_state(db_session, _state(place, city.slug, route_id=f"registry-expiry-{index}"))
+        for index, place in enumerate(places)
+    ]
+    expired_at = datetime.utcnow() - timedelta(seconds=1)
+    db_session.query(UserRouteStateRegistry).update({UserRouteStateRegistry.expires_at: expired_at})
+    db_session.flush()
+
+    with pytest.raises(UserRouteStateConflictError):
+        verify_current_route_state(db_session, issued[0], lock=False)
+    assert cleanup_expired_route_states(db_session, now=datetime.utcnow(), limit=2) == 2
+    assert db_session.query(UserRouteStateRegistry).count() == 1
+
+
 def test_router_owns_complete_route_state_lifecycle_new() -> None:
     tree = ast.parse((ROOT / "routers/user_routes.py").read_text(encoding="utf-8"))
     calls = {
@@ -118,9 +153,20 @@ def test_route_services_do_not_commit_or_rollback_request_transactions_new() -> 
     assert not violations, "route services must not own request transactions:\n" + "\n".join(violations)
 
 
-def test_session_transitions_and_registry_verification_use_row_locks_new() -> None:
+def test_session_transitions_registry_and_public_evidence_use_row_locks_new() -> None:
     session_source = (ROOT / "services/user_route_session_service.py").read_text(encoding="utf-8")
     registry_source = (ROOT / "services/user_route_state_registry_service.py").read_text(encoding="utf-8")
+    access_source = (ROOT / "services/public_route_place_access.py").read_text(encoding="utf-8")
     assert ".with_for_update()" in session_source
     assert ".with_for_update()" in registry_source
+    assert "lock_public_route_state" in registry_source
+    assert ".with_for_update()" in access_source
     assert "begin_nested" in session_source
+
+
+def test_route_state_registry_has_expiry_and_cleanup_contract_new() -> None:
+    model_source = (ROOT / "models/user_route_state_registry.py").read_text(encoding="utf-8")
+    service_source = (ROOT / "services/user_route_state_registry_service.py").read_text(encoding="utf-8")
+    assert "expires_at" in model_source
+    assert "cleanup_expired_route_states" in service_source
+    assert ".limit(" in service_source
