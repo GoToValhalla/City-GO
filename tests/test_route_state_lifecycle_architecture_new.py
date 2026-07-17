@@ -9,7 +9,10 @@ from models.user_route_state_registry import UserRouteStateRegistry
 
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_SERVICE = ROOT / "services/user_route_state_registry_service.py"
+LIFECYCLE_SERVICE = ROOT / "services/user_route_state_lifecycle_service.py"
 CLEANUP_SERVICE = ROOT / "services/route_state_cleanup_service.py"
+ROUTER = ROOT / "routers/user_routes.py"
+ANALYTICS_SERVICE = ROOT / "services/route_analytics_service.py"
 
 
 def _function(tree: ast.AST, name: str) -> ast.FunctionDef:
@@ -101,6 +104,38 @@ def test_request_lock_order_is_registry_then_public_evidence_new() -> None:
     assert verify_calls["with_for_update"] < verify_calls["lock_public_route_state"]
 
 
+def test_router_uses_only_public_lifecycle_facade_new() -> None:
+    source = ROUTER.read_text(encoding="utf-8")
+
+    assert "user_route_state_lifecycle_service" in source
+    assert "user_route_state_registry_service" not in source
+    assert "register_initial_route_state" not in source
+    assert "verify_current_route_state" not in source
+    assert "advance_route_state" not in source
+
+
+def test_only_lifecycle_facade_imports_registry_primitives_new() -> None:
+    violations: list[str] = []
+    primitive_names = {
+        "register_initial_route_state",
+        "verify_current_route_state",
+        "advance_route_state",
+    }
+
+    for path in _runtime_python_files():
+        if path in {REGISTRY_SERVICE, LIFECYCLE_SERVICE}:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            imported = {alias.name for alias in node.names}
+            if imported & primitive_names:
+                violations.append(str(path.relative_to(ROOT)))
+
+    assert not violations, "registry primitives escaped lifecycle facade:\n" + "\n".join(violations)
+
+
 def test_registry_service_is_only_runtime_orm_owner_new() -> None:
     violations = [
         str(path.relative_to(ROOT))
@@ -131,3 +166,41 @@ def test_no_raw_registry_write_bypasses_lifecycle_owners_new() -> None:
         "raw registry writes bypass lifecycle ownership:\n"
         + "\n".join(violations)
     )
+
+
+def test_database_errors_are_not_domain_conflicts_new() -> None:
+    source = ROUTER.read_text(encoding="utf-8")
+
+    assert "_ROUTE_STATE_ERRORS = (UserRouteStateConflictError, UserRouteStateIntegrityError)" in source
+    assert 'status_code=503' in source
+    assert 'route_state_database_unavailable' in source
+
+
+def test_route_analytics_uses_isolated_session_new() -> None:
+    source = ANALYTICS_SERVICE.read_text(encoding="utf-8")
+
+    assert "SessionLocal()" in source
+    assert "caller Session is deliberately ignored" in source
+    assert "db.close()" in source
+
+
+def test_route_services_do_not_commit_or_rollback_request_session_new() -> None:
+    allowed = {
+        ANALYTICS_SERVICE,
+        ROOT / "core/route_state_cleanup_runner.py",
+    }
+    violations: list[str] = []
+
+    for path in (ROOT / "services").glob("*route*.py"):
+        if path in allowed:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"commit", "rollback"}
+            ):
+                violations.append(f"{path.relative_to(ROOT)}:{node.lineno}:{node.func.attr}")
+
+    assert not violations, "route service owns caller transaction:\n" + "\n".join(violations)
