@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 import pytest
 
 from schemas.user_route import UserRouteIntent, UserRoutePoint, UserRouteState
@@ -9,6 +12,8 @@ from services.user_route_state_registry_service import (
     register_initial_route_state,
     verify_current_route_state,
 )
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def _state(place, city_slug: str, *, route_id: str = "registry-route", revision: int = 1) -> UserRouteState:
@@ -91,3 +96,31 @@ def test_advance_rejects_scope_change_new(db_session, city_factory, place_factor
             next_state=_state(foreign, other.slug, route_id=previous.route_id, revision=2),
             registry=registry,
         )
+
+
+def test_router_owns_complete_route_state_lifecycle_new() -> None:
+    tree = ast.parse((ROOT / "routers/user_routes.py").read_text(encoding="utf-8"))
+    calls = {
+        node.func.id if isinstance(node.func, ast.Name) else node.func.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, (ast.Name, ast.Attribute))
+    }
+    assert {"register_initial_route_state", "verify_current_route_state", "advance_route_state"} <= calls
+
+
+def test_route_services_do_not_commit_or_rollback_request_transactions_new() -> None:
+    violations: list[str] = []
+    for path in (ROOT / "services").glob("user_route_*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"commit", "rollback"}:
+                violations.append(f"{path.name}:{node.lineno}:{node.func.attr}")
+    assert not violations, "route services must not own request transactions:\n" + "\n".join(violations)
+
+
+def test_session_transitions_and_registry_verification_use_row_locks_new() -> None:
+    session_source = (ROOT / "services/user_route_session_service.py").read_text(encoding="utf-8")
+    registry_source = (ROOT / "services/user_route_state_registry_service.py").read_text(encoding="utf-8")
+    assert ".with_for_update()" in session_source
+    assert ".with_for_update()" in registry_source
+    assert "begin_nested" in session_source
