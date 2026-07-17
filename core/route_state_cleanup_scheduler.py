@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from asyncio import Task
 
 from core.route_state_cleanup_runner import run_route_state_cleanup_once
@@ -17,6 +18,8 @@ _task: Task[None] | None = None
 
 def start_route_state_cleanup_scheduler() -> None:
     global _task
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
     if _task is not None and not _task.done():
         return
     _task = asyncio.create_task(_scheduler_loop())
