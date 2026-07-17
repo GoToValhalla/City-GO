@@ -22,7 +22,7 @@ def sign_user_route_state(state: UserRouteState) -> UserRouteState:
 
 def verify_user_route_state(state: UserRouteState) -> None:
     supplied = str(state.state_token or "")
-    if not supplied and _is_test():
+    if not supplied and _is_test() and not _is_production():
         return
     expected = hmac.new(_secret(), _canonical_payload(state), hashlib.sha256).hexdigest()
     if not supplied or not hmac.compare_digest(supplied, expected):
