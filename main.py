@@ -94,3 +94,25 @@ include_app_routers(app)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/version")
+def version() -> dict[str, str]:
+    return get_backend_version()
+
+
+@app.get("/ready", response_model=None)
+def ready() -> JSONResponse | dict[str, str]:
+    db_ready, reason = check_database_ready()
+    if db_ready:
+        return {"status": "ok", "database": "ok"}
+    return JSONResponse(
+        status_code=503,
+        content={"status": "error", "database": reason},
+    )
+
+
+@app.get("/features/public")
+def public_features(db: Session = Depends(get_db)) -> dict[str, bool]:
+    """Expose only public feature flags required by public clients."""
+    return {"tma_enabled": is_toggle_enabled(db, "tma_enabled")}
