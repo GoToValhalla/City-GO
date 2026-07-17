@@ -38,38 +38,30 @@ class RouteStateLifecycleService:
     def correct(self, db: Session, request: UserRouteCorrectRequest) -> UserRouteState:
         from services.user_route_correct_service import UserRouteCorrectService
 
-        return self._advance(
-            db,
-            request.current_route,
-            UserRouteCorrectService().correct(db=db, request=request),
-        )
+        registry = verify_current_route_state(db, request.current_route, lock=True)
+        next_state = UserRouteCorrectService().correct(db=db, request=request)
+        return self._issue_next(db, request.current_route, next_state, registry)
 
     def update_order(self, db: Session, request: UserRouteUpdateRequest) -> UserRouteState:
         from services.user_route_edit_service import UserRouteEditService
 
-        return self._advance(
-            db,
-            request.current_route,
-            UserRouteEditService().update_order(db, request),
-        )
+        registry = verify_current_route_state(db, request.current_route, lock=True)
+        next_state = UserRouteEditService().update_order(db, request)
+        return self._issue_next(db, request.current_route, next_state, registry)
 
     def replace_place(self, db: Session, request: UserRouteReplacePlaceRequest) -> UserRouteState:
         from services.user_route_edit_service import UserRouteEditService
 
-        return self._advance(
-            db,
-            request.current_route,
-            UserRouteEditService().replace_place(db, request),
-        )
+        registry = verify_current_route_state(db, request.current_route, lock=True)
+        next_state = UserRouteEditService().replace_place(db, request)
+        return self._issue_next(db, request.current_route, next_state, registry)
 
     def add_place(self, db: Session, request: UserRouteAddPlaceRequest) -> UserRouteState:
         from services.user_route_edit_service import UserRouteEditService
 
-        return self._advance(
-            db,
-            request.current_route,
-            UserRouteEditService().add_place(db, request),
-        )
+        registry = verify_current_route_state(db, request.current_route, lock=True)
+        next_state = UserRouteEditService().add_place(db, request)
+        return self._issue_next(db, request.current_route, next_state, registry)
 
     def read_alternatives(
         self,
@@ -100,8 +92,7 @@ class RouteStateLifecycleService:
         return UserRouteSessionService().start(db, request)
 
     @staticmethod
-    def _advance(db: Session, previous: UserRouteState, next_state: UserRouteState) -> UserRouteState:
-        registry = verify_current_route_state(db, previous, lock=True)
+    def _issue_next(db: Session, previous: UserRouteState, next_state: UserRouteState, registry: object) -> UserRouteState:
         return advance_route_state(
             db,
             previous=previous,
