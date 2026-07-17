@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from time import perf_counter
+from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -21,28 +22,27 @@ from schemas.user_route import (
     UserRouteStructuredBuildResponse,
     UserRouteUpdateRequest,
 )
+from services.destination_route_resolution import resolve_route_build_request
 from services.public_route_sanitizer import sanitize_user_route_state
 from services.route_analytics_service import record_route_build
 from services.route_builder_v2_service import RouteBuilderV2Error
-from services.destination_route_resolution import resolve_route_build_request
 from services.user_route_build_service import RouteBuildTimeoutError, UserRouteBuildService
 from services.user_route_correct_service import UserRouteCorrectService
 from services.user_route_edit_service import UserRouteEditService
 from services.user_route_session_service import UserRouteSessionError, UserRouteSessionService
-from services.user_route_state_integrity import (
-    UserRouteStateIntegrityError,
-    sign_user_route_state,
-    verify_user_route_state,
+from services.user_route_state_integrity import UserRouteStateIntegrityError, sign_user_route_state
+from services.user_route_state_registry_service import (
+    UserRouteStateConflictError,
+    advance_route_state,
+    register_initial_route_state,
+    verify_current_route_state,
 )
 
 router = APIRouter(prefix="/user-routes", tags=["user-routes"])
 
 
 @router.post("/build", response_model=UserRouteState)
-def build_user_route(
-    payload: UserRouteBuildRequest,
-    db: Session = Depends(get_db),
-) -> UserRouteState:
+def build_user_route(payload: UserRouteBuildRequest, db: Session = Depends(get_db)) -> UserRouteState:
     if payload.start_source == "current_location" and (payload.lat is None or payload.lng is None):
         raise HTTPException(status_code=422, detail="lat/lng required for current_location")
 
@@ -53,26 +53,31 @@ def build_user_route(
     started = perf_counter()
     try:
         route = UserRouteBuildService().build(db=db, request=resolved_payload)
+        issued = register_initial_route_state(db, sanitize_user_route_state(route))
+        db.commit()
     except RouteBuilderV2Error as exc:
+        db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_builder_v2_invalid_request", "message": str(exc)}) from exc
     except RouteBuildTimeoutError as exc:
+        db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_build_deadline_exceeded", "message": str(exc)}) from exc
+    except (UserRouteStateConflictError, UserRouteStateIntegrityError) as exc:
+        db.rollback()
+        raise _route_state_http_error(exc) from exc
+
     record_route_build(
         db,
-        route,
+        issued,
         source=f"user_route_build:{payload.build_mode}",
         latency_ms=_latency_ms(started),
         city_id=payload.city_id,
         user_id=payload.user_id,
     )
-    return _signed_public_route(route)
+    return issued
 
 
 @router.post("/preview", response_model=UserRouteState)
-def preview_user_route(
-    payload: UserRoutePreviewRequest,
-    db: Session = Depends(get_db),
-) -> UserRouteState:
+def preview_user_route(payload: UserRoutePreviewRequest, db: Session = Depends(get_db)) -> UserRouteState:
     try:
         route = UserRouteBuildService().build(db=db, request=UserRouteBuildRequest(**payload.model_dump()))
         return _signed_public_route(route.model_copy(update={"status": "preview"}))
@@ -95,23 +100,19 @@ def preview_user_route(
             quality_score=0.0,
             quality_status="failed",
             warnings=["Маршрут не удалось предварительно собрать."],
-            user_warnings=[
-                {
-                    "type": "route",
-                    "severity": "warning",
-                    "user_message": "Маршрут не удалось предварительно собрать.",
-                    "affected_place_ids": [],
-                    "action_hint": "Попробуйте изменить время, интересы или стартовую точку.",
-                }
-            ],
-            debug_trace=[
-                {
-                    "stage": "preview_response_mapping",
-                    "status": "failed",
-                    "error": exc.__class__.__name__,
-                    "message": "Preview route build exceeded internal deadline." if is_timeout else "Preview route build failed.",
-                }
-            ],
+            user_warnings=[{
+                "type": "route",
+                "severity": "warning",
+                "user_message": "Маршрут не удалось предварительно собрать.",
+                "affected_place_ids": [],
+                "action_hint": "Попробуйте изменить время, интересы или стартовую точку.",
+            }],
+            debug_trace=[{
+                "stage": "preview_response_mapping",
+                "status": "failed",
+                "error": exc.__class__.__name__,
+                "message": "Preview route build exceeded internal deadline." if is_timeout else "Preview route build failed.",
+            }],
         )
         return _signed_public_route(failed)
 
@@ -125,22 +126,22 @@ def build_structured_user_route(
 
 
 @router.post("/correct", response_model=UserRouteState)
-def correct_user_route(
-    payload: UserRouteCorrectRequest,
-    db: Session = Depends(get_db),
-) -> UserRouteState:
-    _verify_current_route(payload.current_route)
+def correct_user_route(payload: UserRouteCorrectRequest, db: Session = Depends(get_db)) -> UserRouteState:
     started = perf_counter()
-    route = UserRouteCorrectService().correct(db=db, request=payload)
+    issued = _mutate_route_state(
+        db,
+        payload.current_route,
+        lambda: UserRouteCorrectService().correct(db=db, request=payload),
+    )
     record_route_build(
         db,
-        route,
+        issued,
         source=f"user_route_correct:{payload.action}",
         latency_ms=_latency_ms(started),
-        city_id=route.context.city_id,
-        user_id=route.context.user_id,
+        city_id=issued.context.city_id,
+        user_id=issued.context.user_id,
     )
-    return _signed_public_route(route)
+    return issued
 
 
 @router.post("/{route_id}/update", response_model=UserRouteState)
@@ -149,9 +150,8 @@ def update_user_route(
     payload: UserRouteUpdateRequest,
     db: Session = Depends(get_db),
 ) -> UserRouteState:
-    _ensure_current_route_matches(route_id, payload.current_route)
-    route = UserRouteEditService().update_order(db, payload)
-    return _signed_public_route(route.model_copy(update={"route_id": route_id}))
+    _ensure_route_id_matches(route_id, payload.current_route)
+    return _mutate_route_state(db, payload.current_route, lambda: UserRouteEditService().update_order(db, payload))
 
 
 @router.post("/{route_id}/replace-place", response_model=UserRouteState)
@@ -160,9 +160,8 @@ def replace_user_route_place(
     payload: UserRouteReplacePlaceRequest,
     db: Session = Depends(get_db),
 ) -> UserRouteState:
-    _ensure_current_route_matches(route_id, payload.current_route)
-    route = UserRouteEditService().replace_place(db, payload)
-    return _signed_public_route(route.model_copy(update={"route_id": route_id}))
+    _ensure_route_id_matches(route_id, payload.current_route)
+    return _mutate_route_state(db, payload.current_route, lambda: UserRouteEditService().replace_place(db, payload))
 
 
 @router.get("/{route_id}/alternatives/{place_id}", response_model=UserRouteAlternativesResponse)
@@ -182,8 +181,9 @@ def read_user_route_alternatives_from_state(
     payload: UserRouteState,
     db: Session = Depends(get_db),
 ) -> UserRouteAlternativesResponse:
-    _ensure_current_route_matches(route_id, payload)
-    return UserRouteEditService().alternatives(db, payload.model_copy(update={"route_id": route_id}), place_id)
+    _ensure_route_id_matches(route_id, payload)
+    _verify_registered_state(db, payload, lock=False)
+    return UserRouteEditService().alternatives(db, payload, place_id)
 
 
 @router.post("/{route_id}/add-place", response_model=UserRouteState)
@@ -192,9 +192,8 @@ def add_user_route_place(
     payload: UserRouteAddPlaceRequest,
     db: Session = Depends(get_db),
 ) -> UserRouteState:
-    _ensure_current_route_matches(route_id, payload.current_route)
-    route = UserRouteEditService().add_place(db, payload)
-    return _signed_public_route(route.model_copy(update={"route_id": route_id}))
+    _ensure_route_id_matches(route_id, payload.current_route)
+    return _mutate_route_state(db, payload.current_route, lambda: UserRouteEditService().add_place(db, payload))
 
 
 @router.post("/{route_id}/session/start", response_model=UserRouteSessionState)
@@ -203,11 +202,18 @@ def start_user_route_session(
     payload: UserRouteSessionStartRequest,
     db: Session = Depends(get_db),
 ) -> UserRouteSessionState:
-    _ensure_current_route_matches(route_id, payload.current_route)
+    _ensure_route_id_matches(route_id, payload.current_route)
     try:
-        return UserRouteSessionService().start(db, payload)
+        _verify_registered_state(db, payload.current_route, lock=True)
+        result = UserRouteSessionService().start(db, payload)
+        db.commit()
+        return result
     except UserRouteSessionError as exc:
+        db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_session_invalid_request", "message": str(exc)}) from exc
+    except (UserRouteStateConflictError, UserRouteStateIntegrityError) as exc:
+        db.rollback()
+        raise _route_state_http_error(exc) from exc
 
 
 @router.post("/sessions/{session_id}/action", response_model=UserRouteSessionState)
@@ -217,29 +223,46 @@ def update_user_route_session(
     db: Session = Depends(get_db),
 ) -> UserRouteSessionState:
     try:
-        return UserRouteSessionService().apply_action(db, session_id, payload)
+        result = UserRouteSessionService().apply_action(db, session_id, payload)
+        db.commit()
+        return result
     except UserRouteSessionError as exc:
+        db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_session_invalid_transition", "message": str(exc)}) from exc
+
+
+def _mutate_route_state(
+    db: Session,
+    previous: UserRouteState,
+    mutation: Callable[[], UserRouteState],
+) -> UserRouteState:
+    try:
+        registry = verify_current_route_state(db, previous, lock=True)
+        next_state = sanitize_user_route_state(mutation())
+        issued = advance_route_state(db, previous=previous, next_state=next_state, registry=registry)
+        db.commit()
+        return issued
+    except (UserRouteStateConflictError, UserRouteStateIntegrityError) as exc:
+        db.rollback()
+        raise _route_state_http_error(exc) from exc
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _verify_registered_state(db: Session, state: UserRouteState, *, lock: bool) -> None:
+    try:
+        verify_current_route_state(db, state, lock=lock)
+    except (UserRouteStateConflictError, UserRouteStateIntegrityError) as exc:
+        raise _route_state_http_error(exc) from exc
 
 
 def _signed_public_route(route: UserRouteState) -> UserRouteState:
     return sign_user_route_state(sanitize_user_route_state(route))
 
 
-def _verify_current_route(current_route: UserRouteState) -> None:
-    try:
-        verify_user_route_state(current_route)
-    except UserRouteStateIntegrityError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "route_state_integrity_failed", "message": "Route state is missing, stale, or modified."},
-        ) from exc
-
-
-def _ensure_current_route_matches(route_id: str, current_route: UserRouteState) -> None:
-    _verify_current_route(current_route)
-    payload_route_id = str(current_route.route_id)
-    if payload_route_id == str(route_id):
+def _ensure_route_id_matches(route_id: str, current_route: UserRouteState) -> None:
+    if str(current_route.route_id) == str(route_id):
         return
     raise HTTPException(
         status_code=409,
@@ -247,8 +270,18 @@ def _ensure_current_route_matches(route_id: str, current_route: UserRouteState) 
             "code": "route_state_conflict",
             "message": "Route mutation payload does not match the route id in the URL.",
             "route_id": str(route_id),
-            "payload_route_id": payload_route_id,
+            "payload_route_id": str(current_route.route_id),
             "payload_revision": int(current_route.revision),
+        },
+    )
+
+
+def _route_state_http_error(exc: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "route_state_conflict",
+            "message": "Route state is missing, stale, modified, or already superseded.",
         },
     )
 
