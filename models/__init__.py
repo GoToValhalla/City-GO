@@ -64,4 +64,5 @@ import models.tag  # noqa: F401
 import models.taxonomy  # noqa: F401
 import models.telegram_user_context  # noqa: F401
 import models.user_foundation  # noqa: F401
+import models.user_route_state_registry  # noqa: F401
 import models.user_signal  # noqa: F401
