@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy.orm import Session
 
 from schemas.user_route import (
@@ -21,6 +23,7 @@ from services.user_route_state_registry_service import (
 )
 
 _SESSION_STARTABLE_STATUSES = frozenset({"ready"})
+_READ_ONLY_STATUSES = frozenset({"preview", "preview_failed"})
 
 
 class RouteStateLifecycleService:
@@ -38,28 +41,28 @@ class RouteStateLifecycleService:
     def correct(self, db: Session, request: UserRouteCorrectRequest) -> UserRouteState:
         from services.user_route_correct_service import UserRouteCorrectService
 
-        registry = verify_current_route_state(db, request.current_route, lock=True)
+        registry = self._lock_mutable(db, request.current_route)
         next_state = UserRouteCorrectService().correct(db=db, request=request)
         return self._issue_next(db, request.current_route, next_state, registry)
 
     def update_order(self, db: Session, request: UserRouteUpdateRequest) -> UserRouteState:
         from services.user_route_edit_service import UserRouteEditService
 
-        registry = verify_current_route_state(db, request.current_route, lock=True)
+        registry = self._lock_mutable(db, request.current_route)
         next_state = UserRouteEditService().update_order(db, request)
         return self._issue_next(db, request.current_route, next_state, registry)
 
     def replace_place(self, db: Session, request: UserRouteReplacePlaceRequest) -> UserRouteState:
         from services.user_route_edit_service import UserRouteEditService
 
-        registry = verify_current_route_state(db, request.current_route, lock=True)
+        registry = self._lock_mutable(db, request.current_route)
         next_state = UserRouteEditService().replace_place(db, request)
         return self._issue_next(db, request.current_route, next_state, registry)
 
     def add_place(self, db: Session, request: UserRouteAddPlaceRequest) -> UserRouteState:
         from services.user_route_edit_service import UserRouteEditService
 
-        registry = verify_current_route_state(db, request.current_route, lock=True)
+        registry = self._lock_mutable(db, request.current_route)
         next_state = UserRouteEditService().add_place(db, request)
         return self._issue_next(db, request.current_route, next_state, registry)
 
@@ -84,21 +87,35 @@ class RouteStateLifecycleService:
 
         state = request.current_route
         verify_current_route_state(db, state, lock=True)
-        normalized_status = str(state.status or "").strip().lower()
+        normalized_status = self._normalized_status(state)
         if normalized_status not in _SESSION_STARTABLE_STATUSES:
             raise UserRouteStateConflictError(
                 f"Route state status {normalized_status or '<empty>'!r} cannot start a session."
             )
         return UserRouteSessionService().start(db, request)
 
+    @classmethod
+    def _lock_mutable(cls, db: Session, state: UserRouteState) -> Any:
+        registry = verify_current_route_state(db, state, lock=True)
+        normalized_status = cls._normalized_status(state)
+        if normalized_status in _READ_ONLY_STATUSES:
+            raise UserRouteStateConflictError(
+                f"Route state status {normalized_status!r} is read-only and cannot be mutated."
+            )
+        return registry
+
     @staticmethod
-    def _issue_next(db: Session, previous: UserRouteState, next_state: UserRouteState, registry: object) -> UserRouteState:
+    def _issue_next(db: Session, previous: UserRouteState, next_state: UserRouteState, registry: Any) -> UserRouteState:
         return advance_route_state(
             db,
             previous=previous,
             next_state=sanitize_user_route_state(next_state),
             registry=registry,
         )
+
+    @staticmethod
+    def _normalized_status(state: UserRouteState) -> str:
+        return str(state.status or "").strip().lower()
 
 
 __all__ = ["RouteStateLifecycleService", "UserRouteStateConflictError"]
