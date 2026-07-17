@@ -38,7 +38,7 @@ class UserRouteEditService:
         replacement = load_place(db, request.new_place_id)
         if replacement is None:
             places = [place for place in places if str(place.id) != request.old_place_id]
-            warning = "Новое место недоступно для публичного маршрута. Старая точка удалена."
+            warning = "Новое место не найдено или не опубликовано. Старая точка удалена."
         else:
             places = [replacement if str(place.id) == request.old_place_id else place for place in places]
             warning = "Место заменено."
@@ -57,7 +57,7 @@ class UserRouteEditService:
                 places=places,
                 intent=request.current_route.context,
                 revision=request.current_route.revision + 1,
-                extra_warnings=["Место недоступно для публичного маршрута."],
+                extra_warnings=["Место не найдено или не опубликовано."],
             )
         next_places = _insert_place(places, place, request.insert_after_place_id)
         return UserRouteRecalcService().recalc(
