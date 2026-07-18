@@ -9,6 +9,16 @@ from core.config import settings
 from schemas.user_route import UserRouteState
 
 _TEST_SECRET = "city-go-test-route-state-integrity"
+_MIN_SECRET_BYTES = 32
+_FORBIDDEN_RUNTIME_SECRETS = frozenset(
+    {
+        _TEST_SECRET,
+        "dev_fallback_secret_key_12345",
+        "change-me",
+        "changeme",
+        "secret",
+    }
+)
 
 
 class UserRouteStateIntegrityError(ValueError):
@@ -30,11 +40,10 @@ def verify_user_route_state(state: UserRouteState) -> None:
 
 
 def validate_route_state_runtime_config() -> None:
-    """Fail before serving traffic; APP_ENV is not trusted as a security boundary."""
+    """Fail before serving traffic when signing configuration is unsafe."""
     if _is_test():
         return
-    if not str(settings.user_route_state_secret or "").strip():
-        raise RuntimeError("USER_ROUTE_STATE_SECRET is required outside the test runtime.")
+    _validated_runtime_secret()
 
 
 def _canonical_payload(state: UserRouteState) -> bytes:
@@ -44,11 +53,27 @@ def _canonical_payload(state: UserRouteState) -> bytes:
 
 def _secret() -> bytes:
     configured = str(settings.user_route_state_secret or "").strip()
-    if configured:
-        return configured.encode("utf-8")
     if _is_test():
-        return _TEST_SECRET.encode("utf-8")
-    raise UserRouteStateIntegrityError("USER_ROUTE_STATE_SECRET is required outside the test runtime.")
+        return (configured or _TEST_SECRET).encode("utf-8")
+    return _validated_runtime_secret()
+
+
+def _validated_runtime_secret() -> bytes:
+    configured = str(settings.user_route_state_secret or "").strip()
+    if not configured:
+        raise UserRouteStateIntegrityError(
+            "USER_ROUTE_STATE_SECRET is required outside the test runtime."
+        )
+    encoded = configured.encode("utf-8")
+    if len(encoded) < _MIN_SECRET_BYTES:
+        raise UserRouteStateIntegrityError(
+            f"USER_ROUTE_STATE_SECRET must contain at least {_MIN_SECRET_BYTES} bytes."
+        )
+    if configured.casefold() in {item.casefold() for item in _FORBIDDEN_RUNTIME_SECRETS}:
+        raise UserRouteStateIntegrityError(
+            "USER_ROUTE_STATE_SECRET uses a forbidden default or test value."
+        )
+    return encoded
 
 
 def _allow_unsigned_test_state() -> bool:
