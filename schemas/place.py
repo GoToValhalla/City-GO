@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from services.publication_state_ownership import PUBLICATION_OWNED_FIELDS
+from core.publication_state_ownership import PUBLICATION_OWNED_FIELDS
 
 
 class PlaceBase(BaseModel):
