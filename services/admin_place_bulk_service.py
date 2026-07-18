@@ -191,7 +191,14 @@ def _apply_one_locked(
         )
         return
     if action == "verify":
-        verify_locked_place(db, place, actor=actor, reason=reason, action="bulk_verify_place")
+        verify_locked_place(
+            db,
+            place,
+            actor=actor,
+            reason=reason,
+            action="bulk_verify_place",
+            reject_noop=True,
+        )
         return
     if action == "set_category":
         new_category = str(params["category"]).strip().lower()
@@ -206,11 +213,12 @@ def _apply_one_locked(
             commit=False,
             locked_place=place,
         )
+        request_id = uuid4().hex
         operation = run_workflow(
             db,
             workflow="after_category_change",
-            request_id=uuid4().hex,
-            idempotency_key=f"bulk-category:{place.id}:{new_category}:{place.updated_at}",
+            request_id=request_id,
+            idempotency_key=f"bulk-category:{place.id}:{request_id}",
             entity_type="place",
             entity_id=str(place.id),
             payload={"category": new_category, "source": "admin_bulk_set_category"},
