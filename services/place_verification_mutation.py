@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -36,7 +36,7 @@ def verify_locked_place(
     place.existence_confidence_level = "high"
     place.existence_confidence_score = max(place.existence_confidence_score or 0, 90)
     place.verified_by = actor
-    place.verified_at = datetime.now(timezone.utc)
+    place.verified_at = datetime.utcnow()
     place.verification_comment = reason
 
     write_admin_audit_log(
