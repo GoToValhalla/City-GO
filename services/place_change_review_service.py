@@ -11,15 +11,20 @@ from models.city import City
 from models.place import Place
 from models.review_queue_item import ReviewQueueItem
 from services.admin_audit_service import write_admin_audit_log
+from services.canonical_publication_apply import apply_admin_city_publication_place
 from services.publication_policy import run_hard_gates
+from services.publication_state_writer import (
+    REASON_CITY_PUBLICATION_QUALITY_GATE,
+    REASON_POLICY_GATE_FAILED,
+    REASON_REPAIR_STATE,
+    transition_place_publication,
+)
 from services.review_queue_service import ensure_review_item
-from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 OPEN_STATUS = "open"
 RESOLVED_STATUS = "resolved"
 PLACE_CHANGE_FIELD = "place_change"
 PUBLIC_PLACE_FIELDS = (
-    "status",
     "is_active",
     "is_published",
     "is_visible_in_catalog",
@@ -27,10 +32,21 @@ PUBLIC_PLACE_FIELDS = (
     "is_searchable",
     "publication_status",
 )
+PROTECTED_PUBLICATION_FIELDS = frozenset(
+    {
+        *PUBLIC_PLACE_FIELDS,
+        "publication_reason_code",
+        "publication_reason_details",
+        "publication_comment",
+        "published_at",
+        "unpublished_at",
+    }
+)
 RESTORABLE_PLACE_FIELDS = {
     column.name
     for column in Place.__table__.columns
     if column.name not in {"id", "city_id", "created_at", "updated_at"}
+    and column.name not in PROTECTED_PUBLICATION_FIELDS
 }
 
 
@@ -44,20 +60,6 @@ def propose_place_change(
     job_id: int | None = None,
     severity: str = "medium",
 ) -> bool:
-    """Guard for automatic writers (import, enrichment, backfills) that must
-    never destructively overwrite an already-published Place.
-
-    If `place.is_published` is True, the proposed values are NOT written to
-    the live row. They are stored as a `place_change` review candidate with
-    explicit before/after values and returns False — the public version is
-    untouched until an admin approves via the existing
-    /admin/place-change-reviews/{id}/approve|reject endpoints (approve
-    applies `after`, reject is a no-op since nothing was ever written).
-
-    If the place is not currently published, this is a pass-through: the
-    caller's normal direct-write behavior is unaffected. Returns True when
-    the caller may proceed to write `proposed` onto `place` itself.
-    """
     if not place.is_published:
         return True
 
@@ -125,9 +127,13 @@ def approve_place_change_review(
     row = _open_review_row(db, review_id)
     if row is None:
         return None
-    result = _resolve_place_change_review(db, row, action="approve", actor=actor, reason=reason)
-    db.commit()
-    return result
+    try:
+        result = _resolve_place_change_review(db, row, action="approve", actor=actor, reason=reason)
+        db.commit()
+        return result
+    except Exception:
+        db.rollback()
+        raise
 
 
 def reject_place_change_review(
@@ -140,10 +146,13 @@ def reject_place_change_review(
     row = _open_review_row(db, review_id)
     if row is None:
         return None
-    result = _resolve_place_change_review(db, row, action="reject", actor=actor, reason=reason)
-    db.commit()
-    return result
-
+    try:
+        result = _resolve_place_change_review(db, row, action="reject", actor=actor, reason=reason)
+        db.commit()
+        return result
+    except Exception:
+        db.rollback()
+        raise
 
 
 def bulk_resolve_place_change_reviews(
@@ -167,16 +176,29 @@ def bulk_resolve_place_change_reviews(
             ReviewQueueItem.field_name == PLACE_CHANGE_FIELD,
             ReviewQueueItem.status == OPEN_STATUS,
         )
+        .order_by(Place.id.asc(), ReviewQueueItem.id.asc())
+        .with_for_update()
+        .populate_existing()
         .all()
     )
     rows_by_id = {item.id: (item, place, city) for item, place, city in rows}
-    resolved = [
-        _resolve_place_change_review(db, rows_by_id[review_id], action=action, actor=actor, reason=reason)
-        for review_id in unique_ids
-        if review_id in rows_by_id
-    ]
-    db.commit()
-    return resolved, [review_id for review_id in unique_ids if review_id not in rows_by_id]
+    try:
+        resolved = [
+            _resolve_place_change_review(
+                db,
+                rows_by_id[review_id],
+                action=action,
+                actor=actor,
+                reason=reason,
+            )
+            for review_id in unique_ids
+            if review_id in rows_by_id
+        ]
+        db.commit()
+        return resolved, [review_id for review_id in unique_ids if review_id not in rows_by_id]
+    except Exception:
+        db.rollback()
+        raise
 
 
 def _resolve_place_change_review(
@@ -194,26 +216,41 @@ def _resolve_place_change_review(
     blocked_gates: list[str] = []
     if action == "approve":
         _apply_pending_changes(place, payload)
-        if payload.get("decision") != "hidden":
+        if payload.get("decision") == "hidden":
+            _keep_approved_place_private(
+                db,
+                place,
+                actor=actor,
+                reason=reason,
+                blocked_gates=["review_decision_hidden"],
+            )
+        else:
             place.status = "active"
-            place.is_active = True
             if city.is_active and city.launch_status == "published":
-                # The review item's "decision" was computed when the change was
-                # first queued and may now be stale (e.g. a data-quality scan
-                # since flagged the place as a duplicate, or a mandatory field
-                # went missing). Re-validate against the current place/city
-                # state at approval time instead of trusting that stale decision.
                 blocked_gates = run_hard_gates(place, city=city)
                 if blocked_gates:
-                    _keep_approved_place_private(place, reason=reason)
+                    _keep_approved_place_private(
+                        db,
+                        place,
+                        actor=actor,
+                        reason=reason,
+                        blocked_gates=blocked_gates,
+                    )
                 else:
-                    _publish_place(place, reason=reason)
+                    apply_admin_city_publication_place(
+                        db,
+                        place,
+                        actor=actor,
+                        source="place_change_review",
+                        reason=reason,
+                        lock_place=False,
+                    )
             else:
-                _keep_approved_place_private(place, reason=reason)
+                _defer_until_city_publication(db, place, actor=actor, reason=reason, city=city)
         resolution = "approved"
         audit_action = "approve_place_change_review"
     else:
-        _restore_previous_place_values(place, payload)
+        _restore_previous_place_values(db, place, payload, actor=actor, reason=reason)
         resolution = "rejected"
         audit_action = "reject_place_change_review"
 
@@ -241,6 +278,9 @@ def _open_review_row(db: Session, review_id: int) -> tuple[ReviewQueueItem, Plac
             ReviewQueueItem.field_name == PLACE_CHANGE_FIELD,
             ReviewQueueItem.status == OPEN_STATUS,
         )
+        .order_by(Place.id.asc(), ReviewQueueItem.id.asc())
+        .with_for_update()
+        .populate_existing()
         .first()
     )
 
@@ -250,14 +290,6 @@ def _payload(item: ReviewQueueItem) -> dict[str, Any]:
 
 
 def _apply_pending_changes(place: Place, payload: dict[str, Any]) -> None:
-    """Apply proposed field values that were deliberately NOT written to the
-    live row when the review item was queued (payload["applied"] is False —
-    see services/place_import_lifecycle_service.py::propose_place_change).
-
-    The OSM import review path already writes proposed values onto `place`
-    before queuing the review (payload has no "applied" key, or it is True),
-    so this is a no-op there and does not change that existing behavior.
-    """
     if payload.get("applied") is not False:
         return
     changes = payload.get("changes")
@@ -270,7 +302,14 @@ def _apply_pending_changes(place: Place, payload: dict[str, Any]) -> None:
             setattr(place, field_name, change["after"])
 
 
-def _restore_previous_place_values(place: Place, payload: dict[str, Any]) -> None:
+def _restore_previous_place_values(
+    db: Session,
+    place: Place,
+    payload: dict[str, Any],
+    *,
+    actor: str,
+    reason: str | None,
+) -> None:
     changes = payload.get("changes")
     if isinstance(changes, dict):
         for field_name, change in changes.items():
@@ -280,36 +319,97 @@ def _restore_previous_place_values(place: Place, payload: dict[str, Any]) -> Non
                 setattr(place, field_name, change["before"])
 
     before_public = payload.get("before_public")
-    if isinstance(before_public, dict):
-        for field_name in PUBLIC_PLACE_FIELDS:
-            if field_name in before_public:
-                setattr(place, field_name, before_public[field_name])
-    place.updated_at = datetime.utcnow()
+    if not isinstance(before_public, dict):
+        place.updated_at = datetime.utcnow()
+        return
+
+    target_status = str(before_public.get("publication_status") or "draft")
+    details = {
+        "review_action": "reject",
+        "restored_from_review_payload": True,
+        "original_publication_status": target_status,
+    }
+    if bool(before_public.get("is_published")) and target_status == "published":
+        apply_admin_city_publication_place(
+            db,
+            place,
+            actor=actor,
+            source="place_change_review_restore",
+            reason=reason,
+            lock_place=False,
+        )
+        return
+
+    if target_status not in {
+        "draft",
+        "auto_backlog",
+        "low_confidence",
+        "needs_review",
+        "needs_manual_review",
+        "deferred",
+        "hidden",
+        "unpublished",
+        "rejected",
+    }:
+        target_status = "draft"
+        details["unknown_original_status"] = True
+    transition_place_publication(
+        db,
+        place,
+        to_status=target_status,
+        reason_code=REASON_REPAIR_STATE,
+        actor=actor,
+        source="place_change_review_restore",
+        reason_details=details,
+        human_comment=reason,
+        lock_place=False,
+    )
 
 
-def _publish_place(place: Place, *, reason: str | None) -> None:
-    now = datetime.utcnow()
-    place.is_published = True
-    place.is_visible_in_catalog = True
-    place.is_searchable = True
-    place.publication_status = "published"
-    verdict = evaluate_place_route_eligibility(place)
-    place.is_route_eligible = verdict.eligible
-    place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons[:5])
-    place.publication_comment = reason
-    place.published_at = now
-    place.unpublished_at = None
-    place.updated_at = now
+def _keep_approved_place_private(
+    db: Session,
+    place: Place,
+    *,
+    actor: str,
+    reason: str | None,
+    blocked_gates: list[str],
+) -> None:
+    transition_place_publication(
+        db,
+        place,
+        to_status="needs_review",
+        reason_code=REASON_POLICY_GATE_FAILED,
+        actor=actor,
+        source="place_change_review",
+        reason_details={"blocked_gates": list(blocked_gates)},
+        human_comment=reason,
+        lock_place=False,
+    )
 
 
-def _keep_approved_place_private(place: Place, *, reason: str | None) -> None:
-    place.is_published = False
-    place.is_visible_in_catalog = False
-    place.is_searchable = False
-    place.is_route_eligible = False
-    place.publication_status = "approved_pending_city_publication"
-    place.publication_comment = reason
-    place.updated_at = datetime.utcnow()
+def _defer_until_city_publication(
+    db: Session,
+    place: Place,
+    *,
+    actor: str,
+    reason: str | None,
+    city: City,
+) -> None:
+    transition_place_publication(
+        db,
+        place,
+        to_status="deferred",
+        reason_code=REASON_CITY_PUBLICATION_QUALITY_GATE,
+        actor=actor,
+        source="place_change_review",
+        reason_details={
+            "city_id": city.id,
+            "city_launch_status": city.launch_status,
+            "city_is_active": bool(city.is_active),
+        },
+        human_comment=reason,
+        lock_place=False,
+    )
 
 
 def _resolve(item: ReviewQueueItem, *, actor: str, resolution: str) -> None:
@@ -320,7 +420,13 @@ def _resolve(item: ReviewQueueItem, *, actor: str, resolution: str) -> None:
     item.updated_at = datetime.utcnow()
 
 
-def _review_payload(item: ReviewQueueItem, place: Place, city: City, *, blocked_gates: list[str] | None = None) -> dict[str, object]:
+def _review_payload(
+    item: ReviewQueueItem,
+    place: Place,
+    city: City,
+    *,
+    blocked_gates: list[str] | None = None,
+) -> dict[str, object]:
     payload = _payload(item)
     return {
         "id": item.id,
@@ -352,4 +458,5 @@ def _place_state(place: Place) -> dict[str, object]:
         "is_searchable": bool(place.is_searchable),
         "is_route_eligible": bool(place.is_route_eligible),
         "publication_status": place.publication_status,
+        "publication_reason_code": place.publication_reason_code,
     }
