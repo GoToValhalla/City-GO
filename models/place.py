@@ -21,8 +21,12 @@ class Place(Base):
         CheckConstraint("description_score >= 0 AND description_score <= 15", name="ck_places_description_score_range"),
         CheckConstraint("confidence_score >= 0 AND confidence_score <= 10", name="ck_places_confidence_score_range"),
         CheckConstraint("freshness_score >= 0 AND freshness_score <= 10", name="ck_places_freshness_score_range"),
+        CheckConstraint(
+            "(publication_status = 'published' AND publication_reason_code IS NULL) "
+            "OR (publication_status <> 'published' AND publication_reason_code IS NOT NULL)",
+            name="ck_places_publication_reason_consistency",
+        ),
     )
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False, index=True)
     primary_destination_id: Mapped[int | None] = mapped_column(ForeignKey("destinations.id"), nullable=True, index=True)
