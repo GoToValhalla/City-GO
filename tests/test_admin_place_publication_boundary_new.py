@@ -72,6 +72,26 @@ def test_generic_admin_update_allowlist_cannot_overlap_publication_state() -> No
     assert _ALLOWED.isdisjoint(_PUBLICATION_CONTROLLED_FIELDS)
 
 
+def test_admin_patch_api_rejects_publication_state_changes(
+    client,
+    db_session,
+    published_place_factory,
+) -> None:
+    place = published_place_factory(slug="admin-patch-publication-bypass")
+
+    response = client.patch(
+        f"/admin/places/{place.id}",
+        json={"publication_status": "hidden", "visible_to_users": False},
+    )
+
+    assert response.status_code == 422
+    assert "Поля публикации нельзя изменять" in response.json()["detail"]
+    db_session.refresh(place)
+    assert place.publication_status == "published"
+    assert place.is_published is True
+    assert place.is_visible_in_catalog is True
+
+
 def test_generic_admin_update_still_updates_ordinary_fields(
     db_session,
     published_place_factory,
