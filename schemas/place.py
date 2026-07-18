@@ -6,6 +6,16 @@ from pydantic import BaseModel, ConfigDict, model_validator
 from core.publication_state_ownership import PUBLICATION_CONTROLLED_INPUT_FIELDS
 
 
+def _reject_publication_controlled_input(value: Any) -> Any:
+    if isinstance(value, dict):
+        forbidden = sorted(set(value).intersection(PUBLICATION_CONTROLLED_INPUT_FIELDS))
+        if forbidden:
+            raise ValueError(
+                "Поля публикации нельзя изменять через общий endpoint: " + ", ".join(forbidden)
+            )
+    return value
+
+
 class PlaceBase(BaseModel):
     city_id: int = 1
     category_id: int | None = None
@@ -64,7 +74,12 @@ class PlaceBase(BaseModel):
 
 
 class PlaceCreate(PlaceBase):
-    pass
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_publication_state_input(cls, value: Any) -> Any:
+        return _reject_publication_controlled_input(value)
 
 
 class PlaceUpdate(PlaceBase):
@@ -73,13 +88,7 @@ class PlaceUpdate(PlaceBase):
     @model_validator(mode="before")
     @classmethod
     def reject_publication_state_input(cls, value: Any) -> Any:
-        if isinstance(value, dict):
-            forbidden = sorted(set(value).intersection(PUBLICATION_CONTROLLED_INPUT_FIELDS))
-            if forbidden:
-                raise ValueError(
-                    "Поля публикации нельзя изменять через общий endpoint: " + ", ".join(forbidden)
-                )
-        return value
+        return _reject_publication_controlled_input(value)
 
 
 class PlaceRead(PlaceBase):
