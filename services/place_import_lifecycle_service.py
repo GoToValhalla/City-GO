@@ -5,7 +5,15 @@ from datetime import datetime
 from math import atan2, cos, radians, sin, sqrt
 from typing import Any
 
+from sqlalchemy.orm import Session
+
 from models.place import Place
+from services.publication_state_writer import (
+    REASON_IMPORT_INCOMPLETE,
+    REASON_NEEDS_MANUAL_REVIEW,
+    REASON_NON_PUBLIC_CATEGORY,
+    transition_place_publication,
+)
 
 ACTIVE_STATUS = "active"
 DRAFT_STATUS = "draft"
@@ -39,17 +47,14 @@ class PlaceImportDecision:
 
 
 def apply_accepted_import_to_place(
+    db: Session,
     place: Place,
     item: dict[str, Any],
     category_id: int,
     visit_duration_minutes: int,
 ) -> PlaceImportDecision:
-    """Apply only a real source diff and require review for every changed place.
+    """Apply a real source diff while delegating publication state to the writer."""
 
-    Import payloads are sparse. A missing, null, or blank optional field is not
-    an authoritative deletion signal and therefore must never erase a known-good
-    value already stored on the place.
-    """
     incoming_title = str(item["title"])
     incoming_category = str(item["category"])
     incoming_lat = float(item["raw_lat"])
@@ -57,13 +62,37 @@ def apply_accepted_import_to_place(
     incoming_lifecycle_status = str(item.get("lifecycle_status") or ACTIVE_STATUS)
 
     if _is_bad_title(incoming_title):
-        return hide_place(place=place, reason="bad_import_title", status=DRAFT_STATUS)
+        return hide_place(
+            db,
+            place=place,
+            reason="bad_import_title",
+            status=DRAFT_STATUS,
+            reason_code=REASON_NON_PUBLIC_CATEGORY,
+        )
     if incoming_lifecycle_status == CLOSED_STATUS:
-        return hide_place(place=place, reason="source_closed", status=CLOSED_STATUS)
+        return hide_place(
+            db,
+            place=place,
+            reason="source_closed",
+            status=CLOSED_STATUS,
+            reason_code=REASON_IMPORT_INCOMPLETE,
+        )
     if incoming_lifecycle_status == TEMPORARILY_CLOSED_STATUS:
-        return hide_place(place=place, reason="source_temporarily_closed", status=TEMPORARILY_CLOSED_STATUS)
+        return hide_place(
+            db,
+            place=place,
+            reason="source_temporarily_closed",
+            status=TEMPORARILY_CLOSED_STATUS,
+            reason_code=REASON_IMPORT_INCOMPLETE,
+        )
     if incoming_lifecycle_status == REMOVED_FROM_SOURCE_STATUS:
-        return hide_place(place=place, reason="source_removed", status=REMOVED_FROM_SOURCE_STATUS)
+        return hide_place(
+            db,
+            place=place,
+            reason="source_removed",
+            status=REMOVED_FROM_SOURCE_STATUS,
+            reason_code=REASON_IMPORT_INCOMPLETE,
+        )
 
     proposed: dict[str, Any] = {
         "category_id": category_id,
@@ -110,14 +139,6 @@ def apply_accepted_import_to_place(
     if _is_major_category_change(place.category, incoming_category):
         review_reasons.append("major_category_change")
 
-    # CITYGO-342: a published place must stay live and unmodified while its
-    # proposed diff awaits admin review — proposed field values are never
-    # written onto the live row before approval. The full before/after
-    # change_set is still returned (and persisted into the review queue
-    # item's payload by the caller) so an admin can approve/reject the exact
-    # proposed values later. Only an unpublished place (draft/needs_review/
-    # hidden) may have the diff applied and be hidden immediately, matching
-    # the existing hide-until-reviewed contract for places nobody sees yet.
     was_public = bool(place.is_published and place.is_visible_in_catalog)
     if was_public:
         now = datetime.utcnow()
@@ -136,11 +157,18 @@ def apply_accepted_import_to_place(
     for field, value in proposed.items():
         _set_if_changed(place, field, value, changed_fields=None)
 
-    _hide_for_review(place, changed_fields)
+    _transition_to_review(
+        db,
+        place,
+        reason="source_data_changed",
+        reason_details={"review_reasons": review_reasons, "changed_fields": changed_fields},
+    )
+    _set_if_changed(place, "status", NEEDS_REVIEW_STATUS, changed_fields)
+    _set_if_changed(place, "last_verified_at", datetime.utcnow(), changed_fields)
     return PlaceImportDecision(
         action="needs_review",
         status=NEEDS_REVIEW_STATUS,
-        is_active=False,
+        is_active=True,
         changed_fields=changed_fields,
         review_reasons=review_reasons,
         change_set=change_set,
@@ -155,89 +183,89 @@ def _set_proposed_if_non_empty(proposed: dict[str, Any], field_name: str, value:
     proposed[field_name] = value
 
 
-def mark_place_for_review(place: Place, *, reason: str = "enrichment_changed") -> PlaceImportDecision:
-    """Move an enriched place out of public surfaces until an admin confirms it."""
+def mark_place_for_review(
+    db: Session,
+    place: Place,
+    *,
+    reason: str = "enrichment_changed",
+) -> PlaceImportDecision:
+    """Mark non-public places for review; public places remain live and unchanged."""
+
     changed_fields: list[str] = []
-    _mark_place_for_review(place, changed_fields)
+    if bool(place.is_published and place.is_visible_in_catalog):
+        now = datetime.utcnow()
+        _set_if_changed(place, "last_verified_at", now, changed_fields)
+        _set_if_changed(place, "updated_at", now, changed_fields)
+        return PlaceImportDecision(
+            action="needs_review",
+            status=place.status,
+            is_active=bool(place.is_active),
+            changed_fields=changed_fields,
+            review_reasons=[reason],
+            change_set={},
+        )
+
+    before = _snapshot_review_state(place)
+    _transition_to_review(db, place, reason=reason, reason_details={"review_reasons": [reason]})
+    _set_if_changed(place, "status", NEEDS_REVIEW_STATUS, changed_fields)
+    _set_if_changed(place, "last_verified_at", datetime.utcnow(), changed_fields)
+    changed_fields.extend(_publication_changed_fields(before, place))
     return PlaceImportDecision(
-        action="needs_review",
+        action="needs_review" if changed_fields else "unchanged",
         status=NEEDS_REVIEW_STATUS,
-        is_active=False,
-        changed_fields=changed_fields,
-        review_reasons=[reason],
-        change_set={},
+        is_active=True,
+        changed_fields=_dedupe(changed_fields),
+        review_reasons=[reason] if changed_fields else [],
+        change_set=_change_set_from_snapshot(place, before, _dedupe(changed_fields)),
     )
 
 
-def _mark_place_for_review(place: Place, changed_fields: list[str]) -> None:
-    """Enrichment-triggered review mark (mark_place_for_review): an
-    already-public place stays visible while flagged, matching the existing
-    always-public contract for this lighter-weight review path. Only
-    timestamps move; publication flags are untouched."""
-    now = datetime.utcnow()
-    was_public = bool(place.is_published and place.is_visible_in_catalog)
-    if was_public:
-        _set_if_changed(place, "last_verified_at", now, changed_fields)
-        _set_if_changed(place, "updated_at", now, changed_fields)
-        return
-    _set_if_changed(place, "status", NEEDS_REVIEW_STATUS, changed_fields)
-    _set_if_changed(place, "is_active", False, changed_fields)
-    _set_if_changed(place, "is_published", False, changed_fields)
-    _set_if_changed(place, "is_visible_in_catalog", False, changed_fields)
-    _set_if_changed(place, "is_route_eligible", False, changed_fields)
-    _set_if_changed(place, "is_searchable", False, changed_fields)
-    _set_if_changed(place, "publication_status", NEEDS_REVIEW_STATUS, changed_fields)
-    _set_if_changed(place, "last_verified_at", now, changed_fields)
-    _set_if_changed(place, "updated_at", now, changed_fields)
+def hide_place(
+    db: Session,
+    place: Place,
+    reason: str,
+    status: str = DRAFT_STATUS,
+    *,
+    reason_code: str = REASON_IMPORT_INCOMPLETE,
+) -> PlaceImportDecision:
+    """Hide a place through the canonical writer without deleting it."""
 
-
-def _hide_for_review(place: Place, changed_fields: list[str]) -> None:
-    """Import-diff-triggered review mark (apply_accepted_import_to_place): a
-    structural field change (title/category/address/coordinates) hides the
-    place and creates review-queue lineage. CITYGO-342: the caller only
-    reaches this function for a place that was NOT already public — an
-    already-public place takes the preserve-live-publication branch in
-    apply_accepted_import_to_place instead and never reaches here."""
-    now = datetime.utcnow()
-    was_public = bool(place.is_published and place.is_visible_in_catalog)
-    _set_if_changed(place, "status", NEEDS_REVIEW_STATUS, changed_fields)
-    _set_if_changed(place, "is_active", False, changed_fields)
-    _set_if_changed(place, "is_published", False, changed_fields)
-    _set_if_changed(place, "is_visible_in_catalog", False, changed_fields)
-    _set_if_changed(place, "is_route_eligible", False, changed_fields)
-    _set_if_changed(place, "is_searchable", False, changed_fields)
-    _set_if_changed(place, "publication_status", NEEDS_REVIEW_STATUS, changed_fields)
-    if was_public:
-        _set_if_changed(place, "unpublished_at", now, changed_fields)
-    _set_if_changed(place, "last_verified_at", now, changed_fields)
-    _set_if_changed(place, "updated_at", now, changed_fields)
-
-
-def hide_place(place: Place, reason: str, status: str = DRAFT_STATUS) -> PlaceImportDecision:
-    """Hide a place without deleting it. A no-op remains a true no-op."""
-    changed_fields: list[str] = []
     before = _snapshot_review_state(place)
-    now = datetime.utcnow()
-    was_public = bool(place.is_published or place.is_visible_in_catalog or place.is_searchable)
-    _set_if_changed(place, "status", status, changed_fields)
-    _set_if_changed(place, "is_active", False, changed_fields)
-    _set_if_changed(place, "is_published", False, changed_fields)
-    _set_if_changed(place, "is_visible_in_catalog", False, changed_fields)
-    _set_if_changed(place, "is_route_eligible", False, changed_fields)
-    _set_if_changed(place, "is_searchable", False, changed_fields)
-    _set_if_changed(place, "publication_status", status, changed_fields)
-    if was_public:
-        _set_if_changed(place, "unpublished_at", now, changed_fields)
-    if changed_fields:
-        _set_if_changed(place, "last_verified_at", now, changed_fields)
-        _set_if_changed(place, "updated_at", now, changed_fields)
+    target_publication_status = "draft" if status == DRAFT_STATUS else "hidden"
+    desired_reason_details = {"import_reason": reason, "source_status": status}
+    already_canonical = (
+        place.publication_status == target_publication_status
+        and place.publication_reason_code == reason_code
+        and dict(place.publication_reason_details or {}) == desired_reason_details
+        and not place.is_published
+        and not place.is_visible_in_catalog
+        and not place.is_searchable
+        and not place.is_route_eligible
+    )
+    if not already_canonical:
+        transition_place_publication(
+            db,
+            place,
+            to_status=target_publication_status,
+            reason_code=reason_code,
+            actor="import_pipeline",
+            source="place_import_lifecycle",
+            reason_details=desired_reason_details,
+            human_comment=reason,
+            lock_place=False,
+        )
+    place.status = status
+    place.last_verified_at = datetime.utcnow()
+    changed_fields = _publication_changed_fields(before, place)
+    if before["status"] != place.status:
+        changed_fields.append("status")
     return PlaceImportDecision(
         action="hidden" if changed_fields else "unchanged",
         status=status,
-        is_active=False,
-        changed_fields=changed_fields,
+        is_active=bool(place.is_active),
+        changed_fields=_dedupe(changed_fields),
         review_reasons=[reason] if changed_fields else [],
-        change_set=_change_set_from_snapshot(place, before, changed_fields),
+        change_set=_change_set_from_snapshot(place, before, _dedupe(changed_fields)),
     )
 
 
@@ -251,7 +279,7 @@ def existing_place_must_be_hidden(place: Place) -> bool:
     }
 
 
-def mark_missing_place(place: Place, missing_count: int) -> PlaceImportDecision:
+def mark_missing_place(db: Session, place: Place, missing_count: int) -> PlaceImportDecision:
     if missing_count < 3:
         return PlaceImportDecision(
             action="missing_tracked",
@@ -260,7 +288,44 @@ def mark_missing_place(place: Place, missing_count: int) -> PlaceImportDecision:
             changed_fields=[],
             review_reasons=["missing_from_source"],
         )
-    return hide_place(place=place, reason="missing_from_source_repeatedly", status=REMOVED_FROM_SOURCE_STATUS)
+    return hide_place(
+        db,
+        place=place,
+        reason="missing_from_source_repeatedly",
+        status=REMOVED_FROM_SOURCE_STATUS,
+        reason_code=REASON_IMPORT_INCOMPLETE,
+    )
+
+
+def _transition_to_review(
+    db: Session,
+    place: Place,
+    *,
+    reason: str,
+    reason_details: dict[str, Any],
+) -> None:
+    already_canonical = (
+        place.publication_status == NEEDS_REVIEW_STATUS
+        and place.publication_reason_code == REASON_NEEDS_MANUAL_REVIEW
+        and dict(place.publication_reason_details or {}) == reason_details
+        and not place.is_published
+        and not place.is_visible_in_catalog
+        and not place.is_searchable
+        and not place.is_route_eligible
+    )
+    if already_canonical:
+        return
+    transition_place_publication(
+        db,
+        place,
+        to_status=NEEDS_REVIEW_STATUS,
+        reason_code=REASON_NEEDS_MANUAL_REVIEW,
+        actor="import_pipeline",
+        source="place_import_lifecycle",
+        reason_details=reason_details,
+        human_comment=reason,
+        lock_place=False,
+    )
 
 
 def _snapshot_review_state(place: Place) -> dict[str, Any]:
@@ -274,11 +339,21 @@ def _snapshot_review_state(place: Place) -> dict[str, Any]:
             "is_route_eligible",
             "is_searchable",
             "publication_status",
+            "publication_reason_code",
+            "publication_reason_details",
             "unpublished_at",
             "last_verified_at",
             "updated_at",
         )
     }
+
+
+def _publication_changed_fields(before: dict[str, Any], place: Place) -> list[str]:
+    return [
+        field_name
+        for field_name in before
+        if before[field_name] != getattr(place, field_name)
+    ]
 
 
 def _change_set_from_snapshot(
@@ -304,6 +379,10 @@ def _set_if_changed(
     setattr(place, field_name, new_value)
     if changed_fields is not None and field_name not in changed_fields:
         changed_fields.append(field_name)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
 
 
 def _is_bad_title(value: str | None) -> bool:
