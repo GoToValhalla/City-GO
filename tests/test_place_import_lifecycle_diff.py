@@ -91,27 +91,33 @@ def test_changed_published_place_stays_public_and_unmodified_pending_review():
     assert place.unpublished_at is None
 
 
-def test_changed_unpublished_place_uses_writer_and_is_sent_to_review(db_session):
-    place = _place(
-        city_id=None,
-        category_id=None,
-        is_active=True,
-        is_published=False,
-        is_visible_in_catalog=False,
-        is_route_eligible=False,
-        is_searchable=False,
-        publication_status="draft",
-        publication_reason_code="legacy_unknown",
-        publication_reason_details={},
+def test_changed_unpublished_place_uses_writer_and_is_sent_to_review(
+    db_session,
+    draft_place_factory,
+) -> None:
+    place = draft_place_factory(
+        slug="import-lifecycle-draft",
+        title="Тестовое место",
+        short_description="Описание",
+        category="museum",
+        address="Улица, 1",
+        lat=55.1,
+        lng=37.2,
+        source="osm",
+        source_url="https://www.openstreetmap.org/node/1",
         status="active",
+        average_visit_duration_minutes=75,
     )
-    db_session.add(place)
-    db_session.flush()
+    initial_transition_count = (
+        db_session.query(PlacePublicationTransition)
+        .filter(PlacePublicationTransition.place_id == place.id)
+        .count()
+    )
 
     decision = apply_accepted_import_to_place(
         place,
         _item(address="Новая улица, 2"),
-        category_id=10,
+        category_id=place.category_id,
         visit_duration_minutes=75,
     )
 
@@ -127,12 +133,14 @@ def test_changed_unpublished_place_uses_writer_and_is_sent_to_review(db_session)
     assert place.is_searchable is False
     assert place.is_route_eligible is False
 
-    transition = (
+    transitions = (
         db_session.query(PlacePublicationTransition)
         .filter(PlacePublicationTransition.place_id == place.id)
-        .one()
+        .order_by(PlacePublicationTransition.id.asc())
+        .all()
     )
-    assert transition.from_status == "draft"
+    assert len(transitions) == initial_transition_count + 1
+    transition = transitions[-1]
     assert transition.to_status == "needs_review"
     assert transition.reason_code == "needs_manual_review"
     assert transition.source == "place_import_lifecycle"
