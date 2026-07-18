@@ -24,6 +24,7 @@ REASON_NON_PUBLIC_CATEGORY = "non_public_category"
 REASON_MISSING_COORDINATES = "missing_coordinates"
 REASON_STALE_READINESS_SNAPSHOT = "stale_readiness_snapshot"
 REASON_CITY_PUBLICATION_QUALITY_GATE = "city_publication_quality_gate"
+REASON_ADMIN_CREATE_DRAFT = "admin_create_draft"
 REASON_ADMIN_UNPUBLISH = "admin_unpublish"
 REASON_ADMIN_REJECT = "admin_reject"
 REASON_ADMIN_HIDE = "admin_hide"
@@ -46,6 +47,7 @@ CANONICAL_PUBLICATION_REASON_CODES = frozenset(
         REASON_MISSING_COORDINATES,
         REASON_STALE_READINESS_SNAPSHOT,
         REASON_CITY_PUBLICATION_QUALITY_GATE,
+        REASON_ADMIN_CREATE_DRAFT,
         REASON_ADMIN_UNPUBLISH,
         REASON_ADMIN_REJECT,
         REASON_ADMIN_HIDE,
@@ -58,21 +60,22 @@ CANONICAL_PUBLICATION_REASON_CODES = frozenset(
 _ALLOWED_TARGETS: Mapping[str, frozenset[str]] = {
     REASON_PUBLISHED: frozenset({"published"}),
     REASON_IMPORT_DRAFT: frozenset({"draft"}),
-    REASON_IMPORT_INCOMPLETE: frozenset({"draft", "auto_backlog", "needs_review"}),
+    REASON_IMPORT_INCOMPLETE: frozenset({"draft", "auto_backlog", "needs_review", "hidden"}),
     REASON_ENRICHMENT_BACKLOG: frozenset({"auto_backlog", "deferred"}),
     REASON_LOW_CONFIDENCE: frozenset({"low_confidence", "auto_backlog", "needs_review", "needs_manual_review"}),
     REASON_POLICY_GATE_FAILED: frozenset({"auto_backlog", "needs_review", "needs_manual_review", "hidden"}),
     REASON_NEEDS_MANUAL_REVIEW: frozenset({"needs_review", "needs_manual_review", "deferred"}),
     REASON_DUPLICATE_SUSPECTED: frozenset({"needs_review", "needs_manual_review", "hidden", "rejected"}),
     REASON_SPAM_SUSPECTED: frozenset({"needs_review", "needs_manual_review", "hidden", "rejected"}),
-    REASON_NON_PUBLIC_CATEGORY: frozenset({"hidden", "deferred", "needs_review"}),
+    REASON_NON_PUBLIC_CATEGORY: frozenset({"hidden", "deferred", "needs_review", "draft"}),
     REASON_MISSING_COORDINATES: frozenset({"draft", "auto_backlog", "needs_review", "hidden"}),
     REASON_STALE_READINESS_SNAPSHOT: frozenset({"deferred", "needs_review", "auto_backlog"}),
     REASON_CITY_PUBLICATION_QUALITY_GATE: frozenset({"needs_review", "needs_manual_review", "hidden", "unpublished", "deferred"}),
+    REASON_ADMIN_CREATE_DRAFT: frozenset({"draft"}),
     REASON_ADMIN_UNPUBLISH: frozenset({"unpublished"}),
     REASON_ADMIN_REJECT: frozenset({"rejected"}),
     REASON_ADMIN_HIDE: frozenset({"hidden"}),
-    REASON_ADMIN_DEFER: frozenset({"deferred", "needs_review", "needs_manual_review"}),
+    REASON_ADMIN_DEFER: frozenset({"deferred", "needs_review", "needs_manual_review", "draft"}),
     REASON_REPAIR_STATE: frozenset({"draft", "auto_backlog", "low_confidence", "needs_review", "needs_manual_review", "deferred", "hidden", "unpublished", "rejected"}),
     REASON_LEGACY_UNKNOWN: frozenset({"draft", "auto_backlog", "low_confidence", "needs_review", "needs_manual_review", "deferred", "hidden", "unpublished", "rejected"}),
 }
