@@ -19,6 +19,9 @@ _FORBIDDEN_RUNTIME_SECRETS = frozenset(
         "secret",
     }
 )
+_FORBIDDEN_RUNTIME_SECRETS_CASEFOLD = frozenset(
+    item.casefold() for item in _FORBIDDEN_RUNTIME_SECRETS
+)
 
 
 class UserRouteStateIntegrityError(ValueError):
@@ -40,10 +43,15 @@ def verify_user_route_state(state: UserRouteState) -> None:
 
 
 def validate_route_state_runtime_config() -> None:
-    """Fail before serving traffic when signing configuration is unsafe."""
+    """Fail application startup when signing configuration is unsafe."""
     if _is_test():
         return
-    _validated_runtime_secret()
+    try:
+        _validated_runtime_secret()
+    except UserRouteStateIntegrityError as exc:
+        # Preserve the established startup contract while runtime sign/verify
+        # continues to expose an integrity-domain error.
+        raise RuntimeError(str(exc)) from exc
 
 
 def _canonical_payload(state: UserRouteState) -> bytes:
@@ -69,7 +77,7 @@ def _validated_runtime_secret() -> bytes:
         raise UserRouteStateIntegrityError(
             f"USER_ROUTE_STATE_SECRET must contain at least {_MIN_SECRET_BYTES} bytes."
         )
-    if configured.casefold() in {item.casefold() for item in _FORBIDDEN_RUNTIME_SECRETS}:
+    if configured.casefold() in _FORBIDDEN_RUNTIME_SECRETS_CASEFOLD:
         raise UserRouteStateIntegrityError(
             "USER_ROUTE_STATE_SECRET uses a forbidden default or test value."
         )
