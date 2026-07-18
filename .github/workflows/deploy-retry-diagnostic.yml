@@ -1,0 +1,155 @@
+name: 01A · CITY GO · Production Deploy Retry
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: Exact commit SHA whose images were already built and pushed by Production Deploy.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  group: production-deploy-${{ inputs.deploy_sha }}
+  cancel-in-progress: false
+
+env:
+  DEPLOY_TARGET_SHA: ${{ inputs.deploy_sha }}
+
+jobs:
+  deploy-retry:
+    name: Deploy production with full diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout deploy target
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_TARGET_SHA }}
+
+      - name: Verify successful CI for deploy SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          workflow_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml" --jq .id)"
+          run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?branch=main&head_sha=${DEPLOY_TARGET_SHA}&status=completed&per_page=20" --jq '[.workflow_runs[] | select(.name == "00 · CITY GO · CI") | select(.conclusion == "success")] | .[0].id // empty')"
+          test -n "$run_id" || { echo "No successful CI for ${DEPLOY_TARGET_SHA}" >&2; exit 1; }
+          echo "Successful CI run ${run_id} confirmed for ${DEPLOY_TARGET_SHA}."
+
+      - name: Validate production secrets
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64"
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh /tmp/city-go-deploy
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -T 8 -p "$SSH_PORT" "$SSH_HOST" > /tmp/city-go-deploy/ssh-known-hosts 2> /tmp/city-go-deploy/ssh-keyscan.log || true
+          cat /tmp/city-go-deploy/ssh-known-hosts >> ~/.ssh/known_hosts
+
+      - name: Copy exact compose artifact
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+        run: |
+          set -euo pipefail
+          scp -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -P "$SSH_PORT" \
+            docker-compose.yml "$SSH_USER@$SSH_HOST:/tmp/city-go-docker-compose.yml"
+
+      - name: Deploy on server with captured diagnostics
+        id: remote-deploy
+        continue-on-error: true
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+          DEPLOY_SHA: ${{ env.DEPLOY_TARGET_SHA }}
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/city-go-deploy
+          log=/tmp/city-go-deploy/remote-deploy.log
+          status_file=/tmp/city-go-deploy/remote-deploy-exit-code.txt
+          set +e
+          ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_SHA='${DEPLOY_SHA}' bash -s" 2>&1 <<'REMOTE' | tee "$log"
+          set -Eeuo pipefail
+          trap 'status=$?; echo "=== remote failure trap ==="; echo "exit_code=${status}"; echo "command=${BASH_COMMAND}"; echo "line=${LINENO}"; echo "=== docker compose ps -a ==="; cd /srv/app 2>/dev/null && docker compose ps -a || true; echo "=== migrate logs ==="; cd /srv/app 2>/dev/null && docker compose logs --no-color --timestamps migrate || true; echo "=== alembic_version ==="; cd /srv/app 2>/dev/null && docker compose exec -T db psql -U postgres -d city_guide -tA -c "SELECT version_num FROM alembic_version;" || true; echo "=== disk ==="; df -h / || true; exit "$status"' ERR
+
+          cd /srv/app
+          echo "=== install compose ==="
+          install -m 0644 /tmp/city-go-docker-compose.yml /srv/app/docker-compose.yml
+          docker compose config --quiet
+
+          echo "=== pull exact images ==="
+          export BACKEND_IMAGE="ghcr.io/gotovalhalla/city-go-backend:${DEPLOY_SHA}"
+          export FRONTEND_IMAGE="ghcr.io/gotovalhalla/city-go-frontend:${DEPLOY_SHA}"
+          docker pull "$BACKEND_IMAGE"
+          docker pull "$FRONTEND_IMAGE"
+          docker tag "$BACKEND_IMAGE" ghcr.io/gotovalhalla/city-go-backend:latest
+          docker tag "$FRONTEND_IMAGE" ghcr.io/gotovalhalla/city-go-frontend:latest
+
+          echo "=== compose up ==="
+          timeout 240s docker compose up -d --remove-orphans
+          docker compose ps -a
+
+          echo "=== wait for readiness ==="
+          ready=0
+          for attempt in $(seq 1 36); do
+            if curl -fsS --max-time 5 http://localhost:8000/ready; then
+              ready=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ready" = "1"
+          echo "$DEPLOY_SHA" > /srv/app/.last_deployed_sha
+          REMOTE
+          ssh_status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$ssh_status" > "$status_file"
+          echo "remote_deploy_exit_code=${ssh_status}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload complete deploy diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-deploy-retry-log
+          path: /tmp/city-go-deploy
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Fail after diagnostics are uploaded
+        if: always()
+        env:
+          REMOTE_STATUS: ${{ steps.remote-deploy.outputs.remote_deploy_exit_code }}
+        run: |
+          set -euo pipefail
+          status="${REMOTE_STATUS:-1}"
+          if [ "$status" -ne 0 ]; then
+            echo "Remote production deploy failed with exit code ${status}. Full diagnostics were uploaded." >&2
+            exit "$status"
+          fi
+          echo "Production deploy completed successfully."
