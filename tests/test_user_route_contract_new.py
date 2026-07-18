@@ -1,17 +1,17 @@
 import pytest
 from fastapi import HTTPException
 
-from routers.user_routes import _ensure_current_route_matches
+from routers.user_routes import _ensure_route_id_matches
 from schemas.user_route import UserRouteBuildRequest, UserRoutePoint, UserRouteState
 
 
 def test_user_route_mutation_accepts_matching_route_id_new() -> None:
-    _ensure_current_route_matches("route-1", _route_state("route-1"))
+    _ensure_route_id_matches("route-1", _route_state("route-1"))
 
 
 def test_user_route_mutation_rejects_mismatched_route_id_new() -> None:
     with pytest.raises(HTTPException) as exc_info:
-        _ensure_current_route_matches("route-new", _route_state("route-old"))
+        _ensure_route_id_matches("route-new", _route_state("route-old"))
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "route_state_conflict"
