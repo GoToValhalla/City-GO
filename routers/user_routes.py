@@ -32,6 +32,7 @@ from services.user_route_session_service import UserRouteSessionError, UserRoute
 from services.user_route_state_integrity import UserRouteStateIntegrityError
 from services.user_route_state_lifecycle_service import (
     RouteStateLifecycleService,
+    UserRouteMutationRejectedError,
     UserRouteStateConflictError,
 )
 
@@ -119,6 +120,9 @@ def correct_user_route(payload: UserRouteCorrectRequest, db: Session = Depends(g
     try:
         issued = _lifecycle.correct(db, payload)
         db.commit()
+    except UserRouteMutationRejectedError as exc:
+        db.rollback()
+        raise _route_mutation_http_error(exc) from exc
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
@@ -150,6 +154,9 @@ def update_user_route(
         issued = _lifecycle.update_order(db, payload)
         db.commit()
         return issued
+    except UserRouteMutationRejectedError as exc:
+        db.rollback()
+        raise _route_mutation_http_error(exc) from exc
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
@@ -172,6 +179,9 @@ def replace_user_route_place(
         issued = _lifecycle.replace_place(db, payload)
         db.commit()
         return issued
+    except UserRouteMutationRejectedError as exc:
+        db.rollback()
+        raise _route_mutation_http_error(exc) from exc
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
@@ -224,6 +234,9 @@ def add_user_route_place(
         issued = _lifecycle.add_place(db, payload)
         db.commit()
         return issued
+    except UserRouteMutationRejectedError as exc:
+        db.rollback()
+        raise _route_mutation_http_error(exc) from exc
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
@@ -324,6 +337,16 @@ def _ensure_route_id_matches(route_id: str, current_route: UserRouteState) -> No
             "route_id": str(route_id),
             "payload_route_id": str(current_route.route_id),
             "payload_revision": int(current_route.revision),
+        },
+    )
+
+
+def _route_mutation_http_error(exc: BaseException) -> HTTPException:
+    return HTTPException(
+        status_code=422,
+        detail={
+            "code": "route_mutation_rejected",
+            "message": str(exc),
         },
     )
 
