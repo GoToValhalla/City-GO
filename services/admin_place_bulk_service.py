@@ -118,6 +118,7 @@ def apply_bulk(
             db,
             event_type="place_bulk_action",
             payload={"action": action, "ok": applied, "errors": len(errors)},
+            commit=False,
         )
         db.commit()
         return {"applied": applied, "failed": len(errors), "errors": errors}
@@ -188,8 +189,6 @@ def _apply_one_locked(
             lock_place=False,
             route_eligible_override=action == "enable_route",
         )
-        if action == "disable_route":
-            place.route_exclusion_reason = reason
         return
     if action == "verify":
         place.verification_status = "verified"
