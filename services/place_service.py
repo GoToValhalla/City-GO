@@ -13,39 +13,22 @@ from services.place_public_visibility import apply_public_place_visibility
 from services.place_query_params_service import normalize_place_query_params
 from services.place_search_service import apply_place_text_search
 from services.place_sorting_service import apply_place_sorting
+from services.publication_state_ownership import PUBLICATION_OWNED_FIELDS
 from services.publication_state_writer import (
     REASON_ADMIN_CREATE_DRAFT,
     transition_place_publication,
 )
 
-PROTECTED_PUBLICATION_FIELDS = frozenset(
-    {
-        "is_active",
-        "is_published",
-        "is_visible_in_catalog",
-        "is_route_eligible",
-        "is_searchable",
-        "publication_status",
-        "publication_reason_code",
-        "publication_reason_details",
-        "publication_comment",
-        "published_at",
-        "unpublished_at",
-    }
-)
+PROTECTED_PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
 
 
 def _place_column_payload(payload: dict) -> dict:
-    """Keep real non-publication ORM columns only.
-
-    Publication state is owned exclusively by publication_state_writer and can
-    never enter through generic create/update schemas.
-    """
+    """Keep real non-publication ORM columns only."""
 
     allowed_fields = {
         column.name
         for column in Place.__table__.columns
-        if column.name not in PROTECTED_PUBLICATION_FIELDS
+        if column.name not in PUBLICATION_OWNED_FIELDS
     }
     return {key: value for key, value in payload.items() if key in allowed_fields}
 
@@ -78,11 +61,9 @@ def get_places(
             sort_order=sort_order,
         )
     )
-
     query = db.query(Place)
     if public_only:
         query = apply_public_place_visibility(query)
-
     query = apply_place_filters(
         db=db,
         query=query,
@@ -94,11 +75,9 @@ def get_places(
     )
     if query is None:
         return []
-
     query = apply_place_text_search(query, params.q)
     query = apply_place_sorting(query=query, params=params)
-    query = query.offset(params.offset).limit(params.limit)
-    return query.all()
+    return query.offset(params.offset).limit(params.limit).all()
 
 
 def get_places_total(
@@ -121,7 +100,6 @@ def get_places_total(
             q=q,
         )
     )
-
     query = db.query(Place)
     if public_only:
         query = apply_public_place_visibility(query)
@@ -136,7 +114,6 @@ def get_places_total(
     )
     if query is None:
         return 0
-
     query = apply_place_text_search(query, params.q)
     return get_query_total(query)
 
@@ -213,15 +190,12 @@ def update_place(db: Session, place_id: int, place_in: PlaceUpdate) -> Place | N
     place = get_place_by_id(db, place_id)
     if place is None:
         return None
-
     for field, value in _place_column_payload(place_in.model_dump()).items():
         setattr(place, field, value)
-
     if place_in.lat is not None or place_in.lng is not None:
         from services.destination_membership_service import mark_place_stale
 
         mark_place_stale(db, place.id)
-
     db.commit()
     db.refresh(place)
     return place
@@ -231,7 +205,6 @@ def delete_place(db: Session, place_id: int) -> bool:
     place = get_place_by_id(db, place_id)
     if place is None:
         return False
-
     db.delete(place)
     db.commit()
     return True
