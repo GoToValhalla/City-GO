@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ROUTER = ROOT / "routers/user_routes.py"
+LIFECYCLE = ROOT / "services/user_route_state_lifecycle_service.py"
 REGISTRY = ROOT / "services/user_route_state_registry_service.py"
 SESSION = ROOT / "services/user_route_session_service.py"
 INTEGRITY = ROOT / "services/user_route_state_integrity.py"
@@ -27,11 +28,11 @@ def _called_names(path: Path) -> set[str]:
     return result
 
 
-def test_user_route_router_owns_complete_registry_lifecycle_new() -> None:
-    calls = _called_names(ROUTER)
-    assert "register_initial_route_state" in calls
-    assert "verify_current_route_state" in calls
-    assert "advance_route_state" in calls
+def test_user_route_router_delegates_complete_registry_lifecycle_new() -> None:
+    router_calls = _called_names(ROUTER)
+    lifecycle_calls = _called_names(LIFECYCLE)
+    assert {"issue_initial", "correct", "update_order", "replace_place", "add_place", "read_alternatives", "start_session"} <= router_calls
+    assert {"register_initial_route_state", "verify_current_route_state", "advance_route_state"} <= lifecycle_calls
 
 
 def test_registry_uses_atomic_missing_row_claim_new() -> None:
