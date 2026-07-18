@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 from fastapi import HTTPException
 
@@ -74,7 +76,6 @@ def _state(points: list[UserRoutePoint], request: UserRouteBuildRequest | None =
 @title("Route Builder v2 derives plan from user route payload")
 def test_route_builder_v2_plan_is_derived_from_user_route_payload() -> None:
     plan = build_route_builder_v2_plan_from_intent(_request())
-
     assert plan.mode == CATEGORY_BUILDER
     assert plan.executor_mode == "instant"
     assert plan.categories == ("museum", "park")
@@ -84,7 +85,6 @@ def test_route_builder_v2_plan_is_derived_from_user_route_payload() -> None:
 @title("Route Builder v2 quick mode is used for auto payload")
 def test_route_builder_v2_quick_mode_from_auto_payload() -> None:
     plan = build_route_builder_v2_plan_from_intent(_request(build_mode="auto", interests=[]))
-
     assert plan.mode == QUICK_BUILD
     assert plan.expected_min_points == 3
 
@@ -101,9 +101,7 @@ def test_route_builder_v2_output_gate_removes_route_junk() -> None:
         ],
         request,
     )
-
     result = attach_route_builder_v2_result(state, plan)
-
     assert [point.place_id for point in result.points] == ["1", "3"]
     assert result.total_places == 2
     assert "Из маршрута убраны неподходящие сервисные точки." in result.warnings
@@ -117,9 +115,7 @@ def test_route_builder_v2_marks_partial_when_too_few_points_remain() -> None:
     request = _request(build_mode="auto", interests=[])
     plan = build_route_builder_v2_plan_from_intent(request)
     state = _state([_point("1", "park", "Park")], request)
-
     result = attach_route_builder_v2_result(state, plan)
-
     assert result.status == "partial_route"
     assert result.partial_reason == "route_builder_v2_insufficient_points"
     assert "После проверки осталось мало подходящих точек." in result.warnings
@@ -127,11 +123,13 @@ def test_route_builder_v2_marks_partial_when_too_few_points_remain() -> None:
 
 @title("Route Builder v2 API contract rejects invalid manual payload")
 def test_route_builder_v2_api_contract_rejects_invalid_manual_payload() -> None:
+    db = MagicMock()
     with pytest.raises(HTTPException) as exc:
         build_user_route(
             _request(build_mode="manual", selected_place_ids=["1"]),
-            db=object(),  # type: ignore[arg-type]
+            db=db,
         )
 
     assert exc.value.status_code == 422
     assert exc.value.detail["code"] == "route_builder_v2_invalid_request"
+    db.rollback.assert_called_once()
