@@ -45,8 +45,6 @@ def _route(place, city_slug: str) -> UserRouteState:
 
 def test_load_place_rejects_place_from_unpublished_city_new(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="route-unpublished-city")
-    city.launch_status = "review_required"
-    db_session.commit()
     place = place_factory(
         city_id=city.id,
         slug="route-unpublished-place",
@@ -55,14 +53,14 @@ def test_load_place_rejects_place_from_unpublished_city_new(db_session, city_fac
         lat=54.96,
         lng=20.47,
     )
+    city.launch_status = "review_required"
+    db_session.commit()
 
     assert load_place(db_session, str(place.id)) is None
 
 
 def test_load_place_rejects_place_from_inactive_city_new(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="route-inactive-city")
-    city.is_active = False
-    db_session.commit()
     place = place_factory(
         city_id=city.id,
         slug="route-inactive-place",
@@ -71,6 +69,8 @@ def test_load_place_rejects_place_from_inactive_city_new(db_session, city_factor
         lat=54.96,
         lng=20.47,
     )
+    city.is_active = False
+    db_session.commit()
 
     assert load_place(db_session, str(place.id)) is None
 
@@ -117,8 +117,6 @@ def test_alternatives_stay_in_current_route_city_new(db_session, city_factory, p
 
 def test_structured_options_reject_unpublished_city_new(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="route-structured-unpublished")
-    city.launch_status = "review_required"
-    db_session.commit()
     place_factory(
         city_id=city.id,
         slug="route-structured-unpublished-place",
@@ -127,6 +125,8 @@ def test_structured_options_reject_unpublished_city_new(db_session, city_factory
         lat=54.96,
         lng=20.47,
     )
+    city.launch_status = "review_required"
+    db_session.commit()
     request = UserRouteStructuredBuildRequest(
         lat=54.96,
         lng=20.47,
