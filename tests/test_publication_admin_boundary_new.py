@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from core.publication_state_ownership import PUBLICATION_CONTROLLED_INPUT_FIELDS
 from models.place_publication_transition import PlacePublicationTransition
 from services.admin_place_bulk_service import apply_bulk
 from services.admin_place_update_service import (
@@ -9,7 +10,6 @@ from services.admin_place_update_service import (
     _PUBLICATION_CONTROLLED_FIELDS,
     update_admin_place_fields,
 )
-from services.publication_state_ownership import PUBLICATION_CONTROLLED_INPUT_FIELDS
 
 
 @pytest.mark.parametrize(
@@ -49,10 +49,8 @@ def test_generic_admin_update_rejects_every_publication_controlled_field(
         "publication_reason_details": dict(place.publication_reason_details or {}),
         "publication_comment": place.publication_comment,
     }
-
     with pytest.raises(ValueError, match="Поля публикации нельзя изменять"):
         update_admin_place_fields(db_session, place.id, {field: value}, actor="test-admin")
-
     db_session.refresh(place)
     after = {
         "is_active": place.is_active,
@@ -73,11 +71,7 @@ def test_generic_admin_update_allowlist_cannot_overlap_publication_state() -> No
     assert _ALLOWED.isdisjoint(PUBLICATION_CONTROLLED_INPUT_FIELDS)
 
 
-def test_admin_patch_api_rejects_publication_state_changes(
-    client,
-    db_session,
-    published_place_factory,
-) -> None:
+def test_admin_patch_api_rejects_publication_state_changes(client, db_session, published_place_factory) -> None:
     place = published_place_factory(slug="admin-patch-publication-bypass")
     response = client.patch(
         f"/admin/places/{place.id}",
@@ -91,10 +85,7 @@ def test_admin_patch_api_rejects_publication_state_changes(
     assert place.is_visible_in_catalog is True
 
 
-def test_generic_admin_update_still_updates_ordinary_fields(
-    db_session,
-    published_place_factory,
-) -> None:
+def test_generic_admin_update_still_updates_ordinary_fields(db_session, published_place_factory) -> None:
     place = published_place_factory(slug="ordinary-admin-update", title="Старое название")
     updated = update_admin_place_fields(
         db_session,
@@ -132,10 +123,7 @@ def test_bulk_category_update_recalculates_publication_for_excluded_category(
     assert place.publication_reason_code == "non_public_category"
 
 
-def test_bulk_category_update_recalculates_route_for_safe_category(
-    db_session,
-    published_place_factory,
-) -> None:
+def test_bulk_category_update_recalculates_route_for_safe_category(db_session, published_place_factory) -> None:
     place = published_place_factory(slug="bulk-category-safe", category="museum")
     result = apply_bulk(
         db_session,
@@ -151,15 +139,11 @@ def test_bulk_category_update_recalculates_route_for_safe_category(
     assert place.is_published is True
 
 
-def test_bulk_route_actions_use_writer_and_append_transition_ledger(
-    db_session,
-    published_place_factory,
-) -> None:
+def test_bulk_route_actions_use_writer_and_append_transition_ledger(db_session, published_place_factory) -> None:
     place = published_place_factory(slug="bulk-route-writer", category="museum")
     initial_count = db_session.query(PlacePublicationTransition).filter(
         PlacePublicationTransition.place_id == place.id
     ).count()
-
     disabled = apply_bulk(
         db_session,
         [place.id],
@@ -171,7 +155,6 @@ def test_bulk_route_actions_use_writer_and_append_transition_ledger(
     db_session.refresh(place)
     assert place.is_route_eligible is False
     assert place.route_exclusion_reason == "Временно исключено администратором"
-
     enabled = apply_bulk(
         db_session,
         [place.id],
@@ -187,7 +170,6 @@ def test_bulk_route_actions_use_writer_and_append_transition_ledger(
     assert place.is_searchable is True
     assert place.is_route_eligible is True
     assert place.route_exclusion_reason is None
-
     transitions = db_session.query(PlacePublicationTransition).filter(
         PlacePublicationTransition.place_id == place.id
     ).order_by(PlacePublicationTransition.id.asc()).all()
@@ -232,7 +214,6 @@ def test_bulk_verify_sets_full_verification_contract(db_session, draft_place_fac
     place.existence_confidence_level = "unknown"
     place.existence_confidence_score = 0
     db_session.commit()
-
     result = apply_bulk(db_session, [place.id], "verify", {}, actor="test-admin")
     assert result == {"applied": 1, "failed": 0, "errors": []}
     db_session.refresh(place)
