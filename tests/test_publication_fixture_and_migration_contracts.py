@@ -3,9 +3,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import pytest
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import create_engine, inspect
 
 from db.base import Base
 from tests.allure_support import title
@@ -14,7 +12,6 @@ from tests.allure_support import title
 @title("Фабрика published-place явно создаёт опубликованное видимое место")
 def test_published_place_factory_sets_consistent_public_flags(published_place_factory) -> None:
     place = published_place_factory(slug="factory-published-place")
-
     assert place.is_active is True
     assert place.is_published is True
     assert place.is_visible_in_catalog is True
@@ -26,7 +23,6 @@ def test_published_place_factory_sets_consistent_public_flags(published_place_fa
 @title("Фабрика draft-place явно создаёт черновик без публичных флагов")
 def test_draft_place_factory_sets_consistent_draft_flags(draft_place_factory) -> None:
     place = draft_place_factory(slug="factory-draft-place")
-
     assert place.is_active is True
     assert place.is_published is False
     assert place.is_visible_in_catalog is False
@@ -38,7 +34,6 @@ def test_draft_place_factory_sets_consistent_draft_flags(draft_place_factory) ->
 @title("Фабрика manual-review-place отделяет ручную очередь от auto backlog")
 def test_manual_review_place_factory_sets_explicit_manual_status(manual_review_place_factory) -> None:
     place = manual_review_place_factory(slug="factory-manual-place")
-
     assert place.is_published is False
     assert place.is_visible_in_catalog is False
     assert place.publication_status == "needs_review"
@@ -47,7 +42,6 @@ def test_manual_review_place_factory_sets_explicit_manual_status(manual_review_p
 @title("Фабрика auto-backlog-place не создаёт ручную очередь")
 def test_auto_backlog_place_factory_sets_non_manual_backlog_status(auto_backlog_place_factory) -> None:
     place = auto_backlog_place_factory(slug="factory-auto-backlog-place")
-
     assert place.is_published is False
     assert place.is_visible_in_catalog is False
     assert place.publication_status == "auto_backlog"
@@ -56,7 +50,6 @@ def test_auto_backlog_place_factory_sets_non_manual_backlog_status(auto_backlog_
 @title("Фабрика hidden-place создаёт скрытое неактивное место")
 def test_hidden_place_factory_sets_consistent_hidden_flags(hidden_place_factory) -> None:
     place = hidden_place_factory(slug="factory-hidden-place")
-
     assert place.is_active is False
     assert place.is_published is False
     assert place.is_visible_in_catalog is False
@@ -68,7 +61,6 @@ def test_hidden_place_factory_sets_consistent_hidden_flags(hidden_place_factory)
 @title("Metadata schema содержит критичные таблицы review/import/photo/publication")
 def test_metadata_schema_contains_critical_tables() -> None:
     table_names = set(Base.metadata.tables)
-
     assert "review_queue_items" in table_names
     assert "city_admin_import_jobs" in table_names
     assert "place_photo_candidates" in table_names
@@ -80,7 +72,6 @@ def test_metadata_schema_contains_critical_tables() -> None:
 @title("Тестовая БД включает критичные таблицы после create_all")
 def test_test_database_contains_critical_tables(engine) -> None:
     tables = set(inspect(engine).get_table_names())
-
     assert "review_queue_items" in tables
     assert "city_admin_import_jobs" in tables
     assert "place_photo_candidates" in tables
@@ -99,7 +90,6 @@ def _upgrade_temp_database() -> tuple[str, object]:
     root = Path(__file__).resolve().parent.parent
     cfg = Config(str(root / "alembic.ini"))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
-
     previous = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
     try:
@@ -112,8 +102,8 @@ def _upgrade_temp_database() -> tuple[str, object]:
     return f"sqlite:///{db_path}", tmp_dir
 
 
-@title("Реальный alembic upgrade head создаёт publication tables и strict reason constraint")
-def test_alembic_upgrade_head_creates_publication_schema_and_constraint() -> None:
+@title("Alembic head создаёт publication schema, но не включает Phase 6 до verification")
+def test_alembic_upgrade_head_defers_strict_publication_constraint() -> None:
     database_url, tmp_dir = _upgrade_temp_database()
     try:
         engine = create_engine(database_url)
@@ -126,48 +116,12 @@ def test_alembic_upgrade_head_creates_publication_schema_and_constraint() -> Non
 
     assert "place_publication_decisions" in tables
     assert "place_publication_transitions" in tables
-    assert "ck_places_publication_reason_consistency" in checks
-
-
-@title("Strict publication constraint rejects a non-public place without reason")
-def test_alembic_publication_constraint_rejects_missing_non_public_reason() -> None:
-    database_url, tmp_dir = _upgrade_temp_database()
-    try:
-        engine = create_engine(database_url)
-        with engine.begin() as connection:
-            city_id = connection.execute(
-                text(
-                    "INSERT INTO cities (name, slug, country, region, timezone, center_lat, center_lng, is_active, launch_status) "
-                    "VALUES ('Test', 'strict-reason-city', 'Test', 'Test', 'UTC', 1.0, 1.0, 1, 'draft')"
-                )
-            ).lastrowid
-        with pytest.raises(IntegrityError):
-            with engine.begin() as connection:
-                connection.execute(
-                    text(
-                        "INSERT INTO places "
-                        "(city_id, slug, title, lat, lng, status, internal_status, lifecycle_status, "
-                        "quality_tier, quality_score, completeness_score, photo_score, description_score, "
-                        "confidence_score, freshness_score, is_spam_poi, is_duplicate_suspected, "
-                        "critical_field_expired, place_layer, route_policy, tourist_eligible, transport_required, "
-                        "is_published, is_visible_in_catalog, is_route_eligible, is_searchable, publication_status, "
-                        "publication_reason_code, publication_reason_details, is_active, destination_assignment_stale, "
-                        "version, lineage, created_at, updated_at) "
-                        "VALUES (:city_id, 'invalid-draft', 'Invalid Draft', 1.0, 1.0, 'active', 'active', 'active', "
-                        "'silver', 65, 0, 0, 0, 0, 3, 0, 0, 0, 'tourist_catalog', 'city_walking', 1, 0, "
-                        "0, 0, 0, 0, 'draft', NULL, '{}', 1, 0, 1, '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
-                    ),
-                    {"city_id": city_id},
-                )
-        engine.dispose()
-    finally:
-        tmp_dir.cleanup()
+    assert "ck_places_publication_reason_consistency" not in checks
 
 
 @title("ReviewQueueItem schema допускает nullable job_id для не-import ручной очереди")
 def test_review_queue_item_job_id_is_nullable_for_manual_items(engine) -> None:
     columns = {column["name"]: column for column in inspect(engine).get_columns("review_queue_items")}
-
     assert "job_id" in columns
     assert columns["job_id"]["nullable"] is True
 
@@ -180,5 +134,4 @@ def test_place_photo_candidates_have_place_url_uniqueness() -> None:
         for constraint in table.constraints
         if constraint.__class__.__name__ == "UniqueConstraint"
     }
-
     assert ("place_id", "image_url") in unique_columns
