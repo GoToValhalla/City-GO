@@ -4,6 +4,7 @@
 
 from sqlalchemy.orm import Session
 
+from core.publication_state_ownership import PUBLICATION_OWNED_FIELDS
 from models.place import Place
 from schemas.place import PlaceCreate, PlaceUpdate
 from schemas.place_query_params import PlaceQueryParams
@@ -13,7 +14,6 @@ from services.place_public_visibility import apply_public_place_visibility
 from services.place_query_params_service import normalize_place_query_params
 from services.place_search_service import apply_place_text_search
 from services.place_sorting_service import apply_place_sorting
-from services.publication_state_ownership import PUBLICATION_OWNED_FIELDS
 from services.publication_state_writer import (
     REASON_ADMIN_CREATE_DRAFT,
     transition_place_publication,
