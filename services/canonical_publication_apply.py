@@ -120,10 +120,21 @@ def apply_admin_city_publication_place(
     source: str,
     reason: str | None,
     lock_place: bool = True,
+    route_eligible_override: bool | None = None,
 ) -> None:
-    """Publish one place through the authoritative writer without committing."""
+    """Publish one place through the authoritative writer without committing.
+
+    ``route_eligible_override`` is reserved for an explicit audited admin route
+    action. Normal publication always derives route eligibility from policy.
+    """
 
     verdict = _route_eligibility_verdict_for_publish(place)
+    route_eligible = verdict.eligible if route_eligible_override is None else bool(route_eligible_override)
+    reason_details = {
+        "route_eligibility_reasons": list(verdict.reasons),
+        "route_eligibility_policy_result": verdict.eligible,
+        "route_eligibility_override": route_eligible_override,
+    }
     transition_place_publication(
         db,
         place,
@@ -132,12 +143,17 @@ def apply_admin_city_publication_place(
         actor=actor,
         source=source,
         human_comment=reason,
-        reason_details={"route_eligibility_reasons": list(verdict.reasons)},
-        route_eligible_when_published=verdict.eligible,
+        reason_details=reason_details,
+        route_eligible_when_published=route_eligible,
         lock_place=lock_place,
     )
     place.status = "active"
-    place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons[:5])
+    if route_eligible:
+        place.route_exclusion_reason = None
+    elif route_eligible_override is False:
+        place.route_exclusion_reason = reason or "admin_route_disabled"
+    else:
+        place.route_exclusion_reason = ",".join(verdict.reasons[:5])
 
 
 def _primary_rejection_reason(reasons: tuple[str, ...]) -> str:
