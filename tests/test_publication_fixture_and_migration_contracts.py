@@ -3,7 +3,9 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect
+import pytest
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
 
 from db.base import Base
 from tests.allure_support import title
@@ -71,6 +73,7 @@ def test_metadata_schema_contains_critical_tables() -> None:
     assert "city_admin_import_jobs" in table_names
     assert "place_photo_candidates" in table_names
     assert "place_publication_decisions" in table_names
+    assert "place_publication_transitions" in table_names
     assert "admin_audit_logs" in table_names
 
 
@@ -82,43 +85,83 @@ def test_test_database_contains_critical_tables(engine) -> None:
     assert "city_admin_import_jobs" in tables
     assert "place_photo_candidates" in tables
     assert "place_publication_decisions" in tables
+    assert "place_publication_transitions" in tables
     assert "admin_audit_logs" in tables
 
 
-@title("Реальный `alembic upgrade head` (не create_all) создаёт place_publication_decisions")
-def test_alembic_upgrade_head_creates_place_publication_decisions_table() -> None:
-    """Stage 2 production validation blocker (found 2026-07-16): the
-    PlacePublicationDecision ORM model existed without a matching Alembic
-    migration, so a real database migrated only via `alembic upgrade head`
-    (exactly what docker-compose's migrate service does) was missing this
-    table while every test using Base.metadata.create_all() stayed green.
-    This test exercises the real Alembic upgrade path directly — not
-    create_all — so it would have caught the gap."""
+def _upgrade_temp_database() -> tuple[str, object]:
     from alembic import command
     from alembic.config import Config
+    import os
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        db_path = Path(tmp_dir) / "alembic_head_check.db"
-        root = Path(__file__).resolve().parent.parent
-        cfg = Config(str(root / "alembic.ini"))
-        cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
-        import os
+    tmp_dir = tempfile.TemporaryDirectory()
+    db_path = Path(tmp_dir.name) / "alembic_head_check.db"
+    root = Path(__file__).resolve().parent.parent
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
 
-        previous = os.environ.get("DATABASE_URL")
-        os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
-        try:
-            command.upgrade(cfg, "head")
-        finally:
-            if previous is None:
-                os.environ.pop("DATABASE_URL", None)
-            else:
-                os.environ["DATABASE_URL"] = previous
+    previous = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
+    try:
+        command.upgrade(cfg, "head")
+    finally:
+        if previous is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = previous
+    return f"sqlite:///{db_path}", tmp_dir
 
-        engine = create_engine(f"sqlite:///{db_path}")
-        tables = set(inspect(engine).get_table_names())
+
+@title("Реальный alembic upgrade head создаёт publication tables и strict reason constraint")
+def test_alembic_upgrade_head_creates_publication_schema_and_constraint() -> None:
+    database_url, tmp_dir = _upgrade_temp_database()
+    try:
+        engine = create_engine(database_url)
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+        checks = {item["name"] for item in inspector.get_check_constraints("places")}
         engine.dispose()
+    finally:
+        tmp_dir.cleanup()
 
     assert "place_publication_decisions" in tables
+    assert "place_publication_transitions" in tables
+    assert "ck_places_publication_reason_consistency" in checks
+
+
+@title("Strict publication constraint rejects a non-public place without reason")
+def test_alembic_publication_constraint_rejects_missing_non_public_reason() -> None:
+    database_url, tmp_dir = _upgrade_temp_database()
+    try:
+        engine = create_engine(database_url)
+        with engine.begin() as connection:
+            city_id = connection.execute(
+                text(
+                    "INSERT INTO cities (name, slug, country, region, timezone, center_lat, center_lng, is_active, launch_status) "
+                    "VALUES ('Test', 'strict-reason-city', 'Test', 'Test', 'UTC', 1.0, 1.0, 1, 'draft')"
+                )
+            ).lastrowid
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO places "
+                        "(city_id, slug, title, lat, lng, status, internal_status, lifecycle_status, "
+                        "quality_tier, quality_score, completeness_score, photo_score, description_score, "
+                        "confidence_score, freshness_score, is_spam_poi, is_duplicate_suspected, "
+                        "critical_field_expired, place_layer, route_policy, tourist_eligible, transport_required, "
+                        "is_published, is_visible_in_catalog, is_route_eligible, is_searchable, publication_status, "
+                        "publication_reason_code, publication_reason_details, is_active, destination_assignment_stale, "
+                        "version, lineage, created_at, updated_at) "
+                        "VALUES (:city_id, 'invalid-draft', 'Invalid Draft', 1.0, 1.0, 'active', 'active', 'active', "
+                        "'silver', 65, 0, 0, 0, 0, 3, 0, 0, 0, 'tourist_catalog', 'city_walking', 1, 0, "
+                        "0, 0, 0, 0, 'draft', NULL, '{}', 1, 0, 1, '{}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    ),
+                    {"city_id": city_id},
+                )
+        engine.dispose()
+    finally:
+        tmp_dir.cleanup()
 
 
 @title("ReviewQueueItem schema допускает nullable job_id для не-import ручной очереди")
