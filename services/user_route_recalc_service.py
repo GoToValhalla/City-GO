@@ -31,8 +31,10 @@ class UserRouteRecalcService:
         if route:
             warnings.append(_SKELETON_PRESERVED_WARNING)
         final = RouteFinalizeService().finalize(route, ctx, extra_warnings=warnings)
-        status = "empty" if not final.points else "corrected"
-        return final_route_to_state(final, intent, revision=revision, status=status)
+        # Status remains a readiness state (ready/partial_route/no_route). The
+        # correction itself is represented by warnings/audit metadata, not by
+        # overwriting readiness with an action label such as "corrected".
+        return final_route_to_state(final, intent, revision=revision)
 
 
 def _to_points(places: list[Place]) -> list[RoutePoint]:
