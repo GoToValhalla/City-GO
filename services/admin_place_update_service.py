@@ -12,13 +12,13 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from core.place_category_hierarchy import CATEGORY_LABELS_RU, ROUTE_EXCLUDED_CATEGORIES
+from core.publication_state_ownership import PUBLICATION_CONTROLLED_INPUT_FIELDS
 from models.category import Category
 from models.place import Place
 from models.place_tag import PlaceTag
 from services.admin_audit_service import write_admin_audit_log
 from services.place_service import get_place_by_id
 from services.product_event_service import record_event
-from services.publication_state_ownership import PUBLICATION_CONTROLLED_INPUT_FIELDS
 from services.taxonomy_workflow_service import run_workflow
 
 _ALLOWED = frozenset(
