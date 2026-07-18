@@ -35,17 +35,22 @@ def _app() -> FastAPI:
 def test_build_user_route_endpoint() -> None:
     service = MagicMock()
     service.build.return_value = _state()
-    with patch("routers.user_routes.UserRouteBuildService", return_value=service):
+    with (
+        patch("routers.user_routes.UserRouteBuildService", return_value=service),
+        patch("routers.user_routes._lifecycle.issue_initial", return_value=_state()),
+        patch("routers.user_routes.record_route_build", return_value=True),
+    ):
         response = TestClient(_app()).post("/v1/user-routes/build", json={"lat": 54.96, "lng": 20.48})
     assert response.status_code == 200
     assert response.json()["route_id"] == "route"
 
 
 def test_correct_user_route_endpoint() -> None:
-    service = MagicMock()
-    service.correct.return_value = _state()
-    payload = {"current_route": _state().model_dump(), "action": "shorten_route"}
-    with patch("routers.user_routes.UserRouteCorrectService", return_value=service):
+    payload = {"current_route": _state().model_dump(mode="json"), "action": "shorten_route"}
+    with (
+        patch("routers.user_routes._lifecycle.correct", return_value=_state()),
+        patch("routers.user_routes.record_route_build", return_value=True),
+    ):
         response = TestClient(_app()).post("/v1/user-routes/correct", json=payload)
     assert response.status_code == 200
     assert response.json()["route_id"] == "route"
