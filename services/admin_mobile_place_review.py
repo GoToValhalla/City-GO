@@ -8,8 +8,15 @@ from sqlalchemy.orm import Session
 
 from models.city import City
 from models.place import Place
+from services.canonical_publication_apply import apply_admin_city_publication_place
 from services.place_read_service import build_place_read
-from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES, evaluate_place_route_eligibility
+from services.publication_state_writer import (
+    REASON_ADMIN_DEFER,
+    REASON_ADMIN_REJECT,
+    REASON_NEEDS_MANUAL_REVIEW,
+    transition_place_publication,
+)
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
 from services.system_log_service import write_system_log
 
 MANUAL_REVIEW_STATUSES = ("needs_review", "needs_manual_review", "deferred")
@@ -70,52 +77,124 @@ def next_review_place(db: Session, city_slug: str) -> dict[str, object]:
     city = db.query(City).filter(City.slug == city_slug).first()
     if city is None:
         return {"city": None, "remaining": 0, "place": None}
-    query = db.query(Place).filter(Place.city_id == city.id, Place.publication_status.in_(MANUAL_REVIEW_STATUSES))
+    query = db.query(Place).filter(
+        Place.city_id == city.id,
+        Place.publication_status.in_(MANUAL_REVIEW_STATUSES),
+    )
     total = query.count()
     place = query.order_by(Place.updated_at.asc(), Place.id.asc()).first()
-    return {"city": {"id": city.id, "slug": city.slug, "name": city.name}, "remaining": total, "place": place_payload(db, place) if place else None}
+    return {
+        "city": {"id": city.id, "slug": city.slug, "name": city.name},
+        "remaining": total,
+        "place": place_payload(db, place) if place else None,
+    }
 
 
 def rejected_places(db: Session, city_slug: str) -> dict[str, object]:
     city = db.query(City).filter(City.slug == city_slug).first()
     if city is None:
         return {"items": [], "total": 0, "city": None}
-    items = db.query(Place).filter(Place.city_id == city.id, Place.publication_status == "rejected").order_by(Place.updated_at.desc(), Place.id.desc()).limit(100).all()
-    return {"items": [place_payload(db, item) for item in items], "total": len(items), "city": {"id": city.id, "slug": city.slug, "name": city.name}}
+    items = (
+        db.query(Place)
+        .filter(Place.city_id == city.id, Place.publication_status == "rejected")
+        .order_by(Place.updated_at.desc(), Place.id.desc())
+        .limit(100)
+        .all()
+    )
+    return {
+        "items": [place_payload(db, item) for item in items],
+        "total": len(items),
+        "city": {"id": city.id, "slug": city.slug, "name": city.name},
+    }
 
 
 def publish_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
-    place = db.get(Place, place_id)
+    place = (
+        db.query(Place)
+        .filter(Place.id == place_id)
+        .with_for_update()
+        .populate_existing()
+        .one_or_none()
+    )
     if place is None:
         return {"action": "not_found", "place": None}
     blockers = publication_blockers(place)
     if blockers:
         raise HTTPException(422, "; ".join(blockers))
-    _publish_place(place, actor, comment="published from moderation")
-    db.add(place)
-    audit(db, place, actor, "mobile_review_publish")
-    db.commit()
-    db.refresh(place)
-    return {"action": "published", "place": place_payload(db, place)}
+    try:
+        apply_admin_city_publication_place(
+            db,
+            place,
+            actor=actor,
+            source="mobile_review",
+            reason="published from moderation",
+            lock_place=False,
+        )
+        now = datetime.utcnow()
+        place.verification_status = "trusted"
+        place.verified_at = now
+        place.verified_by = actor
+        audit(db, place, actor, "mobile_review_publish")
+        db.commit()
+        db.refresh(place)
+        return {"action": "published", "place": place_payload(db, place)}
+    except Exception:
+        db.rollback()
+        raise
 
 
-def auto_publish_trusted_places(db: Session, *, city_slug: str | None = None, limit: int = 500, actor: str = "publication_policy") -> dict[str, object]:
-    query = db.query(Place).join(City, City.id == Place.city_id).filter(Place.publication_status.in_(AUTO_BACKLOG_STATUSES))
+def auto_publish_trusted_places(
+    db: Session,
+    *,
+    city_slug: str | None = None,
+    limit: int = 500,
+    actor: str = "publication_policy",
+) -> dict[str, object]:
+    query = (
+        db.query(Place)
+        .join(City, City.id == Place.city_id)
+        .filter(Place.publication_status.in_(AUTO_BACKLOG_STATUSES))
+    )
     if city_slug:
         query = query.filter(City.slug == city_slug)
-    candidates = query.order_by(Place.id.asc()).limit(limit).all()
+    candidates = (
+        query.order_by(Place.id.asc())
+        .limit(limit)
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
     published = 0
     skipped = 0
-    for place in candidates:
-        if is_trusted_auto_publish_candidate(place):
-            _publish_place(place, actor, comment="published by trusted source policy")
-            audit(db, place, actor, "trusted_auto_publish")
-            db.add(place)
-            published += 1
-        else:
-            skipped += 1
-    db.commit()
-    return {"published": published, "skipped": skipped, "checked": len(candidates), "limit": limit}
+    try:
+        for place in candidates:
+            if is_trusted_auto_publish_candidate(place):
+                apply_admin_city_publication_place(
+                    db,
+                    place,
+                    actor=actor,
+                    source="trusted_auto_publish",
+                    reason="published by trusted source policy",
+                    lock_place=False,
+                )
+                now = datetime.utcnow()
+                place.verification_status = "trusted"
+                place.verified_at = now
+                place.verified_by = actor
+                audit(db, place, actor, "trusted_auto_publish")
+                published += 1
+            else:
+                skipped += 1
+        db.commit()
+        return {
+            "published": published,
+            "skipped": skipped,
+            "checked": len(candidates),
+            "limit": limit,
+        }
+    except Exception:
+        db.rollback()
+        raise
 
 
 def is_trusted_auto_publish_candidate(place: Place) -> bool:
@@ -137,43 +216,35 @@ def is_trusted_auto_publish_candidate(place: Place) -> bool:
     return True
 
 
-def _publish_place(place: Place, actor: str, *, comment: str) -> None:
-    now = datetime.utcnow()
-    place.is_active = True
-    place.is_published = True
-    place.is_visible_in_catalog = True
-    place.is_searchable = True
-    place.publication_status = "published"
-    verdict = evaluate_place_route_eligibility(place)
-    place.is_route_eligible = verdict.eligible
-    place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons[:5])
-    place.publication_comment = comment
-    place.published_at = now
-    place.unpublished_at = None
-    place.verification_status = "trusted"
-    place.verified_at = now
-    place.verified_by = actor
-    place.updated_at = now
-
-
 def reject_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
-    place = db.get(Place, place_id)
+    place = (
+        db.query(Place)
+        .filter(Place.id == place_id)
+        .with_for_update()
+        .populate_existing()
+        .one_or_none()
+    )
     if place is None:
         return {"action": "not_found", "place": None}
-    now = datetime.utcnow()
-    place.is_published = False
-    place.is_visible_in_catalog = False
-    place.is_route_eligible = False
-    place.is_searchable = False
-    place.publication_status = "rejected"
-    place.publication_comment = "rejected from moderation"
-    place.unpublished_at = now
-    place.updated_at = now
-    db.add(place)
-    audit(db, place, actor, "mobile_review_reject")
-    db.commit()
-    db.refresh(place)
-    return {"action": "rejected", "place": place_payload(db, place)}
+    try:
+        transition_place_publication(
+            db,
+            place,
+            to_status="rejected",
+            reason_code=REASON_ADMIN_REJECT,
+            actor=actor,
+            source="mobile_review",
+            reason_details={"moderation_action": "reject"},
+            human_comment="rejected from moderation",
+            lock_place=False,
+        )
+        audit(db, place, actor, "mobile_review_reject")
+        db.commit()
+        db.refresh(place)
+        return {"action": "rejected", "place": place_payload(db, place)}
+    except Exception:
+        db.rollback()
+        raise
 
 
 def defer_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
@@ -184,40 +255,66 @@ def restore_place(db: Session, place_id: int, actor: str) -> dict[str, object]:
     return move_back_to_queue(db, place_id=place_id, actor=actor, action="restored")
 
 
-def move_back_to_queue(db: Session, *, place_id: int, actor: str, action: str) -> dict[str, object]:
-    place = db.get(Place, place_id)
+def move_back_to_queue(
+    db: Session,
+    *,
+    place_id: int,
+    actor: str,
+    action: str,
+) -> dict[str, object]:
+    place = (
+        db.query(Place)
+        .filter(Place.id == place_id)
+        .with_for_update()
+        .populate_existing()
+        .one_or_none()
+    )
     if place is None:
         return {"action": "not_found", "place_id": place_id}
-    now = datetime.utcnow()
-    place.is_published = False
-    place.is_visible_in_catalog = False
-    place.is_route_eligible = False
-    place.is_searchable = False
-    place.publication_status = "needs_review"
-    place.publication_comment = f"{action} from moderation"
-    place.updated_at = now
-    db.add(place)
-    audit(db, place, actor, f"mobile_review_{action}")
-    db.commit()
-    db.refresh(place)
-    return {"action": action, "place_id": place.id, "place": place_payload(db, place)}
+    reason_code = REASON_ADMIN_DEFER if action == "deferred" else REASON_NEEDS_MANUAL_REVIEW
+    try:
+        transition_place_publication(
+            db,
+            place,
+            to_status="needs_review",
+            reason_code=reason_code,
+            actor=actor,
+            source="mobile_review",
+            reason_details={"moderation_action": action},
+            human_comment=f"{action} from moderation",
+            lock_place=False,
+        )
+        audit(db, place, actor, f"mobile_review_{action}")
+        db.commit()
+        db.refresh(place)
+        return {"action": action, "place_id": place.id, "place": place_payload(db, place)}
+    except Exception:
+        db.rollback()
+        raise
 
 
 def publication_blockers(place: Place) -> list[str]:
     category = (place.canonical_category or place.category or "").strip().lower()
     blockers = []
-    if place.status in {"closed", "temporarily_closed", "inactive"} or place.lifecycle_status in {"closed", "removed", "inactive"}:
+    if place.status in {"closed", "temporarily_closed", "inactive"} or place.lifecycle_status in {
+        "closed",
+        "removed",
+        "inactive",
+    }:
         blockers.append("Место закрыто или неактивно")
     if category in NON_ROUTE_CATEGORIES or place.place_layer in NON_ROUTE_LAYERS:
         blockers.append("Категория не подходит для маршрутов")
     if place.lat is None or place.lng is None:
         blockers.append("Нет координат")
-    # Deliberately narrow: place.confidence is None for a freshly-created/not-yet-scored
-    # place (normal state), so only an explicit confidence<=0 plus a genuine low
-    # existence_confidence_level signal counts — not the harmless "unknown" default.
     explicit_zero_confidence = place.confidence is not None and float(place.confidence) <= 0
     low_existence_confidence = place.existence_confidence_level == "low"
-    if explicit_zero_confidence and low_existence_confidence and not place.address and not place.image_url and not place.opening_hours:
+    if (
+        explicit_zero_confidence
+        and low_existence_confidence
+        and not place.address
+        and not place.image_url
+        and not place.opening_hours
+    ):
         blockers.append("Нулевая уверенность и отсутствуют адрес, фото и часы работы")
     return blockers
 
@@ -229,4 +326,14 @@ def place_payload(db: Session, place: Place) -> dict[str, object]:
 
 
 def audit(db: Session, place: Place, actor: str, action: str) -> None:
-    write_system_log(db, level="info", module="mobile_review", message=f"{action}: {place.title}", details={"action": action}, city_slug=place.city.slug if place.city else None, place_id=place.id, actor_id=actor, commit=False)
+    write_system_log(
+        db,
+        level="info",
+        module="mobile_review",
+        message=f"{action}: {place.title}",
+        details={"action": action},
+        city_slug=place.city.slug if place.city else None,
+        place_id=place.id,
+        actor_id=actor,
+        commit=False,
+    )
