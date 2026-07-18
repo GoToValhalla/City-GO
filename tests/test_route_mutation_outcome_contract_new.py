@@ -96,12 +96,14 @@ def test_route_readiness_is_not_overwritten_by_action_labels_new() -> None:
 
 
 @pytest.mark.parametrize("secret", ["", "short", "change-me", integrity._TEST_SECRET])
-def test_unsafe_runtime_secrets_are_rejected_new(monkeypatch, secret: str) -> None:
+def test_unsafe_runtime_secrets_fail_startup_and_runtime_new(monkeypatch, secret: str) -> None:
     monkeypatch.setattr(integrity, "_is_test", lambda: False)
     monkeypatch.setattr(integrity.settings, "user_route_state_secret", secret)
 
-    with pytest.raises(integrity.UserRouteStateIntegrityError):
+    with pytest.raises(RuntimeError):
         integrity.validate_route_state_runtime_config()
+    with pytest.raises(integrity.UserRouteStateIntegrityError):
+        integrity._secret()
 
 
 def test_strong_runtime_secret_is_accepted_new(monkeypatch) -> None:
