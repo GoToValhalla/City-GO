@@ -12,8 +12,8 @@ from services.user_route_state_lifecycle_service import (
 )
 
 
-@pytest.mark.parametrize("status", ["ready", "partial_route", "corrected"])
-def test_usable_route_status_can_start_session_new(monkeypatch, status: str) -> None:
+@pytest.mark.parametrize("status", ["ready", "partial_route"])
+def test_ready_route_status_can_start_session_new(monkeypatch, status: str) -> None:
     expected = object()
     calls: list[str] = []
 
@@ -34,8 +34,11 @@ def test_usable_route_status_can_start_session_new(monkeypatch, status: str) -> 
     assert calls == ["verify", "start"]
 
 
-@pytest.mark.parametrize("status", ["preview", "preview_failed"])
-def test_preview_status_cannot_start_session_new(monkeypatch, status: str) -> None:
+@pytest.mark.parametrize(
+    "status",
+    ["corrected", "preview", "preview_failed", "no_route", "failed", "empty", "unknown"],
+)
+def test_non_ready_route_status_cannot_start_session_new(monkeypatch, status: str) -> None:
     service_called = False
 
     def fake_verify(_db, _state, *, lock):
