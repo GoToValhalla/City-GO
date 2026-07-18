@@ -23,8 +23,18 @@ from services.user_route_state_registry_service import (
     verify_current_route_state,
 )
 
-_SESSION_STARTABLE_STATUSES = frozenset({"ready", "partial_route", "corrected"})
+_SESSION_STARTABLE_STATUSES = frozenset({"ready", "partial_route"})
 _READ_ONLY_STATUSES = frozenset({"preview", "preview_failed"})
+_LIFECYCLE_METADATA_FIELDS = frozenset(
+    {
+        "revision",
+        "state_token",
+        "signature",
+        "signatures",
+        "timestamp",
+        "timestamps",
+    }
+)
 
 
 class UserRouteMutationRejectedError(ValueError):
@@ -35,8 +45,8 @@ class RouteStateLifecycleService:
     """Single public owner of the route-state lifecycle.
 
     Domain services return an explicit RouteMutationResult. Only accepted outcomes
-    may advance revision, token digest, or expiry; rejected outcomes leave the
-    authoritative registry unchanged and are surfaced as domain errors.
+    that change the authoritative domain payload may advance revision, token digest,
+    or expiry. Rejected and no-op outcomes leave the registry unchanged.
     """
 
     def issue_initial(self, db: Session, state: UserRouteState) -> UserRouteState:
@@ -119,16 +129,40 @@ class RouteStateLifecycleService:
             raise UserRouteMutationRejectedError(
                 str(result.reason or "Route mutation was rejected.")
             )
+
+        previous_state = sanitize_user_route_state(previous)
+        next_state = sanitize_user_route_state(result.state)
+        if _canonical_domain_payload(previous_state) == _canonical_domain_payload(next_state):
+            raise UserRouteMutationRejectedError(
+                "Route mutation did not change authoritative state."
+            )
+
         return advance_route_state(
             db,
             previous=previous,
-            next_state=sanitize_user_route_state(result.state),
+            next_state=next_state,
             registry=registry,
         )
 
     @staticmethod
     def _normalized_status(state: UserRouteState) -> str:
         return str(state.status or "").strip().lower()
+
+
+def _canonical_domain_payload(state: UserRouteState) -> Any:
+    return _strip_lifecycle_metadata(state.model_dump(mode="json"))
+
+
+def _strip_lifecycle_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_lifecycle_metadata(item)
+            for key, item in value.items()
+            if str(key).strip().lower() not in _LIFECYCLE_METADATA_FIELDS
+        }
+    if isinstance(value, list):
+        return [_strip_lifecycle_metadata(item) for item in value]
+    return value
 
 
 __all__ = [
