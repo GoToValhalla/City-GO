@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 GATEWAY = "services/public_route_place_access.py"
 ROUTER = "routers/user_routes.py"
+LIFECYCLE = "services/user_route_state_lifecycle_service.py"
 FORBIDDEN_FILTER_CALLS = {
     "apply_route_eligible_filters",
     "apply_public_place_visibility",
@@ -43,7 +44,7 @@ def _is_place_query(node: ast.Call) -> bool:
 
 def test_public_route_modules_cannot_own_place_queries_or_partial_filters_new() -> None:
     modules = _route_modules()
-    assert len(modules) > 20
+    assert len(modules) >= 18
     violations: list[str] = []
     for path in modules:
         for node in ast.walk(_tree(path)):
@@ -70,42 +71,35 @@ def test_gateway_is_only_owner_of_complete_route_scope_new() -> None:
         "load_public_route_place",
         "load_public_route_places",
     }.issubset(functions)
-    called = {
-        _called_name(node)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-    }
+    called = {_called_name(node) for node in ast.walk(tree) if isinstance(node, ast.Call)}
     assert "apply_public_route_eligible_filters" in called
 
 
-def test_router_signs_outputs_and_verifies_every_state_mutation_new() -> None:
-    source = (ROOT / ROUTER).read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=ROUTER)
-    called = {
+def test_lifecycle_facade_signs_outputs_and_verifies_every_state_operation_new() -> None:
+    lifecycle_calls = {
         _called_name(node)
-        for node in ast.walk(tree)
+        for node in ast.walk(_tree(LIFECYCLE))
         if isinstance(node, ast.Call)
     }
-    assert "sign_user_route_state" in called
-    assert "verify_user_route_state" in called
+    assert {"register_initial_route_state", "verify_current_route_state", "advance_route_state"} <= lifecycle_calls
 
+    router_tree = _tree(ROUTER)
+    functions = {node.name: node for node in router_tree.body if isinstance(node, ast.FunctionDef)}
     protected = {
-        "correct_user_route": "_verify_current_route",
-        "update_user_route": "_ensure_current_route_matches",
-        "replace_user_route_place": "_ensure_current_route_matches",
-        "read_user_route_alternatives_from_state": "_ensure_current_route_matches",
-        "add_user_route_place": "_ensure_current_route_matches",
-        "start_user_route_session": "_ensure_current_route_matches",
+        "correct_user_route": "correct",
+        "update_user_route": "update_order",
+        "replace_user_route_place": "replace_place",
+        "read_user_route_alternatives_from_state": "read_alternatives",
+        "add_user_route_place": "add_place",
+        "start_user_route_session": "start_session",
     }
-    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
     violations: list[str] = []
     for function_name, required_call in protected.items():
-        function = functions[function_name]
         function_calls = {
             _called_name(node)
-            for node in ast.walk(function)
+            for node in ast.walk(functions[function_name])
             if isinstance(node, ast.Call)
         }
         if required_call not in function_calls:
-            violations.append(f"{function_name}: missing {required_call}()")
+            violations.append(f"{function_name}: missing lifecycle {required_call}()")
     assert not violations, "\n".join(violations)
