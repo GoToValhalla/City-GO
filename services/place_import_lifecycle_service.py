@@ -5,7 +5,7 @@ from datetime import datetime
 from math import atan2, cos, radians, sin, sqrt
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from models.place import Place
 from services.publication_state_writer import (
@@ -47,7 +47,6 @@ class PlaceImportDecision:
 
 
 def apply_accepted_import_to_place(
-    db: Session,
     place: Place,
     item: dict[str, Any],
     category_id: int,
@@ -55,6 +54,7 @@ def apply_accepted_import_to_place(
 ) -> PlaceImportDecision:
     """Apply a real source diff while delegating publication state to the writer."""
 
+    db = _session_for(place)
     incoming_title = str(item["title"])
     incoming_category = str(item["category"])
     incoming_lat = float(item["raw_lat"])
@@ -63,7 +63,6 @@ def apply_accepted_import_to_place(
 
     if _is_bad_title(incoming_title):
         return hide_place(
-            db,
             place=place,
             reason="bad_import_title",
             status=DRAFT_STATUS,
@@ -71,7 +70,6 @@ def apply_accepted_import_to_place(
         )
     if incoming_lifecycle_status == CLOSED_STATUS:
         return hide_place(
-            db,
             place=place,
             reason="source_closed",
             status=CLOSED_STATUS,
@@ -79,7 +77,6 @@ def apply_accepted_import_to_place(
         )
     if incoming_lifecycle_status == TEMPORARILY_CLOSED_STATUS:
         return hide_place(
-            db,
             place=place,
             reason="source_temporarily_closed",
             status=TEMPORARILY_CLOSED_STATUS,
@@ -87,7 +84,6 @@ def apply_accepted_import_to_place(
         )
     if incoming_lifecycle_status == REMOVED_FROM_SOURCE_STATUS:
         return hide_place(
-            db,
             place=place,
             reason="source_removed",
             status=REMOVED_FROM_SOURCE_STATUS,
@@ -183,14 +179,10 @@ def _set_proposed_if_non_empty(proposed: dict[str, Any], field_name: str, value:
     proposed[field_name] = value
 
 
-def mark_place_for_review(
-    db: Session,
-    place: Place,
-    *,
-    reason: str = "enrichment_changed",
-) -> PlaceImportDecision:
+def mark_place_for_review(place: Place, *, reason: str = "enrichment_changed") -> PlaceImportDecision:
     """Mark non-public places for review; public places remain live and unchanged."""
 
+    db = _session_for(place)
     changed_fields: list[str] = []
     if bool(place.is_published and place.is_visible_in_catalog):
         now = datetime.utcnow()
@@ -221,7 +213,6 @@ def mark_place_for_review(
 
 
 def hide_place(
-    db: Session,
     place: Place,
     reason: str,
     status: str = DRAFT_STATUS,
@@ -230,6 +221,7 @@ def hide_place(
 ) -> PlaceImportDecision:
     """Hide a place through the canonical writer without deleting it."""
 
+    db = _session_for(place)
     before = _snapshot_review_state(place)
     target_publication_status = "draft" if status == DRAFT_STATUS else "hidden"
     desired_reason_details = {"import_reason": reason, "source_status": status}
@@ -279,7 +271,7 @@ def existing_place_must_be_hidden(place: Place) -> bool:
     }
 
 
-def mark_missing_place(db: Session, place: Place, missing_count: int) -> PlaceImportDecision:
+def mark_missing_place(place: Place, missing_count: int) -> PlaceImportDecision:
     if missing_count < 3:
         return PlaceImportDecision(
             action="missing_tracked",
@@ -289,12 +281,18 @@ def mark_missing_place(db: Session, place: Place, missing_count: int) -> PlaceIm
             review_reasons=["missing_from_source"],
         )
     return hide_place(
-        db,
         place=place,
         reason="missing_from_source_repeatedly",
         status=REMOVED_FROM_SOURCE_STATUS,
         reason_code=REASON_IMPORT_INCOMPLETE,
     )
+
+
+def _session_for(place: Place) -> Session:
+    db = object_session(place)
+    if db is None:
+        raise RuntimeError("publication lifecycle requires a Place attached to the caller-owned Session")
+    return db
 
 
 def _transition_to_review(
@@ -349,11 +347,7 @@ def _snapshot_review_state(place: Place) -> dict[str, Any]:
 
 
 def _publication_changed_fields(before: dict[str, Any], place: Place) -> list[str]:
-    return [
-        field_name
-        for field_name in before
-        if before[field_name] != getattr(place, field_name)
-    ]
+    return [field_name for field_name in before if before[field_name] != getattr(place, field_name)]
 
 
 def _change_set_from_snapshot(
