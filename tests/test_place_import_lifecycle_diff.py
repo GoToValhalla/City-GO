@@ -144,3 +144,50 @@ def test_changed_unpublished_place_uses_writer_and_is_sent_to_review(
     assert transition.to_status == "needs_review"
     assert transition.reason_code == "needs_manual_review"
     assert transition.source == "place_import_lifecycle"
+
+
+def test_new_unchanged_imported_place_gets_reason_and_ledger(
+    db_session,
+    city_factory,
+) -> None:
+    city = city_factory(slug="new-import-lifecycle")
+    place = Place(
+        city_id=city.id,
+        slug="new-imported-place",
+        title="Тестовое место",
+        short_description="Описание",
+        category="museum",
+        address="Улица, 1",
+        lat=55.1,
+        lng=37.2,
+        source="osm",
+        source_url="https://www.openstreetmap.org/node/1",
+        status="active",
+        is_active=True,
+        is_published=False,
+        is_visible_in_catalog=False,
+        is_route_eligible=False,
+        is_searchable=False,
+        publication_status="needs_review",
+        publication_reason_code=None,
+        publication_reason_details={},
+        average_visit_duration_minutes=75,
+    )
+    db_session.add(place)
+    db_session.flush()
+
+    decision = apply_accepted_import_to_place(
+        place,
+        _item(),
+        category_id=place.category_id,
+        visit_duration_minutes=75,
+    )
+
+    assert decision.action == "unchanged"
+    assert place.publication_status == "needs_review"
+    assert place.publication_reason_code == "needs_manual_review"
+    transition = db_session.query(PlacePublicationTransition).filter_by(place_id=place.id).one()
+    assert transition.from_status == "needs_review"
+    assert transition.to_status == "needs_review"
+    assert transition.reason_code == "needs_manual_review"
+    assert transition.source == "place_import_create"
