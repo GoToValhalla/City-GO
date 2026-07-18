@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -19,6 +18,7 @@ from services.canonical_publication_apply import apply_admin_city_publication_pl
 from services.place_publication_eligibility import place_publication_eligibility
 from services.place_read_service import build_place_read
 from services.place_service import create_place, get_place_by_id, get_places, get_places_total, update_place
+from services.place_verification_mutation import verify_locked_place
 from services.publication_policy import unsafe_manual_publish_gates
 from services.publication_state_writer import (
     REASON_ADMIN_REJECT,
@@ -230,23 +230,7 @@ def verify_place(db: Session, place_id: int, *, actor: str, reason: str | None =
     place = get_place_by_id(db, place_id)
     if place is None:
         return None
-    old_value = {"verification_status": place.verification_status, "existence_confidence_level": place.existence_confidence_level}
-    place.verification_status = "verified"
-    place.existence_confidence_level = "high"
-    place.existence_confidence_score = max(place.existence_confidence_score or 0, 90)
-    place.verified_by = actor
-    place.verified_at = datetime.utcnow()
-    place.verification_comment = reason
-    write_admin_audit_log(
-        db,
-        actor=actor,
-        action="verify_place",
-        entity_type="place",
-        entity_id=place.id,
-        old_value=old_value,
-        new_value={"verification_status": place.verification_status, "existence_confidence_level": place.existence_confidence_level},
-        reason=reason,
-    )
+    verify_locked_place(db, place, actor=actor, reason=reason, action="verify_place")
     db.commit()
     db.refresh(place)
     return place
