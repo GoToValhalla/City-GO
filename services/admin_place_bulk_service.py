@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from sqlalchemy.orm import Session
 
 from models.city import City
@@ -16,9 +18,9 @@ from services.product_event_service import record_event
 from services.publication_state_writer import (
     REASON_ADMIN_HIDE,
     REASON_NEEDS_MANUAL_REVIEW,
-    REASON_NON_PUBLIC_CATEGORY,
     transition_place_publication,
 )
+from services.taxonomy_workflow_service import run_workflow
 
 DANGEROUS = frozenset({"publish", "hide", "set_category", "disable_route", "remove_tags"})
 
@@ -196,7 +198,6 @@ def _apply_one_locked(
         current_category = str(place.canonical_category or place.category or "").strip().lower()
         if current_category == new_category:
             raise ValueError("Категория уже установлена")
-        was_published = place.publication_status == "published" and place.is_published
         update_admin_place_fields(
             db,
             int(place.id),
@@ -205,29 +206,19 @@ def _apply_one_locked(
             commit=False,
             locked_place=place,
         )
-        if was_published:
-            eligibility = place_publication_eligibility(place)
-            if not eligibility.eligible:
-                transition_place_publication(
-                    db,
-                    place,
-                    to_status="needs_review",
-                    reason_code=REASON_NON_PUBLIC_CATEGORY,
-                    actor=actor,
-                    source="admin_bulk_set_category",
-                    reason_details={"category": new_category, "failed_gates": list(eligibility.reasons)},
-                    human_comment="Категория требует повторной проверки публикации",
-                    lock_place=False,
-                )
-            else:
-                apply_admin_city_publication_place(
-                    db,
-                    place,
-                    actor=actor,
-                    source="admin_bulk_set_category",
-                    reason="Пересчёт после смены категории",
-                    lock_place=False,
-                )
+        operation = run_workflow(
+            db,
+            workflow="after_category_change",
+            request_id=uuid4().hex,
+            idempotency_key=f"bulk-category:{place.id}:{new_category}:{place.updated_at}",
+            entity_type="place",
+            entity_id=str(place.id),
+            payload={"category": new_category, "source": "admin_bulk_set_category"},
+            actor=actor,
+            commit=False,
+        )
+        if operation.status != "completed":
+            raise ValueError(operation.error_message or "Workflow смены категории завершился ошибкой")
         return
     if action == "add_tags":
         _add_tags(db, int(place.id), params.get("tag_ids") or [])
