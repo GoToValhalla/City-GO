@@ -97,21 +97,12 @@ def upgrade() -> None:
         "FROM places WHERE publication_status <> 'published'"
     )
 
-    with op.batch_alter_table("places") as batch_op:
-        batch_op.create_check_constraint(
-            "ck_places_publication_reason_consistency",
-            "(publication_status = 'published' AND publication_reason_code IS NULL) "
-            "OR (publication_status <> 'published' AND publication_reason_code IS NOT NULL)",
-        )
+    # The strict state/reason CHECK is intentionally deferred to a later
+    # migration. It may only be enabled after every legacy mutation path uses
+    # the canonical writer and the backfill has been verified in production.
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("places") as batch_op:
-        batch_op.drop_constraint(
-            "ck_places_publication_reason_consistency",
-            type_="check",
-        )
-
     op.drop_index(
         "ix_place_publication_transitions_correlation_id",
         table_name="place_publication_transitions",
