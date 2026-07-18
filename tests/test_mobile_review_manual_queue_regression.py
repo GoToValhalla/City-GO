@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from services.admin_mobile_place_review import list_review_cities, next_review_place, publish_place
+from models.place_publication_transition import PlacePublicationTransition
+from services.admin_mobile_place_review import (
+    defer_place,
+    list_review_cities,
+    next_review_place,
+    publish_place,
+    reject_place,
+    restore_place,
+)
 from tests.allure_support import title
 
 
@@ -45,7 +53,7 @@ def test_mobile_review_queue_lists_only_manual_statuses(
     assert next_item["place"]["id"] == manual.id
 
 
-@title("Publish из moderation выставляет полный public state")
+@title("Publish из moderation выставляет полный public state и ledger")
 def test_moderation_publish_sets_complete_public_state(db_session, manual_review_place_factory) -> None:
     place = manual_review_place_factory(
         slug="manual-publishable",
@@ -64,3 +72,61 @@ def test_moderation_publish_sets_complete_public_state(db_session, manual_review
     assert published["is_route_eligible"] is True
     assert published["publication_status"] == "published"
     assert published["verification_status"] == "trusted"
+    db_session.refresh(place)
+    assert place.publication_reason_code is None
+    transition = (
+        db_session.query(PlacePublicationTransition)
+        .filter(PlacePublicationTransition.place_id == place.id)
+        .order_by(PlacePublicationTransition.id.desc())
+        .first()
+    )
+    assert transition is not None
+    assert transition.to_status == "published"
+    assert transition.reason_code == "published"
+    assert transition.source == "mobile_review"
+
+
+@title("Reject из moderation записывает admin_reject")
+def test_moderation_reject_uses_canonical_writer(db_session, manual_review_place_factory) -> None:
+    place = manual_review_place_factory(slug="manual-rejectable", category="museum")
+
+    result = reject_place(db_session, place.id, actor="test-admin")
+
+    assert result["action"] == "rejected"
+    db_session.refresh(place)
+    assert place.publication_status == "rejected"
+    assert place.publication_reason_code == "admin_reject"
+    transition = (
+        db_session.query(PlacePublicationTransition)
+        .filter(PlacePublicationTransition.place_id == place.id)
+        .order_by(PlacePublicationTransition.id.desc())
+        .first()
+    )
+    assert transition is not None
+    assert transition.to_status == "rejected"
+    assert transition.reason_code == "admin_reject"
+    assert transition.source == "mobile_review"
+
+
+@title("Defer и restore из moderation сохраняют разные reason codes")
+def test_moderation_queue_actions_use_structured_reasons(db_session, manual_review_place_factory) -> None:
+    deferred = manual_review_place_factory(slug="manual-defer", category="museum")
+    restored = manual_review_place_factory(slug="manual-restore", category="museum")
+
+    defer_place(db_session, deferred.id, actor="test-admin")
+    restore_place(db_session, restored.id, actor="test-admin")
+
+    db_session.refresh(deferred)
+    db_session.refresh(restored)
+    assert deferred.publication_status == "needs_review"
+    assert deferred.publication_reason_code == "admin_defer"
+    assert restored.publication_status == "needs_review"
+    assert restored.publication_reason_code == "needs_manual_review"
+    transitions = (
+        db_session.query(PlacePublicationTransition)
+        .filter(PlacePublicationTransition.place_id.in_((deferred.id, restored.id)))
+        .all()
+    )
+    by_place = {item.place_id: item for item in transitions}
+    assert by_place[deferred.id].reason_code == "admin_defer"
+    assert by_place[restored.id].reason_code == "needs_manual_review"
