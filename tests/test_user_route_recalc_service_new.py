@@ -6,6 +6,7 @@ from schemas.user_route import (
     UserRoutePoint,
     UserRouteState,
 )
+from services.public_route_place_access import PublicRouteScope
 from services.user_route_correct_service import UserRouteCorrectService
 from services.user_route_recalc_service import UserRouteRecalcService
 
@@ -69,22 +70,16 @@ def test_rebuild_from_here_uses_existing_skeleton_new(monkeypatch) -> None:
         def build_route(self, **_kwargs):
             raise AssertionError("rebuild_from_here must not run the full route builder")
 
-    monkeypatch.setattr(
-        "services.user_route_correct_service.load_ordered_places",
-        fake_load_ordered_places,
-    )
-    monkeypatch.setattr(
-        "services.user_route_correct_service.UserRouteRecalcService",
-        lambda: FakeRecalcService(),
-    )
-    monkeypatch.setattr(
-        "services.user_route_correct_service.RouteBuilderService",
-        lambda: ExplodingBuilderService(),
-    )
+    monkeypatch.setattr("services.user_route_correct_service.resolve_route_scope", lambda *_args: PublicRouteScope(1, "khanty-mansiysk"))
+    monkeypatch.setattr("services.user_route_correct_service.load_ordered_places", fake_load_ordered_places)
+    monkeypatch.setattr("services.user_route_correct_service.UserRouteRecalcService", lambda: FakeRecalcService())
+    monkeypatch.setattr("services.user_route_correct_service.RouteBuilderService", lambda: ExplodingBuilderService())
 
-    state = UserRouteCorrectService().correct(None, request)
+    result = UserRouteCorrectService().correct(SimpleNamespace(), request)
 
-    assert state.status == "corrected"
+    assert result.accepted is True
+    assert result.state is not None
+    assert result.state.status == "corrected"
     assert calls["loaded_route_id"] == "route-1"
     assert calls["places"] == loaded_places
     assert calls["lat"] == 61.01
