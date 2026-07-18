@@ -1,4 +1,5 @@
 from models.place import Place
+from models.place_publication_transition import PlacePublicationTransition
 from models.review_queue_item import ReviewQueueItem
 from services.place_change_review_service import (
     approve_place_change_review,
@@ -15,21 +16,18 @@ def _hidden_changed_place(city_id: int) -> Place:
         lat=47.2357,
         lng=39.7015,
         status="needs_review",
-        is_active=False,
+        is_active=True,
         is_published=False,
         is_visible_in_catalog=False,
         is_searchable=False,
         is_route_eligible=False,
         publication_status="needs_review",
+        publication_reason_code="needs_manual_review",
+        publication_reason_details={"seed": True},
     )
 
 
 def test_approve_place_change_blocks_publish_when_place_now_fails_hard_gates(db_session, city_factory) -> None:
-    """A review item's stored decision reflects the place's state when the change
-    was first queued. If a later data-quality scan flags the place (e.g. as a
-    suspected duplicate) before an admin approves it, approval must not publish
-    a place that would currently fail the publication hard gates."""
-
     city = city_factory(slug="rostov-stale-gate", name="Ростов", is_active=True, launch_status="published")
     place = _hidden_changed_place(city.id)
     place.is_duplicate_suspected = True
@@ -44,7 +42,13 @@ def test_approve_place_change_blocks_publish_when_place_now_fails_hard_gates(db_
     assert result is not None
     assert result["status"] == "resolved"
     assert place.is_published is False
+    assert place.publication_status == "needs_review"
+    assert place.publication_reason_code == "policy_gate_failed"
     assert "duplicate_suspected" in result["blocked_by_publication_gate"]
+    transition = db_session.query(PlacePublicationTransition).filter_by(place_id=place.id).one()
+    assert transition.to_status == "needs_review"
+    assert transition.reason_code == "policy_gate_failed"
+    assert transition.source == "place_change_review"
 
 
 def _review_item(city_id: int, place_id: int) -> ReviewQueueItem:
@@ -91,7 +95,13 @@ def test_approve_place_change_publishes_new_values_for_a_published_city(db_sessi
     assert place.title == "Новое название"
     assert place.is_published is True
     assert place.is_visible_in_catalog is True
+    assert place.publication_status == "published"
+    assert place.publication_reason_code is None
     assert review.resolution == "approved"
+    transition = db_session.query(PlacePublicationTransition).filter_by(place_id=place.id).one()
+    assert transition.to_status == "published"
+    assert transition.reason_code == "published"
+    assert transition.source == "place_change_review"
 
 
 def test_reject_place_change_restores_previous_values_and_visibility(db_session, city_factory) -> None:
@@ -110,4 +120,10 @@ def test_reject_place_change_restores_previous_values_and_visibility(db_session,
     assert place.title == "Старое название"
     assert place.is_published is True
     assert place.is_visible_in_catalog is True
+    assert place.publication_status == "published"
+    assert place.publication_reason_code is None
     assert review.resolution == "rejected"
+    transition = db_session.query(PlacePublicationTransition).filter_by(place_id=place.id).one()
+    assert transition.to_status == "published"
+    assert transition.reason_code == "published"
+    assert transition.source == "place_change_review_restore"
