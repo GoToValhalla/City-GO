@@ -18,6 +18,7 @@ from models.place_tag import PlaceTag
 from services.admin_audit_service import write_admin_audit_log
 from services.place_service import get_place_by_id
 from services.product_event_service import record_event
+from services.publication_state_ownership import PUBLICATION_CONTROLLED_INPUT_FIELDS
 from services.taxonomy_workflow_service import run_workflow
 
 _ALLOWED = frozenset(
@@ -51,29 +52,7 @@ _ALLOWED = frozenset(
         "address_confidence",
     }
 )
-
-# These fields form or influence the publication state machine. Accepting any of
-# them in a generic setattr service recreates the exact bypass this architecture
-# is intended to eliminate.
-_PUBLICATION_CONTROLLED_FIELDS = frozenset(
-    {
-        "is_active",
-        "status",
-        "publication_status",
-        "is_published",
-        "is_visible_in_catalog",
-        "is_searchable",
-        "is_route_eligible",
-        "visible_to_users",
-        "searchable",
-        "route_enabled",
-        "published_at",
-        "unpublished_at",
-        "publication_reason_code",
-        "publication_reason_details",
-        "publication_comment",
-    }
-)
+_PUBLICATION_CONTROLLED_FIELDS = PUBLICATION_CONTROLLED_INPUT_FIELDS
 
 
 def update_admin_place_fields(
@@ -85,12 +64,7 @@ def update_admin_place_fields(
     commit: bool = True,
     locked_place: Place | None = None,
 ) -> Place | None:
-    """Update only ordinary place data.
-
-    The caller may pass a deterministically pre-locked Place and ``commit=False``
-    for a larger caller-owned transaction. This function never owns publication
-    state and fails closed when publication-controlled fields are supplied.
-    """
+    """Update only ordinary place data; publication state is rejected fail-closed."""
 
     place = locked_place or get_place_by_id(db, place_id)
     if place is None:
@@ -100,11 +74,9 @@ def update_admin_place_fields(
 
     updates = dict(fields)
     reason = updates.pop("reason", None)
-    forbidden = sorted(set(updates).intersection(_PUBLICATION_CONTROLLED_FIELDS))
+    forbidden = sorted(set(updates).intersection(PUBLICATION_CONTROLLED_INPUT_FIELDS))
     if forbidden:
-        raise ValueError(
-            "Поля публикации нельзя изменять через общий endpoint: " + ", ".join(forbidden)
-        )
+        raise ValueError("Поля публикации нельзя изменять через общий endpoint: " + ", ".join(forbidden))
 
     unsupported = sorted(set(updates) - _ALLOWED - {"tag_ids"})
     if unsupported:
@@ -112,9 +84,7 @@ def update_admin_place_fields(
 
     category_changed = "category" in updates or "canonical_category" in updates
     if "category" in updates and "canonical_category" not in updates:
-        updates["canonical_category"] = (
-            str(updates.get("category")) if updates.get("category") else None
-        )
+        updates["canonical_category"] = str(updates.get("category")) if updates.get("category") else None
 
     if category_changed:
         code = str(updates.get("canonical_category") or updates.get("category") or "").strip().lower()
