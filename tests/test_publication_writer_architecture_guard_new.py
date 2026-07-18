@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from core.publication_state_ownership import PUBLICATION_OWNED_FIELDS
+from services.place_change_review_service import PROTECTED_PUBLICATION_FIELDS as REVIEW_PROTECTED_FIELDS
 from services.place_service import PROTECTED_PUBLICATION_FIELDS
 from tests.allure_support import title
 
@@ -21,6 +22,7 @@ CANONICAL_WRITER = (ROOT / "services" / "publication_state_writer.py").resolve()
 APPROVED_DYNAMIC_SETATTR = {
     (ROOT / "services" / "admin_place_update_service.py").resolve(),
     (ROOT / "services" / "place_service.py").resolve(),
+    (ROOT / "services" / "place_change_review_service.py").resolve(),
 }
 PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
 AMBIGUOUS_SHARED_FIELDS = frozenset({"is_active"})
@@ -142,6 +144,7 @@ def test_dynamic_boundaries_share_canonical_registry() -> None:
     assert "PUBLICATION_CONTROLLED_INPUT_FIELDS" in admin_text
     assert "intersection(PUBLICATION_CONTROLLED_INPUT_FIELDS)" in admin_text
     assert PROTECTED_PUBLICATION_FIELDS == PUBLICATION_OWNED_FIELDS
+    assert REVIEW_PROTECTED_FIELDS == PUBLICATION_OWNED_FIELDS
 
 
 def test_guard_distinguishes_place_is_active_from_other_entities() -> None:
