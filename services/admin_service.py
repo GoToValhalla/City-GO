@@ -20,6 +20,11 @@ from services.place_publication_eligibility import place_publication_eligibility
 from services.place_read_service import build_place_read
 from services.place_service import create_place, get_place_by_id, get_places, get_places_total, update_place
 from services.publication_policy import unsafe_manual_publish_gates
+from services.publication_state_writer import (
+    REASON_ADMIN_REJECT,
+    REASON_ADMIN_UNPUBLISH,
+    transition_place_publication,
+)
 from services.route_service import get_route_by_id
 
 
@@ -135,12 +140,13 @@ def publish_place(db: Session, place_id: int, *, actor: str, reason: str | None 
     if failed_gates:
         raise PlacePublicationBlockedError(place_id=place_id, blocked_reason=failed_gates[0], failed_gates=failed_gates)
     old_value = _place_publication_snapshot(place)
-    now = datetime.utcnow()
-    # CITYGO-343: route eligibility must always come from
-    # evaluate_place_route_eligibility() (via the same canonical writer
-    # city-wide publication uses), never a hardcoded True — a single-place
-    # admin publish and a city-wide publish must behave identically.
-    apply_admin_city_publication_place(place, now=now, reason=reason)
+    apply_admin_city_publication_place(
+        db,
+        place,
+        actor=actor,
+        source="admin_place_publish",
+        reason=reason,
+    )
     write_admin_audit_log(
         db,
         actor=actor,
@@ -161,13 +167,15 @@ def unpublish_place(db: Session, place_id: int, *, actor: str, reason: str) -> P
     if place is None:
         return None
     old_value = _place_publication_snapshot(place)
-    place.is_published = False
-    place.is_visible_in_catalog = False
-    place.is_searchable = False
-    place.is_route_eligible = False
-    place.publication_status = "unpublished"
-    place.publication_comment = reason
-    place.unpublished_at = datetime.utcnow()
+    transition_place_publication(
+        db,
+        place,
+        to_status="unpublished",
+        reason_code=REASON_ADMIN_UNPUBLISH,
+        actor=actor,
+        source="admin_place_unpublish",
+        human_comment=reason,
+    )
     write_admin_audit_log(
         db,
         actor=actor,
@@ -189,17 +197,18 @@ def reject_place(db: Session, place_id: int, *, actor: str, reason: str) -> Plac
         return None
     old_value = _place_publication_snapshot(place)
     old_value["verification_status"] = place.verification_status
-    place.is_active = False
+    transition_place_publication(
+        db,
+        place,
+        to_status="rejected",
+        reason_code=REASON_ADMIN_REJECT,
+        actor=actor,
+        source="admin_place_reject",
+        human_comment=reason,
+    )
     place.status = "inactive"
-    place.is_published = False
-    place.is_visible_in_catalog = False
-    place.is_searchable = False
-    place.is_route_eligible = False
-    place.publication_status = "rejected"
-    place.publication_comment = reason
     place.verification_status = "rejected"
     place.verification_comment = reason
-    place.unpublished_at = datetime.utcnow()
     new_value = _place_publication_snapshot(place)
     new_value["verification_status"] = place.verification_status
     write_admin_audit_log(
@@ -265,7 +274,6 @@ def create_city_and_queue_import(db: Session, payload: AdminCityCreateRequest, *
     db.flush()
     finish_city_import_setup(db, city, payload)
     queue_city_import_job(db, city_id=city.id)
-    # payload.actor игнорируется — используем actor из auth context (P0-3)
     write_admin_audit_log(
         db,
         actor=actor,
@@ -318,4 +326,5 @@ def _place_publication_snapshot(place: Place) -> dict[str, object]:
         "is_route_eligible": place.is_route_eligible,
         "is_searchable": place.is_searchable,
         "publication_status": place.publication_status,
+        "publication_reason_code": place.publication_reason_code,
     }
