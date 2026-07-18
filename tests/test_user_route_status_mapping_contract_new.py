@@ -42,8 +42,8 @@ def test_build_mapping_preserves_final_route_status_new() -> None:
     assert state.status == "partial_route"
 
 
-def test_explicit_edit_status_overrides_final_route_status_new() -> None:
-    state = final_route_to_state(_final("ready"), _intent(), revision=2, status="corrected")
+def test_mapper_has_no_status_override_contract_new() -> None:
+    state = final_route_to_state(_final("no_route"), _intent(), revision=2)
 
-    assert state.status == "corrected"
+    assert state.status == "no_route"
     assert state.revision == 2
