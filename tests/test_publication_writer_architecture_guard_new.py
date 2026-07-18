@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from core.publication_state_ownership import PUBLICATION_OWNED_FIELDS
 from services.place_service import PROTECTED_PUBLICATION_FIELDS
-from services.publication_state_ownership import PUBLICATION_OWNED_FIELDS
 from tests.allure_support import title
 
 ROOT = Path(__file__).resolve().parents[1]
