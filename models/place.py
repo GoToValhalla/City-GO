@@ -14,9 +14,6 @@ def utc_now() -> datetime:
 class Place(Base):
     __tablename__ = "places"
     __table_args__ = (
-        # Slug должен быть уникален внутри города, а не глобально: "central-park" есть в десятках городов.
-        # TODO(Data Foundation V2): после ввода Destination slug uniqueness должен стать context-aware:
-        # legacy city uniqueness сохраняется, но целевой контекст — primary_destination/place_destinations.
         UniqueConstraint("city_id", "slug", name="uq_places_city_id_slug"),
         CheckConstraint("quality_score >= 0 AND quality_score <= 100", name="ck_places_quality_score_range"),
         CheckConstraint("completeness_score >= 0 AND completeness_score <= 40", name="ck_places_completeness_score_range"),
@@ -27,13 +24,8 @@ class Place(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    # TODO(Data Foundation V2): city_id остается legacy/backward-compatible FK.
-    # Целевая модель: Place должен быть геонезависимым объектом с координатами, primary_destination_id
-    # и many-to-many связью PlaceDestination. Байкал/Алтай/Карелия не должны требовать fake city_id.
     city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False, index=True)
-    primary_destination_id: Mapped[int | None] = mapped_column(
-        ForeignKey("destinations.id"), nullable=True, index=True
-    )
+    primary_destination_id: Mapped[int | None] = mapped_column(ForeignKey("destinations.id"), nullable=True, index=True)
     destination_assignment_stale: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True, index=True)
 
@@ -62,7 +54,6 @@ class Place(Base):
     lineage: Mapped[dict[str, object]] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), default=dict, nullable=False)
     last_enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Data Foundation contract. Legacy fields remain intact, but new logic must use these canonical fields.
     canonical_category: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     lifecycle_status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
     quality_tier: Mapped[str] = mapped_column(String(32), default="silver", nullable=False, index=True)
@@ -87,29 +78,24 @@ class Place(Base):
     needs_recheck_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     verification_comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
-    # Coverage / Enrichment Bridge v2. These fields split storage from consumption:
-    # service/transport/evidence places may stay in the DB, but cannot pollute tourist routes.
     place_layer: Mapped[str] = mapped_column(String(64), default="tourist_catalog", nullable=False, index=True)
     route_policy: Mapped[str] = mapped_column(String(64), default="city_walking", nullable=False, index=True)
     tourist_eligible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
     transport_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
 
-    # Новые импортированные и вручную созданные места безопасно остаются draft.
-    # Публикация выполняется отдельным admin-действием после quality gate города.
-    # TODO(Data Foundation V2): публикация должна стать context-aware: Place может быть опубликован
-    # в одном Destination и скрыт в другом. Для больших регионов нужен staged tier publication.
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_visible_in_catalog: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_route_eligible: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_searchable: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     publication_status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    publication_reason_code: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    publication_reason_details: Mapped[dict[str, object]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), default=dict, nullable=False
+    )
     publication_comment: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     unpublished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    # TODO(Data Foundation V2): добавить PostGIS geometry(Point, 4326) / geography индекс.
-    # lat/lng оставить для backward compatibility и SQLite-тестов, но spatial membership
-    # PlaceDestination должен считаться через геометрию/полигон/corridor, а не через city_id.
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lng: Mapped[float] = mapped_column(Float, nullable=False)
     category: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
@@ -138,6 +124,11 @@ class Place(Base):
     images = relationship("PlaceImage", back_populates="place")
     field_provenance = relationship("PlaceFieldProvenance", back_populates="place")
     state_transitions = relationship("PlaceStateTransition", back_populates="place")
+    publication_transitions = relationship(
+        "PlacePublicationTransition",
+        back_populates="place",
+        order_by="PlacePublicationTransition.id",
+    )
     quality_history = relationship("QualityScoreHistory", back_populates="place")
     destination_memberships = relationship("DestinationPlaceMembership", back_populates="place")
     primary_destination = relationship("Destination", foreign_keys=[primary_destination_id])
