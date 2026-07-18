@@ -51,14 +51,12 @@ def _start_session(db_session, city_factory, place_factory):
 
 def test_user_route_session_start_rejects_empty_route_new(db_session) -> None:
     empty = _route_state("missing-city", [])
-
-    with pytest.raises(UserRouteSessionError, match="Cannot start an empty route"):
+    with pytest.raises(UserRouteSessionError, match="Cannot start an invalid or empty route"):
         UserRouteSessionService().start(db_session, UserRouteSessionStartRequest(current_route=empty, user_id="user-1"))
 
 
 def test_user_route_session_start_creates_active_session_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
-
     assert state.status == "active"
     assert state.current_point_index == 0
     assert state.current_place_id is not None
@@ -69,19 +67,15 @@ def test_user_route_session_start_creates_active_session_new(db_session, city_fa
 def test_user_route_session_start_is_idempotent_for_active_session_new(db_session, city_factory, place_factory) -> None:
     first = _start_session(db_session, city_factory, place_factory)
     city_route = _route_state("session-city", [int(point.place_id) for point in first.points])
-
     second = UserRouteSessionService().start(db_session, UserRouteSessionStartRequest(current_route=city_route, user_id="user-1"))
-
     assert second.session_id == first.session_id
     assert second.status == "active"
 
 
 def test_user_route_session_pause_and_resume_transition_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
-
     paused = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="pause"))
     resumed = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="resume"))
-
     assert paused.status == "paused"
     assert paused.paused_at is not None
     assert resumed.status == "active"
@@ -90,7 +84,6 @@ def test_user_route_session_pause_and_resume_transition_new(db_session, city_fac
 
 def test_user_route_session_rejects_invalid_resume_from_active_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
-
     with pytest.raises(UserRouteSessionError, match="Invalid session transition from active"):
         UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="resume"))
 
@@ -98,13 +91,11 @@ def test_user_route_session_rejects_invalid_resume_from_active_new(db_session, c
 def test_user_route_session_complete_point_advances_to_next_point_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
     first_place_id = state.current_place_id
-
     updated = UserRouteSessionService().apply_action(
         db_session,
         state.session_id,
         UserRouteSessionActionRequest(action="complete_point", place_id=first_place_id),
     )
-
     assert updated.status == "active"
     assert updated.current_point_index == 1
     assert first_place_id in updated.point_completed_at
@@ -119,13 +110,11 @@ def test_user_route_session_skip_last_open_point_completes_route_new(db_session,
         state.session_id,
         UserRouteSessionActionRequest(action="complete_point", place_id=state.current_place_id),
     )
-
     completed = UserRouteSessionService().apply_action(
         db_session,
         state.session_id,
         UserRouteSessionActionRequest(action="skip_point", place_id=after_first.current_place_id),
     )
-
     assert completed.status == "completed"
     assert completed.completed_at is not None
     assert after_first.current_place_id in completed.skipped_place_ids
@@ -134,22 +123,18 @@ def test_user_route_session_skip_last_open_point_completes_route_new(db_session,
 def test_user_route_session_rejects_action_after_completed_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
     completed = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="finish"))
-
     with pytest.raises(UserRouteSessionError, match="already finished"):
         UserRouteSessionService().apply_action(db_session, completed.session_id, UserRouteSessionActionRequest(action="pause"))
 
 
 def test_user_route_session_abandon_is_terminal_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
-
     abandoned = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="abandon"))
-
     assert abandoned.status == "abandoned"
     assert abandoned.completed_at is not None
 
 
 def test_user_route_session_rejects_missing_target_point_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
-
     with pytest.raises(UserRouteSessionError, match="Route session point not found"):
         UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="complete_point", place_id="999999"))
