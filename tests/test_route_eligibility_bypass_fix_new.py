@@ -82,7 +82,8 @@ def test_add_place_rejects_route_ineligible_place_new(db_session, city_factory, 
         db_session,
         UserRouteAddPlaceRequest(current_route=_current_route([_point(first, 1)]), place_id=str(ineligible.id)),
     )
-    assert [point.place_id for point in result.points] == [str(first.id)]
+    assert result.accepted is False
+    assert result.state is None
 
 
 def test_replace_place_rejects_route_ineligible_place_new(db_session, city_factory, place_factory) -> None:
@@ -98,7 +99,8 @@ def test_replace_place_rejects_route_ineligible_place_new(db_session, city_facto
             new_place_id=str(ineligible.id),
         ),
     )
-    assert [point.place_id for point in result.points] == [str(first.id), str(second.id)]
+    assert result.accepted is False
+    assert result.state is None
 
 
 def test_alternatives_excludes_route_ineligible_place_new(db_session, city_factory, place_factory) -> None:
@@ -136,7 +138,8 @@ def test_update_order_reconciles_route_ineligible_place_new(db_session, city_fac
             ordered_place_ids=[str(ineligible.id), str(eligible.id)],
         ),
     )
-    assert [point.place_id for point in result.points] == [str(eligible.id)]
+    assert result.accepted is False
+    assert result.state is None
 
 
 def test_slot_selected_place_rejects_route_ineligible_new(db_session, city_factory, place_factory) -> None:
