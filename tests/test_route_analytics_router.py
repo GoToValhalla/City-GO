@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -7,8 +9,8 @@ from sqlalchemy.pool import StaticPool
 from db.dependencies import get_db
 from models.route_build_event import RouteBuildEvent  # noqa: F401
 from routers.route_analytics import router
-from tests.test_route_analytics_service import _route
 from services.route_analytics_service import record_route_build
+from tests.test_route_analytics_service import _route
 
 
 def _app():
@@ -19,7 +21,8 @@ def _app():
     )
     RouteBuildEvent.__table__.create(bind=engine)
     db = sessionmaker(bind=engine)()
-    record_route_build(db, _route("r1", 0.7, []), source="api", latency_ms=10, user_id="u1")
+    with patch("services.route_analytics_service.SessionLocal", return_value=db):
+        record_route_build(_route("r1", 0.7, []), source="api", latency_ms=10, user_id="u1")
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
