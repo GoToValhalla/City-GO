@@ -1,18 +1,47 @@
 """Alembic structural invariants."""
 
+import ast
 import unittest
+from collections import defaultdict
 from pathlib import Path
+
+
+def _root() -> Path:
+    return Path(__file__).resolve().parent.parent
 
 
 def _script():
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
-    root = Path(__file__).resolve().parent.parent
-    return ScriptDirectory.from_config(Config(str(root / "alembic.ini")))
+    return ScriptDirectory.from_config(Config(str(_root() / "alembic.ini")))
+
+
+def _declared_revision_ids() -> dict[str, list[str]]:
+    declared: dict[str, list[str]] = defaultdict(list)
+    versions_dir = _root() / "migrations" / "versions"
+    for path in sorted(versions_dir.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in tree.body:
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            target = node.targets[0] if isinstance(node, ast.Assign) and len(node.targets) == 1 else getattr(node, "target", None)
+            value = node.value
+            if isinstance(target, ast.Name) and target.id == "revision" and isinstance(value, ast.Constant) and isinstance(value.value, str):
+                declared[value.value].append(path.name)
+                break
+    return dict(declared)
 
 
 class TestAlembicSingleHead(unittest.TestCase):
+    def test_revision_ids_are_unique(self):
+        duplicates = {
+            revision: filenames
+            for revision, filenames in _declared_revision_ids().items()
+            if len(filenames) > 1
+        }
+        self.assertEqual(duplicates, {})
+
     def test_exactly_one_head(self):
         self.assertEqual(len(_script().get_heads()), 1)
 
