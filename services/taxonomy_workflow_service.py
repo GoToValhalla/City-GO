@@ -46,6 +46,8 @@ def run_workflow(
     existing = db.query(WorkflowOperation).filter(WorkflowOperation.idempotency_key == key).first()
     if existing:
         return existing
+
+    pending_steps = [{"name": step, "status": "pending"} for step in WORKFLOW_REGISTRY[workflow]]
     operation = WorkflowOperation(
         id=uuid4().hex,
         workflow=workflow,
@@ -56,18 +58,26 @@ def run_workflow(
         payload=payload,
         actor=actor,
         status="running",
-        steps=[{"name": step, "status": "pending"} for step in WORKFLOW_REGISTRY[workflow]],
+        steps=pending_steps,
     )
     db.add(operation)
     db.flush()
+
     try:
-        _execute(db, operation)
+        with db.begin_nested():
+            _execute(db, operation)
         operation.status = "completed"
         operation.finished_at = datetime.utcnow()
-    except Exception as exc:  # workflow outcome is persisted; caller decides rollback policy
+    except Exception as exc:
+        # The savepoint rolls back every business mutation and intermediate step
+        # update. Persist only the truthful failed workflow outcome.
         operation.status = "failed"
         operation.error_message = str(exc)
+        operation.current_step = None
+        operation.steps = pending_steps
+        operation.finished_at = datetime.utcnow()
     db.add(operation)
+
     if commit:
         db.commit()
         db.refresh(operation)
@@ -79,17 +89,26 @@ def run_workflow(
 def retry_workflow(db: Session, operation: WorkflowOperation) -> WorkflowOperation:
     if operation.status != "failed" or operation.retry_count >= operation.max_retries:
         return operation
+
+    pending_steps = [{"name": step, "status": "pending"} for step in WORKFLOW_REGISTRY[operation.workflow]]
     operation.retry_count += 1
     operation.status = "running"
     operation.error_message = None
+    operation.current_step = None
+    operation.steps = pending_steps
     try:
-        _execute(db, operation)
+        with db.begin_nested():
+            _execute(db, operation)
         operation.status = "completed"
         operation.finished_at = datetime.utcnow()
     except Exception as exc:
         operation.status = "failed"
         operation.error_message = str(exc)
+        operation.current_step = None
+        operation.steps = pending_steps
+        operation.finished_at = datetime.utcnow()
     db.commit()
+    db.refresh(operation)
     return operation
 
 
