@@ -31,6 +31,8 @@ class UserRouteCorrectService:
     ) -> RouteMutationResult:
         next_places = corrected_places(db, request, places)
         intent = self._intent_for_request(request, places)
+        if _place_ids(next_places) == _place_ids(places) and intent == request.current_route.context:
+            return RouteMutationResult.rejected("Коррекция не изменила маршрут.")
         state = UserRouteRecalcService().recalc(
             places=next_places,
             intent=intent,
@@ -45,6 +47,8 @@ class UserRouteCorrectService:
         places: list,
     ) -> RouteMutationResult:
         intent = self._intent_for_request(request, places)
+        if intent == request.current_route.context:
+            return RouteMutationResult.rejected("Коррекция не изменила параметры маршрута.")
         final = RouteBuilderService().build_route(
             db=db,
             request=to_request_context(intent),
@@ -86,3 +90,7 @@ class UserRouteCorrectService:
 
 def _place_by_id(places: list, place_id: str | None):
     return next((place for place in places if str(place.id) == str(place_id)), None)
+
+
+def _place_ids(places: list) -> list[str]:
+    return [str(place.id) for place in places]
