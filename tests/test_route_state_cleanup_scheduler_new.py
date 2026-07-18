@@ -19,7 +19,6 @@ ROOT = Path(__file__).resolve().parent.parent
 def test_preview_states_have_shorter_ttl_than_active_states_new() -> None:
     preview = SimpleNamespace(status="preview")
     active = SimpleNamespace(status="ready")
-
     assert _state_ttl(preview) == PREVIEW_ROUTE_STATE_TTL
     assert _state_ttl(active) == ACTIVE_ROUTE_STATE_TTL
     assert PREVIEW_ROUTE_STATE_TTL < ACTIVE_ROUTE_STATE_TTL
@@ -33,14 +32,12 @@ def test_cleanup_scheduler_is_wired_into_application_lifespan_new() -> None:
         for node in ast.walk(tree)
         if isinstance(node, ast.Call) and isinstance(node.func, (ast.Name, ast.Attribute))
     }
-
     assert "start_route_state_cleanup_scheduler" in calls
     assert "stop_route_state_cleanup_scheduler" in calls
 
 
 def test_cleanup_scheduler_owns_thread_lifecycle_new() -> None:
     source = (ROOT / "core/route_state_cleanup_scheduler.py").read_text(encoding="utf-8")
-
     assert "ThreadEvent" in source
     assert "_active_batch" in source
     assert "asyncio.shield(batch)" in source
@@ -50,8 +47,17 @@ def test_cleanup_scheduler_owns_thread_lifecycle_new() -> None:
 
 
 def test_cleanup_scheduler_restarts_after_completed_task_new(monkeypatch) -> None:
-    completed = SimpleNamespace(done=lambda: True)
-    replacement = object()
+    completed = SimpleNamespace(
+        done=lambda: True,
+        cancelled=lambda: False,
+        exception=lambda: None,
+    )
+
+    class ReplacementTask:
+        def add_done_callback(self, callback):
+            self.callback = callback
+
+    replacement = ReplacementTask()
     monkeypatch.setattr(scheduler, "_task", completed)
     monkeypatch.setattr(scheduler, "_wake_event", None)
     monkeypatch.setattr(scheduler, "_thread_stop_event", None)
@@ -62,7 +68,6 @@ def test_cleanup_scheduler_restarts_after_completed_task_new(monkeypatch) -> Non
         return replacement
 
     monkeypatch.setattr(scheduler.asyncio, "create_task", fake_create_task)
-
     scheduler.start_route_state_cleanup_scheduler()
 
     assert scheduler._task is replacement
@@ -87,7 +92,6 @@ def test_cleanup_scheduler_continues_after_iteration_failure_new(monkeypatch) ->
         await scheduler._scheduler_loop(asyncio.Event(), ThreadEvent())
 
     asyncio.run(exercise())
-
     assert calls == 2
 
 
@@ -106,11 +110,9 @@ def test_external_scheduler_cancellation_waits_for_active_batch_new(monkeypatch)
         monkeypatch.setattr(scheduler.asyncio, "to_thread", fake_to_thread)
         task = asyncio.create_task(scheduler._scheduler_loop(wake_event, thread_stop_event))
         await batch_started.wait()
-
         task.cancel()
         await asyncio.sleep(0)
         assert not task.done(), "cancellation must not abandon an active cleanup thread"
-
         release_batch.set()
         try:
             await task
@@ -134,13 +136,11 @@ def test_stop_does_not_release_ownership_before_batch_drains_new(monkeypatch) ->
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         scheduler.start_route_state_cleanup_scheduler()
         await batch_started.wait()
-
         stop_task = asyncio.create_task(scheduler.stop_route_state_cleanup_scheduler())
         await asyncio.sleep(0)
         assert scheduler._task is not None
         scheduler.start_route_state_cleanup_scheduler()
         assert scheduler._task is not None
-
         release_batch.set()
         await stop_task
         assert scheduler._task is None
@@ -159,9 +159,7 @@ def test_bounded_cleanup_stops_before_next_batch_after_shutdown_new(monkeypatch)
         return limit
 
     monkeypatch.setattr(scheduler, "run_route_state_cleanup_once", fake_run_once)
-
     deleted = scheduler._run_bounded_cleanup(stop_event)
-
     assert calls == 1
     assert deleted == scheduler.ROUTE_STATE_CLEANUP_BATCH_LIMIT
 
@@ -169,6 +167,5 @@ def test_bounded_cleanup_stops_before_next_batch_after_shutdown_new(monkeypatch)
 def test_cleanup_remains_outside_route_request_lifecycle_new() -> None:
     router_source = (ROOT / "routers/user_routes.py").read_text(encoding="utf-8")
     registry_source = (ROOT / "services/user_route_state_registry_service.py").read_text(encoding="utf-8")
-
     assert "cleanup_expired_route_states" not in router_source
     assert "cleanup_expired_route_states" not in registry_source
