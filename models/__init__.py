@@ -41,6 +41,7 @@ import models.place_change_review  # noqa: F401
 import models.place_discovery_request  # noqa: F401
 import models.place_import_event  # noqa: F401
 import models.place_publication_decision  # noqa: F401
+import models.place_publication_transition  # noqa: F401
 import models.place_schedule  # noqa: F401
 import models.place_scope_link  # noqa: F401
 import models.place_snapshot  # noqa: F401
