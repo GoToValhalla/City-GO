@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from services.place_service import PROTECTED_PUBLICATION_FIELDS
 from services.publication_state_ownership import PUBLICATION_OWNED_FIELDS
 from tests.allure_support import title
 
@@ -19,6 +20,7 @@ PRODUCTION_ROOTS = (
 CANONICAL_WRITER = (ROOT / "services" / "publication_state_writer.py").resolve()
 APPROVED_DYNAMIC_SETATTR = {
     (ROOT / "services" / "admin_place_update_service.py").resolve(),
+    (ROOT / "services" / "place_service.py").resolve(),
 }
 PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
 
@@ -103,11 +105,12 @@ def test_no_publication_state_mutation_bypasses() -> None:
     assert violations == [], "Publication writer bypasses found:\n" + "\n".join(violations)
 
 
-@title("Approved dynamic setattr boundary imports the canonical ownership registry")
-def test_dynamic_admin_update_uses_canonical_registry() -> None:
-    text = (ROOT / "services" / "admin_place_update_service.py").read_text(encoding="utf-8")
-    assert "PUBLICATION_CONTROLLED_INPUT_FIELDS" in text
-    assert "intersection(PUBLICATION_CONTROLLED_INPUT_FIELDS)" in text
+@title("Approved dynamic setattr boundaries share the canonical ownership registry")
+def test_dynamic_boundaries_share_canonical_registry() -> None:
+    admin_text = (ROOT / "services" / "admin_place_update_service.py").read_text(encoding="utf-8")
+    assert "PUBLICATION_CONTROLLED_INPUT_FIELDS" in admin_text
+    assert "intersection(PUBLICATION_CONTROLLED_INPUT_FIELDS)" in admin_text
+    assert PROTECTED_PUBLICATION_FIELDS == PUBLICATION_OWNED_FIELDS
 
 
 @pytest.mark.parametrize("field", sorted(PUBLICATION_FIELDS))
