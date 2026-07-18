@@ -39,31 +39,95 @@ def test_rejected_mutation_never_advances_revision_new(monkeypatch) -> None:
     assert called is False
 
 
-def test_accepted_mutation_is_the_only_path_to_advance_new(monkeypatch) -> None:
+def test_accepted_changed_mutation_advances_new(monkeypatch) -> None:
     expected = object()
-    state = SimpleNamespace()
+    previous = SimpleNamespace(name="previous")
+    state = SimpleNamespace(name="next")
 
     def fake_sanitize(value):
-        assert value is state
+        assert value in (previous, state)
         return value
 
-    def fake_advance(_db, *, previous, next_state, registry):
+    def fake_canonical(value):
+        return value.name
+
+    def fake_advance(_db, *, previous: object, next_state: object, registry: object):
         assert previous is not None
         assert next_state is state
         assert registry is not None
         return expected
 
     monkeypatch.setattr(lifecycle_module, "sanitize_user_route_state", fake_sanitize)
+    monkeypatch.setattr(lifecycle_module, "_canonical_domain_payload", fake_canonical)
     monkeypatch.setattr(lifecycle_module, "advance_route_state", fake_advance)
 
     result = RouteStateLifecycleService._issue_accepted(
         object(),
-        SimpleNamespace(),
+        previous,
         RouteMutationResult.success(state),
         object(),
     )
 
     assert result is expected
+
+
+def test_accepted_noop_never_advances_registry_new(monkeypatch) -> None:
+    previous = SimpleNamespace(name="previous")
+    state = SimpleNamespace(name="next")
+    called = False
+
+    def fake_sanitize(value):
+        return value
+
+    def fake_advance(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("canonical no-op advanced registry")
+
+    monkeypatch.setattr(lifecycle_module, "sanitize_user_route_state", fake_sanitize)
+    monkeypatch.setattr(lifecycle_module, "_canonical_domain_payload", lambda _value: {"same": True})
+    monkeypatch.setattr(lifecycle_module, "advance_route_state", fake_advance)
+
+    with pytest.raises(UserRouteMutationRejectedError, match="did not change authoritative state"):
+        RouteStateLifecycleService._issue_accepted(
+            object(),
+            previous,
+            RouteMutationResult.success(state),
+            object(),
+        )
+
+    assert called is False
+
+
+def test_canonical_domain_payload_ignores_only_lifecycle_metadata_new() -> None:
+    payload = {
+        "revision": 7,
+        "state_token": "token",
+        "signature": "signature",
+        "signatures": {"server": "signature"},
+        "timestamp": "2026-07-18T10:00:00Z",
+        "timestamps": {"issued": "2026-07-18T10:00:00Z"},
+        "status": "ready",
+        "estimated_end_time": "2026-07-18T14:00:00Z",
+        "points": [
+            {
+                "place_id": "1",
+                "timestamp": "ignored",
+                "estimated_arrival_time": "2026-07-18T12:00:00Z",
+            }
+        ],
+    }
+
+    assert lifecycle_module._strip_lifecycle_metadata(payload) == {
+        "status": "ready",
+        "estimated_end_time": "2026-07-18T14:00:00Z",
+        "points": [
+            {
+                "place_id": "1",
+                "estimated_arrival_time": "2026-07-18T12:00:00Z",
+            }
+        ],
+    }
 
 
 def test_mutation_services_use_typed_outcomes_new() -> None:
@@ -76,6 +140,7 @@ def test_mutation_services_use_typed_outcomes_new() -> None:
     assert "_safe_failure" not in edit_source
     assert "result.accepted" in lifecycle_source
     assert "result.state is None" in lifecycle_source
+    assert "_canonical_domain_payload(previous_state) == _canonical_domain_payload(next_state)" in lifecycle_source
 
 
 def test_only_lifecycle_owner_calls_route_mutation_methods_new() -> None:
