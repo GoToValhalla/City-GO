@@ -15,6 +15,7 @@ from schemas.user_route import (
     UserRouteUpdateRequest,
 )
 from services.public_route_sanitizer import sanitize_user_route_state
+from services.user_route_mutation_result import RouteMutationResult
 from services.user_route_state_registry_service import (
     UserRouteStateConflictError,
     advance_route_state,
@@ -26,13 +27,16 @@ _SESSION_STARTABLE_STATUSES = frozenset({"ready", "partial_route", "corrected"})
 _READ_ONLY_STATUSES = frozenset({"preview", "preview_failed"})
 
 
+class UserRouteMutationRejectedError(ValueError):
+    pass
+
+
 class RouteStateLifecycleService:
     """Single public owner of the route-state lifecycle.
 
-    Routers and route/session services use concrete facade operations instead of
-    registry primitives or executable callbacks. The caller owns commit/rollback;
-    this service owns verification, domain operation selection, revision issuance,
-    and the registry -> evidence lock order.
+    Domain services return an explicit RouteMutationResult. Only accepted outcomes
+    may advance revision, token digest, or expiry; rejected outcomes leave the
+    authoritative registry unchanged and are surfaced as domain errors.
     """
 
     def issue_initial(self, db: Session, state: UserRouteState) -> UserRouteState:
@@ -42,29 +46,29 @@ class RouteStateLifecycleService:
         from services.user_route_correct_service import UserRouteCorrectService
 
         registry = self._lock_mutable(db, request.current_route)
-        next_state = UserRouteCorrectService().correct(db=db, request=request)
-        return self._issue_next(db, request.current_route, next_state, registry)
+        result = UserRouteCorrectService().correct(db=db, request=request)
+        return self._issue_accepted(db, request.current_route, result, registry)
 
     def update_order(self, db: Session, request: UserRouteUpdateRequest) -> UserRouteState:
         from services.user_route_edit_service import UserRouteEditService
 
         registry = self._lock_mutable(db, request.current_route)
-        next_state = UserRouteEditService().update_order(db, request)
-        return self._issue_next(db, request.current_route, next_state, registry)
+        result = UserRouteEditService().update_order(db, request)
+        return self._issue_accepted(db, request.current_route, result, registry)
 
     def replace_place(self, db: Session, request: UserRouteReplacePlaceRequest) -> UserRouteState:
         from services.user_route_edit_service import UserRouteEditService
 
         registry = self._lock_mutable(db, request.current_route)
-        next_state = UserRouteEditService().replace_place(db, request)
-        return self._issue_next(db, request.current_route, next_state, registry)
+        result = UserRouteEditService().replace_place(db, request)
+        return self._issue_accepted(db, request.current_route, result, registry)
 
     def add_place(self, db: Session, request: UserRouteAddPlaceRequest) -> UserRouteState:
         from services.user_route_edit_service import UserRouteEditService
 
         registry = self._lock_mutable(db, request.current_route)
-        next_state = UserRouteEditService().add_place(db, request)
-        return self._issue_next(db, request.current_route, next_state, registry)
+        result = UserRouteEditService().add_place(db, request)
+        return self._issue_accepted(db, request.current_route, result, registry)
 
     def read_alternatives(
         self,
@@ -105,11 +109,20 @@ class RouteStateLifecycleService:
         return registry
 
     @staticmethod
-    def _issue_next(db: Session, previous: UserRouteState, next_state: UserRouteState, registry: Any) -> UserRouteState:
+    def _issue_accepted(
+        db: Session,
+        previous: UserRouteState,
+        result: RouteMutationResult,
+        registry: Any,
+    ) -> UserRouteState:
+        if not result.accepted or result.state is None:
+            raise UserRouteMutationRejectedError(
+                str(result.reason or "Route mutation was rejected.")
+            )
         return advance_route_state(
             db,
             previous=previous,
-            next_state=sanitize_user_route_state(next_state),
+            next_state=sanitize_user_route_state(result.state),
             registry=registry,
         )
 
@@ -118,4 +131,8 @@ class RouteStateLifecycleService:
         return str(state.status or "").strip().lower()
 
 
-__all__ = ["RouteStateLifecycleService", "UserRouteStateConflictError"]
+__all__ = [
+    "RouteStateLifecycleService",
+    "UserRouteMutationRejectedError",
+    "UserRouteStateConflictError",
+]
