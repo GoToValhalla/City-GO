@@ -9,32 +9,54 @@ from models.place import Place
 from models.place_tag import PlaceTag
 from services.admin_audit_service import write_admin_audit_log
 from services.admin_place_update_service import update_admin_place_fields
-from services.admin_service import publish_place, unpublish_place, verify_place
+from services.canonical_publication_apply import apply_admin_city_publication_place
 from services.place_publication_eligibility import place_publication_eligibility
 from services.product_event_service import record_event
+from services.publication_state_writer import (
+    REASON_ADMIN_HIDE,
+    REASON_NEEDS_MANUAL_REVIEW,
+    transition_place_publication,
+)
 
 DANGEROUS = frozenset({"publish", "hide", "set_category", "disable_route", "remove_tags"})
+PUBLICATION_ACTIONS = frozenset(
+    {
+        "publish",
+        "hide",
+        "send_review",
+        "enable_route",
+        "disable_route",
+        "enable_visible",
+        "disable_visible",
+    }
+)
 
 
 def preview_bulk(db: Session, place_ids: list[int], action: str, params: dict[str, object]) -> dict[str, object]:
-    places = db.query(Place).filter(Place.id.in_(place_ids)).all()
+    places = db.query(Place).filter(Place.id.in_(place_ids)).order_by(Place.id.asc()).all()
     cities = {c.id: c.name for c in db.query(City).filter(City.id.in_({p.city_id for p in places})).all()}
     cats: dict[str, int] = {}
-    for p in places:
-        key = p.category or "unknown"
+    for place in places:
+        key = place.category or "unknown"
         cats[key] = cats.get(key, 0) + 1
-    changes = _describe(action, params)
-    payload = {
-        "action": action, "total": len(places), "place_ids": [p.id for p in places],
-        "cities": [{"city_id": cid, "name": cities.get(cid, "?"), "count": sum(1 for p in places if p.city_id == cid)}
-                   for cid in sorted({p.city_id for p in places})],
-        "categories": cats, "field_changes": changes,
-        "is_dangerous": action in DANGEROUS, "risks": _risks(action, len(places)),
+    payload: dict[str, object] = {
+        "action": action,
+        "total": len(places),
+        "place_ids": [place.id for place in places],
+        "cities": [
+            {
+                "city_id": city_id,
+                "name": cities.get(city_id, "?"),
+                "count": sum(1 for place in places if place.city_id == city_id),
+            }
+            for city_id in sorted({place.city_id for place in places})
+        ],
+        "categories": cats,
+        "field_changes": _describe(action, params),
+        "is_dangerous": action in DANGEROUS,
+        "risks": _risks(action, len(places)),
     }
-    if action == "publish":
-        # Same canonical check apply_bulk uses below — dry-run and apply must
-        # never diverge on which places are eligible (see
-        # services/place_publication_eligibility.py).
+    if action in {"publish", "enable_visible"}:
         eligible_ids: list[int] = []
         blocked: list[dict[str, object]] = []
         for place in places:
@@ -49,51 +71,158 @@ def preview_bulk(db: Session, place_ids: list[int], action: str, params: dict[st
     return payload
 
 
-def apply_bulk(db: Session, place_ids: list[int], action: str, params: dict[str, object], *, actor: str) -> dict[str, object]:
-    ok, errors = 0, []
-    for pid in place_ids:
-        try:
-            _apply_one(db, pid, action, params, actor=actor)
-            ok += 1
-        except Exception as exc:  # noqa: BLE001 — partial errors for bulk
-            errors.append({"place_id": pid, "error": str(exc)})
-    write_admin_audit_log(db, actor=actor, action=f"bulk_{action}", entity_type="place",
-                          entity_id=",".join(str(i) for i in place_ids[:20]),
-                          new_value={"ok": ok, "errors": len(errors), "action": action}, reason=params.get("reason"))
-    record_event(db, event_type="place_bulk_action", payload={"action": action, "ok": ok, "errors": len(errors)})
-    db.commit()
-    return {"applied": ok, "failed": len(errors), "errors": errors}
+def apply_bulk(
+    db: Session,
+    place_ids: list[int],
+    action: str,
+    params: dict[str, object],
+    *,
+    actor: str,
+) -> dict[str, object]:
+    unique_ids = sorted({int(place_id) for place_id in place_ids})
+    locked_places = (
+        db.query(Place)
+        .filter(Place.id.in_(unique_ids))
+        .order_by(Place.id.asc())
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
+    places_by_id = {int(place.id): place for place in locked_places}
+    errors: list[dict[str, object]] = []
+    applied = 0
+
+    try:
+        for place_id in unique_ids:
+            place = places_by_id.get(place_id)
+            if place is None:
+                errors.append({"place_id": place_id, "error": "Место не найдено"})
+                continue
+            try:
+                with db.begin_nested():
+                    _apply_one_locked(db, place, action, params, actor=actor)
+                applied += 1
+            except Exception as exc:  # noqa: BLE001 - bulk result preserves per-row errors
+                errors.append({"place_id": place_id, "error": str(exc)})
+
+        write_admin_audit_log(
+            db,
+            actor=actor,
+            action=f"bulk_{action}",
+            entity_type="place",
+            entity_id=",".join(str(item) for item in unique_ids[:20]),
+            new_value={"ok": applied, "errors": len(errors), "action": action},
+            reason=params.get("reason"),
+        )
+        record_event(
+            db,
+            event_type="place_bulk_action",
+            payload={"action": action, "ok": applied, "errors": len(errors)},
+        )
+        db.commit()
+        return {"applied": applied, "failed": len(errors), "errors": errors}
+    except Exception:
+        db.rollback()
+        raise
 
 
-def _apply_one(db: Session, place_id: int, action: str, params: dict[str, object], *, actor: str) -> None:
-    handlers = {
-        "publish": lambda: publish_place(db, place_id, actor=actor, reason=str(params.get("reason") or "bulk")),
-        "hide": lambda: unpublish_place(db, place_id, actor=actor, reason=str(params.get("reason") or "bulk hide")),
-        "verify": lambda: verify_place(db, place_id, actor=actor),
-        "send_review": lambda: update_admin_place_fields(db, place_id, {"publication_status": "needs_review"}, actor=actor),
-        "set_category": lambda: update_admin_place_fields(db, place_id, {"category": params["category"]}, actor=actor),
-        "enable_route": lambda: update_admin_place_fields(db, place_id, {"is_route_eligible": True, "route_exclusion_reason": None}, actor=actor),
-        "disable_route": lambda: update_admin_place_fields(db, place_id, {"is_route_eligible": False, "route_exclusion_reason": params.get("reason")}, actor=actor),
-        "enable_visible": lambda: update_admin_place_fields(db, place_id, {"is_visible_in_catalog": True}, actor=actor),
-        "disable_visible": lambda: update_admin_place_fields(db, place_id, {"is_visible_in_catalog": False}, actor=actor),
-        "add_tags": lambda: _add_tags(db, place_id, params.get("tag_ids") or []),
-        "remove_tags": lambda: _remove_tags(db, place_id, params.get("tag_ids") or []),
-    }
-    fn = handlers.get(action)
-    if fn is None:
-        raise ValueError(f"Неизвестное действие: {action}")
-    fn()
+def _apply_one_locked(
+    db: Session,
+    place: Place,
+    action: str,
+    params: dict[str, object],
+    *,
+    actor: str,
+) -> None:
+    reason = str(params.get("reason") or "bulk")
+    if action in {"publish", "enable_visible"}:
+        eligibility = place_publication_eligibility(place)
+        if not eligibility.eligible:
+            raise ValueError("Публикация заблокирована: " + ", ".join(eligibility.reasons))
+        apply_admin_city_publication_place(
+            db,
+            place,
+            actor=actor,
+            source=f"admin_bulk_{action}",
+            reason=reason,
+            lock_place=False,
+        )
+        return
+    if action in {"hide", "disable_visible"}:
+        transition_place_publication(
+            db,
+            place,
+            to_status="hidden",
+            reason_code=REASON_ADMIN_HIDE,
+            actor=actor,
+            source=f"admin_bulk_{action}",
+            reason_details={"bulk_action": action},
+            human_comment=reason,
+            lock_place=False,
+        )
+        return
+    if action == "send_review":
+        transition_place_publication(
+            db,
+            place,
+            to_status="needs_review",
+            reason_code=REASON_NEEDS_MANUAL_REVIEW,
+            actor=actor,
+            source="admin_bulk_send_review",
+            reason_details={"bulk_action": action},
+            human_comment=reason,
+            lock_place=False,
+        )
+        return
+    if action in {"enable_route", "disable_route"}:
+        if place.publication_status != "published" or not place.is_published:
+            if action == "enable_route":
+                raise ValueError("Нельзя включить в маршруты неопубликованное место")
+            return
+        apply_admin_city_publication_place(
+            db,
+            place,
+            actor=actor,
+            source=f"admin_bulk_{action}",
+            reason=reason,
+            lock_place=False,
+            route_eligible_override=action == "enable_route",
+        )
+        if action == "disable_route":
+            place.route_exclusion_reason = reason
+        return
+    if action == "verify":
+        place.verification_status = "verified"
+        place.verified_by = actor
+        return
+    if action == "set_category":
+        update_admin_place_fields(
+            db,
+            int(place.id),
+            {"category": params["category"]},
+            actor=actor,
+            commit=False,
+            locked_place=place,
+        )
+        return
+    if action == "add_tags":
+        _add_tags(db, int(place.id), params.get("tag_ids") or [])
+        return
+    if action == "remove_tags":
+        _remove_tags(db, int(place.id), params.get("tag_ids") or [])
+        return
+    raise ValueError(f"Неизвестное действие: {action}")
 
 
 def _add_tags(db: Session, place_id: int, tag_ids: list[object]) -> None:
-    existing = {r.tag_id for r in db.query(PlaceTag).filter(PlaceTag.place_id == place_id).all()}
-    for tid in tag_ids:
-        if int(tid) not in existing:
-            db.add(PlaceTag(place_id=place_id, tag_id=int(tid)))
+    existing = {row.tag_id for row in db.query(PlaceTag).filter(PlaceTag.place_id == place_id).all()}
+    for tag_id in tag_ids:
+        if int(tag_id) not in existing:
+            db.add(PlaceTag(place_id=place_id, tag_id=int(tag_id)))
 
 
 def _remove_tags(db: Session, place_id: int, tag_ids: list[object]) -> None:
-    ids = [int(t) for t in tag_ids]
+    ids = [int(tag_id) for tag_id in tag_ids]
     db.query(PlaceTag).filter(PlaceTag.place_id == place_id, PlaceTag.tag_id.in_(ids)).delete()
 
 
@@ -102,12 +231,13 @@ def _describe(action: str, params: dict[str, object]) -> list[dict[str, str]]:
         "set_category": [("category", "→", str(params.get("category", "")))],
         "disable_route": [("is_route_eligible", "true", "false")],
         "enable_route": [("is_route_eligible", "false", "true")],
-        "enable_visible": [("is_visible_in_catalog", "false", "true")],
-        "disable_visible": [("is_visible_in_catalog", "true", "false")],
+        "enable_visible": [("publication_status", "*", "published")],
+        "disable_visible": [("publication_status", "*", "hidden")],
         "publish": [("publication_status", "*", "published")],
         "hide": [("publication_status", "*", "hidden")],
+        "send_review": [("publication_status", "*", "needs_review")],
     }
-    return [{"field": a, "from": b, "to": c} for a, b, c in mapping.get(action, [])]
+    return [{"field": field, "from": old, "to": new} for field, old, new in mapping.get(action, [])]
 
 
 def _risks(action: str, count: int) -> str:
