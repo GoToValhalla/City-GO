@@ -11,25 +11,16 @@ from services.admin_audit_service import write_admin_audit_log
 from services.admin_place_update_service import update_admin_place_fields
 from services.canonical_publication_apply import apply_admin_city_publication_place
 from services.place_publication_eligibility import place_publication_eligibility
+from services.place_verification_mutation import verify_locked_place
 from services.product_event_service import record_event
 from services.publication_state_writer import (
     REASON_ADMIN_HIDE,
     REASON_NEEDS_MANUAL_REVIEW,
+    REASON_NON_PUBLIC_CATEGORY,
     transition_place_publication,
 )
 
 DANGEROUS = frozenset({"publish", "hide", "set_category", "disable_route", "remove_tags"})
-PUBLICATION_ACTIONS = frozenset(
-    {
-        "publish",
-        "hide",
-        "send_review",
-        "enable_route",
-        "disable_route",
-        "enable_visible",
-        "disable_visible",
-    }
-)
 
 
 def preview_bulk(db: Session, place_ids: list[int], action: str, params: dict[str, object]) -> dict[str, object]:
@@ -102,7 +93,7 @@ def apply_bulk(
                 with db.begin_nested():
                     _apply_one_locked(db, place, action, params, actor=actor)
                 applied += 1
-            except Exception as exc:  # noqa: BLE001 - bulk result preserves per-row errors
+            except Exception as exc:  # noqa: BLE001 - truthful per-row bulk result
                 errors.append({"place_id": place_id, "error": str(exc)})
 
         write_admin_audit_log(
@@ -137,6 +128,8 @@ def _apply_one_locked(
 ) -> None:
     reason = str(params.get("reason") or "bulk")
     if action in {"publish", "enable_visible"}:
+        if place.publication_status == "published" and place.is_published and place.is_visible_in_catalog:
+            raise ValueError("Место уже опубликовано")
         eligibility = place_publication_eligibility(place)
         if not eligibility.eligible:
             raise ValueError("Публикация заблокирована: " + ", ".join(eligibility.reasons))
@@ -150,6 +143,8 @@ def _apply_one_locked(
         )
         return
     if action in {"hide", "disable_visible"}:
+        if not place.is_published and not place.is_visible_in_catalog:
+            raise ValueError("Место уже скрыто")
         transition_place_publication(
             db,
             place,
@@ -163,6 +158,8 @@ def _apply_one_locked(
         )
         return
     if action == "send_review":
+        if place.publication_status in {"needs_review", "needs_manual_review"}:
+            raise ValueError("Место уже находится на ручной проверке")
         transition_place_publication(
             db,
             place,
@@ -177,9 +174,10 @@ def _apply_one_locked(
         return
     if action in {"enable_route", "disable_route"}:
         if place.publication_status != "published" or not place.is_published:
-            if action == "enable_route":
-                raise ValueError("Нельзя включить в маршруты неопубликованное место")
-            return
+            raise ValueError("Маршрутный статус можно менять только у опубликованного места")
+        target = action == "enable_route"
+        if bool(place.is_route_eligible) is target:
+            raise ValueError("Маршрутный статус уже установлен")
         apply_admin_city_publication_place(
             db,
             place,
@@ -187,22 +185,49 @@ def _apply_one_locked(
             source=f"admin_bulk_{action}",
             reason=reason,
             lock_place=False,
-            route_eligible_override=action == "enable_route",
+            route_eligible_override=target,
         )
         return
     if action == "verify":
-        place.verification_status = "verified"
-        place.verified_by = actor
+        verify_locked_place(db, place, actor=actor, reason=reason, action="bulk_verify_place")
         return
     if action == "set_category":
+        new_category = str(params["category"]).strip().lower()
+        current_category = str(place.canonical_category or place.category or "").strip().lower()
+        if current_category == new_category:
+            raise ValueError("Категория уже установлена")
+        was_published = place.publication_status == "published" and place.is_published
         update_admin_place_fields(
             db,
             int(place.id),
-            {"category": params["category"]},
+            {"category": new_category},
             actor=actor,
             commit=False,
             locked_place=place,
         )
+        if was_published:
+            eligibility = place_publication_eligibility(place)
+            if not eligibility.eligible:
+                transition_place_publication(
+                    db,
+                    place,
+                    to_status="needs_review",
+                    reason_code=REASON_NON_PUBLIC_CATEGORY,
+                    actor=actor,
+                    source="admin_bulk_set_category",
+                    reason_details={"category": new_category, "failed_gates": list(eligibility.reasons)},
+                    human_comment="Категория требует повторной проверки публикации",
+                    lock_place=False,
+                )
+            else:
+                apply_admin_city_publication_place(
+                    db,
+                    place,
+                    actor=actor,
+                    source="admin_bulk_set_category",
+                    reason="Пересчёт после смены категории",
+                    lock_place=False,
+                )
         return
     if action == "add_tags":
         _add_tags(db, int(place.id), params.get("tag_ids") or [])
@@ -215,14 +240,19 @@ def _apply_one_locked(
 
 def _add_tags(db: Session, place_id: int, tag_ids: list[object]) -> None:
     existing = {row.tag_id for row in db.query(PlaceTag).filter(PlaceTag.place_id == place_id).all()}
-    for tag_id in tag_ids:
-        if int(tag_id) not in existing:
-            db.add(PlaceTag(place_id=place_id, tag_id=int(tag_id)))
+    requested = {int(tag_id) for tag_id in tag_ids}
+    missing = requested - existing
+    if not missing:
+        raise ValueError("Все выбранные теги уже добавлены")
+    for tag_id in sorted(missing):
+        db.add(PlaceTag(place_id=place_id, tag_id=tag_id))
 
 
 def _remove_tags(db: Session, place_id: int, tag_ids: list[object]) -> None:
     ids = [int(tag_id) for tag_id in tag_ids]
-    db.query(PlaceTag).filter(PlaceTag.place_id == place_id, PlaceTag.tag_id.in_(ids)).delete()
+    deleted = db.query(PlaceTag).filter(PlaceTag.place_id == place_id, PlaceTag.tag_id.in_(ids)).delete()
+    if not deleted:
+        raise ValueError("Выбранные теги отсутствуют")
 
 
 def _describe(action: str, params: dict[str, object]) -> list[dict[str, str]]:
