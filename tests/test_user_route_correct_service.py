@@ -80,8 +80,10 @@ def test_remove_place_recalculates_current_route() -> None:
         patch("services.user_route_correction_actions.find_replacement_place", return_value=None),
     ):
         result = UserRouteCorrectService().correct(_Db(places), request)
-    assert result.revision == 2
-    assert [point.place_id for point in result.points] == ["2"]
+    assert result.accepted is True
+    assert result.state is not None
+    assert result.state.revision == 2
+    assert [point.place_id for point in result.state.points] == ["2"]
 
 
 def test_shorten_route_selects_lowest_value_per_minute() -> None:
@@ -117,5 +119,7 @@ def test_avoid_category_rebuilds_with_target_category() -> None:
     ):
         result = UserRouteCorrectService().correct(_Db(places), request)
     called_request = builder.build_route.call_args.kwargs["request"]
-    assert result.route_id == "new"
+    assert result.accepted is True
+    assert result.state is not None
+    assert result.state.route_id == "new"
     assert called_request.avoided_categories == ["museum"]
