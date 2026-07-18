@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -37,9 +38,14 @@ def _route(route_id: str, quality: float, warnings: list[str]):
     )
 
 
+def _record(db, route, **kwargs):
+    with patch("services.route_analytics_service.SessionLocal", return_value=db):
+        return record_route_build(route, **kwargs)
+
+
 def test_record_route_build_persists_metrics() -> None:
     db = _db()
-    saved = record_route_build(
+    saved = _record(
         db,
         _route("r1", 0.8, ["warning"]),
         source="recommendations",
@@ -57,8 +63,8 @@ def test_record_route_build_persists_metrics() -> None:
 
 def test_route_analytics_summary_aggregates_events() -> None:
     db = _db()
-    record_route_build(db, _route("r1", 0.8, []), source="api", latency_ms=100)
-    record_route_build(db, _route("r2", 0.4, ["w"]), source="api", latency_ms=200)
+    _record(db, _route("r1", 0.8, []), source="api", latency_ms=100)
+    _record(db, _route("r2", 0.4, ["w"]), source="api", latency_ms=200)
     summary = route_analytics_summary(db)
     assert summary["total_routes"] == 2
     assert summary["average_quality_score"] == 0.6
@@ -68,8 +74,8 @@ def test_route_analytics_summary_aggregates_events() -> None:
 
 def test_user_route_history_returns_recent_user_events() -> None:
     db = _db()
-    record_route_build(db, _route("r1", 0.8, []), source="api", latency_ms=100, user_id="u1")
-    record_route_build(db, _route("r2", 0.7, []), source="api", latency_ms=100, user_id="u2")
+    _record(db, _route("r1", 0.8, []), source="api", latency_ms=100, user_id="u1")
+    _record(db, _route("r2", 0.7, []), source="api", latency_ms=100, user_id="u2")
     history = user_route_history(db, "u1")
     assert len(history) == 1
     assert history[0]["route_id"] == "r1"
