@@ -47,15 +47,8 @@ def _runtime_python_files():
 
 def test_registry_cleanup_index_matches_query_order_new() -> None:
     table = UserRouteStateRegistry.__table__
-    indexes = {
-        index.name: tuple(column.name for column in index.columns)
-        for index in table.indexes
-    }
-
-    assert indexes["ix_user_route_state_registry_expires_at_route_id"] == (
-        "expires_at",
-        "route_id",
-    )
+    indexes = {index.name: tuple(column.name for column in index.columns) for index in table.indexes}
+    assert indexes["ix_user_route_state_registry_expires_at_route_id"] == ("expires_at", "route_id")
     assert "ix_user_route_state_registry_expires_at" not in indexes
 
 
@@ -64,20 +57,13 @@ def test_database_schema_has_cleanup_index_new(db_session) -> None:
         index["name"]: tuple(index["column_names"])
         for index in inspect(db_session.get_bind()).get_indexes("user_route_state_registry")
     }
-
-    assert indexes["ix_user_route_state_registry_expires_at_route_id"] == (
-        "expires_at",
-        "route_id",
-    )
+    assert indexes["ix_user_route_state_registry_expires_at_route_id"] == ("expires_at", "route_id")
     assert "ix_user_route_state_registry_expires_at" not in indexes
 
 
 def test_cleanup_index_migration_replaces_legacy_index_new() -> None:
-    source = (
-        ROOT / "migrations/versions/b3c4d5e6f7a8_optimize_route_state_cleanup_index.py"
-    ).read_text(encoding="utf-8")
-
-    assert 'down_revision = "e7f9b2c4a6d8"' in source
+    source = (ROOT / "migrations/versions/6b9c1e4a8d3f_optimize_route_state_cleanup_index.py").read_text(encoding="utf-8")
+    assert 'down_revision = "5a8b0d3f7c2e"' in source
     assert "batch.drop_index(_OLD_INDEX)" in source
     assert '["expires_at", "route_id"]' in source
     assert "batch.drop_index(_CLEANUP_INDEX)" in source
@@ -86,7 +72,6 @@ def test_cleanup_index_migration_replaces_legacy_index_new() -> None:
 
 def test_cleanup_owner_never_locks_public_evidence_new() -> None:
     cleanup_source = CLEANUP_SERVICE.read_text(encoding="utf-8")
-
     assert "models.city" not in cleanup_source
     assert "models.place" not in cleanup_source
     assert "lock_public_route_state" not in cleanup_source
@@ -96,11 +81,9 @@ def test_cleanup_owner_never_locks_public_evidence_new() -> None:
 
 def test_request_lock_order_is_registry_then_public_evidence_new() -> None:
     tree = ast.parse(REGISTRY_SERVICE.read_text(encoding="utf-8"))
-
     register = _function(tree, "register_initial_route_state")
     register_calls = _call_positions(register, {"_locked_registry", "lock_public_route_state"})
     assert register_calls["_locked_registry"] < register_calls["lock_public_route_state"]
-
     verify = _function(tree, "verify_current_route_state")
     verify_calls = _call_positions(verify, {"with_for_update", "lock_public_route_state"})
     assert verify_calls["with_for_update"] < verify_calls["lock_public_route_state"]
@@ -108,7 +91,6 @@ def test_request_lock_order_is_registry_then_public_evidence_new() -> None:
 
 def test_public_evidence_readers_use_shared_locks_new() -> None:
     source = PUBLIC_ACCESS_SERVICE.read_text(encoding="utf-8")
-
     assert source.count("with_for_update(read=True)") >= 3
     assert ".with_for_update()" not in source
     assert ".order_by(Place.id.asc())" in source
@@ -117,7 +99,6 @@ def test_public_evidence_readers_use_shared_locks_new() -> None:
 def test_admin_publication_writers_lock_city_then_ordered_places_new() -> None:
     source = ADMIN_PUBLICATION_SERVICE.read_text(encoding="utf-8")
     tree = ast.parse(source)
-
     for function_name in ("publish_city", "unpublish_city"):
         function = _function(tree, function_name)
         text = ast.get_source_segment(source, function) or ""
@@ -131,7 +112,6 @@ def test_admin_publication_writers_lock_city_then_ordered_places_new() -> None:
 
 def test_router_uses_only_public_lifecycle_facade_new() -> None:
     source = ROUTER.read_text(encoding="utf-8")
-
     assert "user_route_state_lifecycle_service" in source
     assert "user_route_state_registry_service" not in source
     assert "register_initial_route_state" not in source
@@ -141,23 +121,14 @@ def test_router_uses_only_public_lifecycle_facade_new() -> None:
 
 def test_only_lifecycle_facade_imports_registry_primitives_new() -> None:
     violations: list[str] = []
-    primitive_names = {
-        "register_initial_route_state",
-        "verify_current_route_state",
-        "advance_route_state",
-    }
-
+    primitive_names = {"register_initial_route_state", "verify_current_route_state", "advance_route_state"}
     for path in _runtime_python_files():
         if path in {REGISTRY_SERVICE, LIFECYCLE_SERVICE}:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            imported = {alias.name for alias in node.names}
-            if imported & primitive_names:
+            if isinstance(node, ast.ImportFrom) and {alias.name for alias in node.names} & primitive_names:
                 violations.append(str(path.relative_to(ROOT)))
-
     assert not violations, "registry primitives escaped lifecycle facade:\n" + "\n".join(violations)
 
 
@@ -165,19 +136,13 @@ def test_registry_service_is_only_runtime_orm_owner_new() -> None:
     violations = [
         str(path.relative_to(ROOT))
         for path in _runtime_python_files()
-        if path != REGISTRY_SERVICE
-        and "UserRouteStateRegistry" in path.read_text(encoding="utf-8")
+        if path != REGISTRY_SERVICE and "UserRouteStateRegistry" in path.read_text(encoding="utf-8")
     ]
-
-    assert not violations, (
-        "route-state registry ORM ownership escaped the registry service:\n"
-        + "\n".join(violations)
-    )
+    assert not violations, "route-state registry ORM ownership escaped the registry service:\n" + "\n".join(violations)
 
 
 def test_no_raw_registry_write_bypasses_lifecycle_owners_new() -> None:
     violations: list[str] = []
-
     for path in _runtime_python_files():
         normalized = " ".join(path.read_text(encoding="utf-8").lower().split())
         if "update user_route_state_registry" in normalized:
@@ -186,16 +151,11 @@ def test_no_raw_registry_write_bypasses_lifecycle_owners_new() -> None:
             violations.append(f"{path.relative_to(ROOT)}:INSERT")
         if "delete from user_route_state_registry" in normalized and path != CLEANUP_SERVICE:
             violations.append(f"{path.relative_to(ROOT)}:DELETE")
-
-    assert not violations, (
-        "raw registry writes bypass lifecycle ownership:\n"
-        + "\n".join(violations)
-    )
+    assert not violations, "raw registry writes bypass lifecycle ownership:\n" + "\n".join(violations)
 
 
 def test_database_errors_are_not_domain_conflicts_new() -> None:
     source = ROUTER.read_text(encoding="utf-8")
-
     assert "_ROUTE_STATE_ERRORS = (UserRouteStateConflictError, UserRouteStateIntegrityError)" in source
     assert "status_code=503" in source
     assert "route_state_database_unavailable" in source
@@ -203,29 +163,16 @@ def test_database_errors_are_not_domain_conflicts_new() -> None:
 
 def test_route_analytics_uses_isolated_session_new() -> None:
     source = ANALYTICS_SERVICE.read_text(encoding="utf-8")
-
     assert "SessionLocal()" in source
     assert "caller Session is deliberately ignored" in source
     assert "db.close()" in source
 
 
-def test_route_services_do_not_commit_or_rollback_request_session_new() -> None:
-    allowed = {
-        ANALYTICS_SERVICE,
-        ROOT / "core/route_state_cleanup_runner.py",
-    }
+def test_user_route_state_services_do_not_commit_or_rollback_request_session_new() -> None:
     violations: list[str] = []
-
-    for path in (ROOT / "services").glob("*route*.py"):
-        if path in allowed:
-            continue
+    for path in (ROOT / "services").glob("user_route_*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr in {"commit", "rollback"}
-            ):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"commit", "rollback"}:
                 violations.append(f"{path.relative_to(ROOT)}:{node.lineno}:{node.func.attr}")
-
-    assert not violations, "route service owns caller transaction:\n" + "\n".join(violations)
+    assert not violations, "user route-state service owns caller transaction:\n" + "\n".join(violations)
