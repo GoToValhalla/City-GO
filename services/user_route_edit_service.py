@@ -44,6 +44,8 @@ class UserRouteEditService:
             return RouteMutationResult.rejected(
                 "Порядок не изменён: список точек не соответствует текущему маршруту."
             )
+        if requested_ids == current_ids:
+            return RouteMutationResult.rejected("Порядок точек уже совпадает с запрошенным.")
         places = load_public_route_places(db, requested_ids, scope=scope)
         if len(places) != len(requested_ids):
             return RouteMutationResult.rejected(
@@ -59,7 +61,9 @@ class UserRouteEditService:
             return RouteMutationResult.rejected(
                 "Замена не выполнена: исходная точка не принадлежит текущему маршруту."
             )
-        if request.new_place_id != request.old_place_id and request.new_place_id in current_ids:
+        if request.new_place_id == request.old_place_id:
+            return RouteMutationResult.rejected("Исходная и новая точки совпадают.")
+        if request.new_place_id in current_ids:
             return RouteMutationResult.rejected(
                 "Замена не выполнена: эта точка уже есть в маршруте."
             )
