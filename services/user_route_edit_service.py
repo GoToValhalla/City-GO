@@ -24,52 +24,74 @@ from services.public_route_place_access import (
     resolve_route_scope,
 )
 from services.route_geometry import walk_minutes_between
+from services.user_route_mutation_result import RouteMutationResult
 from services.user_route_place_loader import load_ordered_places
 from services.user_route_recalc_service import UserRouteRecalcService
 
 
 class UserRouteEditService:
-    def update_order(self, db: Session, request: UserRouteUpdateRequest) -> UserRouteState:
+    def update_order(self, db: Session, request: UserRouteUpdateRequest) -> RouteMutationResult:
         scope = resolve_route_scope(db, request.current_route)
         current_places = load_ordered_places(db, request.current_route)
         current_ids = [str(place.id) for place in current_places]
         requested_ids = list(request.ordered_place_ids)
-        if scope is None or len(requested_ids) != len(current_ids) or len(set(requested_ids)) != len(requested_ids) or set(requested_ids) != set(current_ids):
-            return _safe_failure(request.current_route, current_places, "Порядок не изменён: список точек не соответствует текущему маршруту.")
+        if (
+            scope is None
+            or len(requested_ids) != len(current_ids)
+            or len(set(requested_ids)) != len(requested_ids)
+            or set(requested_ids) != set(current_ids)
+        ):
+            return RouteMutationResult.rejected(
+                "Порядок не изменён: список точек не соответствует текущему маршруту."
+            )
         places = load_public_route_places(db, requested_ids, scope=scope)
         if len(places) != len(requested_ids):
-            return _safe_failure(request.current_route, current_places, "Порядок не изменён: маршрут больше недоступен для изменения.")
-        return _recalc(request.current_route, places, "Порядок маршрута обновлён.")
+            return RouteMutationResult.rejected(
+                "Порядок не изменён: маршрут больше недоступен для изменения."
+            )
+        return _accepted_recalc(request.current_route, places, "Порядок маршрута обновлён.")
 
-    def replace_place(self, db: Session, request: UserRouteReplacePlaceRequest) -> UserRouteState:
+    def replace_place(self, db: Session, request: UserRouteReplacePlaceRequest) -> RouteMutationResult:
         scope = resolve_route_scope(db, request.current_route)
         current_places = load_ordered_places(db, request.current_route)
         current_ids = [str(place.id) for place in current_places]
         if scope is None or request.old_place_id not in current_ids:
-            return _safe_failure(request.current_route, current_places, "Замена не выполнена: исходная точка не принадлежит текущему маршруту.")
+            return RouteMutationResult.rejected(
+                "Замена не выполнена: исходная точка не принадлежит текущему маршруту."
+            )
         if request.new_place_id != request.old_place_id and request.new_place_id in current_ids:
-            return _safe_failure(request.current_route, current_places, "Замена не выполнена: эта точка уже есть в маршруте.")
+            return RouteMutationResult.rejected(
+                "Замена не выполнена: эта точка уже есть в маршруте."
+            )
         replacement = load_public_route_place(db, request.new_place_id, scope=scope)
         if replacement is None:
-            return _safe_failure(request.current_route, current_places, "Новое место недоступно для текущего маршрута. Маршрут не изменён.")
+            return RouteMutationResult.rejected(
+                "Новое место недоступно для текущего маршрута. Маршрут не изменён."
+            )
         places = [replacement if str(place.id) == request.old_place_id else place for place in current_places]
-        return _recalc(request.current_route, places, "Место заменено.")
+        return _accepted_recalc(request.current_route, places, "Место заменено.")
 
-    def add_place(self, db: Session, request: UserRouteAddPlaceRequest) -> UserRouteState:
+    def add_place(self, db: Session, request: UserRouteAddPlaceRequest) -> RouteMutationResult:
         scope = resolve_route_scope(db, request.current_route)
         current_places = load_ordered_places(db, request.current_route)
         current_ids = [str(place.id) for place in current_places]
         if scope is None:
-            return _safe_failure(request.current_route, current_places, "Место не добавлено: состояние маршрута недействительно.")
+            return RouteMutationResult.rejected(
+                "Место не добавлено: состояние маршрута недействительно."
+            )
         if request.insert_after_place_id is not None and request.insert_after_place_id not in current_ids:
-            return _safe_failure(request.current_route, current_places, "Место не добавлено: точка вставки не принадлежит маршруту.")
+            return RouteMutationResult.rejected(
+                "Место не добавлено: точка вставки не принадлежит маршруту."
+            )
         if request.place_id in current_ids:
-            return _safe_failure(request.current_route, current_places, "Место уже есть в маршруте.")
+            return RouteMutationResult.rejected("Место уже есть в маршруте.")
         place = load_public_route_place(db, request.place_id, scope=scope)
         if place is None:
-            return _safe_failure(request.current_route, current_places, "Место недоступно для текущего маршрута.")
+            return RouteMutationResult.rejected(
+                "Место недоступно для текущего маршрута."
+            )
         next_places = _insert_place(current_places, place, request.insert_after_place_id)
-        return _recalc(request.current_route, next_places, "Место добавлено в маршрут.")
+        return _accepted_recalc(request.current_route, next_places, "Место добавлено в маршрут.")
 
     def alternatives(self, db: Session, route: UserRouteState, place_id: str, limit: int = 3) -> UserRouteAlternativesResponse:
         scope = resolve_route_scope(db, route)
@@ -114,17 +136,14 @@ class UserRouteEditService:
         return UserRouteStructuredBuildResponse(city_id=request.city_id, slots=slots)
 
 
-def _safe_failure(route: UserRouteState, places: list[Place], warning: str) -> UserRouteState:
-    return _recalc(route, places, warning)
-
-
-def _recalc(route: UserRouteState, places: list[Place], warning: str) -> UserRouteState:
-    return UserRouteRecalcService().recalc(
+def _accepted_recalc(route: UserRouteState, places: list[Place], warning: str) -> RouteMutationResult:
+    state = UserRouteRecalcService().recalc(
         places=places,
         intent=route.context,
         revision=route.revision + 1,
         extra_warnings=[warning],
     )
+    return RouteMutationResult.success(state)
 
 
 def _insert_place(places: list[Place], place: Place, insert_after_place_id: str | None) -> list[Place]:
