@@ -45,6 +45,12 @@ def _route(place, city_slug: str) -> UserRouteState:
     )
 
 
+def _assert_rejected_without_state(result) -> None:
+    assert result.accepted is False
+    assert result.state is None
+    assert result.reason
+
+
 def test_add_place_rejects_other_published_city_new(db_session, city_factory, place_factory) -> None:
     city = city_factory(slug="scope-add-a")
     other = city_factory(slug="scope-add-b")
@@ -56,7 +62,7 @@ def test_add_place_rejects_other_published_city_new(db_session, city_factory, pl
         UserRouteAddPlaceRequest(current_route=_route(first, city.slug), place_id=str(foreign.id)),
     )
 
-    assert [point.place_id for point in result.points] == [str(first.id)]
+    _assert_rejected_without_state(result)
 
 
 def test_replace_place_rejects_other_city_without_deleting_old_point_new(db_session, city_factory, place_factory) -> None:
@@ -74,7 +80,7 @@ def test_replace_place_rejects_other_city_without_deleting_old_point_new(db_sess
         ),
     )
 
-    assert [point.place_id for point in result.points] == [str(first.id)]
+    _assert_rejected_without_state(result)
 
 
 def test_update_order_cannot_inject_other_city_place_new(db_session, city_factory, place_factory) -> None:
@@ -88,7 +94,7 @@ def test_update_order_cannot_inject_other_city_place_new(db_session, city_factor
         UserRouteUpdateRequest(current_route=_route(first, city.slug), ordered_place_ids=[str(foreign.id)]),
     )
 
-    assert [point.place_id for point in result.points] == [str(first.id)]
+    _assert_rejected_without_state(result)
 
 
 def test_slot_selected_place_is_scoped_to_requested_city_new(db_session, city_factory, place_factory) -> None:
@@ -114,9 +120,7 @@ def test_alternatives_ignore_spoofed_point_city_slug_new(db_session, city_factor
     current = place_factory(city_id=city.id, slug="scope-alt-current", category="museum", lat=54.96, lng=20.47)
     local = place_factory(city_id=city.id, slug="scope-alt-local", category="museum", lat=54.961, lng=20.471)
     foreign = place_factory(city_id=other.id, slug="scope-alt-foreign", category="museum", lat=54.9605, lng=20.4705)
-    route = _route(current, city.slug).model_copy(
-        update={"points": [_point(current, city_slug=other.slug)]}
-    )
+    route = _route(current, city.slug).model_copy(update={"points": [_point(current, city_slug=other.slug)]})
 
     result = UserRouteEditService().alternatives(db_session, route, str(current.id), limit=10)
     option_ids = {option.place_id for option in result.options}
