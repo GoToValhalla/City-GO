@@ -17,13 +17,21 @@ def verify_locked_place(
     actor: str,
     reason: str | None = None,
     action: str = "verify_place",
-) -> None:
-    """Verify an attached/pre-locked Place without owning the transaction."""
+    reject_noop: bool = False,
+) -> bool:
+    """Verify an attached/pre-locked Place without owning the transaction.
+
+    Returns ``True`` when state changed. Single-item admin verification remains
+    idempotent by default; bulk callers pass ``reject_noop=True`` so their
+    applied/failed counters remain truthful.
+    """
 
     if not str(actor or "").strip():
         raise ValueError("verification actor is required")
     if place.verification_status == "verified" and place.existence_confidence_level == "high":
-        raise ValueError("Место уже подтверждено")
+        if reject_noop:
+            raise ValueError("Место уже подтверждено")
+        return False
 
     old_value = {
         "verification_status": place.verification_status,
@@ -56,3 +64,4 @@ def verify_locked_place(
         reason=reason,
     )
     db.flush()
+    return True
