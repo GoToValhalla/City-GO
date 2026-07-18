@@ -68,7 +68,7 @@ def test_add_place_recalculates_route_summary_new(db_session, city_factory, plac
         points=[_point(first, 1), _point(second, 2)],
     )
 
-    next_route = UserRouteEditService().add_place(
+    result = UserRouteEditService().add_place(
         db_session,
         UserRouteAddPlaceRequest(
             current_route=current_route,
@@ -77,6 +77,9 @@ def test_add_place_recalculates_route_summary_new(db_session, city_factory, plac
         ),
     )
 
+    assert result.accepted is True
+    assert result.state is not None
+    next_route = result.state
     assert next_route.revision == 2
     assert next_route.total_places == 3
     assert [point.place_id for point in next_route.points] == [str(first.id), str(second.id), str(third.id)]
