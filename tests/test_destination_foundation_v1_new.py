@@ -30,7 +30,7 @@ def backfilled(db_session, city_factory, place_factory):
 
 
 def test_backfill_cities_to_destinations_idempotent_new(db_session, city_factory, place_factory, backfilled):
-    first = backfill_cities_to_destinations(db_session)
+    backfill_cities_to_destinations(db_session)
     second = backfill_cities_to_destinations(db_session)
     assert second["destinations_created"] == 0
     assert second["memberships_created"] == 0
@@ -40,36 +40,35 @@ def test_backfill_cities_to_destinations_idempotent_new(db_session, city_factory
 def test_place_membership_legacy_city_backfill_new(db_session, backfilled, place_factory):
     place = db_session.query(Place).filter(Place.slug == "cafe-a").first()
     dest = db_session.query(Destination).filter(Destination.slug == "dest-city-a").first()
-    m = db_session.query(DestinationPlaceMembership).filter_by(place_id=place.id, destination_id=dest.id).one()
-    assert m.assignment_type == "legacy_city"
-    assert m.is_primary is True
+    membership = db_session.query(DestinationPlaceMembership).filter_by(place_id=place.id, destination_id=dest.id).one()
+    assert membership.assignment_type == "legacy_city"
+    assert membership.is_primary is True
     assert place.primary_destination_id == dest.id
 
 
 def test_legacy_city_slug_places_compatibility_new(client, backfilled):
-    r = client.get("/places/", params={"city_slug": "dest-city-a"})
-    assert r.status_code == 200
-    assert r.json()["total"] >= 1
+    response = client.get("/places/", params={"city_slug": "dest-city-a"})
+    assert response.status_code == 200
+    assert response.json()["total"] >= 1
 
 
 def test_destination_slug_places_legacy_compat_new(client, backfilled):
-    r = client.get("/places/", params={"destination_slug": "dest-city-a"})
-    assert r.status_code == 200
-    assert r.json()["total"] >= 1
+    response = client.get("/places/", params={"destination_slug": "dest-city-a"})
+    assert response.status_code == 200
+    assert response.json()["total"] >= 1
 
 
 def test_city_and_destination_slug_both_returns_400_new(client):
-    r = client.get("/places/", params={"city_slug": "a", "destination_slug": "b"})
-    assert r.status_code == 400
+    assert client.get("/places/", params={"city_slug": "a", "destination_slug": "b"}).status_code == 400
 
 
 def test_v1_destinations_list_new(client, backfilled, db_session):
     dest = db_session.query(Destination).filter(Destination.slug == "dest-city-a").first()
     dest.is_published = True
     db_session.commit()
-    r = client.get("/v1/destinations")
-    assert r.status_code == 200
-    assert any(item["slug"] == "dest-city-a" for item in r.json()["items"])
+    response = client.get("/v1/destinations")
+    assert response.status_code == 200
+    assert any(item["slug"] == "dest-city-a" for item in response.json()["items"])
 
 
 def test_region_with_child_destinations_new(db_session, city_factory, backfilled):
@@ -87,8 +86,7 @@ def test_region_with_child_destinations_new(db_session, city_factory, backfilled
     city_dest = db_session.query(Destination).filter(Destination.slug == "dest-city-a").first()
     city_dest.parent_id = region.id
     db_session.commit()
-    child = db_session.query(Destination).filter(Destination.parent_id == region.id).all()
-    assert len(child) >= 1
+    assert len(db_session.query(Destination).filter(Destination.parent_id == region.id).all()) >= 1
 
 
 def test_poi_between_cities_region_membership_new(db_session, city_factory, place_factory, backfilled):
@@ -135,13 +133,11 @@ def test_remote_poi_not_in_city_catalog_new(db_session, city_factory, place_fact
     db_session.commit()
     city_items = get_places(db_session, destination_slug="dest-city-a")
     remote_items = get_places(db_session, destination_slug="curonian-spit")
-    city_ids = {p.id for p in city_items}
-    assert remote_place.id not in city_ids
-    assert any(p.id == remote_place.id for p in remote_items)
+    assert remote_place.id not in {place.id for place in city_items}
+    assert any(place.id == remote_place.id for place in remote_items)
 
 
 def test_one_place_two_destinations_new(db_session, place_factory, backfilled):
-    city_dest = db_session.query(Destination).filter(Destination.slug == "dest-city-a").first()
     region = Destination(slug="extra-region", name="Extra", destination_type="region", is_active=True, is_published=True)
     db_session.add(region)
     db_session.flush()
@@ -188,9 +184,9 @@ def test_walking_route_scope_guard_new(db_session, backfilled):
 
 
 def test_admin_destinations_list_new(client, backfilled):
-    r = client.get("/admin/destinations")
-    assert r.status_code == 200
-    assert r.json()["total"] >= 1
+    response = client.get("/admin/destinations")
+    assert response.status_code == 200
+    assert response.json()["total"] >= 1
 
 
 def test_hidden_membership_excluded_new(db_session, backfilled, monkeypatch):
@@ -201,7 +197,7 @@ def test_hidden_membership_excluded_new(db_session, backfilled, monkeypatch):
     hide_membership(db_session, place_id=place.id, destination_id=dest.id)
     db_session.commit()
     items = get_places(db_session, destination_slug="dest-city-a")
-    assert place.id not in {p.id for p in items}
+    assert place.id not in {item.id for item in items}
 
 
 def _route_ctx(**overrides) -> MergedContext:
@@ -236,9 +232,8 @@ def test_destination_route_candidate_retrieval_under_flag_new(db_session, backfi
         lng=20.4703,
         is_route_eligible=True,
     )
-    svc = CandidateRetrievalService()
-    candidates = svc.get_candidates(db_session, _route_ctx())
-    ids = {p.id for p in candidates}
+    candidates = CandidateRetrievalService().get_candidates(db_session, _route_ctx())
+    ids = {place.id for place in candidates}
     assert extra.id not in ids
     assert db_session.query(Place).filter(Place.slug == "cafe-a").first().id in ids
 
@@ -254,10 +249,14 @@ def test_old_city_route_build_city_slug_compat_new(client, backfilled):
         has_warnings=False,
         warning_count=0,
     )
-    with patch("routers.user_routes.UserRouteBuildService", return_value=MagicMock(build=MagicMock(return_value=state))):
-        r = client.post("/v1/user-routes/build", json={"lat": 54.96, "lng": 20.48, "city_slug": "dest-city-a"})
-    assert r.status_code == 200
-    assert r.json()["route_id"] == "route-test"
+    with (
+        patch("routers.user_routes.UserRouteBuildService", return_value=MagicMock(build=MagicMock(return_value=state))),
+        patch("routers.user_routes._lifecycle.issue_initial", return_value=state),
+        patch("routers.user_routes.record_route_build", return_value=True),
+    ):
+        response = client.post("/v1/user-routes/build", json={"lat": 54.96, "lng": 20.48, "city_slug": "dest-city-a"})
+    assert response.status_code == 200
+    assert response.json()["route_id"] == "route-test"
 
 
 def test_overlapping_scopes_conflict_new(db_session, place_factory, backfilled):
@@ -289,12 +288,12 @@ def test_service_only_not_in_destination_catalog_new(db_session, backfilled, mon
     place.internal_status = "service_only"
     db_session.commit()
     items = get_places(db_session, destination_slug="dest-city-a")
-    assert place.id not in {p.id for p in items}
+    assert place.id not in {item.id for item in items}
 
 
 def test_destination_slug_normalization_preserved_new(db_session, backfilled):
-    from services.place_query_params_service import normalize_place_query_params
     from schemas.place_query_params import PlaceQueryParams
+    from services.place_query_params_service import normalize_place_query_params
 
     normalized = normalize_place_query_params(
         PlaceQueryParams(destination_slug="dest-city-a", limit=10, offset=0, sort_by="title", sort_order="asc")
