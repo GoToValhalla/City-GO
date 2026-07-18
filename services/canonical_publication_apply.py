@@ -11,13 +11,10 @@ from sqlalchemy.orm import Session
 from models.place import Place
 from models.place_publication_decision import PlacePublicationDecision
 from services.canonical_publication_guard import CanonicalPublicationVerdict
+from services.publication_reason_mapping import primary_publication_reason
 from services.publication_state_writer import (
-    REASON_DUPLICATE_SUSPECTED,
-    REASON_MISSING_COORDINATES,
-    REASON_NON_PUBLIC_CATEGORY,
     REASON_POLICY_GATE_FAILED,
     REASON_PUBLISHED,
-    REASON_SPAM_SUSPECTED,
     transition_place_publication,
 )
 from services.route_eligibility_policy import evaluate_place_route_eligibility
@@ -33,11 +30,7 @@ def apply_canonical_publication_verdict(
     actor: str = "import_pipeline",
     record_only: bool = False,
 ) -> str:
-    """Record a policy decision and, when required, apply it through the writer.
-
-    The caller owns the transaction. Import-side ``record_only=True`` suppresses
-    publication but does not suppress explicit hard-safety/review transitions.
-    """
+    """Record a policy decision and, when required, apply it through the writer."""
 
     _record_decision(db, place, verdict, job_id=job_id, snapshot_id=snapshot_id, actor=actor)
     if verdict.outcome == "preserve_public":
@@ -71,7 +64,7 @@ def apply_canonical_publication_verdict(
             db,
             place,
             to_status="hidden",
-            reason_code=_primary_rejection_reason(verdict.reasons),
+            reason_code=primary_publication_reason(verdict.reasons),
             actor=actor,
             source="publication_policy",
             reason_details=details,
@@ -154,19 +147,6 @@ def apply_admin_city_publication_place(
         place.route_exclusion_reason = reason or "admin_route_disabled"
     else:
         place.route_exclusion_reason = ",".join(verdict.reasons[:5])
-
-
-def _primary_rejection_reason(reasons: tuple[str, ...]) -> str:
-    normalized = " ".join(str(reason).lower() for reason in reasons)
-    if "coordinate" in normalized or "lat" in normalized or "lng" in normalized:
-        return REASON_MISSING_COORDINATES
-    if "duplicate" in normalized:
-        return REASON_DUPLICATE_SUSPECTED
-    if "spam" in normalized:
-        return REASON_SPAM_SUSPECTED
-    if "category" in normalized or "service" in normalized or "transport" in normalized:
-        return REASON_NON_PUBLIC_CATEGORY
-    return REASON_POLICY_GATE_FAILED
 
 
 def _route_eligibility_verdict_for_publish(place: Place):
