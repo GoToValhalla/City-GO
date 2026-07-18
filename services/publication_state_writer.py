@@ -118,11 +118,7 @@ def transition_place_publication(
     route_eligible_when_published: bool | None = None,
     lock_place: bool = True,
 ) -> PlacePublicationTransition:
-    """Apply one authoritative publication transition without committing.
-
-    The caller owns commit/rollback. Place state, current reason and the
-    append-only transition row are flushed atomically in the caller's transaction.
-    """
+    """Apply one authoritative publication transition without committing."""
 
     if to_status not in _STATE_FLAGS:
         raise InvalidPublicationTransition(f"unknown publication status: {to_status}")
@@ -141,13 +137,13 @@ def transition_place_publication(
     if place.id is None:
         db.flush()
     if lock_place:
-        locked = (
+        place = (
             db.query(Place)
             .filter(Place.id == place.id)
+            .populate_existing()
             .with_for_update()
             .one()
         )
-        place = locked
 
     from_status = str(place.publication_status or "draft")
     details = dict(reason_details or {})
@@ -160,6 +156,7 @@ def transition_place_publication(
     place.is_visible_in_catalog = flags.is_visible_in_catalog
     place.is_searchable = flags.is_searchable
     place.publication_comment = human_comment
+    place.updated_at = now
 
     if to_status == PUBLISHED_STATUS:
         place.publication_reason_code = None
@@ -204,6 +201,9 @@ def transition_locked_places_publication(
 ) -> list[PlacePublicationTransition]:
     """Transition a deterministically pre-locked batch without internal re-locks."""
 
+    ordered_places = sorted(places, key=lambda item: int(item.id))
+    if [int(item.id) for item in places] != [int(item.id) for item in ordered_places]:
+        raise InvalidPublicationTransition("bulk publication places must be locked in ascending Place.id order")
     return [
         transition_place_publication(
             db,
@@ -217,5 +217,5 @@ def transition_locked_places_publication(
             correlation_id=correlation_id,
             lock_place=False,
         )
-        for place in sorted(places, key=lambda item: int(item.id))
+        for place in ordered_places
     ]
