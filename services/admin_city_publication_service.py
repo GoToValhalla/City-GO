@@ -10,15 +10,17 @@ from models.place import Place
 from services.admin_audit_service import write_admin_audit_log
 from services.canonical_publication_apply import apply_admin_city_publication_place
 from services.place_publication_eligibility import city_publication_gate, place_publication_eligibility
+from services.publication_state_writer import (
+    REASON_ADMIN_UNPUBLISH,
+    REASON_CITY_PUBLICATION_QUALITY_GATE,
+    transition_locked_places_publication,
+    transition_place_publication,
+)
 
 CITY_STATUS_DRAFT = "draft"
 CITY_STATUS_PUBLISHED = "published"
 CITY_STATUS_REVIEW_REQUIRED = "review_required"
 CITY_STATUS_UNPUBLISHED = "unpublished"
-
-PLACE_PUBLICATION_PUBLISHED = "published"
-PLACE_PUBLICATION_NEEDS_REVIEW = "needs_review"
-PLACE_PUBLICATION_UNPUBLISHED = "unpublished"
 
 
 @dataclass(frozen=True)
@@ -41,8 +43,6 @@ class CityPublicationPreview:
 
 
 def preview_city_publication(db: Session, city_id: int) -> CityPublicationPreview | None:
-    """Read-only dry-run using the exact same gate and eligibility function
-    publish_city itself uses, so dry-run and apply can never diverge."""
     city = db.query(City).filter(City.id == city_id).first()
     if city is None:
         return None
@@ -99,24 +99,41 @@ def publish_city(
         .with_for_update()
         .all()
     )
-    publishable_places = [place for place in places if place_publication_eligibility(place).eligible]
+    eligibility_by_id = {place.id: place_publication_eligibility(place) for place in places}
+    publishable_places = [place for place in places if eligibility_by_id[place.id].eligible]
     if not publishable_places:
         raise ValueError("Нельзя опубликовать город: нет ни одного места, прошедшего публичный quality gate.")
 
     now = datetime.utcnow()
     old_value = _city_publication_snapshot(city)
     published_ids = {place.id for place in publishable_places}
-    published_count = 0
-    hidden_count = 0
 
     for place in places:
         if place.id in published_ids:
-            _publish_place_for_city(place, now=now, reason=reason)
-            published_count += 1
+            apply_admin_city_publication_place(
+                db,
+                place,
+                actor=actor,
+                source="admin_city_publish",
+                reason=reason,
+                lock_place=False,
+            )
         else:
-            _hide_place_for_city_publication(place, now=now, reason="city_publication_quality_gate")
-            hidden_count += 1
+            eligibility = eligibility_by_id[place.id]
+            transition_place_publication(
+                db,
+                place,
+                to_status="needs_review",
+                reason_code=REASON_CITY_PUBLICATION_QUALITY_GATE,
+                actor=actor,
+                source="admin_city_publish",
+                reason_details={"failed_gates": list(eligibility.reasons), "city_id": city.id},
+                human_comment="city_publication_quality_gate",
+                lock_place=False,
+            )
 
+    published_count = len(publishable_places)
+    hidden_count = len(places) - published_count
     city.launch_status = CITY_STATUS_PUBLISHED
     city.is_active = True
     city.last_import_at = city.last_import_at or now
@@ -163,15 +180,16 @@ def unpublish_city(db: Session, city_id: int, *, actor: str, reason: str) -> Cit
     now = datetime.utcnow()
     old_value = _city_publication_snapshot(city)
 
-    for place in places:
-        place.is_published = False
-        place.is_visible_in_catalog = False
-        place.is_searchable = False
-        place.is_route_eligible = False
-        place.publication_status = PLACE_PUBLICATION_UNPUBLISHED
-        place.publication_comment = reason
-        place.unpublished_at = now
-        place.updated_at = now
+    transition_locked_places_publication(
+        db,
+        places,
+        to_status="unpublished",
+        reason_code=REASON_ADMIN_UNPUBLISH,
+        actor=actor,
+        source="admin_city_unpublish",
+        reason_details={"city_id": city.id},
+        human_comment=reason,
+    )
 
     city.launch_status = CITY_STATUS_UNPUBLISHED
     city.is_active = False
@@ -200,22 +218,6 @@ def unpublish_city(db: Session, city_id: int, *, actor: str, reason: str) -> Cit
         places_published=0,
         places_hidden=len(places),
     )
-
-
-def _publish_place_for_city(place: Place, *, now: datetime, reason: str | None) -> None:
-    apply_admin_city_publication_place(place, now=now, reason=reason)
-
-
-def _hide_place_for_city_publication(place: Place, *, now: datetime, reason: str) -> None:
-    place.is_published = False
-    place.is_visible_in_catalog = False
-    place.is_searchable = False
-    place.is_route_eligible = False
-    if not place.publication_status or place.publication_status == PLACE_PUBLICATION_PUBLISHED:
-        place.publication_status = PLACE_PUBLICATION_NEEDS_REVIEW
-    place.publication_comment = reason
-    place.unpublished_at = now
-    place.updated_at = now
 
 
 def _city_publication_snapshot(city: City) -> dict[str, object]:
