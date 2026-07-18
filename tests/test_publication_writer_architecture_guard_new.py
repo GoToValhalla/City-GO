@@ -23,6 +23,7 @@ APPROVED_DYNAMIC_SETATTR = {
     (ROOT / "services" / "place_service.py").resolve(),
 }
 PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
+AMBIGUOUS_SHARED_FIELDS = frozenset({"is_active"})
 
 
 def _python_files() -> list[Path]:
@@ -49,6 +50,31 @@ def _flatten_targets(node: ast.AST) -> list[ast.AST]:
     return [node]
 
 
+def _looks_like_place_receiver(node: ast.AST) -> bool:
+    if isinstance(node, ast.Name):
+        name = node.id.lower()
+        return name == "place" or name.endswith("_place") or name.startswith("place_")
+    if isinstance(node, ast.Attribute):
+        return node.attr.lower() == "place" or node.attr.lower().endswith("_place")
+    return False
+
+
+def _protected_assignment(attribute: ast.Attribute) -> bool:
+    if attribute.attr not in PUBLICATION_FIELDS:
+        return False
+    if attribute.attr in AMBIGUOUS_SHARED_FIELDS:
+        return _looks_like_place_receiver(attribute.value)
+    return True
+
+
+def _protected_setattr(receiver: ast.AST, field: object) -> bool:
+    if field not in PUBLICATION_FIELDS:
+        return False
+    if field in AMBIGUOUS_SHARED_FIELDS:
+        return _looks_like_place_receiver(receiver)
+    return True
+
+
 def _violations(path: Path) -> list[str]:
     if path.resolve() == CANONICAL_WRITER:
         return []
@@ -59,7 +85,7 @@ def _violations(path: Path) -> list[str]:
     for node in ast.walk(tree):
         for target in _assignment_targets(node):
             for flattened in _flatten_targets(target):
-                if isinstance(flattened, ast.Attribute) and flattened.attr in PUBLICATION_FIELDS:
+                if isinstance(flattened, ast.Attribute) and _protected_assignment(flattened):
                     violations.append(
                         f"{path.relative_to(ROOT)}:{node.lineno}: direct assignment to {flattened.attr}"
                     )
@@ -67,9 +93,10 @@ def _violations(path: Path) -> list[str]:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "setattr":
             if len(node.args) < 2:
                 continue
+            receiver = node.args[0]
             field_node = node.args[1]
             if isinstance(field_node, ast.Constant):
-                if field_node.value in PUBLICATION_FIELDS:
+                if _protected_setattr(receiver, field_node.value):
                     violations.append(
                         f"{path.relative_to(ROOT)}:{node.lineno}: setattr bypass for {field_node.value}"
                     )
@@ -81,14 +108,18 @@ def _violations(path: Path) -> list[str]:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if node.func.attr in {"update", "values"}:
                 for keyword in node.keywords:
-                    if keyword.arg in PUBLICATION_FIELDS:
+                    if keyword.arg in PUBLICATION_FIELDS and keyword.arg not in AMBIGUOUS_SHARED_FIELDS:
                         violations.append(
                             f"{path.relative_to(ROOT)}:{node.lineno}: bulk update bypass for {keyword.arg}"
                         )
                 for argument in node.args:
                     if isinstance(argument, ast.Dict):
                         for key in argument.keys:
-                            if isinstance(key, ast.Constant) and key.value in PUBLICATION_FIELDS:
+                            if (
+                                isinstance(key, ast.Constant)
+                                and key.value in PUBLICATION_FIELDS
+                                and key.value not in AMBIGUOUS_SHARED_FIELDS
+                            ):
                                 violations.append(
                                     f"{path.relative_to(ROOT)}:{node.lineno}: mapping update bypass for {key.value}"
                                 )
@@ -111,6 +142,18 @@ def test_dynamic_boundaries_share_canonical_registry() -> None:
     assert "PUBLICATION_CONTROLLED_INPUT_FIELDS" in admin_text
     assert "intersection(PUBLICATION_CONTROLLED_INPUT_FIELDS)" in admin_text
     assert PROTECTED_PUBLICATION_FIELDS == PUBLICATION_OWNED_FIELDS
+
+
+def test_guard_distinguishes_place_is_active_from_other_entities() -> None:
+    place_target = ast.parse("place.is_active = False").body[0].targets[0]
+    city_target = ast.parse("city.is_active = False").body[0].targets[0]
+    route_target = ast.parse("route.is_active = False").body[0].targets[0]
+    assert isinstance(place_target, ast.Attribute)
+    assert isinstance(city_target, ast.Attribute)
+    assert isinstance(route_target, ast.Attribute)
+    assert _protected_assignment(place_target) is True
+    assert _protected_assignment(city_target) is False
+    assert _protected_assignment(route_target) is False
 
 
 @pytest.mark.parametrize("field", sorted(PUBLICATION_FIELDS))
