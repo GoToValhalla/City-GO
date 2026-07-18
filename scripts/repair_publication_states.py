@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from db.session import SessionLocal
 from models.city import City, allow_city_product_state_change
 from models.place import Place
+from services.publication_state_writer import REASON_PUBLISHED, transition_place_publication
 
 SNAPSHOT_DIR = Path("artifacts")
 HARD_BLOCKER_STATUSES = {"closed", "temporarily_closed", "inactive", "archived"}
@@ -20,7 +21,12 @@ NON_ROUTE_CATEGORIES = {"service", "transport", "utility", "pharmacy", "bank", "
 
 
 def _count_published_places(db: Session, city_id: int) -> int:
-    return int(db.query(func.count(Place.id)).filter(Place.city_id == city_id, Place.is_published.is_(True)).scalar() or 0)
+    return int(
+        db.query(func.count(Place.id))
+        .filter(Place.city_id == city_id, Place.is_published.is_(True))
+        .scalar()
+        or 0
+    )
 
 
 def _category_route_eligible(place: Place) -> bool:
@@ -62,14 +68,21 @@ def build_plan(
                         "city_id": city.id,
                         "slug": city.slug,
                         "name": city.name,
-                        "from": {"is_active": bool(city.is_active), "launch_status": city.launch_status},
+                        "from": {
+                            "is_active": bool(city.is_active),
+                            "launch_status": city.launch_status,
+                        },
                         "to": {"is_active": True, "launch_status": "published"},
                         "published_places": published_places,
                     }
                 )
 
     if repair_place_flags:
-        query = db.query(Place).join(City, City.id == Place.city_id).filter(Place.publication_status == "published")
+        query = (
+            db.query(Place)
+            .join(City, City.id == Place.city_id)
+            .filter(Place.publication_status == "published")
+        )
         if city_slug:
             query = query.filter(City.slug == city_slug)
         query = query.order_by(Place.id.asc())
@@ -99,30 +112,70 @@ def build_plan(
 
 
 def apply_plan(db: Session, plan: dict[str, Any]) -> None:
-    now = datetime.utcnow()
-    for item in plan["city_changes"]:
-        city = db.get(City, int(item["city_id"]))
-        if city is None:
-            continue
-        allow_city_product_state_change(city)
-        city.is_active = True
-        city.launch_status = "published"
-        city.updated_at = now
-    for item in plan["place_changes"]:
-        place = db.get(Place, int(item["place_id"]))
-        if place is None:
-            continue
-        for key, value in item["to"].items():
-            setattr(place, key, value)
-        place.unpublished_at = None
-        place.updated_at = now
-    db.commit()
+    """Apply a previously reviewed plan in one caller-owned transaction."""
+
+    try:
+        for item in plan["city_changes"]:
+            city = (
+                db.query(City)
+                .filter(City.id == int(item["city_id"]))
+                .with_for_update()
+                .one_or_none()
+            )
+            if city is None:
+                continue
+            allow_city_product_state_change(city)
+            city.is_active = True
+            city.launch_status = "published"
+            city.updated_at = datetime.utcnow()
+
+        place_ids = sorted({int(item["place_id"]) for item in plan["place_changes"]})
+        locked_places = (
+            db.query(Place)
+            .filter(Place.id.in_(place_ids))
+            .order_by(Place.id.asc())
+            .with_for_update()
+            .populate_existing()
+            .all()
+            if place_ids
+            else []
+        )
+        expected_by_id = {int(item["place_id"]): item for item in plan["place_changes"]}
+        for place in locked_places:
+            item = expected_by_id[int(place.id)]
+            transition_place_publication(
+                db,
+                place,
+                to_status="published",
+                reason_code=REASON_PUBLISHED,
+                actor="repair_publication_states",
+                source="repair_script",
+                reason_details={
+                    "repair_kind": "published_flag_consistency",
+                    "planned_from": item["from"],
+                    "planned_to": item["to"],
+                },
+                human_comment="Repair published-state flag consistency",
+                route_eligible_when_published=bool(item["to"]["is_route_eligible"]),
+                lock_place=False,
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 def write_snapshot(plan: dict[str, Any]) -> str:
     SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
-    path = SNAPSHOT_DIR / f"publication_repair_snapshot_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
-    path.write_text(json.dumps(plan, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    path = SNAPSHOT_DIR / (
+        "publication_repair_snapshot_"
+        + datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        + ".json"
+    )
+    path.write_text(
+        json.dumps(plan, ensure_ascii=False, indent=2, default=str),
+        encoding="utf-8",
+    )
     return str(path)
 
 
