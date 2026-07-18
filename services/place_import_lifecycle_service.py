@@ -54,7 +54,6 @@ def apply_accepted_import_to_place(
 ) -> PlaceImportDecision:
     """Apply a real source diff while delegating publication state to the writer."""
 
-    db = _session_for(place)
     incoming_title = str(item["title"])
     incoming_category = str(item["category"])
     incoming_lat = float(item["raw_lat"])
@@ -154,7 +153,7 @@ def apply_accepted_import_to_place(
         _set_if_changed(place, field, value, changed_fields=None)
 
     _transition_to_review(
-        db,
+        _session_for(place),
         place,
         reason="source_data_changed",
         reason_details={"review_reasons": review_reasons, "changed_fields": changed_fields},
@@ -182,7 +181,6 @@ def _set_proposed_if_non_empty(proposed: dict[str, Any], field_name: str, value:
 def mark_place_for_review(place: Place, *, reason: str = "enrichment_changed") -> PlaceImportDecision:
     """Mark non-public places for review; public places remain live and unchanged."""
 
-    db = _session_for(place)
     changed_fields: list[str] = []
     if bool(place.is_published and place.is_visible_in_catalog):
         now = datetime.utcnow()
@@ -198,7 +196,12 @@ def mark_place_for_review(place: Place, *, reason: str = "enrichment_changed") -
         )
 
     before = _snapshot_review_state(place)
-    _transition_to_review(db, place, reason=reason, reason_details={"review_reasons": [reason]})
+    _transition_to_review(
+        _session_for(place),
+        place,
+        reason=reason,
+        reason_details={"review_reasons": [reason]},
+    )
     _set_if_changed(place, "status", NEEDS_REVIEW_STATUS, changed_fields)
     _set_if_changed(place, "last_verified_at", datetime.utcnow(), changed_fields)
     changed_fields.extend(_publication_changed_fields(before, place))
