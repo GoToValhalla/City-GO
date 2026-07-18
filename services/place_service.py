@@ -13,19 +13,43 @@ from services.place_public_visibility import apply_public_place_visibility
 from services.place_query_params_service import normalize_place_query_params
 from services.place_search_service import apply_place_text_search
 from services.place_sorting_service import apply_place_sorting
+from services.publication_state_writer import (
+    REASON_ADMIN_CREATE_DRAFT,
+    transition_place_publication,
+)
+
+PROTECTED_PUBLICATION_FIELDS = frozenset(
+    {
+        "is_active",
+        "is_published",
+        "is_visible_in_catalog",
+        "is_route_eligible",
+        "is_searchable",
+        "publication_status",
+        "publication_reason_code",
+        "publication_reason_details",
+        "publication_comment",
+        "published_at",
+        "unpublished_at",
+    }
+)
 
 
 def _place_column_payload(payload: dict) -> dict:
-    """Оставляет только реальные ORM-колонки Place.
+    """Keep real non-publication ORM columns only.
 
-    PlaceRead содержит дополнительные UI-поля изображения, которые собираются
-    из PlaceImage и не должны попадать в constructor/update модели Place.
+    Publication state is owned exclusively by publication_state_writer and can
+    never enter through generic create/update schemas.
     """
-    allowed_fields = {column.name for column in Place.__table__.columns}
+
+    allowed_fields = {
+        column.name
+        for column in Place.__table__.columns
+        if column.name not in PROTECTED_PUBLICATION_FIELDS
+    }
     return {key: value for key, value in payload.items() if key in allowed_fields}
 
 
-# Возвращает список мест с учетом переданных фильтров.
 def get_places(
     db: Session,
     city_id: int | None = None,
@@ -74,7 +98,6 @@ def get_places(
     query = apply_place_text_search(query, params.q)
     query = apply_place_sorting(query=query, params=params)
     query = query.offset(params.offset).limit(params.limit)
-
     return query.all()
 
 
@@ -88,7 +111,6 @@ def get_places_total(
     q: str | None = None,
     public_only: bool = True,
 ) -> int:
-    """Возвращает общее количество мест по тем же фильтрам, но без limit / offset."""
     params = normalize_place_query_params(
         PlaceQueryParams(
             city_id=city_id,
@@ -119,7 +141,6 @@ def get_places_total(
     return get_query_total(query)
 
 
-# Возвращает одно место по его идентификатору.
 def get_place_by_id(db: Session, place_id: int, *, public_only: bool = False) -> Place | None:
     query = db.query(Place).filter(Place.id == place_id)
     if public_only:
@@ -127,7 +148,6 @@ def get_place_by_id(db: Session, place_id: int, *, public_only: bool = False) ->
     return query.first()
 
 
-# Возвращает одно место по его slug.
 def get_place_by_slug(db: Session, slug: str, *, public_only: bool = False) -> Place | None:
     query = db.query(Place).filter(Place.slug == slug)
     if public_only:
@@ -135,14 +155,31 @@ def get_place_by_slug(db: Session, slug: str, *, public_only: bool = False) -> P
     return query.first()
 
 
-# Создает новое место, сохраняет его в базе и возвращает результат.
 def create_place(db: Session, place_in: PlaceCreate) -> Place:
-    place = Place(**_place_column_payload(place_in.model_dump()))
-    db.add(place)
-    db.commit()
-    db.refresh(place)
-    _shadow_write_membership(db, place)
-    return place
+    """Create a place as an explicit non-public draft through the writer."""
+
+    try:
+        place = Place(**_place_column_payload(place_in.model_dump()))
+        db.add(place)
+        db.flush()
+        transition_place_publication(
+            db,
+            place,
+            to_status="draft",
+            reason_code=REASON_ADMIN_CREATE_DRAFT,
+            actor="place_service",
+            source="place_create",
+            reason_details={"origin": "generic_place_create"},
+            human_comment="Created as unpublished draft",
+            lock_place=False,
+        )
+        db.commit()
+        db.refresh(place)
+        _shadow_write_membership(db, place)
+        return place
+    except Exception:
+        db.rollback()
+        raise
 
 
 def _shadow_write_membership(db: Session, place: Place) -> None:
@@ -170,8 +207,9 @@ def _shadow_write_membership(db: Session, place: Place) -> None:
     db.commit()
 
 
-# Обновляет существующее место и возвращает его после сохранения.
 def update_place(db: Session, place_id: int, place_in: PlaceUpdate) -> Place | None:
+    """Update non-publication fields only; publication changes use dedicated actions."""
+
     place = get_place_by_id(db, place_id)
     if place is None:
         return None
@@ -189,7 +227,6 @@ def update_place(db: Session, place_id: int, place_in: PlaceUpdate) -> Place | N
     return place
 
 
-# Удаляет место по идентификатору.
 def delete_place(db: Session, place_id: int) -> bool:
     place = get_place_by_id(db, place_id)
     if place is None:
