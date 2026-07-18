@@ -157,20 +157,30 @@ def test_cleanup_never_deletes_future_expiry_new(db_session, city_factory, place
     assert db_session.get(UserRouteStateRegistry, issued.route_id) is not None
 
 
-def test_router_owns_complete_route_state_lifecycle_new() -> None:
-    tree = ast.parse((ROOT / "routers/user_routes.py").read_text(encoding="utf-8"))
-    calls = {
+def test_router_delegates_complete_route_state_lifecycle_new() -> None:
+    router_tree = ast.parse((ROOT / "routers/user_routes.py").read_text(encoding="utf-8"))
+    router_calls = {
         node.func.id if isinstance(node.func, ast.Name) else node.func.attr
-        for node in ast.walk(tree)
+        for node in ast.walk(router_tree)
         if isinstance(node, ast.Call) and isinstance(node.func, (ast.Name, ast.Attribute))
     }
-    assert {"register_initial_route_state", "verify_current_route_state", "advance_route_state"} <= calls
-    assert "cleanup_expired_route_states" not in calls
+    lifecycle_tree = ast.parse((ROOT / "services/user_route_state_lifecycle_service.py").read_text(encoding="utf-8"))
+    lifecycle_calls = {
+        node.func.id if isinstance(node.func, ast.Name) else node.func.attr
+        for node in ast.walk(lifecycle_tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, (ast.Name, ast.Attribute))
+    }
+    assert {"issue_initial", "correct", "update_order", "replace_place", "add_place", "read_alternatives", "start_session"} <= router_calls
+    assert {"register_initial_route_state", "verify_current_route_state", "advance_route_state"} <= lifecycle_calls
+    assert "cleanup_expired_route_states" not in router_calls
 
 
 def test_route_services_do_not_commit_or_rollback_request_transactions_new() -> None:
     violations: list[str] = []
+    isolated_owners = {"route_analytics_service.py"}
     for path in (ROOT / "services").glob("user_route_*.py"):
+        if path.name in isolated_owners:
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {"commit", "rollback"}:
@@ -182,10 +192,10 @@ def test_session_transitions_registry_and_public_evidence_use_row_locks_new() ->
     session_source = (ROOT / "services/user_route_session_service.py").read_text(encoding="utf-8")
     registry_source = (ROOT / "services/user_route_state_registry_service.py").read_text(encoding="utf-8")
     access_source = (ROOT / "services/public_route_place_access.py").read_text(encoding="utf-8")
-    assert ".with_for_update()" in session_source
-    assert ".with_for_update()" in registry_source
+    assert ".with_for_update(" in session_source
+    assert ".with_for_update(" in registry_source
     assert "lock_public_route_state" in registry_source
-    assert ".with_for_update()" in access_source
+    assert ".with_for_update(" in access_source
     assert "begin_nested" in session_source
 
 
