@@ -5,11 +5,11 @@ from schemas.place import PlaceCreate, PlaceUpdate
 from services.place_service import create_place, update_place
 
 
-def _payload(city_id: int, *, slug: str) -> dict[str, object]:
+def _payload(city_id: int, *, slug: str, title: str = "Тестовое место") -> dict[str, object]:
     return {
         "city_id": city_id,
         "slug": slug,
-        "title": "Тестовое место",
+        "title": title,
         "lat": 54.9,
         "lng": 20.3,
         "category": "museum",
@@ -52,8 +52,7 @@ def test_generic_update_cannot_change_publication_fields(
     before_transition_count = db_session.query(PlacePublicationTransition).count()
 
     update = PlaceUpdate(
-        **_payload(city.id, slug=place.slug),
-        title="Новое название",
+        **_payload(city.id, slug=place.slug, title="Новое название"),
         is_published=False,
         is_visible_in_catalog=False,
         is_searchable=False,
