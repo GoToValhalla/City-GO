@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, object_session
 
 from models.place import Place
 from services.publication_state_writer import (
+    REASON_IMPORT_DRAFT,
     REASON_IMPORT_INCOMPLETE,
     REASON_NEEDS_MANUAL_REVIEW,
     REASON_NON_PUBLIC_CATEGORY,
@@ -108,6 +109,7 @@ def apply_accepted_import_to_place(
 
     changed_fields = [field for field, value in proposed.items() if getattr(place, field) != value]
     if not changed_fields:
+        _initialize_import_publication_state_if_required(place)
         return PlaceImportDecision(
             action="unchanged",
             status=place.status,
@@ -167,6 +169,42 @@ def apply_accepted_import_to_place(
         changed_fields=changed_fields,
         review_reasons=review_reasons,
         change_set=change_set,
+    )
+
+
+def _initialize_import_publication_state_if_required(place: Place) -> None:
+    """Create the first honest reason/ledger row for a freshly imported Place."""
+
+    if place.is_published or place.publication_reason_code is not None:
+        return
+    db = object_session(place)
+    if db is None:
+        return
+
+    current_status = str(place.publication_status or DRAFT_STATUS)
+    if current_status in {"needs_review", "needs_manual_review"}:
+        target_status = "needs_review"
+        reason_code = REASON_NEEDS_MANUAL_REVIEW
+    elif current_status == "hidden":
+        target_status = "hidden"
+        reason_code = REASON_NON_PUBLIC_CATEGORY
+    else:
+        target_status = "draft"
+        reason_code = REASON_IMPORT_DRAFT
+
+    transition_place_publication(
+        db,
+        place,
+        to_status=target_status,
+        reason_code=reason_code,
+        actor="import_pipeline",
+        source="place_import_create",
+        reason_details={
+            "origin": "new_imported_place",
+            "initial_publication_status": current_status,
+        },
+        human_comment="Imported place awaiting publication review",
+        lock_place=False,
     )
 
 
