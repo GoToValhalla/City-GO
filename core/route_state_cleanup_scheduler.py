@@ -26,7 +26,9 @@ def start_route_state_cleanup_scheduler() -> None:
     if os.environ.get("PYTEST_CURRENT_TEST"):
         return
     if _task is not None:
-        return
+        if not _task.done():
+            return
+        _finalize_scheduler_ownership(_task)
 
     _wake_event = asyncio.Event()
     _thread_stop_event = ThreadEvent()
