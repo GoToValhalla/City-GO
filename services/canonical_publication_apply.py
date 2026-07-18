@@ -1,14 +1,25 @@
-"""Canonical publication apply — the only writer for catalog visibility flags."""
+"""Canonical publication policy application.
+
+PlacePublicationDecision remains policy-only evidence. Every live publication-state
+mutation is delegated to services.publication_state_writer.
+"""
 
 from __future__ import annotations
-
-from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from models.place import Place
 from models.place_publication_decision import PlacePublicationDecision
 from services.canonical_publication_guard import CanonicalPublicationVerdict
+from services.publication_state_writer import (
+    REASON_DUPLICATE_SUSPECTED,
+    REASON_MISSING_COORDINATES,
+    REASON_NON_PUBLIC_CATEGORY,
+    REASON_POLICY_GATE_FAILED,
+    REASON_PUBLISHED,
+    REASON_SPAM_SUSPECTED,
+    transition_place_publication,
+)
 from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 
@@ -22,80 +33,129 @@ def apply_canonical_publication_verdict(
     actor: str = "import_pipeline",
     record_only: bool = False,
 ) -> str:
-    """Apply a canonical publication verdict.
+    """Record a policy decision and, when required, apply it through the writer.
 
-    CITYGO-339/341 + post-CITYGO-339..344 blocker fix: ``record_only=True``
-    is used by every import-side call site — both the mid-pipeline
-    ``apply_publication_decisions`` step (no evidence yet) and
-    services/import_publication_finalize.py (real evidence exists, but a
-    successful import may still only produce a publication PROPOSAL, never
-    a live publish). In that mode this function must never auto-publish a
-    place (never call _set_published) — that is the "publish" outcome
-    these tickets name. Only an explicit admin action (services/
-    admin_service.py's publish_place, services/admin_city_publication_service.py's
-    publish_city) may call this with record_only=False.
-
-    record_only does NOT suppress _set_review/_set_archived: hard safety
-    rejection (invalid coordinates, hard-excluded categories, missing
-    titles) and category/policy review-marks have always been allowed to
-    hide/unpublish even an already-live place — see
-    canonical_publication_guard.evaluate_canonical_publication's own
-    "hard safety rejection always wins, even for an already-public place"
-    contract, and tests/test_import_pipeline_foundation_safety.py, which
-    locks in that a place with 0,0 coordinates or a pharmacy/bus_stop
-    category must be archived/route-ineligible even mid-pipeline. That is
-    quality enforcement, not the "publish" action CITYGO-339 targets.
+    The caller owns the transaction. Import-side ``record_only=True`` suppresses
+    publication but does not suppress explicit hard-safety/review transitions.
     """
+
     _record_decision(db, place, verdict, job_id=job_id, snapshot_id=snapshot_id, actor=actor)
     if verdict.outcome == "preserve_public":
         return "preserved_public"
+
+    details = {
+        "policy_reasons": list(verdict.reasons),
+        "job_id": job_id,
+        "snapshot_id": snapshot_id,
+        "lineage": verdict.lineage,
+        "import_decision": verdict.import_decision.decision,
+        "import_reason": verdict.import_decision.reason,
+    }
+    correlation_id = str(job_id) if job_id is not None else None
+
     if verdict.outcome == "blocked":
-        _set_review(place, verdict.reasons[0] if verdict.reasons else "blocked")
+        transition_place_publication(
+            db,
+            place,
+            to_status="needs_review",
+            reason_code=REASON_POLICY_GATE_FAILED,
+            actor=actor,
+            source="publication_policy",
+            reason_details=details,
+            human_comment=verdict.reasons[0] if verdict.reasons else "blocked",
+            correlation_id=correlation_id,
+        )
         return "blocked"
     if verdict.outcome == "reject":
-        _set_archived(place, verdict.reasons[0] if verdict.reasons else "rejected")
+        transition_place_publication(
+            db,
+            place,
+            to_status="hidden",
+            reason_code=_primary_rejection_reason(verdict.reasons),
+            actor=actor,
+            source="publication_policy",
+            reason_details=details,
+            human_comment=verdict.reasons[0] if verdict.reasons else "rejected",
+            correlation_id=correlation_id,
+        )
         return "rejected"
     if verdict.outcome == "review":
-        _set_review(place, verdict.reasons[0] if verdict.reasons else "needs_review")
+        transition_place_publication(
+            db,
+            place,
+            to_status="needs_review",
+            reason_code=REASON_POLICY_GATE_FAILED,
+            actor=actor,
+            source="publication_policy",
+            reason_details=details,
+            human_comment=verdict.reasons[0] if verdict.reasons else "needs_review",
+            correlation_id=correlation_id,
+        )
         return "review_required"
     if record_only:
         return "review_required"
+
     route_verdict = _route_eligibility_verdict_for_publish(place)
-    _set_published(place, route_eligible=route_verdict.eligible, reason=actor)
+    transition_place_publication(
+        db,
+        place,
+        to_status="published",
+        reason_code=REASON_PUBLISHED,
+        actor=actor,
+        source="publication_policy",
+        reason_details=details,
+        human_comment=actor,
+        correlation_id=correlation_id,
+        route_eligible_when_published=route_verdict.eligible,
+    )
+    place.route_exclusion_reason = None if route_verdict.eligible else ",".join(route_verdict.reasons[:5])
     return "auto_published" if route_verdict.eligible else "limited_published"
 
 
-def apply_admin_city_publication_place(place: Place, *, now: datetime, reason: str | None) -> None:
-    """Stage 2 production validation blocker fix (found 2026-07-16): this
-    used to call evaluate_place_route_eligibility(place) BEFORE the place
-    was actually published (is_published/is_visible_in_catalog still
-    False at that point), so the policy always saw a draft and returned
-    eligible=False with reasons like draft_or_unpublished/
-    not_visible_in_catalog — every place published through this function
-    (both the single-place and city-wide admin paths) got
-    is_route_eligible=False regardless of its real category/quality.
-    _route_eligibility_verdict_for_publish() below already solves this
-    exact problem correctly for the import-pipeline path via a probe
-    object; reuse it here instead of duplicating the logic."""
+def apply_admin_city_publication_place(
+    db: Session,
+    place: Place,
+    *,
+    actor: str,
+    source: str,
+    reason: str | None,
+    lock_place: bool = True,
+) -> None:
+    """Publish one place through the authoritative writer without committing."""
+
     verdict = _route_eligibility_verdict_for_publish(place)
-    _set_published(place, route_eligible=verdict.eligible, reason=reason, now=now)
+    transition_place_publication(
+        db,
+        place,
+        to_status="published",
+        reason_code=REASON_PUBLISHED,
+        actor=actor,
+        source=source,
+        human_comment=reason,
+        reason_details={"route_eligibility_reasons": list(verdict.reasons)},
+        route_eligible_when_published=verdict.eligible,
+        lock_place=lock_place,
+    )
+    place.status = "active"
     place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons[:5])
 
 
+def _primary_rejection_reason(reasons: tuple[str, ...]) -> str:
+    normalized = " ".join(str(reason).lower() for reason in reasons)
+    if "coordinate" in normalized or "lat" in normalized or "lng" in normalized:
+        return REASON_MISSING_COORDINATES
+    if "duplicate" in normalized:
+        return REASON_DUPLICATE_SUSPECTED
+    if "spam" in normalized:
+        return REASON_SPAM_SUSPECTED
+    if "category" in normalized or "service" in normalized or "transport" in normalized:
+        return REASON_NON_PUBLIC_CATEGORY
+    return REASON_POLICY_GATE_FAILED
+
+
 def _route_eligibility_verdict_for_publish(place: Place):
-    """Route eligibility must always come from route_eligibility_policy (the
-    single source of truth for pharmacy/service/transport/etc. exclusion),
-    never from the import quality gate's own category allowlist. The place
-    is about to become active/published/visible, so evaluate eligibility as
-    if those flags already hold — matching the pattern already used by
-    place_publication_eligibility's own probe for the same reason."""
     if place.is_active and place.is_published and place.is_visible_in_catalog:
         return evaluate_place_route_eligibility(place)
-    # Every field evaluate_place_route_eligibility reads must be copied from
-    # the real place, defaulting only when the real place's own value is
-    # None (an in-memory, not-yet-flushed Place() has None for every
-    # column with a server-side default — getattr(place, name, default)
-    # cannot help there since the attribute exists and is just None).
     probe = Place(
         city_id=place.city_id,
         title=place.title,
@@ -151,41 +211,3 @@ def _record_decision(
     )
     db.add(row)
     db.flush()
-
-
-def _set_published(place: Place, *, route_eligible: bool, reason: str | None, now: datetime | None = None) -> None:
-    now = now or datetime.utcnow()
-    place.is_active = True
-    place.status = "active"
-    place.is_published = True
-    place.is_visible_in_catalog = True
-    place.is_searchable = True
-    place.is_route_eligible = route_eligible
-    place.publication_status = "published"
-    place.publication_comment = reason
-    place.published_at = place.published_at or now
-    place.unpublished_at = None
-    place.updated_at = now
-
-
-def _set_review(place: Place, reason: str) -> None:
-    place.is_active = True
-    place.status = "active"
-    place.is_published = False
-    place.is_visible_in_catalog = False
-    place.is_searchable = False
-    place.is_route_eligible = False
-    place.publication_status = "needs_review"
-    place.publication_comment = reason
-    place.updated_at = datetime.utcnow()
-
-
-def _set_archived(place: Place, reason: str) -> None:
-    place.is_active = False
-    place.is_published = False
-    place.is_visible_in_catalog = False
-    place.is_searchable = False
-    place.is_route_eligible = False
-    place.publication_status = "archived"
-    place.publication_comment = reason
-    place.updated_at = datetime.utcnow()
