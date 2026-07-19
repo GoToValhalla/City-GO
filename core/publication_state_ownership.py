@@ -1,7 +1,8 @@
-"""Canonical ownership registries for controlled Place state.
+"""Canonical registries for controlled Place state and protected policy inputs.
 
-Generic create/update paths must reject these fields. Dedicated mutation services
-own each state machine and tests import these registries to prevent drift.
+Generic create/update paths reject every field in CONTROLLED_PLACE_INPUT_FIELDS.
+Dedicated mutation services own state-machine fields; observation timestamps are
+protected inputs but may be written by explicit import/verification pipelines.
 """
 
 from __future__ import annotations
@@ -44,8 +45,13 @@ VERIFICATION_OWNED_FIELDS = frozenset(
         "verification_comment",
         "existence_confidence_score",
         "existence_confidence_level",
-        "last_verified_at",
     }
 )
 
-CONTROLLED_PLACE_INPUT_FIELDS = PUBLICATION_CONTROLLED_INPUT_FIELDS | VERIFICATION_OWNED_FIELDS
+VERIFICATION_POLICY_INPUT_FIELDS = frozenset({"last_verified_at"})
+
+CONTROLLED_PLACE_INPUT_FIELDS = (
+    PUBLICATION_CONTROLLED_INPUT_FIELDS
+    | VERIFICATION_OWNED_FIELDS
+    | VERIFICATION_POLICY_INPUT_FIELDS
+)
