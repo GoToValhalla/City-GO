@@ -12,15 +12,14 @@ from sqlalchemy.orm import Session
 from models.place import Place
 from models.taxonomy import QualityIssue, QualityRule, WorkflowOperation
 from services.place_publication_reconciliation import reconcile_published_place
-from services.quality_score_v2 import calculate_quality_v2
 from services.taxonomy_automation_service import normalize_place, validate_place
 
 WORKFLOW_REGISTRY: dict[str, tuple[str, ...]] = {
-    "after_import": ("normalize_taxonomy", "validate_data", "calculate_quality"),
-    "after_place_confirmation": ("validate_publication", "reconcile_publication_route"),
-    "after_photo_confirmation": ("calculate_quality", "resolve_no_photo", "reconcile_publication_route"),
-    "after_category_change": ("calculate_quality", "reconcile_publication_route"),
-    "after_place_update": ("calculate_quality", "reconcile_publication_route"),
+    "after_import": ("normalize_taxonomy", "validate_data", "reconcile_publication_route"),
+    "after_place_confirmation": ("validate_data", "reconcile_publication_route"),
+    "after_photo_confirmation": ("validate_data", "resolve_no_photo", "reconcile_publication_route"),
+    "after_category_change": ("validate_data", "reconcile_publication_route"),
+    "after_place_update": ("validate_data", "reconcile_publication_route"),
 }
 
 
@@ -102,9 +101,6 @@ def run_workflow(
 
 
 def retry_workflow(db: Session, operation: WorkflowOperation) -> WorkflowOperation:
-    # Global workflow lock order is Place -> WorkflowOperation. The entity identity
-    # is immutable workflow metadata, so it is safe to use it before refreshing the
-    # operation row; every path then acquires locks in the same order.
     _lock_entity(db, entity_type=operation.entity_type, entity_id=operation.entity_id)
     locked = (
         db.query(WorkflowOperation)
@@ -191,14 +187,6 @@ def _validate(db: Session, operation: WorkflowOperation) -> None:
     validate_place(db, _place(db, operation))
 
 
-def _calculate_quality(db: Session, operation: WorkflowOperation) -> None:
-    place = _place(db, operation)
-    quality = calculate_quality_v2(place)
-    place.quality_score = quality.score
-    place.quality_tier = quality.bucket
-    db.add(place)
-
-
 def _reconcile(db: Session, operation: WorkflowOperation) -> None:
     place = _place(db, operation)
     reconcile_published_place(
@@ -218,8 +206,6 @@ def _resolve_no_photo(db: Session, operation: WorkflowOperation) -> None:
 STEP_HANDLERS: dict[str, Callable[[Session, WorkflowOperation], None]] = {
     "normalize_taxonomy": _normalize_taxonomy,
     "validate_data": _validate,
-    "validate_publication": _validate,
-    "calculate_quality": _calculate_quality,
     "reconcile_publication_route": _reconcile,
     "resolve_no_photo": _resolve_no_photo,
 }
