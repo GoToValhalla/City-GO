@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Callable
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from models.place import Place
@@ -40,8 +41,15 @@ def run_workflow(
     _validate_registry()
     _lock_entity(db, entity_type=entity_type, entity_id=entity_id)
     key = f"{workflow}:{idempotency_key}"
-    existing = db.query(WorkflowOperation).filter(WorkflowOperation.idempotency_key == key).first()
-    if existing:
+
+    existing = (
+        db.query(WorkflowOperation)
+        .filter(WorkflowOperation.idempotency_key == key)
+        .populate_existing()
+        .with_for_update()
+        .one_or_none()
+    )
+    if existing is not None:
         return existing
 
     pending_steps = [{"name": step, "status": "pending"} for step in WORKFLOW_REGISTRY[workflow]]
@@ -57,8 +65,22 @@ def run_workflow(
         status="running",
         steps=pending_steps,
     )
-    db.add(operation)
-    db.flush()
+
+    try:
+        with db.begin_nested():
+            db.add(operation)
+            db.flush()
+    except IntegrityError:
+        # Another transaction won the unique idempotency-key race. The savepoint
+        # rollback keeps the caller-owned transaction usable; return the winner.
+        existing = (
+            db.query(WorkflowOperation)
+            .filter(WorkflowOperation.idempotency_key == key)
+            .populate_existing()
+            .with_for_update()
+            .one()
+        )
+        return existing
 
     try:
         with db.begin_nested():
@@ -82,32 +104,41 @@ def run_workflow(
 
 
 def retry_workflow(db: Session, operation: WorkflowOperation) -> WorkflowOperation:
-    if operation.status != "failed" or operation.retry_count >= operation.max_retries:
-        return operation
-    if operation.workflow not in WORKFLOW_REGISTRY:
+    operation_id = operation.id
+    locked = (
+        db.query(WorkflowOperation)
+        .filter(WorkflowOperation.id == operation_id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
+    if locked.status != "failed" or locked.retry_count >= locked.max_retries:
+        return locked
+    if locked.workflow not in WORKFLOW_REGISTRY:
         raise ValueError("Неизвестный workflow")
     _validate_registry()
-    _lock_entity(db, entity_type=operation.entity_type, entity_id=operation.entity_id)
-    pending_steps = [{"name": step, "status": "pending"} for step in WORKFLOW_REGISTRY[operation.workflow]]
-    operation.retry_count += 1
-    operation.status = "running"
-    operation.error_message = None
-    operation.current_step = None
-    operation.steps = pending_steps
+    _lock_entity(db, entity_type=locked.entity_type, entity_id=locked.entity_id)
+
+    pending_steps = [{"name": step, "status": "pending"} for step in WORKFLOW_REGISTRY[locked.workflow]]
+    locked.retry_count += 1
+    locked.status = "running"
+    locked.error_message = None
+    locked.current_step = None
+    locked.steps = pending_steps
     try:
         with db.begin_nested():
-            _execute(db, operation)
-        operation.status = "completed"
-        operation.finished_at = datetime.utcnow()
+            _execute(db, locked)
+        locked.status = "completed"
+        locked.finished_at = datetime.utcnow()
     except Exception as exc:
-        operation.status = "failed"
-        operation.error_message = str(exc)
-        operation.current_step = None
-        operation.steps = pending_steps
-        operation.finished_at = datetime.utcnow()
+        locked.status = "failed"
+        locked.error_message = str(exc)
+        locked.current_step = None
+        locked.steps = pending_steps
+        locked.finished_at = datetime.utcnow()
     db.commit()
-    db.refresh(operation)
-    return operation
+    db.refresh(locked)
+    return locked
 
 
 def _lock_entity(db: Session, *, entity_type: str, entity_id: str | None) -> None:
