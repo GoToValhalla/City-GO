@@ -1,10 +1,8 @@
-"""
-Сборка списка мест: нормализация параметров, фильтры, сортировка, пагинация и total.
-"""
+"""Place query and generic persistence services."""
 
 from sqlalchemy.orm import Session
 
-from core.publication_state_ownership import PUBLICATION_OWNED_FIELDS
+from core.publication_state_ownership import CONTROLLED_PLACE_INPUT_FIELDS, PUBLICATION_OWNED_FIELDS
 from models.place import Place
 from schemas.place import PlaceCreate, PlaceUpdate
 from schemas.place_query_params import PlaceQueryParams
@@ -14,21 +12,18 @@ from services.place_public_visibility import apply_public_place_visibility
 from services.place_query_params_service import normalize_place_query_params
 from services.place_search_service import apply_place_text_search
 from services.place_sorting_service import apply_place_sorting
-from services.publication_state_writer import (
-    REASON_ADMIN_CREATE_DRAFT,
-    transition_place_publication,
-)
+from services.publication_state_writer import REASON_ADMIN_CREATE_DRAFT, transition_place_publication
 
 PROTECTED_PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
+PROTECTED_CONTROLLED_FIELDS = CONTROLLED_PLACE_INPUT_FIELDS
 
 
 def _place_column_payload(payload: dict) -> dict:
-    """Keep real non-publication ORM columns only."""
-
+    """Keep real ordinary ORM columns only."""
     allowed_fields = {
         column.name
         for column in Place.__table__.columns
-        if column.name not in PUBLICATION_OWNED_FIELDS
+        if column.name not in CONTROLLED_PLACE_INPUT_FIELDS
     }
     return {key: value for key, value in payload.items() if key in allowed_fields}
 
@@ -133,8 +128,6 @@ def get_place_by_slug(db: Session, slug: str, *, public_only: bool = False) -> P
 
 
 def create_place(db: Session, place_in: PlaceCreate) -> Place:
-    """Create a place as an explicit non-public draft through the writer."""
-
     try:
         place = Place(**_place_column_payload(place_in.model_dump()))
         db.add(place)
@@ -168,33 +161,32 @@ def _shadow_write_membership(db: Session, place: Place) -> None:
     city = db.query(City).filter(City.id == place.city_id).first()
     if city is None:
         return
-    dest = get_destination_for_city(db, city)
-    if dest is None:
+    destination = get_destination_for_city(db, city)
+    if destination is None:
         return
     upsert_membership(
         db,
         place_id=place.id,
-        destination_id=dest.id,
+        destination_id=destination.id,
         assignment_type="legacy_city" if not destination_import_enabled() else "imported",
         is_primary=True,
         source="place_write_shadow",
     )
     if place.primary_destination_id is None:
-        place.primary_destination_id = dest.id
+        place.primary_destination_id = destination.id
     db.commit()
 
 
 def update_place(db: Session, place_id: int, place_in: PlaceUpdate) -> Place | None:
-    """Update non-publication fields only; publication changes use dedicated actions."""
-
+    """Update explicitly supplied ordinary fields only."""
     place = get_place_by_id(db, place_id)
     if place is None:
         return None
-    for field, value in _place_column_payload(place_in.model_dump()).items():
+    payload = _place_column_payload(place_in.model_dump(exclude_unset=True))
+    for field, value in payload.items():
         setattr(place, field, value)
-    if place_in.lat is not None or place_in.lng is not None:
+    if "lat" in payload or "lng" in payload:
         from services.destination_membership_service import mark_place_stale
-
         mark_place_stale(db, place.id)
     db.commit()
     db.refresh(place)
