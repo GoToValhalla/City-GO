@@ -50,11 +50,18 @@ def test_workflow_registry_has_exact_handler_coverage() -> None:
     _validate_registry()
 
 
-def test_category_workflow_orders_inputs_before_derived_state() -> None:
-    assert WORKFLOW_REGISTRY["after_category_change"] == (
-        "calculate_quality",
-        "reconcile_publication_route",
-    )
+def test_every_derived_state_workflow_validates_before_reconciliation() -> None:
+    for workflow in (
+        "after_import",
+        "after_place_confirmation",
+        "after_photo_confirmation",
+        "after_category_change",
+        "after_place_update",
+    ):
+        steps = WORKFLOW_REGISTRY[workflow]
+        assert "validate_data" in steps
+        assert "reconcile_publication_route" in steps
+        assert steps.index("validate_data") < steps.index("reconcile_publication_route")
 
 
 def test_workflow_executor_is_fail_closed_for_missing_handler(monkeypatch) -> None:
