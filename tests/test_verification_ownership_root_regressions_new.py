@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy.orm import Query
 
 from core.publication_state_ownership import CONTROLLED_PLACE_INPUT_FIELDS, VERIFICATION_OWNED_FIELDS
 from schemas.admin import AdminPlaceCreate
@@ -41,11 +42,12 @@ def test_needs_recheck_preserves_last_completed_verification(
 ) -> None:
     place = draft_place_factory(slug="needs-recheck-preserves-history")
     previous_verified_at = datetime.utcnow() - timedelta(days=31)
-    previous_last_verified_at = previous_verified_at
     place.verification_status = "verified"
+    place.verification_source = "field_visit"
+    place.verification_method = "onsite_confirmed"
     place.verified_by = "previous-verifier"
     place.verified_at = previous_verified_at
-    place.last_verified_at = previous_last_verified_at
+    place.last_verified_at = previous_verified_at
     place.existence_confidence_score = 95
     place.existence_confidence_level = "high"
     db_session.commit()
@@ -62,9 +64,11 @@ def test_needs_recheck_preserves_last_completed_verification(
 
     assert place.verification_status == "needs_recheck"
     assert place.needs_recheck_at is not None
+    assert place.verification_source == "field_visit"
+    assert place.verification_method == "onsite_confirmed"
     assert place.verified_by == "previous-verifier"
     assert place.verified_at == previous_verified_at
-    assert place.last_verified_at == previous_last_verified_at
+    assert place.last_verified_at == previous_verified_at
 
 
 def test_single_admin_verify_uses_writer_lock(
@@ -74,27 +78,13 @@ def test_single_admin_verify_uses_writer_lock(
 ) -> None:
     place = draft_place_factory(slug="single-admin-verify-lock")
     observed = {"for_update": False}
-    original = db_session.query
+    original = Query.with_for_update
 
-    class QueryProxy:
-        def __init__(self, query):
-            self._query = query
+    def tracked(self, *args, **kwargs):
+        observed["for_update"] = True
+        return original(self, *args, **kwargs)
 
-        def __getattr__(self, name):
-            value = getattr(self._query, name)
-            if name == "with_for_update":
-                def wrapped(*args, **kwargs):
-                    observed["for_update"] = True
-                    return QueryProxy(value(*args, **kwargs))
-                return wrapped
-            if callable(value):
-                def wrapped(*args, **kwargs):
-                    result = value(*args, **kwargs)
-                    return QueryProxy(result) if hasattr(result, "filter") else result
-                return wrapped
-            return value
-
-    monkeypatch.setattr(db_session, "query", lambda *args, **kwargs: QueryProxy(original(*args, **kwargs)))
+    monkeypatch.setattr(Query, "with_for_update", tracked)
     result = verify_place(db_session, place.id, actor="test-admin")
     assert result is not None
     assert observed["for_update"] is True
