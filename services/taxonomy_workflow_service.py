@@ -71,8 +71,6 @@ def run_workflow(
             db.add(operation)
             db.flush()
     except IntegrityError:
-        # Another transaction won the unique idempotency-key race. The savepoint
-        # rollback keeps the caller-owned transaction usable; return the winner.
         existing = (
             db.query(WorkflowOperation)
             .filter(WorkflowOperation.idempotency_key == key)
@@ -104,10 +102,13 @@ def run_workflow(
 
 
 def retry_workflow(db: Session, operation: WorkflowOperation) -> WorkflowOperation:
-    operation_id = operation.id
+    # Global workflow lock order is Place -> WorkflowOperation. The entity identity
+    # is immutable workflow metadata, so it is safe to use it before refreshing the
+    # operation row; every path then acquires locks in the same order.
+    _lock_entity(db, entity_type=operation.entity_type, entity_id=operation.entity_id)
     locked = (
         db.query(WorkflowOperation)
-        .filter(WorkflowOperation.id == operation_id)
+        .filter(WorkflowOperation.id == operation.id)
         .populate_existing()
         .with_for_update()
         .one()
@@ -117,7 +118,6 @@ def retry_workflow(db: Session, operation: WorkflowOperation) -> WorkflowOperati
     if locked.workflow not in WORKFLOW_REGISTRY:
         raise ValueError("Неизвестный workflow")
     _validate_registry()
-    _lock_entity(db, entity_type=locked.entity_type, entity_id=locked.entity_id)
 
     pending_steps = [{"name": step, "status": "pending"} for step in WORKFLOW_REGISTRY[locked.workflow]]
     locked.retry_count += 1
