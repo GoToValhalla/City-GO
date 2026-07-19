@@ -63,15 +63,18 @@ def transition_place_verification(
         confidence_level=confidence_level,
         set_verified_at=set_verified_at,
     )
+    preserve_completed_evidence = to_status == "needs_recheck"
+    target_source = place.verification_source if preserve_completed_evidence else verification_source
+    target_method = place.verification_method if preserve_completed_evidence else verification_method
     target_verified_by = None if to_status == "unverified" else (
-        place.verified_by if to_status == "needs_recheck" else actor
+        place.verified_by if preserve_completed_evidence else actor
     )
     is_noop = (
         place.verification_status == to_status
         and place.existence_confidence_level == target_level
         and int(place.existence_confidence_score or 0) == target_score
-        and place.verification_source == verification_source
-        and place.verification_method == verification_method
+        and place.verification_source == target_source
+        and place.verification_method == target_method
         and place.verified_by == target_verified_by
     )
     if is_noop:
@@ -82,15 +85,14 @@ def transition_place_verification(
     old_value = _snapshot(place)
     now = datetime.utcnow()
     place.verification_status = to_status
-    place.verification_source = verification_source
-    place.verification_method = verification_method
+    place.verification_source = target_source
+    place.verification_method = target_method
     place.existence_confidence_level = target_level
     place.existence_confidence_score = target_score
     place.verification_comment = reason
 
-    if to_status == "needs_recheck":
+    if preserve_completed_evidence:
         place.needs_recheck_at = now
-        # Preserve the identity and timestamps of the last completed verification.
     elif to_status == "unverified":
         place.needs_recheck_at = None
         place.verified_at = None
