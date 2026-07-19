@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from uuid import uuid4
-
 from sqlalchemy.orm import Session
 
 from models.city import City
@@ -20,7 +18,6 @@ from services.publication_state_writer import (
     REASON_NEEDS_MANUAL_REVIEW,
     transition_place_publication,
 )
-from services.taxonomy_workflow_service import run_workflow
 
 DANGEROUS = frozenset({"publish", "hide", "set_category", "disable_route", "remove_tags"})
 
@@ -198,6 +195,7 @@ def _apply_one_locked(
             reason=reason,
             action="bulk_verify_place",
             reject_noop=True,
+            lock_place=False,
         )
         return
     if action == "set_category":
@@ -213,45 +211,30 @@ def _apply_one_locked(
             commit=False,
             locked_place=place,
         )
-        request_id = uuid4().hex
-        operation = run_workflow(
+        return
+    if action in {"add_tags", "remove_tags"}:
+        existing = {
+            row.tag_id for row in db.query(PlaceTag).filter(PlaceTag.place_id == place.id).all()
+        }
+        requested = {int(tag_id) for tag_id in params.get("tag_ids") or []}
+        if action == "add_tags":
+            target = existing | requested
+            if target == existing:
+                raise ValueError("Все выбранные теги уже добавлены")
+        else:
+            target = existing - requested
+            if target == existing:
+                raise ValueError("Выбранные теги отсутствуют")
+        update_admin_place_fields(
             db,
-            workflow="after_category_change",
-            request_id=request_id,
-            idempotency_key=f"bulk-category:{place.id}:{request_id}",
-            entity_type="place",
-            entity_id=str(place.id),
-            payload={"category": new_category, "source": "admin_bulk_set_category"},
+            int(place.id),
+            {"tag_ids": sorted(target)},
             actor=actor,
             commit=False,
+            locked_place=place,
         )
-        if operation.status != "completed":
-            raise ValueError(operation.error_message or "Workflow смены категории завершился ошибкой")
-        return
-    if action == "add_tags":
-        _add_tags(db, int(place.id), params.get("tag_ids") or [])
-        return
-    if action == "remove_tags":
-        _remove_tags(db, int(place.id), params.get("tag_ids") or [])
         return
     raise ValueError(f"Неизвестное действие: {action}")
-
-
-def _add_tags(db: Session, place_id: int, tag_ids: list[object]) -> None:
-    existing = {row.tag_id for row in db.query(PlaceTag).filter(PlaceTag.place_id == place_id).all()}
-    requested = {int(tag_id) for tag_id in tag_ids}
-    missing = requested - existing
-    if not missing:
-        raise ValueError("Все выбранные теги уже добавлены")
-    for tag_id in sorted(missing):
-        db.add(PlaceTag(place_id=place_id, tag_id=tag_id))
-
-
-def _remove_tags(db: Session, place_id: int, tag_ids: list[object]) -> None:
-    ids = [int(tag_id) for tag_id in tag_ids]
-    deleted = db.query(PlaceTag).filter(PlaceTag.place_id == place_id, PlaceTag.tag_id.in_(ids)).delete()
-    if not deleted:
-        raise ValueError("Выбранные теги отсутствуют")
 
 
 def _describe(action: str, params: dict[str, object]) -> list[dict[str, str]]:
