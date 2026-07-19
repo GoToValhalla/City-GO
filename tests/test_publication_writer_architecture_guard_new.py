@@ -17,10 +17,12 @@ from tests.allure_support import title
 ROOT = Path(__file__).resolve().parents[1]
 PUBLICATION_WRITER = (ROOT / "services" / "publication_state_writer.py").resolve()
 VERIFICATION_WRITER = (ROOT / "services" / "place_verification_mutation.py").resolve()
+IMPORT_LIFECYCLE = (ROOT / "services" / "place_import_lifecycle_service.py").resolve()
 APPROVED_DYNAMIC_SETATTR = {
     (ROOT / "services" / "admin_place_update_service.py").resolve(),
     (ROOT / "services" / "place_service.py").resolve(),
     (ROOT / "services" / "place_change_review_service.py").resolve(),
+    IMPORT_LIFECYCLE,
 }
 EXCLUDED_PATH_PARTS = {
     ".git", ".venv", "venv", "node_modules", "frontend", "tests",
@@ -84,8 +86,7 @@ def _typed_names(tree: ast.AST, model_name: str) -> set[str]:
         for node in ast.walk(tree):
             if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
                 continue
-            source_name = _receiver_name(node.value)
-            if source_name in names:
+            if _receiver_name(node.value) in names:
                 before = len(names)
                 names.update(_target_names(node))
                 changed = changed or len(names) != before
@@ -172,27 +173,38 @@ def _violations(path: Path) -> list[str]:
                         f"{path.relative_to(ROOT)}:{node.lineno}: direct controlled Place assignment to {flattened.attr}"
                     )
 
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "setattr":
-            if len(node.args) < 2:
-                continue
-            receiver, field_node = node.args[0], node.args[1]
-            if isinstance(field_node, ast.Constant):
-                field = field_node.value
-                if (
-                    forbidden(field)
-                    and isinstance(field, str)
-                    and _field_targets_place(field, receiver, place_names, non_place_names)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "_set_if_changed" and path.resolve() == IMPORT_LIFECYCLE:
+                if len(node.args) < 2 or not isinstance(node.args[1], ast.Constant):
+                    violations.append(
+                        f"{path.relative_to(ROOT)}:{node.lineno}: import mutation field must be a literal"
+                    )
+                elif forbidden(node.args[1].value):
+                    violations.append(
+                        f"{path.relative_to(ROOT)}:{node.lineno}: import helper bypass for {node.args[1].value}"
+                    )
+
+            if node.func.id == "setattr":
+                if len(node.args) < 2:
+                    continue
+                receiver, field_node = node.args[0], node.args[1]
+                if isinstance(field_node, ast.Constant):
+                    field = field_node.value
+                    if (
+                        forbidden(field)
+                        and isinstance(field, str)
+                        and _field_targets_place(field, receiver, place_names, non_place_names)
+                    ):
+                        violations.append(
+                            f"{path.relative_to(ROOT)}:{node.lineno}: controlled Place setattr bypass for {field}"
+                        )
+                elif (
+                    _receiver_is_place(receiver, place_names, non_place_names)
+                    and path.resolve() not in APPROVED_DYNAMIC_SETATTR
                 ):
                     violations.append(
-                        f"{path.relative_to(ROOT)}:{node.lineno}: controlled Place setattr bypass for {field}"
+                        f"{path.relative_to(ROOT)}:{node.lineno}: unbounded dynamic Place setattr"
                     )
-            elif (
-                _receiver_is_place(receiver, place_names, non_place_names)
-                and path.resolve() not in APPROVED_DYNAMIC_SETATTR
-            ):
-                violations.append(
-                    f"{path.relative_to(ROOT)}:{node.lineno}: unbounded dynamic Place setattr"
-                )
 
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if node.func.attr not in {"update", "values"} or "Place" not in ast.unparse(node.func.value):
