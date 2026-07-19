@@ -120,6 +120,13 @@ def transition_place_publication(
         raise InvalidPublicationTransition("publication transition actor is required")
     if not str(source or "").strip():
         raise InvalidPublicationTransition("publication transition source is required")
+    if to_status == PUBLISHED_STATUS:
+        if route_eligible_when_published is None:
+            raise InvalidPublicationTransition("published transition requires an explicit route verdict")
+        if bool(route_eligible_when_published) and route_exclusion_reason_when_published:
+            raise InvalidPublicationTransition("route-eligible published place cannot have an exclusion reason")
+        if not bool(route_eligible_when_published) and not str(route_exclusion_reason_when_published or "").strip():
+            raise InvalidPublicationTransition("route-ineligible published place requires an exclusion reason")
     if place.id is None:
         db.flush()
     if lock_place:
@@ -146,10 +153,9 @@ def transition_place_publication(
         place.publication_reason_details = {}
         place.unpublished_at = None
         place.published_at = place.published_at or now
-        if route_eligible_when_published is not None:
-            place.is_route_eligible = bool(route_eligible_when_published)
+        place.is_route_eligible = bool(route_eligible_when_published)
         place.route_exclusion_reason = (
-            None if place.is_route_eligible else route_exclusion_reason_when_published
+            None if place.is_route_eligible else str(route_exclusion_reason_when_published)
         )
     else:
         place.publication_reason_code = reason_code
@@ -159,9 +165,14 @@ def transition_place_publication(
         place.unpublished_at = now
 
     transition = PlacePublicationTransition(
-        place_id=place.id, from_status=from_status, to_status=to_status,
-        reason_code=reason_code, reason_details=details,
-        human_comment=human_comment, actor=actor, source=source,
+        place_id=place.id,
+        from_status=from_status,
+        to_status=to_status,
+        reason_code=reason_code,
+        reason_details=details,
+        human_comment=human_comment,
+        actor=actor,
+        source=source,
         correlation_id=correlation_id,
     )
     db.add(transition)
@@ -180,15 +191,25 @@ def transition_locked_places_publication(
     reason_details: Mapping[str, object] | None = None,
     human_comment: str | None = None,
     correlation_id: str | None = None,
+    route_eligible_when_published: bool | None = None,
+    route_exclusion_reason_when_published: str | None = None,
 ) -> list[PlacePublicationTransition]:
     ordered_places = sorted(places, key=lambda item: int(item.id))
     if [int(item.id) for item in places] != [int(item.id) for item in ordered_places]:
         raise InvalidPublicationTransition("bulk publication places must be locked in ascending Place.id order")
     return [
         transition_place_publication(
-            db, place, to_status=to_status, reason_code=reason_code,
-            actor=actor, source=source, reason_details=reason_details,
-            human_comment=human_comment, correlation_id=correlation_id,
+            db,
+            place,
+            to_status=to_status,
+            reason_code=reason_code,
+            actor=actor,
+            source=source,
+            reason_details=reason_details,
+            human_comment=human_comment,
+            correlation_id=correlation_id,
+            route_eligible_when_published=route_eligible_when_published,
+            route_exclusion_reason_when_published=route_exclusion_reason_when_published,
             lock_place=False,
         )
         for place in ordered_places
