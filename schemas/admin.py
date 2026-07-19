@@ -1,18 +1,24 @@
 from datetime import datetime
 from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
+
 from schemas.place import PlaceCreate, PlaceRead, PlaceUpdate
 from schemas.route import RouteDetailRead, RouteRead
+
 
 class AdminActionRequest(BaseModel):
     actor: str = "admin"
     reason: str | None = None
 
+
 class AdminUnpublishRequest(AdminActionRequest):
     reason: str = Field(min_length=1)
 
+
 class AdminCityPublishRequest(AdminActionRequest):
     pass
+
 
 class AdminCityPublicationPreviewResponse(BaseModel):
     city_id: int
@@ -23,21 +29,21 @@ class AdminCityPublicationPreviewResponse(BaseModel):
     would_hide_place_ids: list[int]
     hide_reasons_by_place_id: dict[int, list[str]]
 
+
 class AdminPlaceListResponse(BaseModel):
     items: list[PlaceRead]
     total: int
     limit: int
     offset: int
 
+
 class AdminPlaceCreate(PlaceCreate):
-    is_published: bool = False
-    is_visible_in_catalog: bool = False
-    is_route_eligible: bool = False
-    is_searchable: bool = False
-    publication_status: str = "draft"
+    pass
+
 
 class AdminPlaceUpdate(PlaceUpdate):
     pass
+
 
 class AdminDashboardResponse(BaseModel):
     cities_total: int
@@ -53,6 +59,7 @@ class AdminDashboardResponse(BaseModel):
     routes_active: int
     audit_events_total: int = 0
 
+
 class AdminCityCreateRequest(BaseModel):
     name: str = Field(min_length=1)
     country: str = "Россия"
@@ -62,6 +69,7 @@ class AdminCityCreateRequest(BaseModel):
     center_lng: float | None = None
     radius_km: float | None = Field(default=15, ge=1, le=200)
     actor: str = "admin"
+
 
 class AdminCityRead(BaseModel):
     id: int
@@ -81,11 +89,13 @@ class AdminCityRead(BaseModel):
     can_unpublish: bool = False
     model_config = ConfigDict(from_attributes=True)
 
+
 class AdminCityListResponse(BaseModel):
     items: list[AdminCityRead]
     total: int
     limit: int
     offset: int
+
 
 class AdminCityWorkspaceResponse(BaseModel):
     city: dict[str, Any]
@@ -93,6 +103,7 @@ class AdminCityWorkspaceResponse(BaseModel):
     import_job: dict[str, Any]
     coverage: dict[str, Any] | None = None
     operations: dict[str, Any] = Field(default_factory=dict)
+
 
 class AdminTaxonomyCategoryRead(BaseModel):
     code: str
@@ -105,8 +116,10 @@ class AdminTaxonomyCategoryRead(BaseModel):
     observed_count: int = 0
     source: str = "catalog"
 
+
 class AdminTaxonomyResponse(BaseModel):
     categories: list[AdminTaxonomyCategoryRead]
+
 
 class AdminCityImportResponse(BaseModel):
     city_id: int
@@ -115,6 +128,7 @@ class AdminCityImportResponse(BaseModel):
     job_status: str
     message: str
     next_step: str
+
 
 class AdminCityPublicationResponse(BaseModel):
     city_id: int
@@ -126,6 +140,7 @@ class AdminCityPublicationResponse(BaseModel):
     places_published: int
     places_hidden: int
     message: str
+
 
 class AdminImportJobRead(BaseModel):
     id: str
@@ -188,6 +203,7 @@ class AdminImportJobActionResponse(BaseModel):
     places_count: int | None = None
     reason: str | None = None
 
+
 class AdminImportJobListResponse(BaseModel):
     items: list[AdminImportJobRead]
     total: int
@@ -227,6 +243,7 @@ class AdminImportJobChangeSummaryResponse(BaseModel):
     hidden: int = 0
     needs_review: int = 0
 
+
 class AdminPlaceImageCreateRequest(BaseModel):
     place_id: int
     image_url: str
@@ -238,6 +255,7 @@ class AdminPlaceImageCreateRequest(BaseModel):
     confidence: float | None = Field(default=None, ge=0, le=1)
     comment: str | None = None
     actor: str = "admin"
+
 
 class AdminPlaceImageRead(BaseModel):
     id: int
@@ -258,6 +276,7 @@ class AdminPlaceImageRead(BaseModel):
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+
 class AdminAuditLogRead(BaseModel):
     id: int
     actor: str
@@ -270,6 +289,7 @@ class AdminAuditLogRead(BaseModel):
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+
 class AdminAuditLogResponse(BaseModel):
     items: list[AdminAuditLogRead]
     total: int
@@ -278,11 +298,13 @@ class AdminAuditLogResponse(BaseModel):
     applied_filters: dict[str, Any] | None = None
     empty_reason: str | None = None
 
+
 class AdminRouteListResponse(BaseModel):
     items: list[RouteRead]
     total: int
     limit: int
     offset: int
+
 
 class AdminRouteCreateRequest(BaseModel):
     city_id: int
@@ -295,6 +317,7 @@ class AdminRouteCreateRequest(BaseModel):
     is_active: bool = False
     actor: str = "admin"
 
+
 class AdminRouteUpdateRequest(BaseModel):
     slug: str | None = None
     title: str | None = None
@@ -305,14 +328,17 @@ class AdminRouteUpdateRequest(BaseModel):
     is_active: bool | None = None
     actor: str = "admin"
 
+
 class AdminRoutePointInput(BaseModel):
     place_id: int
     position: int
+
 
 class AdminRoutePointsUpdateRequest(BaseModel):
     points: list[AdminRoutePointInput]
     actor: str = "admin"
     reason: str | None = None
+
 
 class AdminRouteActionResponse(BaseModel):
     route: RouteDetailRead
