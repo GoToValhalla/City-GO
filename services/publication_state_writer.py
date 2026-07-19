@@ -122,8 +122,18 @@ def transition_place_publication(
     from_status = str(place.publication_status or "draft")
     details = dict(reason_details or {})
     flags = _STATE_FLAGS[to_status]
-    now = datetime.now(timezone.utc)
+    if _matches_target_state(
+        place,
+        to_status=to_status,
+        reason_code=reason_code,
+        reason_details=details,
+        human_comment=human_comment,
+        route_eligible_when_published=route_eligible_when_published,
+        route_exclusion_reason_when_published=route_exclusion_reason_when_published,
+    ):
+        raise InvalidPublicationTransition("publication state already matches target")
 
+    now = datetime.now(timezone.utc)
     place.publication_status = to_status
     place.is_active = flags.is_active
     place.is_published = flags.is_published
@@ -310,6 +320,48 @@ def _validate_transition_input(
             raise InvalidPublicationTransition("route-eligible published place cannot have an exclusion reason")
         if not bool(route_eligible_when_published) and not str(route_exclusion_reason_when_published or "").strip():
             raise InvalidPublicationTransition("route-ineligible published place requires an exclusion reason")
+
+
+def _matches_target_state(
+    place: Place,
+    *,
+    to_status: str,
+    reason_code: str,
+    reason_details: Mapping[str, object],
+    human_comment: str | None,
+    route_eligible_when_published: bool | None,
+    route_exclusion_reason_when_published: str | None,
+) -> bool:
+    flags = _STATE_FLAGS[to_status]
+    common = (
+        str(place.publication_status or "draft") == to_status
+        and bool(place.is_active) is flags.is_active
+        and bool(place.is_published) is flags.is_published
+        and bool(place.is_visible_in_catalog) is flags.is_visible_in_catalog
+        and bool(place.is_searchable) is flags.is_searchable
+        and place.publication_comment == human_comment
+    )
+    if not common:
+        return False
+    if to_status == PUBLISHED_STATUS:
+        target_exclusion = (
+            None if bool(route_eligible_when_published) else str(route_exclusion_reason_when_published)
+        )
+        return (
+            place.publication_reason_code is None
+            and dict(place.publication_reason_details or {}) == {}
+            and place.unpublished_at is None
+            and place.published_at is not None
+            and bool(place.is_route_eligible) is bool(route_eligible_when_published)
+            and place.route_exclusion_reason == target_exclusion
+        )
+    return (
+        place.publication_reason_code == reason_code
+        and dict(place.publication_reason_details or {}) == dict(reason_details)
+        and not bool(place.is_route_eligible)
+        and place.route_exclusion_reason == reason_code
+        and place.unpublished_at is not None
+    )
 
 
 def _prepare_place(db: Session, place: Place, *, lock_place: bool) -> Place:
