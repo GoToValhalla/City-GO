@@ -109,31 +109,15 @@ def transition_place_publication(
     lock_place: bool = True,
 ) -> PlacePublicationTransition:
     """Apply the complete publication read model and append history; never commit."""
-    if to_status not in _STATE_FLAGS:
-        raise InvalidPublicationTransition(f"unknown publication status: {to_status}")
-    allowed_targets = _ALLOWED_TARGETS.get(reason_code)
-    if allowed_targets is None or to_status not in allowed_targets:
-        raise InvalidPublicationTransition(
-            f"reason code {reason_code} is not allowed for target status {to_status}"
-        )
-    if not str(actor or "").strip():
-        raise InvalidPublicationTransition("publication transition actor is required")
-    if not str(source or "").strip():
-        raise InvalidPublicationTransition("publication transition source is required")
-    if to_status == PUBLISHED_STATUS:
-        if route_eligible_when_published is None:
-            raise InvalidPublicationTransition("published transition requires an explicit route verdict")
-        if bool(route_eligible_when_published) and route_exclusion_reason_when_published:
-            raise InvalidPublicationTransition("route-eligible published place cannot have an exclusion reason")
-        if not bool(route_eligible_when_published) and not str(route_exclusion_reason_when_published or "").strip():
-            raise InvalidPublicationTransition("route-ineligible published place requires an exclusion reason")
-    if place.id is None:
-        db.flush()
-    if lock_place:
-        place = (
-            db.query(Place).filter(Place.id == place.id).populate_existing()
-            .with_for_update().one()
-        )
+    _validate_transition_input(
+        to_status=to_status,
+        reason_code=reason_code,
+        actor=actor,
+        source=source,
+        route_eligible_when_published=route_eligible_when_published,
+        route_exclusion_reason_when_published=route_exclusion_reason_when_published,
+    )
+    place = _prepare_place(db, place, lock_place=lock_place)
 
     from_status = str(place.publication_status or "draft")
     details = dict(reason_details or {})
@@ -164,8 +148,9 @@ def transition_place_publication(
         place.route_exclusion_reason = reason_code
         place.unpublished_at = now
 
-    transition = PlacePublicationTransition(
-        place_id=place.id,
+    transition = _append_transition(
+        db,
+        place=place,
         from_status=from_status,
         to_status=to_status,
         reason_code=reason_code,
@@ -175,9 +160,91 @@ def transition_place_publication(
         source=source,
         correlation_id=correlation_id,
     )
-    db.add(transition)
     db.flush()
     return transition
+
+
+def reconcile_published_place_state(
+    db: Session,
+    place: Place,
+    *,
+    route_eligible: bool,
+    route_exclusion_reason: str | None,
+    actor: str,
+    source: str,
+    reason_details: Mapping[str, object] | None = None,
+    human_comment: str | None = None,
+    correlation_id: str | None = None,
+    lock_place: bool = True,
+) -> bool:
+    """Repair or update an already-published read model; append history only on change."""
+    if not str(actor or "").strip():
+        raise InvalidPublicationTransition("publication transition actor is required")
+    if not str(source or "").strip():
+        raise InvalidPublicationTransition("publication transition source is required")
+    if route_eligible and route_exclusion_reason:
+        raise InvalidPublicationTransition("route-eligible published place cannot have an exclusion reason")
+    if not route_eligible and not str(route_exclusion_reason or "").strip():
+        raise InvalidPublicationTransition("route-ineligible published place requires an exclusion reason")
+
+    place = _prepare_place(db, place, lock_place=lock_place)
+    if str(place.publication_status or "") != PUBLISHED_STATUS or not bool(place.is_published):
+        raise InvalidPublicationTransition("published-state reconciliation requires a published place")
+
+    target_exclusion = None if route_eligible else str(route_exclusion_reason)
+    unchanged = (
+        bool(place.is_active)
+        and bool(place.is_published)
+        and bool(place.is_visible_in_catalog)
+        and bool(place.is_searchable)
+        and place.publication_reason_code is None
+        and dict(place.publication_reason_details or {}) == {}
+        and place.unpublished_at is None
+        and bool(place.is_route_eligible) is bool(route_eligible)
+        and place.route_exclusion_reason == target_exclusion
+        and place.published_at is not None
+    )
+    if unchanged:
+        return False
+
+    now = datetime.now(timezone.utc)
+    previous_route = {
+        "is_route_eligible": bool(place.is_route_eligible),
+        "route_exclusion_reason": place.route_exclusion_reason,
+    }
+    place.publication_status = PUBLISHED_STATUS
+    place.is_active = True
+    place.is_published = True
+    place.is_visible_in_catalog = True
+    place.is_searchable = True
+    place.publication_reason_code = None
+    place.publication_reason_details = {}
+    place.unpublished_at = None
+    place.published_at = place.published_at or now
+    place.is_route_eligible = bool(route_eligible)
+    place.route_exclusion_reason = target_exclusion
+    place.updated_at = now
+
+    details = dict(reason_details or {})
+    details["previous_route_state"] = previous_route
+    details["target_route_state"] = {
+        "is_route_eligible": bool(route_eligible),
+        "route_exclusion_reason": target_exclusion,
+    }
+    _append_transition(
+        db,
+        place=place,
+        from_status=PUBLISHED_STATUS,
+        to_status=PUBLISHED_STATUS,
+        reason_code=REASON_PUBLISHED,
+        reason_details=details,
+        human_comment=human_comment,
+        actor=actor,
+        source=source,
+        correlation_id=correlation_id,
+    )
+    db.flush()
+    return True
 
 
 def transition_locked_places_publication(
@@ -214,3 +281,74 @@ def transition_locked_places_publication(
         )
         for place in ordered_places
     ]
+
+
+def _validate_transition_input(
+    *,
+    to_status: str,
+    reason_code: str,
+    actor: str,
+    source: str,
+    route_eligible_when_published: bool | None,
+    route_exclusion_reason_when_published: str | None,
+) -> None:
+    if to_status not in _STATE_FLAGS:
+        raise InvalidPublicationTransition(f"unknown publication status: {to_status}")
+    allowed_targets = _ALLOWED_TARGETS.get(reason_code)
+    if allowed_targets is None or to_status not in allowed_targets:
+        raise InvalidPublicationTransition(
+            f"reason code {reason_code} is not allowed for target status {to_status}"
+        )
+    if not str(actor or "").strip():
+        raise InvalidPublicationTransition("publication transition actor is required")
+    if not str(source or "").strip():
+        raise InvalidPublicationTransition("publication transition source is required")
+    if to_status == PUBLISHED_STATUS:
+        if route_eligible_when_published is None:
+            raise InvalidPublicationTransition("published transition requires an explicit route verdict")
+        if bool(route_eligible_when_published) and route_exclusion_reason_when_published:
+            raise InvalidPublicationTransition("route-eligible published place cannot have an exclusion reason")
+        if not bool(route_eligible_when_published) and not str(route_exclusion_reason_when_published or "").strip():
+            raise InvalidPublicationTransition("route-ineligible published place requires an exclusion reason")
+
+
+def _prepare_place(db: Session, place: Place, *, lock_place: bool) -> Place:
+    if place.id is None:
+        db.flush()
+    if not lock_place:
+        return place
+    return (
+        db.query(Place)
+        .filter(Place.id == place.id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
+
+
+def _append_transition(
+    db: Session,
+    *,
+    place: Place,
+    from_status: str,
+    to_status: str,
+    reason_code: str,
+    reason_details: Mapping[str, object],
+    human_comment: str | None,
+    actor: str,
+    source: str,
+    correlation_id: str | None,
+) -> PlacePublicationTransition:
+    transition = PlacePublicationTransition(
+        place_id=place.id,
+        from_status=from_status,
+        to_status=to_status,
+        reason_code=reason_code,
+        reason_details=dict(reason_details),
+        human_comment=human_comment,
+        actor=actor,
+        source=source,
+        correlation_id=correlation_id,
+    )
+    db.add(transition)
+    return transition
