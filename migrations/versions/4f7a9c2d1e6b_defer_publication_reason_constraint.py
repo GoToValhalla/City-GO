@@ -4,15 +4,14 @@ Revision ID: 4f7a9c2d1e6b
 Revises: 8db3c6e1f4a2
 Create Date: 2026-07-19
 
-Fresh databases do not receive the Phase 6 constraint from the preceding
-reserved revision. Databases that applied the earlier version of that revision
-may already contain the constraint; this compensating migration removes it so
-all environments converge on the approved pre-Phase-6 schema.
+Upgrade removes the prematurely deployed Phase 6 constraint. Downgrade restores
+the historical schema only after a fail-closed consistency preflight.
 """
 
 from __future__ import annotations
 
 from alembic import op
+import sqlalchemy as sa
 from sqlalchemy import inspect
 
 revision = "4f7a9c2d1e6b"
@@ -21,14 +20,28 @@ branch_labels = None
 depends_on = None
 
 CONSTRAINT_NAME = "ck_places_publication_reason_consistency"
+CONSTRAINT_SQL = (
+    "(publication_status = 'published' AND publication_reason_code IS NULL) "
+    "OR (publication_status <> 'published' AND publication_reason_code IS NOT NULL)"
+)
 
 
 def _constraint_exists() -> bool:
-    inspector = inspect(op.get_bind())
     return any(
         item.get("name") == CONSTRAINT_NAME
-        for item in inspector.get_check_constraints("places")
+        for item in inspect(op.get_bind()).get_check_constraints("places")
     )
+
+
+def _inconsistent_count() -> int:
+    value = op.get_bind().execute(
+        sa.text(
+            "SELECT COUNT(*) FROM places "
+            "WHERE (publication_status = 'published' AND publication_reason_code IS NOT NULL) "
+            "OR (publication_status <> 'published' AND publication_reason_code IS NULL)"
+        )
+    ).scalar()
+    return int(value or 0)
 
 
 def upgrade() -> None:
@@ -38,4 +51,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Do not recreate a constraint whose production preconditions are unverified."""
+    if _constraint_exists():
+        return
+    inconsistent = _inconsistent_count()
+    if inconsistent:
+        raise RuntimeError(
+            "Cannot restore historical publication constraint: "
+            f"{inconsistent} inconsistent places remain"
+        )
+    with op.batch_alter_table("places") as batch_op:
+        batch_op.create_check_constraint(CONSTRAINT_NAME, CONSTRAINT_SQL)
