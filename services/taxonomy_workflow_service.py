@@ -1,8 +1,9 @@
-"""Лёгкий workflow registry поверх существующих фоновых операций."""
+"""Transactional taxonomy workflow engine with an explicit, executable DAG."""
 
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Callable
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -13,18 +14,15 @@ from services.place_publication_reconciliation import reconcile_published_place
 from services.quality_score_v2 import calculate_quality_v2
 from services.taxonomy_automation_service import normalize_place, validate_place
 
-WORKFLOW_REGISTRY = {
-    "after_import": (
-        "normalize_taxonomy",
-        "validate_data",
-        "detect_duplicates",
-        "calculate_quality",
-        "queue_enrichment",
-        "queue_verification",
-    ),
-    "after_place_confirmation": ("recalculate_confidence", "validate_publication", "enable_search"),
-    "after_photo_confirmation": ("update_primary_photo", "calculate_quality", "resolve_no_photo"),
-    "after_category_change": ("recalculate_route_eligibility", "calculate_quality", "invalidate_route_cache"),
+# Registry contains only steps with real handlers. A new step cannot be added without
+# adding it to STEP_HANDLERS; the module validates this at import time and tests repeat
+# the check in CI.
+WORKFLOW_REGISTRY: dict[str, tuple[str, ...]] = {
+    "after_import": ("normalize_taxonomy", "validate_data", "calculate_quality"),
+    "after_place_confirmation": ("validate_publication", "reconcile_publication_route"),
+    "after_photo_confirmation": ("calculate_quality", "resolve_no_photo"),
+    # Inputs first, derived state last.
+    "after_category_change": ("calculate_quality", "reconcile_publication_route"),
 }
 
 
@@ -42,6 +40,7 @@ def run_workflow(
 ) -> WorkflowOperation:
     if workflow not in WORKFLOW_REGISTRY:
         raise ValueError("Неизвестный workflow")
+    _validate_registry()
     key = f"{workflow}:{idempotency_key}"
     existing = db.query(WorkflowOperation).filter(WorkflowOperation.idempotency_key == key).first()
     if existing:
@@ -69,8 +68,6 @@ def run_workflow(
         operation.status = "completed"
         operation.finished_at = datetime.utcnow()
     except Exception as exc:
-        # The savepoint rolls back every business mutation and intermediate step
-        # update. Persist only the truthful failed workflow outcome.
         operation.status = "failed"
         operation.error_message = str(exc)
         operation.current_step = None
@@ -89,7 +86,9 @@ def run_workflow(
 def retry_workflow(db: Session, operation: WorkflowOperation) -> WorkflowOperation:
     if operation.status != "failed" or operation.retry_count >= operation.max_retries:
         return operation
-
+    if operation.workflow not in WORKFLOW_REGISTRY:
+        raise ValueError("Неизвестный workflow")
+    _validate_registry()
     pending_steps = [{"name": step, "status": "pending"} for step in WORKFLOW_REGISTRY[operation.workflow]]
     operation.retry_count += 1
     operation.status = "running"
@@ -119,8 +118,12 @@ def _execute(db: Session, operation: WorkflowOperation) -> None:
         if step.get("status") == "completed":
             completed.append(step)
             continue
-        operation.current_step = str(step["name"])
-        _execute_step(db, operation, operation.current_step)
+        step_name = str(step["name"])
+        handler = STEP_HANDLERS.get(step_name)
+        if handler is None:
+            raise RuntimeError(f"Workflow step has no handler: {step_name}")
+        operation.current_step = step_name
+        handler(db, operation)
         step["status"] = "completed"
         step["finished_at"] = datetime.utcnow().isoformat()
         completed.append(step)
@@ -129,32 +132,63 @@ def _execute(db: Session, operation: WorkflowOperation) -> None:
         db.flush()
 
 
-def _execute_step(db: Session, operation: WorkflowOperation, step: str) -> None:
+def _place(db: Session, operation: WorkflowOperation) -> Place:
     if operation.entity_type != "place" or not operation.entity_id:
-        return
+        raise ValueError("Workflow requires a place entity")
     place = db.query(Place).filter(Place.id == int(operation.entity_id)).first()
     if place is None:
         raise ValueError("Место не найдено")
-    if step == "normalize_taxonomy":
-        normalize_place(db, place, actor=operation.actor)
-    elif step in {"validate_data", "validate_publication"}:
-        validate_place(db, place)
-    elif step == "calculate_quality":
-        quality = calculate_quality_v2(place)
-        place.quality_score = quality.score
-        place.quality_tier = quality.bucket
-    elif step in {"enable_search", "recalculate_route_eligibility"}:
-        reconcile_published_place(
-            db,
-            place,
-            actor=operation.actor,
-            source=f"taxonomy_workflow_{step}",
-            reason=f"Taxonomy workflow: {step}",
-            lock_place=False,
-        )
-    elif step == "resolve_no_photo":
-        _resolve_issue(db, place.id, "photo_required")
+    return place
+
+
+def _normalize_taxonomy(db: Session, operation: WorkflowOperation) -> None:
+    normalize_place(db, _place(db, operation), actor=operation.actor)
+
+
+def _validate(db: Session, operation: WorkflowOperation) -> None:
+    validate_place(db, _place(db, operation))
+
+
+def _calculate_quality(db: Session, operation: WorkflowOperation) -> None:
+    place = _place(db, operation)
+    quality = calculate_quality_v2(place)
+    place.quality_score = quality.score
+    place.quality_tier = quality.bucket
     db.add(place)
+
+
+def _reconcile(db: Session, operation: WorkflowOperation) -> None:
+    place = _place(db, operation)
+    reconcile_published_place(
+        db,
+        place,
+        actor=operation.actor,
+        source="taxonomy_workflow_reconcile_publication_route",
+        reason="Taxonomy workflow reconciliation",
+        lock_place=False,
+    )
+
+
+def _resolve_no_photo(db: Session, operation: WorkflowOperation) -> None:
+    _resolve_issue(db, _place(db, operation).id, "photo_required")
+
+
+STEP_HANDLERS: dict[str, Callable[[Session, WorkflowOperation], None]] = {
+    "normalize_taxonomy": _normalize_taxonomy,
+    "validate_data": _validate,
+    "validate_publication": _validate,
+    "calculate_quality": _calculate_quality,
+    "reconcile_publication_route": _reconcile,
+    "resolve_no_photo": _resolve_no_photo,
+}
+
+
+def _validate_registry() -> None:
+    registered = {step for steps in WORKFLOW_REGISTRY.values() for step in steps}
+    missing = sorted(registered - set(STEP_HANDLERS))
+    unused = sorted(set(STEP_HANDLERS) - registered)
+    if missing or unused:
+        raise RuntimeError(f"Workflow registry mismatch: missing={missing}, unused={unused}")
 
 
 def _resolve_issue(db: Session, place_id: int, rule_code: str) -> None:
@@ -172,3 +206,6 @@ def _resolve_issue(db: Session, place_id: int, rule_code: str) -> None:
         issue.status = "fixed"
         issue.fixed_at = datetime.utcnow()
         db.add(issue)
+
+
+_validate_registry()
