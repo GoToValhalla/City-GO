@@ -3,15 +3,16 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from core.publication_state_ownership import PUBLICATION_CONTROLLED_INPUT_FIELDS
+from core.publication_state_ownership import CONTROLLED_PLACE_INPUT_FIELDS
 
 
-def _reject_publication_controlled_input(value: Any) -> Any:
+def _reject_controlled_input(value: Any) -> Any:
     if isinstance(value, dict):
-        forbidden = sorted(set(value).intersection(PUBLICATION_CONTROLLED_INPUT_FIELDS))
+        forbidden = sorted(set(value).intersection(CONTROLLED_PLACE_INPUT_FIELDS))
         if forbidden:
             raise ValueError(
-                "Поля публикации нельзя изменять через общий endpoint: " + ", ".join(forbidden)
+                "Управляемые поля состояния нельзя изменять через общий endpoint: "
+                + ", ".join(forbidden)
             )
     return value
 
@@ -78,8 +79,8 @@ class PlaceCreate(PlaceBase):
 
     @model_validator(mode="before")
     @classmethod
-    def reject_publication_state_input(cls, value: Any) -> Any:
-        return _reject_publication_controlled_input(value)
+    def reject_controlled_state_input(cls, value: Any) -> Any:
+        return _reject_controlled_input(value)
 
 
 class PlaceUpdate(PlaceBase):
@@ -87,8 +88,8 @@ class PlaceUpdate(PlaceBase):
 
     @model_validator(mode="before")
     @classmethod
-    def reject_publication_state_input(cls, value: Any) -> Any:
-        return _reject_publication_controlled_input(value)
+    def reject_controlled_state_input(cls, value: Any) -> Any:
+        return _reject_controlled_input(value)
 
 
 class PlaceRead(PlaceBase):
