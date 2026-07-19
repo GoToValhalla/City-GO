@@ -14,7 +14,11 @@ from services.place_public_visibility import apply_public_place_visibility
 from services.place_query_params_service import normalize_place_query_params
 from services.place_search_service import apply_place_text_search
 from services.place_sorting_service import apply_place_sorting
-from services.publication_state_writer import REASON_ADMIN_CREATE_DRAFT, transition_place_publication
+from services.publication_state_writer import (
+    REASON_ADMIN_CREATE_DRAFT,
+    REASON_ADMIN_HIDE,
+    transition_place_publication,
+)
 from services.taxonomy_workflow_service import run_workflow
 
 PROTECTED_PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
@@ -22,7 +26,6 @@ PROTECTED_CONTROLLED_FIELDS = CONTROLLED_PLACE_INPUT_FIELDS
 
 
 def _place_column_payload(payload: dict) -> dict:
-    """Keep real ordinary ORM columns only."""
     allowed_fields = {
         column.name
         for column in Place.__table__.columns
@@ -137,7 +140,6 @@ def create_place(
     actor: str = "place_service",
     commit: bool = True,
 ) -> Place:
-    """Create a draft atomically; the caller owns commit when ``commit=False``."""
     try:
         place = Place(**_place_column_payload(place_in.model_dump()))
         db.add(place)
@@ -199,7 +201,6 @@ def update_place(
     actor: str = "place_service",
     commit: bool = True,
 ) -> Place | None:
-    """Update explicitly supplied ordinary fields and reconcile derived state atomically."""
     try:
         place = (
             db.query(Place)
@@ -249,10 +250,47 @@ def update_place(
         raise
 
 
-def delete_place(db: Session, place_id: int) -> bool:
-    place = get_place_by_id(db, place_id)
-    if place is None:
-        return False
-    db.delete(place)
-    db.commit()
-    return True
+def delete_place(
+    db: Session,
+    place_id: int,
+    *,
+    actor: str = "place_service",
+    reason: str = "Deleted through generic place API",
+) -> bool:
+    """Soft-delete through the canonical publication state machine; never erase history."""
+    try:
+        place = (
+            db.query(Place)
+            .filter(Place.id == place_id)
+            .populate_existing()
+            .with_for_update()
+            .one_or_none()
+        )
+        if place is None:
+            return False
+        if (
+            place.publication_status == "hidden"
+            and place.publication_reason_code == REASON_ADMIN_HIDE
+            and not place.is_published
+            and not place.is_visible_in_catalog
+            and not place.is_searchable
+            and not place.is_route_eligible
+        ):
+            return True
+        transition_place_publication(
+            db,
+            place,
+            to_status="hidden",
+            reason_code=REASON_ADMIN_HIDE,
+            actor=actor,
+            source="place_delete",
+            reason_details={"soft_delete": True},
+            human_comment=reason,
+            lock_place=False,
+        )
+        db.commit()
+        db.refresh(place)
+        return True
+    except Exception:
+        db.rollback()
+        raise
