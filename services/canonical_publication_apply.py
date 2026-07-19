@@ -30,8 +30,6 @@ def apply_canonical_publication_verdict(
     actor: str = "import_pipeline",
     record_only: bool = False,
 ) -> str:
-    """Record a policy decision and, when required, apply it through the writer."""
-
     _record_decision(db, place, verdict, job_id=job_id, snapshot_id=snapshot_id, actor=actor)
     if verdict.outcome == "preserve_public":
         return "preserved_public"
@@ -48,39 +46,25 @@ def apply_canonical_publication_verdict(
 
     if verdict.outcome == "blocked":
         transition_place_publication(
-            db,
-            place,
-            to_status="needs_review",
-            reason_code=REASON_POLICY_GATE_FAILED,
-            actor=actor,
-            source="publication_policy",
-            reason_details=details,
+            db, place, to_status="needs_review", reason_code=REASON_POLICY_GATE_FAILED,
+            actor=actor, source="publication_policy", reason_details=details,
             human_comment=verdict.reasons[0] if verdict.reasons else "blocked",
             correlation_id=correlation_id,
         )
         return "blocked"
     if verdict.outcome == "reject":
         transition_place_publication(
-            db,
-            place,
-            to_status="hidden",
-            reason_code=primary_publication_reason(verdict.reasons),
-            actor=actor,
-            source="publication_policy",
-            reason_details=details,
+            db, place, to_status="hidden",
+            reason_code=primary_publication_reason(verdict.reasons), actor=actor,
+            source="publication_policy", reason_details=details,
             human_comment=verdict.reasons[0] if verdict.reasons else "rejected",
             correlation_id=correlation_id,
         )
         return "rejected"
     if verdict.outcome == "review":
         transition_place_publication(
-            db,
-            place,
-            to_status="needs_review",
-            reason_code=REASON_POLICY_GATE_FAILED,
-            actor=actor,
-            source="publication_policy",
-            reason_details=details,
+            db, place, to_status="needs_review", reason_code=REASON_POLICY_GATE_FAILED,
+            actor=actor, source="publication_policy", reason_details=details,
             human_comment=verdict.reasons[0] if verdict.reasons else "needs_review",
             correlation_id=correlation_id,
         )
@@ -89,19 +73,14 @@ def apply_canonical_publication_verdict(
         return "review_required"
 
     route_verdict = _route_eligibility_verdict_for_publish(place)
+    exclusion = None if route_verdict.eligible else ",".join(route_verdict.reasons[:5])
     transition_place_publication(
-        db,
-        place,
-        to_status="published",
-        reason_code=REASON_PUBLISHED,
-        actor=actor,
-        source="publication_policy",
-        reason_details=details,
-        human_comment=actor,
-        correlation_id=correlation_id,
+        db, place, to_status="published", reason_code=REASON_PUBLISHED,
+        actor=actor, source="publication_policy", reason_details=details,
+        human_comment=actor, correlation_id=correlation_id,
         route_eligible_when_published=route_verdict.eligible,
+        route_exclusion_reason_when_published=exclusion,
     )
-    place.route_exclusion_reason = None if route_verdict.eligible else ",".join(route_verdict.reasons[:5])
     return "auto_published" if route_verdict.eligible else "limited_published"
 
 
@@ -115,38 +94,27 @@ def apply_admin_city_publication_place(
     lock_place: bool = True,
     route_eligible_override: bool | None = None,
 ) -> None:
-    """Publish one place through the authoritative writer without committing.
-
-    ``route_eligible_override`` is reserved for an explicit audited admin route
-    action. Normal publication always derives route eligibility from policy.
-    """
-
     verdict = _route_eligibility_verdict_for_publish(place)
     route_eligible = verdict.eligible if route_eligible_override is None else bool(route_eligible_override)
-    reason_details = {
-        "route_eligibility_reasons": list(verdict.reasons),
-        "route_eligibility_policy_result": verdict.eligible,
-        "route_eligibility_override": route_eligible_override,
-    }
+    if route_eligible:
+        exclusion = None
+    elif route_eligible_override is False:
+        exclusion = reason or "admin_route_disabled"
+    else:
+        exclusion = ",".join(verdict.reasons[:5])
     transition_place_publication(
-        db,
-        place,
-        to_status="published",
-        reason_code=REASON_PUBLISHED,
-        actor=actor,
-        source=source,
-        human_comment=reason,
-        reason_details=reason_details,
+        db, place, to_status="published", reason_code=REASON_PUBLISHED,
+        actor=actor, source=source, human_comment=reason,
+        reason_details={
+            "route_eligibility_reasons": list(verdict.reasons),
+            "route_eligibility_policy_result": verdict.eligible,
+            "route_eligibility_override": route_eligible_override,
+        },
         route_eligible_when_published=route_eligible,
+        route_exclusion_reason_when_published=exclusion,
         lock_place=lock_place,
     )
     place.status = "active"
-    if route_eligible:
-        place.route_exclusion_reason = None
-    elif route_eligible_override is False:
-        place.route_exclusion_reason = reason or "admin_route_disabled"
-    else:
-        place.route_exclusion_reason = ",".join(verdict.reasons[:5])
 
 
 def _route_eligibility_verdict_for_publish(place: Place):
@@ -187,23 +155,24 @@ def _record_decision(
     snapshot_id: int | None,
     actor: str,
 ) -> None:
-    row = PlacePublicationDecision(
-        city_id=place.city_id,
-        place_id=place.id,
-        mode="import_pipeline",
-        decision=verdict.outcome,
-        status="applied" if verdict.outcome == "publish" else "recorded",
-        trust_score=float(place.confidence or 0.0),
-        failed_gates=list(verdict.reasons),
-        review_reasons=list(verdict.reasons),
-        payload={
-            "actor": actor,
-            "job_id": job_id,
-            "snapshot_id": snapshot_id,
-            "lineage": verdict.lineage,
-            "import_decision": verdict.import_decision.decision,
-            "import_reason": verdict.import_decision.reason,
-        },
+    db.add(
+        PlacePublicationDecision(
+            city_id=place.city_id,
+            place_id=place.id,
+            mode="import_pipeline",
+            decision=verdict.outcome,
+            status="applied" if verdict.outcome == "publish" else "recorded",
+            trust_score=float(place.confidence or 0.0),
+            failed_gates=list(verdict.reasons),
+            review_reasons=list(verdict.reasons),
+            payload={
+                "actor": actor,
+                "job_id": job_id,
+                "snapshot_id": snapshot_id,
+                "lineage": verdict.lineage,
+                "import_decision": verdict.import_decision.decision,
+                "import_reason": verdict.import_decision.reason,
+            },
+        )
     )
-    db.add(row)
     db.flush()
