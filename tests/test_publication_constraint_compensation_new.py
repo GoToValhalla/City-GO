@@ -4,8 +4,6 @@ import importlib.util
 from contextlib import contextmanager
 from pathlib import Path
 
-import pytest
-
 MIGRATION_PATH = (
     Path(__file__).resolve().parents[1]
     / "migrations"
@@ -57,29 +55,16 @@ def test_upgrade_is_noop_when_constraint_absent(monkeypatch) -> None:
     assert called is False
 
 
-def test_downgrade_restores_constraint_after_clean_preflight(monkeypatch) -> None:
+def test_downgrade_is_noop_and_does_not_enable_phase_6(monkeypatch) -> None:
     migration = _load_migration()
-    calls: list[tuple[str, str]] = []
-
-    class Batch:
-        def create_check_constraint(self, name: str, sql: str) -> None:
-            calls.append((name, sql))
+    called = False
 
     @contextmanager
-    def batch_alter_table(table_name: str):
-        assert table_name == "places"
-        yield Batch()
+    def batch_alter_table(_table_name: str):
+        nonlocal called
+        called = True
+        yield object()
 
-    monkeypatch.setattr(migration, "_constraint_exists", lambda: False)
-    monkeypatch.setattr(migration, "_inconsistent_count", lambda: 0)
     monkeypatch.setattr(migration.op, "batch_alter_table", batch_alter_table)
     migration.downgrade()
-    assert calls == [(migration.CONSTRAINT_NAME, migration.CONSTRAINT_SQL)]
-
-
-def test_downgrade_fails_closed_on_inconsistent_data(monkeypatch) -> None:
-    migration = _load_migration()
-    monkeypatch.setattr(migration, "_constraint_exists", lambda: False)
-    monkeypatch.setattr(migration, "_inconsistent_count", lambda: 3)
-    with pytest.raises(RuntimeError, match="3 inconsistent places"):
-        migration.downgrade()
+    assert called is False
