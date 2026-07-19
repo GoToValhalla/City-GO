@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import DDL, DateTime, ForeignKey, Index, Integer, JSON, String, Text, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,7 +29,7 @@ class PlacePublicationTransition(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     place_id: Mapped[int] = mapped_column(
-        ForeignKey("places.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("places.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     from_status: Mapped[str] = mapped_column(String(32), nullable=False)
     to_status: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -46,3 +46,40 @@ class PlacePublicationTransition(Base):
     )
 
     place = relationship("Place", back_populates="publication_transitions")
+
+
+def _reject_ledger_mutation(*_args, **_kwargs) -> None:
+    raise RuntimeError("place publication transition ledger is append-only")
+
+
+event.listen(PlacePublicationTransition, "before_update", _reject_ledger_mutation)
+event.listen(PlacePublicationTransition, "before_delete", _reject_ledger_mutation)
+
+# Base.metadata.create_all() is used by SQLite tests and local tooling. These
+# triggers protect bulk SQL paths that bypass ORM mapper events.
+event.listen(
+    PlacePublicationTransition.__table__,
+    "after_create",
+    DDL(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_place_publication_transitions_no_update
+        BEFORE UPDATE ON place_publication_transitions
+        BEGIN
+            SELECT RAISE(ABORT, 'place publication transition ledger is append-only');
+        END
+        """
+    ).execute_if(dialect="sqlite"),
+)
+event.listen(
+    PlacePublicationTransition.__table__,
+    "after_create",
+    DDL(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_place_publication_transitions_no_delete
+        BEFORE DELETE ON place_publication_transitions
+        BEGIN
+            SELECT RAISE(ABORT, 'place publication transition ledger is append-only');
+        END
+        """
+    ).execute_if(dialect="sqlite"),
+)
