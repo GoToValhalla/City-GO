@@ -19,6 +19,12 @@ from services.publication_state_writer import (
 )
 from services.route_eligibility_policy import evaluate_place_route_eligibility
 
+ROUTE_POLICY_EXCLUDED = "route_policy_excluded"
+
+
+def _route_exclusion_reason(reasons: tuple[str, ...] | list[str]) -> str:
+    return ",".join(list(reasons)[:5]) or ROUTE_POLICY_EXCLUDED
+
 
 def apply_canonical_publication_verdict(
     db: Session,
@@ -46,25 +52,39 @@ def apply_canonical_publication_verdict(
 
     if verdict.outcome == "blocked":
         transition_place_publication(
-            db, place, to_status="needs_review", reason_code=REASON_POLICY_GATE_FAILED,
-            actor=actor, source="publication_policy", reason_details=details,
+            db,
+            place,
+            to_status="needs_review",
+            reason_code=REASON_POLICY_GATE_FAILED,
+            actor=actor,
+            source="publication_policy",
+            reason_details=details,
             human_comment=verdict.reasons[0] if verdict.reasons else "blocked",
             correlation_id=correlation_id,
         )
         return "blocked"
     if verdict.outcome == "reject":
         transition_place_publication(
-            db, place, to_status="hidden",
-            reason_code=primary_publication_reason(verdict.reasons), actor=actor,
-            source="publication_policy", reason_details=details,
+            db,
+            place,
+            to_status="hidden",
+            reason_code=primary_publication_reason(verdict.reasons),
+            actor=actor,
+            source="publication_policy",
+            reason_details=details,
             human_comment=verdict.reasons[0] if verdict.reasons else "rejected",
             correlation_id=correlation_id,
         )
         return "rejected"
     if verdict.outcome == "review":
         transition_place_publication(
-            db, place, to_status="needs_review", reason_code=REASON_POLICY_GATE_FAILED,
-            actor=actor, source="publication_policy", reason_details=details,
+            db,
+            place,
+            to_status="needs_review",
+            reason_code=REASON_POLICY_GATE_FAILED,
+            actor=actor,
+            source="publication_policy",
+            reason_details=details,
             human_comment=verdict.reasons[0] if verdict.reasons else "needs_review",
             correlation_id=correlation_id,
         )
@@ -73,11 +93,17 @@ def apply_canonical_publication_verdict(
         return "review_required"
 
     route_verdict = _route_eligibility_verdict_for_publish(place)
-    exclusion = None if route_verdict.eligible else ",".join(route_verdict.reasons[:5])
+    exclusion = None if route_verdict.eligible else _route_exclusion_reason(route_verdict.reasons)
     transition_place_publication(
-        db, place, to_status="published", reason_code=REASON_PUBLISHED,
-        actor=actor, source="publication_policy", reason_details=details,
-        human_comment=actor, correlation_id=correlation_id,
+        db,
+        place,
+        to_status="published",
+        reason_code=REASON_PUBLISHED,
+        actor=actor,
+        source="publication_policy",
+        reason_details=details,
+        human_comment=actor,
+        correlation_id=correlation_id,
         route_eligible_when_published=route_verdict.eligible,
         route_exclusion_reason_when_published=exclusion,
     )
@@ -101,10 +127,15 @@ def apply_admin_city_publication_place(
     elif route_eligible_override is False:
         exclusion = reason or "admin_route_disabled"
     else:
-        exclusion = ",".join(verdict.reasons[:5])
+        exclusion = _route_exclusion_reason(verdict.reasons)
     transition_place_publication(
-        db, place, to_status="published", reason_code=REASON_PUBLISHED,
-        actor=actor, source=source, human_comment=reason,
+        db,
+        place,
+        to_status="published",
+        reason_code=REASON_PUBLISHED,
+        actor=actor,
+        source=source,
+        human_comment=reason,
         reason_details={
             "route_eligibility_reasons": list(verdict.reasons),
             "route_eligibility_policy_result": verdict.eligible,
