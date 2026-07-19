@@ -38,12 +38,23 @@ def transition_place_verification(
     confidence_level: str | None = None,
     set_verified_at: bool | None = None,
     reject_noop: bool = False,
+    lock_place: bool = True,
 ) -> bool:
     """Apply verification state and audit it; never commit or change publication."""
     if not str(actor or "").strip():
         raise ValueError("verification actor is required")
     if to_status not in _ALLOWED_VERIFICATION_STATUSES:
         raise ValueError(f"unsupported verification status: {to_status}")
+    if place.id is None:
+        db.flush()
+    if lock_place:
+        place = (
+            db.query(Place)
+            .filter(Place.id == place.id)
+            .populate_existing()
+            .with_for_update()
+            .one()
+        )
 
     target_score, target_level, should_set_verified_at = _target_values(
         place,
@@ -52,13 +63,16 @@ def transition_place_verification(
         confidence_level=confidence_level,
         set_verified_at=set_verified_at,
     )
+    target_verified_by = None if to_status == "unverified" else (
+        place.verified_by if to_status == "needs_recheck" else actor
+    )
     is_noop = (
         place.verification_status == to_status
         and place.existence_confidence_level == target_level
         and int(place.existence_confidence_score or 0) == target_score
         and place.verification_source == verification_source
         and place.verification_method == verification_method
-        and place.verified_by == actor
+        and place.verified_by == target_verified_by
     )
     if is_noop:
         if reject_noop:
@@ -72,17 +86,24 @@ def transition_place_verification(
     place.verification_method = verification_method
     place.existence_confidence_level = target_level
     place.existence_confidence_score = target_score
-    place.verified_by = actor
-    if should_set_verified_at:
-        place.verified_at = now
+    place.verification_comment = reason
+
+    if to_status == "needs_recheck":
+        place.needs_recheck_at = now
+        # Preserve the identity and timestamps of the last completed verification.
     elif to_status == "unverified":
+        place.needs_recheck_at = None
         place.verified_at = None
         place.verified_by = None
-    place.needs_recheck_at = now if to_status == "needs_recheck" else None
-    place.verification_comment = reason
-    place.last_verified_at = now
-    place.updated_at = now
+        place.last_verified_at = None
+    else:
+        place.needs_recheck_at = None
+        place.verified_by = actor
+        if should_set_verified_at:
+            place.verified_at = now
+        place.last_verified_at = now
 
+    place.updated_at = now
     write_admin_audit_log(
         db,
         actor=actor,
@@ -108,6 +129,7 @@ def verify_locked_place(
     verification_status: str = "verified",
     verification_source: str | None = None,
     verification_method: str | None = None,
+    lock_place: bool = True,
 ) -> bool:
     if verification_status not in {"verified", "trusted"}:
         raise ValueError(f"unsupported successful verification status: {verification_status}")
@@ -124,6 +146,7 @@ def verify_locked_place(
         confidence_level="high",
         set_verified_at=True,
         reject_noop=reject_noop,
+        lock_place=lock_place,
     )
 
 
@@ -134,6 +157,7 @@ def reject_locked_place_verification(
     actor: str,
     reason: str,
     action: str = "reject_place_verification",
+    lock_place: bool = True,
 ) -> bool:
     return transition_place_verification(
         db,
@@ -147,6 +171,7 @@ def reject_locked_place_verification(
         confidence_score=0,
         confidence_level="low",
         set_verified_at=True,
+        lock_place=lock_place,
     )
 
 
@@ -187,6 +212,7 @@ def _snapshot(place: Place) -> dict[str, object]:
         "existence_confidence_score": place.existence_confidence_score,
         "verified_by": place.verified_by,
         "verified_at": place.verified_at.isoformat() if place.verified_at else None,
+        "last_verified_at": place.last_verified_at.isoformat() if place.last_verified_at else None,
         "needs_recheck_at": place.needs_recheck_at.isoformat() if place.needs_recheck_at else None,
         "verification_comment": place.verification_comment,
     }
