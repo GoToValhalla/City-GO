@@ -11,7 +11,6 @@ from models.place import Place
 from models.source_observation import SourceObservation
 from models.taxonomy import QualityIssue, QualityRule, TaxonomyConflict
 from services.place_change_review_service import propose_place_change
-from services.place_publication_reconciliation import reconcile_published_place
 from services.quality_score_v2 import calculate_quality_v2
 from services.route_policy_service import evaluate_category_policy
 from services.taxonomy_rule_engine import classify_place, persist_decision
@@ -58,6 +57,7 @@ def normalize_place(
     actor: str = "workflow",
     job_id: int | None = None,
 ) -> dict[str, object]:
+    """Mutate taxonomy only; the enclosing workflow owns derived-state reconciliation."""
     observation = (
         db.query(SourceObservation)
         .filter(SourceObservation.canonical_place_id == place.id)
@@ -101,14 +101,6 @@ def normalize_place(
                 place.category_id = category.id
                 place.category = category.code
                 place.canonical_category = category.code
-                reconcile_published_place(
-                    db,
-                    place,
-                    actor=actor,
-                    source="taxonomy_auto_normalization",
-                    reason="Publication reconciliation after taxonomy normalization",
-                    lock_place=False,
-                )
                 persist_decision(db, place_id=place.id, result=result, actor=actor, old_category_id=old)
                 applied = True
     if not applied:
@@ -123,7 +115,9 @@ def validate_place(db: Session, place: Place) -> dict[str, object]:
     place.quality_tier = quality.bucket
     failures = _failures(place)
     rules = db.query(QualityRule).filter(QualityRule.active.is_(True), QualityRule.entity_type == "place").all()
+    rule_code_by_id = {int(rule.id): rule.code for rule in rules}
     open_codes: set[str] = set()
+
     for rule in rules:
         details = failures.get(rule.code)
         if details is None:
@@ -153,16 +147,18 @@ def validate_place(db: Session, place: Place) -> dict[str, object]:
             issue.details = {"message": details}
             issue.updated_at = datetime.utcnow()
         db.add(issue)
-    for issue in (
-        db.query(QualityIssue)
-        .join(QualityRule)
-        .filter(QualityIssue.place_id == place.id, QualityIssue.status == "open")
-        .all()
-    ):
-        if issue.rule.code not in open_codes if hasattr(issue, "rule") else False:
+
+    open_issues = db.query(QualityIssue).filter(
+        QualityIssue.place_id == place.id,
+        QualityIssue.status == "open",
+    ).all()
+    for issue in open_issues:
+        rule_code = rule_code_by_id.get(int(issue.rule_id))
+        if rule_code is not None and rule_code not in open_codes:
             issue.status = "fixed"
             issue.fixed_at = datetime.utcnow()
             db.add(issue)
+
     db.add(place)
     return quality.to_dict()
 
