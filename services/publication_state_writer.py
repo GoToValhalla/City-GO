@@ -32,30 +32,16 @@ REASON_ADMIN_DEFER = "admin_defer"
 REASON_REPAIR_STATE = "repair_state"
 REASON_LEGACY_UNKNOWN = "legacy_unknown"
 
-CANONICAL_PUBLICATION_REASON_CODES = frozenset(
-    {
-        REASON_PUBLISHED,
-        REASON_IMPORT_DRAFT,
-        REASON_IMPORT_INCOMPLETE,
-        REASON_ENRICHMENT_BACKLOG,
-        REASON_LOW_CONFIDENCE,
-        REASON_POLICY_GATE_FAILED,
-        REASON_NEEDS_MANUAL_REVIEW,
-        REASON_DUPLICATE_SUSPECTED,
-        REASON_SPAM_SUSPECTED,
-        REASON_NON_PUBLIC_CATEGORY,
-        REASON_MISSING_COORDINATES,
-        REASON_STALE_READINESS_SNAPSHOT,
-        REASON_CITY_PUBLICATION_QUALITY_GATE,
-        REASON_ADMIN_CREATE_DRAFT,
-        REASON_ADMIN_UNPUBLISH,
-        REASON_ADMIN_REJECT,
-        REASON_ADMIN_HIDE,
-        REASON_ADMIN_DEFER,
-        REASON_REPAIR_STATE,
-        REASON_LEGACY_UNKNOWN,
-    }
-)
+CANONICAL_PUBLICATION_REASON_CODES = frozenset({
+    REASON_PUBLISHED, REASON_IMPORT_DRAFT, REASON_IMPORT_INCOMPLETE,
+    REASON_ENRICHMENT_BACKLOG, REASON_LOW_CONFIDENCE, REASON_POLICY_GATE_FAILED,
+    REASON_NEEDS_MANUAL_REVIEW, REASON_DUPLICATE_SUSPECTED,
+    REASON_SPAM_SUSPECTED, REASON_NON_PUBLIC_CATEGORY,
+    REASON_MISSING_COORDINATES, REASON_STALE_READINESS_SNAPSHOT,
+    REASON_CITY_PUBLICATION_QUALITY_GATE, REASON_ADMIN_CREATE_DRAFT,
+    REASON_ADMIN_UNPUBLISH, REASON_ADMIN_REJECT, REASON_ADMIN_HIDE,
+    REASON_ADMIN_DEFER, REASON_REPAIR_STATE, REASON_LEGACY_UNKNOWN,
+})
 
 _ALLOWED_TARGETS: Mapping[str, frozenset[str]] = {
     REASON_PUBLISHED: frozenset({"published"}),
@@ -119,16 +105,14 @@ def transition_place_publication(
     human_comment: str | None = None,
     correlation_id: str | None = None,
     route_eligible_when_published: bool | None = None,
+    route_exclusion_reason_when_published: str | None = None,
     lock_place: bool = True,
 ) -> PlacePublicationTransition:
-    """Apply one authoritative publication transition without committing."""
-
+    """Apply the complete publication read model and append history; never commit."""
     if to_status not in _STATE_FLAGS:
         raise InvalidPublicationTransition(f"unknown publication status: {to_status}")
     allowed_targets = _ALLOWED_TARGETS.get(reason_code)
-    if allowed_targets is None:
-        raise InvalidPublicationTransition(f"unknown publication reason code: {reason_code}")
-    if to_status not in allowed_targets:
+    if allowed_targets is None or to_status not in allowed_targets:
         raise InvalidPublicationTransition(
             f"reason code {reason_code} is not allowed for target status {to_status}"
         )
@@ -136,16 +120,12 @@ def transition_place_publication(
         raise InvalidPublicationTransition("publication transition actor is required")
     if not str(source or "").strip():
         raise InvalidPublicationTransition("publication transition source is required")
-
     if place.id is None:
         db.flush()
     if lock_place:
         place = (
-            db.query(Place)
-            .filter(Place.id == place.id)
-            .populate_existing()
-            .with_for_update()
-            .one()
+            db.query(Place).filter(Place.id == place.id).populate_existing()
+            .with_for_update().one()
         )
 
     from_status = str(place.publication_status or "draft")
@@ -167,22 +147,21 @@ def transition_place_publication(
         place.unpublished_at = None
         place.published_at = place.published_at or now
         if route_eligible_when_published is not None:
-            place.is_route_eligible = route_eligible_when_published
+            place.is_route_eligible = bool(route_eligible_when_published)
+        place.route_exclusion_reason = (
+            None if place.is_route_eligible else route_exclusion_reason_when_published
+        )
     else:
         place.publication_reason_code = reason_code
         place.publication_reason_details = details
         place.is_route_eligible = False
+        place.route_exclusion_reason = reason_code
         place.unpublished_at = now
 
     transition = PlacePublicationTransition(
-        place_id=place.id,
-        from_status=from_status,
-        to_status=to_status,
-        reason_code=reason_code,
-        reason_details=details,
-        human_comment=human_comment,
-        actor=actor,
-        source=source,
+        place_id=place.id, from_status=from_status, to_status=to_status,
+        reason_code=reason_code, reason_details=details,
+        human_comment=human_comment, actor=actor, source=source,
         correlation_id=correlation_id,
     )
     db.add(transition)
@@ -202,22 +181,14 @@ def transition_locked_places_publication(
     human_comment: str | None = None,
     correlation_id: str | None = None,
 ) -> list[PlacePublicationTransition]:
-    """Transition a deterministically pre-locked batch without internal re-locks."""
-
     ordered_places = sorted(places, key=lambda item: int(item.id))
     if [int(item.id) for item in places] != [int(item.id) for item in ordered_places]:
         raise InvalidPublicationTransition("bulk publication places must be locked in ascending Place.id order")
     return [
         transition_place_publication(
-            db,
-            place,
-            to_status=to_status,
-            reason_code=reason_code,
-            actor=actor,
-            source=source,
-            reason_details=reason_details,
-            human_comment=human_comment,
-            correlation_id=correlation_id,
+            db, place, to_status=to_status, reason_code=reason_code,
+            actor=actor, source=source, reason_details=reason_details,
+            human_comment=human_comment, correlation_id=correlation_id,
             lock_place=False,
         )
         for place in ordered_places
