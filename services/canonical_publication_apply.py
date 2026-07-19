@@ -21,6 +21,7 @@ from services.publication_state_writer import (
     REASON_POLICY_GATE_FAILED,
     REASON_PUBLISHED,
     InvalidPublicationTransition,
+    reconcile_published_place_state,
     transition_place_publication,
 )
 from services.route_eligibility_policy import evaluate_place_route_eligibility
@@ -42,12 +43,7 @@ def apply_canonical_publication_verdict(
     actor: str = "import_pipeline",
     record_only: bool = False,
 ) -> str:
-    """Apply the most restrictive current verdict under a row lock.
-
-    ``record_only`` is a real shadow mode: it records policy evidence and never
-    mutates the live Place read model or transition ledger.
-    """
-
+    """Apply the most restrictive current verdict under a row lock."""
     place = _lock_place(db, place)
     verdict = _effective_verdict(place, verdict)
     _record_decision(
@@ -122,20 +118,34 @@ def apply_canonical_publication_verdict(
 
     route_verdict = _route_eligibility_verdict_for_publish(place)
     exclusion = None if route_verdict.eligible else _route_exclusion_reason(route_verdict.reasons)
-    transition_place_publication(
-        db,
-        place,
-        to_status="published",
-        reason_code=REASON_PUBLISHED,
-        actor=actor,
-        source="publication_policy",
-        reason_details=details,
-        human_comment=actor,
-        correlation_id=correlation_id,
-        route_eligible_when_published=route_verdict.eligible,
-        route_exclusion_reason_when_published=exclusion,
-        lock_place=False,
-    )
+    if place.publication_status == "published" and place.is_published:
+        reconcile_published_place_state(
+            db,
+            place,
+            route_eligible=route_verdict.eligible,
+            route_exclusion_reason=exclusion,
+            actor=actor,
+            source="publication_policy",
+            reason_details=details,
+            human_comment=actor,
+            correlation_id=correlation_id,
+            lock_place=False,
+        )
+    else:
+        transition_place_publication(
+            db,
+            place,
+            to_status="published",
+            reason_code=REASON_PUBLISHED,
+            actor=actor,
+            source="publication_policy",
+            reason_details=details,
+            human_comment=actor,
+            correlation_id=correlation_id,
+            route_eligible_when_published=route_verdict.eligible,
+            route_exclusion_reason_when_published=exclusion,
+            lock_place=False,
+        )
     return "auto_published" if route_verdict.eligible else "limited_published"
 
 
@@ -149,8 +159,7 @@ def apply_admin_city_publication_place(
     lock_place: bool = True,
     route_eligible_override: bool | None = None,
 ) -> None:
-    """Publish a currently eligible place without changing product lifecycle state."""
-
+    """Publish or reconcile a currently eligible place without changing product lifecycle state."""
     if lock_place:
         place = _lock_place(db, place)
     eligibility = place_publication_eligibility(place)
@@ -167,6 +176,26 @@ def apply_admin_city_publication_place(
         exclusion = reason or "admin_route_disabled"
     else:
         exclusion = _route_exclusion_reason(verdict.reasons)
+
+    reason_details = {
+        "route_eligibility_reasons": list(verdict.reasons),
+        "route_eligibility_policy_result": verdict.eligible,
+        "route_eligibility_override": route_eligible_override,
+    }
+    if place.publication_status == "published" and place.is_published:
+        reconcile_published_place_state(
+            db,
+            place,
+            route_eligible=route_eligible,
+            route_exclusion_reason=exclusion,
+            actor=actor,
+            source=source,
+            reason_details=reason_details,
+            human_comment=reason,
+            lock_place=False,
+        )
+        return
+
     transition_place_publication(
         db,
         place,
@@ -175,11 +204,7 @@ def apply_admin_city_publication_place(
         actor=actor,
         source=source,
         human_comment=reason,
-        reason_details={
-            "route_eligibility_reasons": list(verdict.reasons),
-            "route_eligibility_policy_result": verdict.eligible,
-            "route_eligibility_override": route_eligible_override,
-        },
+        reason_details=reason_details,
         route_eligible_when_published=route_eligible,
         route_exclusion_reason_when_published=exclusion,
         lock_place=False,
@@ -203,7 +228,6 @@ def _effective_verdict(
     original: CanonicalPublicationVerdict,
 ) -> CanonicalPublicationVerdict:
     """Never promote a stale verdict; only retain it or move to a safer outcome."""
-
     if original.outcome == "reject":
         return original
     fresh_import = assess_place_import_decision(place)
