@@ -15,13 +15,6 @@ from services.place_service import PROTECTED_CONTROLLED_FIELDS
 from tests.allure_support import title
 
 ROOT = Path(__file__).resolve().parents[1]
-PRODUCTION_ROOTS = (
-    ROOT / "services",
-    ROOT / "routers",
-    ROOT / "scripts",
-    ROOT / "data" / "scripts",
-    ROOT / "telegram_bot",
-)
 PUBLICATION_WRITER = (ROOT / "services" / "publication_state_writer.py").resolve()
 VERIFICATION_WRITER = (ROOT / "services" / "place_verification_mutation.py").resolve()
 APPROVED_DYNAMIC_SETATTR = {
@@ -29,50 +22,81 @@ APPROVED_DYNAMIC_SETATTR = {
     (ROOT / "services" / "place_service.py").resolve(),
     (ROOT / "services" / "place_change_review_service.py").resolve(),
 }
+EXCLUDED_TOP_LEVEL = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "frontend",
+    "tests",
+    "migrations",
+    "alembic",
+}
+SHARED_MODEL_FIELDS = frozenset({"is_active", "is_searchable", "is_route_eligible"})
+NON_PLACE_MODEL_NAMES = frozenset({"City", "Route", "Category", "Tag", "Collection", "Destination"})
 
 
 def _python_files() -> list[Path]:
-    result: list[Path] = []
-    for root in PRODUCTION_ROOTS:
-        if root.exists():
-            result.extend(path for path in root.rglob("*.py") if "__pycache__" not in path.parts)
-    return sorted(set(result))
-
-
-def _annotation_mentions_place(node: ast.AST | None) -> bool:
-    return node is not None and any(
-        isinstance(child, ast.Name) and child.id == "Place" for child in ast.walk(node)
+    return sorted(
+        path
+        for path in ROOT.rglob("*.py")
+        if "__pycache__" not in path.parts
+        and not any(part in EXCLUDED_TOP_LEVEL for part in path.relative_to(ROOT).parts)
     )
 
 
-def _place_names(tree: ast.AST) -> set[str]:
-    names = {"place", "locked_place"}
+def _annotation_mentions(node: ast.AST | None, name: str) -> bool:
+    return node is not None and any(
+        isinstance(child, ast.Name) and child.id == name for child in ast.walk(node)
+    )
+
+
+def _typed_names(tree: ast.AST, model_name: str) -> set[str]:
+    names: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             for arg in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
-                if _annotation_mentions_place(arg.annotation):
+                if _annotation_mentions(arg.annotation, model_name):
                     names.add(arg.arg)
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             value = node.value
+            value_text = ast.unparse(value) if value is not None else ""
             constructor = (
                 isinstance(value, ast.Call)
                 and isinstance(value.func, ast.Name)
-                and value.func.id == "Place"
+                and value.func.id == model_name
             )
-            annotated = isinstance(node, ast.AnnAssign) and _annotation_mentions_place(node.annotation)
-            if constructor or annotated:
+            query_result = model_name in value_text and any(
+                token in value_text for token in ("query(", "get(", "select(", ".one(", ".first(", ".one_or_none(")
+            )
+            annotated = isinstance(node, ast.AnnAssign) and _annotation_mentions(node.annotation, model_name)
+            if constructor or query_result or annotated:
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 names.update(target.id for target in targets if isinstance(target, ast.Name))
     return names
 
 
-def _receiver_is_place(node: ast.AST, place_names: set[str]) -> bool:
+def _receiver_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.Name):
-        return node.id == "Place" or node.id in place_names
+        return node.id
     if isinstance(node, ast.Attribute):
-        return _receiver_is_place(node.value, place_names) or node.attr in place_names
+        return _receiver_name(node.value)
     if isinstance(node, ast.Subscript):
-        return _receiver_is_place(node.value, place_names)
+        return _receiver_name(node.value)
+    return None
+
+
+def _receiver_is_place(node: ast.AST, place_names: set[str], non_place_names: set[str]) -> bool:
+    name = _receiver_name(node)
+    if name in non_place_names:
+        return False
+    if name == "Place" or name in place_names:
+        return True
+    if isinstance(node, ast.Attribute) and node.attr in place_names:
+        return True
+    if isinstance(node, ast.Subscript):
+        text = ast.unparse(node.value).lower()
+        return "place" in text
     return False
 
 
@@ -100,10 +124,17 @@ def _owner_for(field: str) -> Path | None:
     return None
 
 
+def _field_targets_place(field: str, receiver: ast.AST, place_names: set[str], non_place_names: set[str]) -> bool:
+    if field not in SHARED_MODEL_FIELDS:
+        return _receiver_name(receiver) not in non_place_names
+    return _receiver_is_place(receiver, place_names, non_place_names)
+
+
 def _violations(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
     tree = ast.parse(text, filename=str(path))
-    place_names = _place_names(tree)
+    place_names = {"place", "locked_place"} | _typed_names(tree, "Place")
+    non_place_names = set().union(*(_typed_names(tree, name) for name in NON_PLACE_MODEL_NAMES))
     violations: list[str] = []
 
     def forbidden(field: object) -> bool:
@@ -115,7 +146,7 @@ def _violations(path: Path) -> list[str]:
                 if (
                     isinstance(flattened, ast.Attribute)
                     and forbidden(flattened.attr)
-                    and _receiver_is_place(flattened.value, place_names)
+                    and _field_targets_place(flattened.attr, flattened.value, place_names, non_place_names)
                 ):
                     violations.append(
                         f"{path.relative_to(ROOT)}:{node.lineno}: direct controlled Place assignment to {flattened.attr}"
@@ -126,11 +157,16 @@ def _violations(path: Path) -> list[str]:
                 continue
             receiver, field_node = node.args[0], node.args[1]
             if isinstance(field_node, ast.Constant):
-                if forbidden(field_node.value) and _receiver_is_place(receiver, place_names):
+                field = field_node.value
+                if (
+                    forbidden(field)
+                    and isinstance(field, str)
+                    and _field_targets_place(field, receiver, place_names, non_place_names)
+                ):
                     violations.append(
-                        f"{path.relative_to(ROOT)}:{node.lineno}: controlled Place setattr bypass for {field_node.value}"
+                        f"{path.relative_to(ROOT)}:{node.lineno}: controlled Place setattr bypass for {field}"
                     )
-            elif _receiver_is_place(receiver, place_names) and path.resolve() not in APPROVED_DYNAMIC_SETATTR:
+            elif _receiver_is_place(receiver, place_names, non_place_names) and path.resolve() not in APPROVED_DYNAMIC_SETATTR:
                 violations.append(
                     f"{path.relative_to(ROOT)}:{node.lineno}: unbounded dynamic Place setattr"
                 )
@@ -165,27 +201,20 @@ def test_dynamic_boundaries_share_complete_registry() -> None:
     assert RESTORABLE_PLACE_FIELDS.isdisjoint(CONTROLLED_PLACE_INPUT_FIELDS)
 
 
-def test_guard_distinguishes_place_from_other_models() -> None:
+def test_guard_detects_aliases_loaded_from_place_queries() -> None:
     tree = ast.parse(
         """
-def mutate(place: Place, category: Category, route: Route):
-    place.is_route_eligible = False
-    place.verification_status = 'verified'
-    category.is_route_eligible = False
-    category.is_searchable = False
-    route.is_active = False
+def mutate(db, places_by_id):
+    row = db.query(Place).first()
+    candidate = db.get(Place, 1)
+    item = places_by_id[1]
+    row.verification_status = 'verified'
+    candidate.is_published = True
+    item.is_route_eligible = False
 """
     )
-    names = _place_names(tree)
-    protected = [
-        target.attr
-        for node in ast.walk(tree)
-        for target in _assignment_targets(node)
-        if isinstance(target, ast.Attribute)
-        and target.attr in CONTROLLED_PLACE_INPUT_FIELDS
-        and _receiver_is_place(target.value, names)
-    ]
-    assert protected == ["is_route_eligible", "verification_status"]
+    assert {"row", "candidate"}.issubset(_typed_names(tree, "Place"))
+    assert _receiver_is_place(ast.Name(id="item"), {"item"}, set())
 
 
 @pytest.mark.parametrize("field", sorted(CONTROLLED_PLACE_INPUT_FIELDS))
