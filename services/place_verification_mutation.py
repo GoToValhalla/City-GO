@@ -22,6 +22,7 @@ _ALLOWED_VERIFICATION_STATUSES = frozenset(
         "duplicate",
     }
 )
+_SUCCESSFUL_VERIFICATION_STATUSES = frozenset({"verified", "trusted"})
 
 
 def transition_place_verification(
@@ -56,6 +57,11 @@ def transition_place_verification(
             .one()
         )
 
+    if place.verification_status == "trusted" and to_status == "verified":
+        if reject_noop:
+            raise ValueError("Место уже имеет более сильный статус trusted")
+        return False
+
     target_score, target_level, should_set_verified_at = _target_values(
         place,
         to_status=to_status,
@@ -64,8 +70,20 @@ def transition_place_verification(
         set_verified_at=set_verified_at,
     )
     preserve_completed_evidence = to_status == "needs_recheck"
-    target_source = place.verification_source if preserve_completed_evidence else verification_source
-    target_method = place.verification_method if preserve_completed_evidence else verification_method
+    preserve_success_metadata = (
+        to_status in _SUCCESSFUL_VERIFICATION_STATUSES
+        and place.verification_status in _SUCCESSFUL_VERIFICATION_STATUSES
+    )
+    target_source = (
+        place.verification_source
+        if preserve_completed_evidence or (preserve_success_metadata and verification_source is None)
+        else verification_source
+    )
+    target_method = (
+        place.verification_method
+        if preserve_completed_evidence or (preserve_success_metadata and verification_method is None)
+        else verification_method
+    )
     target_verified_by = None if to_status == "unverified" else (
         place.verified_by if preserve_completed_evidence else actor
     )
@@ -133,7 +151,7 @@ def verify_locked_place(
     verification_method: str | None = None,
     lock_place: bool = True,
 ) -> bool:
-    if verification_status not in {"verified", "trusted"}:
+    if verification_status not in _SUCCESSFUL_VERIFICATION_STATUSES:
         raise ValueError(f"unsupported successful verification status: {verification_status}")
     return transition_place_verification(
         db,
