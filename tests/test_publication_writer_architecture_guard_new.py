@@ -9,6 +9,7 @@ from core.publication_state_ownership import (
     CONTROLLED_PLACE_INPUT_FIELDS,
     PUBLICATION_OWNED_FIELDS,
     VERIFICATION_OWNED_FIELDS,
+    VERIFICATION_POLICY_INPUT_FIELDS,
 )
 from services.place_change_review_service import RESTORABLE_PLACE_FIELDS
 from services.place_service import PROTECTED_CONTROLLED_FIELDS
@@ -62,6 +63,7 @@ def _typed_names(tree: ast.AST, model_name: str) -> set[str]:
             continue
         value = node.value
         value_text = ast.unparse(value) if value is not None else ""
+        lower_value = value_text.lower()
         constructor = (
             isinstance(value, ast.Call)
             and isinstance(value.func, ast.Name)
@@ -71,13 +73,17 @@ def _typed_names(tree: ast.AST, model_name: str) -> set[str]:
             token in value_text
             for token in ("query(", "get(", "select(", ".one(", ".first(", ".one_or_none(")
         )
+        place_helper_result = model_name == "Place" and any(
+            token in lower_value
+            for token in ("get_place", "find_place", "load_place", "place_by_id", "place_by_slug")
+        )
         annotated = isinstance(node, ast.AnnAssign) and _annotation_mentions(node.annotation, model_name)
         place_container_item = (
             model_name == "Place"
             and isinstance(value, ast.Subscript)
             and "place" in ast.unparse(value.value).lower()
         )
-        if constructor or query_result or annotated or place_container_item:
+        if constructor or query_result or place_helper_result or annotated or place_container_item:
             names.update(_target_names(node))
 
     changed = True
@@ -132,12 +138,14 @@ def _flatten_targets(node: ast.AST) -> list[ast.AST]:
     return [node]
 
 
-def _owner_for(field: str) -> Path | None:
+def _owners_for(field: str) -> frozenset[Path]:
     if field in PUBLICATION_OWNED_FIELDS:
-        return PUBLICATION_WRITER
+        return frozenset({PUBLICATION_WRITER})
     if field in VERIFICATION_OWNED_FIELDS:
-        return VERIFICATION_WRITER
-    return None
+        return frozenset({VERIFICATION_WRITER})
+    if field in VERIFICATION_POLICY_INPUT_FIELDS:
+        return frozenset({VERIFICATION_WRITER, IMPORT_LIFECYCLE})
+    return frozenset()
 
 
 def _field_targets_place(
@@ -159,7 +167,10 @@ def _violations(path: Path) -> list[str]:
     violations: list[str] = []
 
     def forbidden(field: object) -> bool:
-        return isinstance(field, str) and _owner_for(field) not in {None, path.resolve()}
+        if not isinstance(field, str):
+            return False
+        owners = _owners_for(field)
+        return bool(owners) and path.resolve() not in owners
 
     for node in ast.walk(tree):
         for target in _assignment_targets(node):
@@ -244,16 +255,18 @@ def mutate(db, places_by_id):
     candidate = db.get(Place, 1)
     item = places_by_id[1]
     alias = item
+    helper_loaded = get_place_by_id(db, 2)
     row.verification_status = 'verified'
     candidate.is_published = True
     alias.is_route_eligible = False
+    helper_loaded.last_verified_at = None
 """
     )
-    assert {"row", "candidate", "item", "alias"}.issubset(_typed_names(tree, "Place"))
+    assert {"row", "candidate", "item", "alias", "helper_loaded"}.issubset(
+        _typed_names(tree, "Place")
+    )
 
 
 @pytest.mark.parametrize("field", sorted(CONTROLLED_PLACE_INPUT_FIELDS))
-def test_owner_registry_covers_every_owned_field(field: str) -> None:
-    assert _owner_for(field) is not None or field not in (
-        PUBLICATION_OWNED_FIELDS | VERIFICATION_OWNED_FIELDS
-    )
+def test_owner_registry_covers_every_controlled_field(field: str) -> None:
+    assert _owners_for(field), f"Controlled field has no explicit owner: {field}"
