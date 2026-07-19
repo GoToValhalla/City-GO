@@ -5,7 +5,10 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy.orm import Query
 
-from core.publication_state_ownership import CONTROLLED_PLACE_INPUT_FIELDS, VERIFICATION_OWNED_FIELDS
+from core.publication_state_ownership import (
+    CONTROLLED_PLACE_INPUT_FIELDS,
+    VERIFICATION_POLICY_INPUT_FIELDS,
+)
 from schemas.admin import AdminPlaceCreate
 from schemas.place import PlaceCreate, PlaceUpdate
 from services.admin_service import verify_place
@@ -23,8 +26,8 @@ def _base_payload(**overrides):
     return payload
 
 
-def test_last_verified_at_is_verification_owned() -> None:
-    assert "last_verified_at" in VERIFICATION_OWNED_FIELDS
+def test_last_verified_at_is_protected_verification_policy_input() -> None:
+    assert "last_verified_at" in VERIFICATION_POLICY_INPUT_FIELDS
     assert "last_verified_at" in CONTROLLED_PLACE_INPUT_FIELDS
     with pytest.raises(ValueError):
         PlaceUpdate.model_validate(_base_payload(last_verified_at=datetime.utcnow()))
