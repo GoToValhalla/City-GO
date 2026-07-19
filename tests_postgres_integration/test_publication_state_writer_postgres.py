@@ -6,11 +6,12 @@ import uuid
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from models.city import City
 from models.place import Place
 from models.place_publication_transition import PlacePublicationTransition
+from services.place_verification_mutation import transition_place_verification, verify_locked_place
 from services.publication_state_writer import (
     REASON_ADMIN_HIDE,
     REASON_ADMIN_UNPUBLISH,
@@ -63,6 +64,9 @@ def _seed_two_places(factory) -> tuple[int, int, int]:
                 publication_status="published",
                 publication_reason_code=None,
                 publication_reason_details={},
+                verification_status="unverified",
+                existence_confidence_score=0,
+                existence_confidence_level="unknown",
             )
             for index in (1, 2)
         ]
@@ -198,5 +202,51 @@ def test_writer_flush_is_rolled_back_with_caller_transaction() -> None:
                 == 0
             )
     finally:
+        _cleanup(factory, city_id)
+        engine.dispose()
+
+
+def test_stale_verify_cannot_downgrade_concurrent_trusted() -> None:
+    engine, factory = _session_factory()
+    city_id, first_id, _ = _seed_two_places(factory)
+    session_a = factory()
+    try:
+        stale = session_a.get(Place, first_id)
+        assert stale is not None
+
+        with factory() as session_b:
+            current = session_b.query(Place).filter(Place.id == first_id).with_for_update().one()
+            transition_place_verification(
+                session_b,
+                current,
+                to_status="trusted",
+                actor="trusted-policy",
+                verification_source="official_site",
+                verification_method="trusted_source",
+                confidence_score=100,
+                confidence_level="high",
+                lock_place=False,
+            )
+            session_b.commit()
+
+        changed = verify_locked_place(
+            session_a,
+            stale,
+            actor="ordinary-admin",
+            verification_status="verified",
+        )
+        session_a.commit()
+        assert changed is False
+
+        with factory() as verify_db:
+            current = verify_db.get(Place, first_id)
+            assert current is not None
+            assert current.verification_status == "trusted"
+            assert current.existence_confidence_score == 100
+            assert current.verification_source == "official_site"
+            assert current.verification_method == "trusted_source"
+            assert current.verified_by == "trusted-policy"
+    finally:
+        session_a.close()
         _cleanup(factory, city_id)
         engine.dispose()
