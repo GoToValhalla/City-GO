@@ -17,6 +17,16 @@ def _reject_controlled_input(value: Any) -> Any:
     return value
 
 
+def _hide_controlled_input_fields(schema: dict[str, Any]) -> None:
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for field in CONTROLLED_PLACE_INPUT_FIELDS:
+            properties.pop(field, None)
+    required = schema.get("required")
+    if isinstance(required, list):
+        schema["required"] = [field for field in required if field not in CONTROLLED_PLACE_INPUT_FIELDS]
+
+
 class PlaceBase(BaseModel):
     city_id: int = 1
     category_id: int | None = None
@@ -75,7 +85,7 @@ class PlaceBase(BaseModel):
 
 
 class PlaceCreate(PlaceBase):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_hide_controlled_input_fields)
 
     @model_validator(mode="before")
     @classmethod
@@ -84,7 +94,7 @@ class PlaceCreate(PlaceBase):
 
 
 class PlaceUpdate(PlaceBase):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra=_hide_controlled_input_fields)
 
     @model_validator(mode="before")
     @classmethod
