@@ -16,9 +16,8 @@ from services.admin_city_import_setup import finish_city_import_setup
 from services.admin_places_filters import apply_place_filters
 from services.canonical_publication_apply import apply_admin_city_publication_place
 from services.place_publication_eligibility import place_publication_eligibility
-from services.place_read_service import build_place_read
-from services.place_service import create_place, get_place_by_id, get_places, get_places_total, update_place
-from services.place_verification_mutation import verify_locked_place
+from services.place_service import create_place, get_place_by_id, update_place
+from services.place_verification_mutation import reject_locked_place_verification, verify_locked_place
 from services.publication_policy import unsafe_manual_publish_gates
 from services.publication_state_writer import (
     REASON_ADMIN_REJECT,
@@ -29,8 +28,6 @@ from services.route_service import get_route_by_id
 
 
 class PlacePublicationBlockedError(ValueError):
-    """Raised when a manual publish action is blocked by a server-side safety gate."""
-
     def __init__(self, *, place_id: int, blocked_reason: str, failed_gates: list[str]):
         self.place_id = place_id
         self.blocked_reason = blocked_reason
@@ -40,10 +37,8 @@ class PlacePublicationBlockedError(ValueError):
 
 def slugify_city_name(name: str) -> str:
     from services.slug_transliterate import transliterate_cyrillic
-
     latin = transliterate_cyrillic(name.strip().lower())
-    slug = re.sub(r"[^a-z0-9]+", "-", latin).strip("-")
-    return slug or "city"
+    return re.sub(r"[^a-z0-9]+", "-", latin).strip("-") or "city"
 
 
 def get_admin_dashboard(db: Session) -> dict[str, int]:
@@ -90,18 +85,13 @@ def get_admin_places(
         route_eligible=route_eligible, low_confidence=low_confidence, source=source,
     )
     total = query.count()
-    items = query.order_by(Place.updated_at.desc()).offset(offset).limit(limit).all()
-    return items, total
+    return query.order_by(Place.updated_at.desc()).offset(offset).limit(limit).all(), total
 
 
 def create_admin_place(db: Session, payload: AdminPlaceCreate, *, actor: str = "admin") -> Place:
     place = create_place(db, payload)
     write_admin_audit_log(
-        db,
-        actor=actor,
-        action="create_place",
-        entity_type="place",
-        entity_id=place.id,
+        db, actor=actor, action="create_place", entity_type="place", entity_id=place.id,
         new_value={"title": place.title, "publication_status": place.publication_status},
     )
     db.commit()
@@ -118,11 +108,7 @@ def update_admin_place(db: Session, place_id: int, payload: AdminPlaceUpdate, *,
     if place is None:
         return None
     write_admin_audit_log(
-        db,
-        actor=actor,
-        action="update_place",
-        entity_type="place",
-        entity_id=place.id,
+        db, actor=actor, action="update_place", entity_type="place", entity_id=place.id,
         old_value=old_value,
         new_value={"title": place.title, "status": place.status, "publication_status": place.publication_status},
     )
@@ -138,24 +124,16 @@ def publish_place(db: Session, place_id: int, *, actor: str, reason: str | None 
     eligibility = place_publication_eligibility(place)
     failed_gates = list(eligibility.reasons) + unsafe_manual_publish_gates(place)
     if failed_gates:
-        raise PlacePublicationBlockedError(place_id=place_id, blocked_reason=failed_gates[0], failed_gates=failed_gates)
+        raise PlacePublicationBlockedError(
+            place_id=place_id, blocked_reason=failed_gates[0], failed_gates=failed_gates
+        )
     old_value = _place_publication_snapshot(place)
     apply_admin_city_publication_place(
-        db,
-        place,
-        actor=actor,
-        source="admin_place_publish",
-        reason=reason,
+        db, place, actor=actor, source="admin_place_publish", reason=reason
     )
     write_admin_audit_log(
-        db,
-        actor=actor,
-        action="publish_place",
-        entity_type="place",
-        entity_id=place.id,
-        old_value=old_value,
-        new_value=_place_publication_snapshot(place),
-        reason=reason,
+        db, actor=actor, action="publish_place", entity_type="place", entity_id=place.id,
+        old_value=old_value, new_value=_place_publication_snapshot(place), reason=reason,
     )
     db.commit()
     db.refresh(place)
@@ -168,23 +146,12 @@ def unpublish_place(db: Session, place_id: int, *, actor: str, reason: str) -> P
         return None
     old_value = _place_publication_snapshot(place)
     transition_place_publication(
-        db,
-        place,
-        to_status="unpublished",
-        reason_code=REASON_ADMIN_UNPUBLISH,
-        actor=actor,
-        source="admin_place_unpublish",
-        human_comment=reason,
+        db, place, to_status="unpublished", reason_code=REASON_ADMIN_UNPUBLISH,
+        actor=actor, source="admin_place_unpublish", human_comment=reason,
     )
     write_admin_audit_log(
-        db,
-        actor=actor,
-        action="unpublish_place",
-        entity_type="place",
-        entity_id=place.id,
-        old_value=old_value,
-        new_value=_place_publication_snapshot(place),
-        reason=reason,
+        db, actor=actor, action="unpublish_place", entity_type="place", entity_id=place.id,
+        old_value=old_value, new_value=_place_publication_snapshot(place), reason=reason,
     )
     db.commit()
     db.refresh(place)
@@ -198,28 +165,18 @@ def reject_place(db: Session, place_id: int, *, actor: str, reason: str) -> Plac
     old_value = _place_publication_snapshot(place)
     old_value["verification_status"] = place.verification_status
     transition_place_publication(
-        db,
-        place,
-        to_status="rejected",
-        reason_code=REASON_ADMIN_REJECT,
-        actor=actor,
-        source="admin_place_reject",
-        human_comment=reason,
+        db, place, to_status="rejected", reason_code=REASON_ADMIN_REJECT,
+        actor=actor, source="admin_place_reject", human_comment=reason,
     )
     place.status = "inactive"
-    place.verification_status = "rejected"
-    place.verification_comment = reason
+    reject_locked_place_verification(
+        db, place, actor=actor, reason=reason, action="admin_place_reject_verification"
+    )
     new_value = _place_publication_snapshot(place)
     new_value["verification_status"] = place.verification_status
     write_admin_audit_log(
-        db,
-        actor=actor,
-        action="reject_place",
-        entity_type="place",
-        entity_id=place.id,
-        old_value=old_value,
-        new_value=new_value,
-        reason=reason,
+        db, actor=actor, action="reject_place", entity_type="place", entity_id=place.id,
+        old_value=old_value, new_value=new_value, reason=reason,
     )
     db.commit()
     db.refresh(place)
@@ -244,25 +201,17 @@ def create_city_and_queue_import(db: Session, payload: AdminCityCreateRequest, *
         slug = f"{base_slug}-{index}"
         index += 1
     city = City(
-        name=payload.name.strip(),
-        slug=slug,
-        country=payload.country,
-        region=payload.region,
-        timezone=payload.timezone,
-        center_lat=payload.center_lat,
-        center_lng=payload.center_lng,
-        launch_status="importing",
-        is_active=False,
+        name=payload.name.strip(), slug=slug, country=payload.country,
+        region=payload.region, timezone=payload.timezone,
+        center_lat=payload.center_lat, center_lng=payload.center_lng,
+        launch_status="importing", is_active=False,
     )
     db.add(city)
     db.flush()
     finish_city_import_setup(db, city, payload)
     queue_city_import_job(db, city_id=city.id)
     write_admin_audit_log(
-        db,
-        actor=actor,
-        action="create_city_import_request",
-        entity_type="city",
+        db, actor=actor, action="create_city_import_request", entity_type="city",
         entity_id=city.id,
         new_value={"name": city.name, "slug": city.slug, "launch_status": city.launch_status, "radius_km": payload.radius_km},
         reason="Создан город и поставлена задача на автоматический сбор мест и фото.",
@@ -275,8 +224,7 @@ def create_city_and_queue_import(db: Session, payload: AdminCityCreateRequest, *
 def get_admin_routes(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[Route], int]:
     query = db.query(Route)
     total = query.count()
-    items = query.order_by(Route.updated_at.desc()).offset(offset).limit(limit).all()
-    return items, total
+    return query.order_by(Route.updated_at.desc()).offset(offset).limit(limit).all(), total
 
 
 def publish_route(db: Session, route_id: int, *, actor: str, reason: str | None = None) -> Route | None:
@@ -285,7 +233,10 @@ def publish_route(db: Session, route_id: int, *, actor: str, reason: str | None 
         return None
     old_value = {"is_active": route.is_active}
     route.is_active = True
-    write_admin_audit_log(db, actor=actor, action="publish_route", entity_type="route", entity_id=route.id, old_value=old_value, new_value={"is_active": True}, reason=reason)
+    write_admin_audit_log(
+        db, actor=actor, action="publish_route", entity_type="route", entity_id=route.id,
+        old_value=old_value, new_value={"is_active": True}, reason=reason,
+    )
     db.commit()
     db.refresh(route)
     return route
@@ -297,7 +248,10 @@ def unpublish_route(db: Session, route_id: int, *, actor: str, reason: str) -> R
         return None
     old_value = {"is_active": route.is_active}
     route.is_active = False
-    write_admin_audit_log(db, actor=actor, action="unpublish_route", entity_type="route", entity_id=route.id, old_value=old_value, new_value={"is_active": False}, reason=reason)
+    write_admin_audit_log(
+        db, actor=actor, action="unpublish_route", entity_type="route", entity_id=route.id,
+        old_value=old_value, new_value={"is_active": False}, reason=reason,
+    )
     db.commit()
     db.refresh(route)
     return route
@@ -308,6 +262,7 @@ def _place_publication_snapshot(place: Place) -> dict[str, object]:
         "is_published": place.is_published,
         "is_visible_in_catalog": place.is_visible_in_catalog,
         "is_route_eligible": place.is_route_eligible,
+        "route_exclusion_reason": place.route_exclusion_reason,
         "is_searchable": place.is_searchable,
         "publication_status": place.publication_status,
         "publication_reason_code": place.publication_reason_code,
