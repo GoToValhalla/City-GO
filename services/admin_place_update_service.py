@@ -1,8 +1,7 @@
-"""Обновление непубликационных полей места из админки.
+"""Update ordinary Place fields from the admin surface.
 
-Publication-state fields are deliberately rejected here. Publish, unpublish,
-hide, review and route-eligibility actions must use their explicit services,
-which delegate to ``publication_state_writer`` and create transition lineage.
+Publication, verification and route-state fields are rejected fail-closed and
+must use their dedicated mutation services.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from core.place_category_hierarchy import CATEGORY_LABELS_RU, ROUTE_EXCLUDED_CATEGORIES
-from core.publication_state_ownership import PUBLICATION_CONTROLLED_INPUT_FIELDS
+from core.publication_state_ownership import CONTROLLED_PLACE_INPUT_FIELDS
 from models.category import Category
 from models.place import Place
 from models.place_tag import PlaceTag
@@ -23,36 +22,15 @@ from services.taxonomy_workflow_service import run_workflow
 
 _ALLOWED = frozenset(
     {
-        "title",
-        "category",
-        "canonical_category",
-        "address",
-        "short_description",
-        "image_url",
-        "lat",
-        "lng",
-        "source",
-        "source_url",
-        "website",
-        "phone",
-        "atmosphere",
-        "inside",
-        "best_for",
-        "opening_hours",
-        "average_visit_duration_minutes",
-        "price_level",
-        "indoor",
-        "outdoor",
-        "dog_friendly",
-        "family_friendly",
-        "verification_status",
-        "admin_comment",
-        "route_exclusion_reason",
-        "address_source",
+        "title", "category", "canonical_category", "address", "short_description",
+        "image_url", "lat", "lng", "source", "source_url", "website", "phone",
+        "atmosphere", "inside", "best_for", "opening_hours",
+        "average_visit_duration_minutes", "price_level", "indoor", "outdoor",
+        "dog_friendly", "family_friendly", "admin_comment", "address_source",
         "address_confidence",
     }
 )
-_PUBLICATION_CONTROLLED_FIELDS = PUBLICATION_CONTROLLED_INPUT_FIELDS
+_CONTROLLED_FIELDS = CONTROLLED_PLACE_INPUT_FIELDS
 
 
 def update_admin_place_fields(
@@ -64,7 +42,7 @@ def update_admin_place_fields(
     commit: bool = True,
     locked_place: Place | None = None,
 ) -> Place | None:
-    """Update only ordinary place data; publication state is rejected fail-closed."""
+    """Update ordinary data only; caller owns the transaction when commit=False."""
 
     try:
         place = locked_place or get_place_by_id(db, place_id)
@@ -75,10 +53,12 @@ def update_admin_place_fields(
 
         updates = dict(fields)
         reason = updates.pop("reason", None)
-        forbidden = sorted(set(updates).intersection(PUBLICATION_CONTROLLED_INPUT_FIELDS))
+        forbidden = sorted(set(updates).intersection(CONTROLLED_PLACE_INPUT_FIELDS))
         if forbidden:
-            raise ValueError("Поля публикации нельзя изменять через общий endpoint: " + ", ".join(forbidden))
-
+            raise ValueError(
+                "Управляемые поля состояния нельзя изменять через общий endpoint: "
+                + ", ".join(forbidden)
+            )
         unsupported = sorted(set(updates) - _ALLOWED - {"tag_ids"})
         if unsupported:
             raise ValueError("Неподдерживаемые поля места: " + ", ".join(unsupported))
@@ -122,10 +102,8 @@ def update_admin_place_fields(
         old = {key: getattr(place, key) for key in updates if key in _ALLOWED}
         old["tag_ids"] = (
             [row.tag_id for row in db.query(PlaceTag).filter(PlaceTag.place_id == place_id).all()]
-            if "tag_ids" in updates
-            else None
+            if "tag_ids" in updates else None
         )
-
         for key, value in updates.items():
             if key in _ALLOWED:
                 setattr(place, key, value)
@@ -136,13 +114,8 @@ def update_admin_place_fields(
                 db.add(PlaceTag(place_id=place_id, tag_id=int(tag_id)))
 
         write_admin_audit_log(
-            db,
-            actor=actor,
-            action="update_place_admin",
-            entity_type="place",
-            entity_id=place.id,
-            old_value=old,
-            new_value=updates,
+            db, actor=actor, action="update_place_admin", entity_type="place",
+            entity_id=place.id, old_value=old, new_value=updates,
             reason=str(reason) if reason else None,
         )
         record_event(db, event_type="place_updated", place_id=place.id, commit=False)
@@ -150,15 +123,10 @@ def update_admin_place_fields(
         if category_changed:
             request_id = uuid4().hex
             operation = run_workflow(
-                db,
-                workflow="after_category_change",
-                request_id=request_id,
-                idempotency_key=f"category:{place.id}:{request_id}",
-                entity_type="place",
-                entity_id=str(place.id),
-                payload={"source": "admin_place_update"},
-                actor=actor,
-                commit=False,
+                db, workflow="after_category_change", request_id=request_id,
+                idempotency_key=f"category:{place.id}:{request_id}", entity_type="place",
+                entity_id=str(place.id), payload={"source": "admin_place_update"},
+                actor=actor, commit=False,
             )
             if operation.status != "completed":
                 raise ValueError(operation.error_message or "Workflow смены категории завершился ошибкой")
