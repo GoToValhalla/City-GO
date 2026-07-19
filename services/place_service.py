@@ -1,5 +1,7 @@
 """Place query and generic persistence services."""
 
+from uuid import uuid4
+
 from sqlalchemy.orm import Session
 
 from core.publication_state_ownership import CONTROLLED_PLACE_INPUT_FIELDS, PUBLICATION_OWNED_FIELDS
@@ -13,6 +15,7 @@ from services.place_query_params_service import normalize_place_query_params
 from services.place_search_service import apply_place_text_search
 from services.place_sorting_service import apply_place_sorting
 from services.publication_state_writer import REASON_ADMIN_CREATE_DRAFT, transition_place_publication
+from services.taxonomy_workflow_service import run_workflow
 
 PROTECTED_PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
 PROTECTED_CONTROLLED_FIELDS = CONTROLLED_PLACE_INPUT_FIELDS
@@ -127,7 +130,14 @@ def get_place_by_slug(db: Session, slug: str, *, public_only: bool = False) -> P
     return query.first()
 
 
-def create_place(db: Session, place_in: PlaceCreate) -> Place:
+def create_place(
+    db: Session,
+    place_in: PlaceCreate,
+    *,
+    actor: str = "place_service",
+    commit: bool = True,
+) -> Place:
+    """Create a draft atomically; the caller owns commit when ``commit=False``."""
     try:
         place = Place(**_place_column_payload(place_in.model_dump()))
         db.add(place)
@@ -137,18 +147,22 @@ def create_place(db: Session, place_in: PlaceCreate) -> Place:
             place,
             to_status="draft",
             reason_code=REASON_ADMIN_CREATE_DRAFT,
-            actor="place_service",
+            actor=actor,
             source="place_create",
             reason_details={"origin": "generic_place_create"},
             human_comment="Created as unpublished draft",
             lock_place=False,
         )
-        db.commit()
-        db.refresh(place)
         _shadow_write_membership(db, place)
+        if commit:
+            db.commit()
+            db.refresh(place)
+        else:
+            db.flush()
         return place
     except Exception:
-        db.rollback()
+        if commit:
+            db.rollback()
         raise
 
 
@@ -174,23 +188,65 @@ def _shadow_write_membership(db: Session, place: Place) -> None:
     )
     if place.primary_destination_id is None:
         place.primary_destination_id = destination.id
-    db.commit()
+    db.flush()
 
 
-def update_place(db: Session, place_id: int, place_in: PlaceUpdate) -> Place | None:
-    """Update explicitly supplied ordinary fields only."""
-    place = get_place_by_id(db, place_id)
-    if place is None:
-        return None
-    payload = _place_column_payload(place_in.model_dump(exclude_unset=True))
-    for field, value in payload.items():
-        setattr(place, field, value)
-    if "lat" in payload or "lng" in payload:
-        from services.destination_membership_service import mark_place_stale
-        mark_place_stale(db, place.id)
-    db.commit()
-    db.refresh(place)
-    return place
+def update_place(
+    db: Session,
+    place_id: int,
+    place_in: PlaceUpdate,
+    *,
+    actor: str = "place_service",
+    commit: bool = True,
+) -> Place | None:
+    """Update explicitly supplied ordinary fields and reconcile derived state atomically."""
+    try:
+        place = (
+            db.query(Place)
+            .filter(Place.id == place_id)
+            .populate_existing()
+            .with_for_update()
+            .one_or_none()
+        )
+        if place is None:
+            return None
+        payload = _place_column_payload(place_in.model_dump(exclude_unset=True))
+        changes = {field: value for field, value in payload.items() if getattr(place, field) != value}
+        if not changes:
+            return place
+
+        for field, value in changes.items():
+            setattr(place, field, value)
+        if "lat" in changes or "lng" in changes:
+            from services.destination_membership_service import mark_place_stale
+
+            mark_place_stale(db, place.id)
+
+        request_id = uuid4().hex
+        operation = run_workflow(
+            db,
+            workflow="after_place_update",
+            request_id=request_id,
+            idempotency_key=f"legacy-place-update:{place.id}:{request_id}",
+            entity_type="place",
+            entity_id=str(place.id),
+            payload={"source": "place_service", "changed_fields": sorted(changes)},
+            actor=actor,
+            commit=False,
+        )
+        if operation.status != "completed":
+            raise ValueError(operation.error_message or "Workflow обновления места завершился ошибкой")
+
+        if commit:
+            db.commit()
+            db.refresh(place)
+        else:
+            db.flush()
+        return place
+    except Exception:
+        if commit:
+            db.rollback()
+        raise
 
 
 def delete_place(db: Session, place_id: int) -> bool:
