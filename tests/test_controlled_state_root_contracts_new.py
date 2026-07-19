@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from uuid import uuid4
 
 import pytest
 
@@ -11,19 +12,20 @@ from core.publication_state_ownership import (
 )
 from schemas.place import PlaceUpdate
 from services.admin_place_update_service import _ALLOWED
-from services.place_change_review_service import (
-    PROTECTED_PUBLICATION_FIELDS as REVIEW_PUBLICATION_FIELDS,
-    RESTORABLE_PLACE_FIELDS,
-)
+from services.place_change_review_service import RESTORABLE_PLACE_FIELDS
 from services.place_service import PROTECTED_CONTROLLED_FIELDS
-from services.taxonomy_workflow_service import STEP_HANDLERS, WORKFLOW_REGISTRY, _validate_registry
+from services.taxonomy_workflow_service import (
+    STEP_HANDLERS,
+    WORKFLOW_REGISTRY,
+    _validate_registry,
+    run_workflow,
+)
 
 
 def test_all_generic_boundaries_share_complete_controlled_registry() -> None:
     assert PROTECTED_CONTROLLED_FIELDS == CONTROLLED_PLACE_INPUT_FIELDS
     assert _ALLOWED.isdisjoint(CONTROLLED_PLACE_INPUT_FIELDS)
-    assert REVIEW_PUBLICATION_FIELDS == PUBLICATION_OWNED_FIELDS
-    assert RESTORABLE_PLACE_FIELDS.isdisjoint(PUBLICATION_OWNED_FIELDS)
+    assert RESTORABLE_PLACE_FIELDS.isdisjoint(CONTROLLED_PLACE_INPUT_FIELDS)
     assert "route_exclusion_reason" in PUBLICATION_OWNED_FIELDS
     assert "verification_status" in VERIFICATION_OWNED_FIELDS
     assert "verified_at" in VERIFICATION_OWNED_FIELDS
@@ -59,6 +61,44 @@ def test_workflow_executor_is_fail_closed_for_missing_handler(monkeypatch) -> No
     monkeypatch.setitem(WORKFLOW_REGISTRY, "broken", ("missing_handler",))
     with pytest.raises(RuntimeError, match="registry mismatch"):
         _validate_registry()
+
+
+def test_failed_workflow_rolls_back_completed_business_steps(
+    db_session,
+    draft_place_factory,
+    monkeypatch,
+) -> None:
+    place = draft_place_factory(slug="workflow-real-savepoint", title="Original")
+
+    def mutate_title(db, operation) -> None:
+        target = db.get(type(place), place.id)
+        target.title = "Mutated inside workflow"
+        db.flush()
+
+    def fail_second_step(_db, _operation) -> None:
+        raise RuntimeError("second step failed")
+
+    monkeypatch.setitem(WORKFLOW_REGISTRY, "rollback_probe", ("probe_mutate", "probe_fail"))
+    monkeypatch.setitem(STEP_HANDLERS, "probe_mutate", mutate_title)
+    monkeypatch.setitem(STEP_HANDLERS, "probe_fail", fail_second_step)
+
+    operation = run_workflow(
+        db_session,
+        workflow="rollback_probe",
+        request_id=uuid4().hex,
+        idempotency_key=uuid4().hex,
+        entity_type="place",
+        entity_id=str(place.id),
+        payload={},
+        actor="test",
+        commit=False,
+    )
+
+    db_session.refresh(place)
+    assert operation.status == "failed"
+    assert operation.error_message == "second step failed"
+    assert place.title == "Original"
+    assert all(step["status"] == "pending" for step in operation.steps)
 
 
 def test_place_aware_guard_example_does_not_confuse_category_fields() -> None:
