@@ -1,4 +1,4 @@
-"""Reconcile an already-published place after category or verification metadata changes."""
+"""Reconcile an already-published place after data or taxonomy changes."""
 
 from __future__ import annotations
 
@@ -18,9 +18,17 @@ def reconcile_published_place(
     actor: str,
     source: str,
     reason: str,
-    lock_place: bool = False,
+    lock_place: bool = True,
 ) -> str:
-    """Re-evaluate publication and route flags without committing."""
+    """Re-evaluate publication and route state without committing."""
+    if lock_place:
+        place = (
+            db.query(Place)
+            .filter(Place.id == place.id)
+            .populate_existing()
+            .with_for_update()
+            .one()
+        )
 
     if place.publication_status != "published" or not place.is_published:
         return "not_published"
@@ -36,16 +44,40 @@ def reconcile_published_place(
             source=source,
             reason_details={"failed_gates": list(eligibility.reasons)},
             human_comment=reason,
-            lock_place=lock_place,
+            lock_place=False,
         )
         return "moved_to_review"
 
+    before = (
+        bool(place.is_active),
+        bool(place.is_published),
+        bool(place.is_visible_in_catalog),
+        bool(place.is_searchable),
+        bool(place.is_route_eligible),
+        place.route_exclusion_reason,
+        place.publication_reason_code,
+        dict(place.publication_reason_details or {}),
+        place.unpublished_at,
+        place.published_at,
+    )
     apply_admin_city_publication_place(
         db,
         place,
         actor=actor,
         source=source,
         reason=reason,
-        lock_place=lock_place,
+        lock_place=False,
     )
-    return "reconciled_published"
+    after = (
+        bool(place.is_active),
+        bool(place.is_published),
+        bool(place.is_visible_in_catalog),
+        bool(place.is_searchable),
+        bool(place.is_route_eligible),
+        place.route_exclusion_reason,
+        place.publication_reason_code,
+        dict(place.publication_reason_details or {}),
+        place.unpublished_at,
+        place.published_at,
+    )
+    return "reconciled_published" if before != after else "unchanged"
