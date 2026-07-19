@@ -14,15 +14,12 @@ from services.place_publication_reconciliation import reconcile_published_place
 from services.quality_score_v2 import calculate_quality_v2
 from services.taxonomy_automation_service import normalize_place, validate_place
 
-# Registry contains only steps with real handlers. A new step cannot be added without
-# adding it to STEP_HANDLERS; the module validates this at import time and tests repeat
-# the check in CI.
 WORKFLOW_REGISTRY: dict[str, tuple[str, ...]] = {
     "after_import": ("normalize_taxonomy", "validate_data", "calculate_quality"),
     "after_place_confirmation": ("validate_publication", "reconcile_publication_route"),
-    "after_photo_confirmation": ("calculate_quality", "resolve_no_photo"),
-    # Inputs first, derived state last.
+    "after_photo_confirmation": ("calculate_quality", "resolve_no_photo", "reconcile_publication_route"),
     "after_category_change": ("calculate_quality", "reconcile_publication_route"),
+    "after_place_update": ("calculate_quality", "reconcile_publication_route"),
 }
 
 
@@ -41,6 +38,7 @@ def run_workflow(
     if workflow not in WORKFLOW_REGISTRY:
         raise ValueError("Неизвестный workflow")
     _validate_registry()
+    _lock_entity(db, entity_type=entity_type, entity_id=entity_id)
     key = f"{workflow}:{idempotency_key}"
     existing = db.query(WorkflowOperation).filter(WorkflowOperation.idempotency_key == key).first()
     if existing:
@@ -89,6 +87,7 @@ def retry_workflow(db: Session, operation: WorkflowOperation) -> WorkflowOperati
     if operation.workflow not in WORKFLOW_REGISTRY:
         raise ValueError("Неизвестный workflow")
     _validate_registry()
+    _lock_entity(db, entity_type=operation.entity_type, entity_id=operation.entity_id)
     pending_steps = [{"name": step, "status": "pending"} for step in WORKFLOW_REGISTRY[operation.workflow]]
     operation.retry_count += 1
     operation.status = "running"
@@ -109,6 +108,18 @@ def retry_workflow(db: Session, operation: WorkflowOperation) -> WorkflowOperati
     db.commit()
     db.refresh(operation)
     return operation
+
+
+def _lock_entity(db: Session, *, entity_type: str, entity_id: str | None) -> None:
+    if entity_type != "place" or not entity_id:
+        return
+    (
+        db.query(Place)
+        .filter(Place.id == int(entity_id))
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
 
 
 def _execute(db: Session, operation: WorkflowOperation) -> None:
