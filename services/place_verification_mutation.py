@@ -144,8 +144,6 @@ def verify_locked_place(
         action=action,
         verification_source=verification_source,
         verification_method=verification_method,
-        confidence_score=max(place.existence_confidence_score or 0, 90),
-        confidence_level="high",
         set_verified_at=True,
         reject_noop=reject_noop,
         lock_place=lock_place,
