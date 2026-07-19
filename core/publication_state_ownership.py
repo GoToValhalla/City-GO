@@ -44,6 +44,7 @@ VERIFICATION_OWNED_FIELDS = frozenset(
         "verification_comment",
         "existence_confidence_score",
         "existence_confidence_level",
+        "last_verified_at",
     }
 )
 
