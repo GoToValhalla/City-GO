@@ -5,7 +5,7 @@ from datetime import datetime
 from functools import reduce
 from typing import Any
 
-from sqlalchemy import and_, case, func, or_, text
+from sqlalchemy import case, func, text
 from sqlalchemy.orm import Session, joinedload
 
 from models.city import City
@@ -14,7 +14,13 @@ from models.place_verification import PlaceVerification
 from models.place_verification_task import PlaceVerificationTask
 from schemas.place_verification import PlaceVerificationEnqueueSummary
 from services.place_staleness_policy import is_needs_verification
-
+from services.place_verification_mutation import transition_place_verification
+from services.publication_state_writer import (
+    REASON_DUPLICATE_SUSPECTED,
+    REASON_LOW_CONFIDENCE,
+    REASON_POLICY_GATE_FAILED,
+    transition_place_publication,
+)
 
 CONFIDENCE_LEVELS = (
     (95, "verified"),
@@ -34,13 +40,9 @@ def confidence_level(score: int) -> str:
 
 def enqueue_stale_places(db: Session, city_slug: str) -> PlaceVerificationEnqueueSummary:
     places = db.query(Place).join(City).filter(City.slug == city_slug).all()
-    state = reduce(lambda acc, place: _enqueue_if_stale(db, acc, place), places, (0, 0))
+    enqueued, existing = reduce(lambda state, place: _enqueue_if_stale(db, state, place), places, (0, 0))
     db.commit()
-    return PlaceVerificationEnqueueSummary(
-        city_slug=city_slug,
-        enqueued=state[0],
-        already_pending=state[1],
-    )
+    return PlaceVerificationEnqueueSummary(city_slug=city_slug, enqueued=enqueued, already_pending=existing)
 
 
 def pending_verification_tasks(db: Session, limit: int = 100) -> list[PlaceVerificationTask]:
@@ -48,8 +50,7 @@ def pending_verification_tasks(db: Session, limit: int = 100) -> list[PlaceVerif
         db.query(PlaceVerificationTask)
         .filter(PlaceVerificationTask.status == "pending")
         .order_by(PlaceVerificationTask.priority.desc(), PlaceVerificationTask.created_at.asc())
-        .limit(limit)
-        .all()
+        .limit(limit).all()
     )
 
 
@@ -68,7 +69,6 @@ def get_place_verification_queue(
     offset: int = 0,
 ) -> tuple[list[dict[str, Any]], int]:
     query = _verification_base_query(db)
-
     if city_slug:
         query = query.filter(City.slug == city_slug)
     if status:
@@ -79,10 +79,11 @@ def get_place_verification_queue(
         query = query.filter(Place.existence_confidence_score <= max_confidence)
     if category:
         query = query.filter(Place.category == category)
-
     if radius_meters is not None and lat is not None and lng is not None:
-        return _distance_filtered_queue(query, lat=lat, lng=lng, radius_meters=radius_meters, limit=limit, offset=offset)
-
+        return _distance_filtered_queue(
+            query, lat=lat, lng=lng, radius_meters=radius_meters,
+            limit=limit, offset=offset,
+        )
     total = query.count()
     rows = (
         query.options(joinedload(Place.city))
@@ -91,9 +92,7 @@ def get_place_verification_queue(
             func.coalesce(Place.existence_confidence_score, 0).asc(),
             Place.id.asc(),
         )
-        .offset(offset)
-        .limit(limit)
-        .all()
+        .offset(offset).limit(limit).all()
     )
     return [_place_queue_payload(place, lat=lat, lng=lng) for place in rows], total
 
@@ -109,7 +108,10 @@ def apply_place_verification(
     photo_url: str | None = None,
     comment: str | None = None,
 ) -> Place:
-    place = db.query(Place).filter(Place.id == place_id).first()
+    place = (
+        db.query(Place).filter(Place.id == place_id)
+        .with_for_update().populate_existing().one_or_none()
+    )
     if place is None:
         raise LookupError(f"Place {place_id} not found")
 
@@ -119,91 +121,115 @@ def apply_place_verification(
 
     score_before = int(place.existence_confidence_score or 0)
     level_before = place.existence_confidence_level or confidence_level(score_before)
-
+    actor = verifier or "local_admin"
+    source = "field_visit" if distance is not None else "manual_admin"
+    result = _verification_result(action, score_before=score_before, onsite=distance is not None)
     now = datetime.utcnow()
-    source = "field_visit" if verifier_lat is not None and verifier_lng is not None else "manual_admin"
-    method = "manual_override"
-    score_after = score_before
-    status_after = place.verification_status or "unverified"
-    is_active = place.is_active
-    place_status = place.status
 
-    if action == "exists":
-        status_after = "verified"
-        score_after = 100
-        method = "onsite_confirmed" if distance is not None else "manual_override"
-        is_active = True
-        if place_status in {"draft", "needs_review"}:
-            place_status = "active"
-    elif action == "not_found":
-        status_after = "not_found"
-        score_after = 15
-        method = "onsite_confirmed" if distance is not None else "manual_override"
-        is_active = False
-        place_status = "needs_review"
-    elif action == "closed":
-        status_after = "closed"
-        score_after = 0
-        method = "onsite_confirmed" if distance is not None else "manual_override"
-        is_active = False
-        place_status = "closed"
-    elif action == "moved":
-        status_after = "moved"
-        score_after = 40
-        method = "onsite_confirmed" if distance is not None else "manual_override"
-        is_active = False
-        place_status = "needs_review"
-    elif action == "duplicate":
-        status_after = "duplicate"
-        score_after = 0
-        method = "manual_override"
-        is_active = False
-        place_status = "rejected"
-    elif action == "needs_recheck":
-        status_after = "needs_recheck"
-        score_after = min(score_before, 50)
-        method = "manual_override"
-    else:
-        raise ValueError(f"Unsupported verification action: {action}")
-
-    level_after = confidence_level(score_after)
-
-    place.existence_confidence_score = score_after
-    place.existence_confidence_level = level_after
-    place.verification_status = status_after
-    place.verification_source = source
-    place.verification_method = method
-    place.verified_at = now if action in {"exists", "not_found", "closed", "moved", "duplicate"} else place.verified_at
-    place.verified_by = verifier or "local_admin"
-    place.verification_comment = comment
-    place.is_active = is_active
-    place.status = place_status
-    place.last_verified_at = now
-    place.updated_at = now
-
-    db.add(
-        PlaceVerification(
-            place_id=place.id,
-            status=status_after,
-            confidence_score_before=score_before,
-            confidence_score_after=score_after,
-            confidence_level_before=level_before,
-            confidence_level_after=level_after,
+    try:
+        transition_place_verification(
+            db,
+            place,
+            to_status=result["verification_status"],
+            actor=actor,
+            reason=comment,
+            action=f"place_verification_{action}",
             verification_source=source,
-            verification_method=method,
-            verifier=verifier or "local_admin",
-            verifier_lat=verifier_lat,
-            verifier_lng=verifier_lng,
-            distance_to_place_meters=distance,
-            photo_url=photo_url,
-            comment=comment,
-            created_at=now,
+            verification_method=result["method"],
+            confidence_score=result["score"],
+            confidence_level=confidence_level(result["score"]),
+            set_verified_at=action != "needs_recheck",
         )
-    )
+        place.status = result["place_status"]
+        _apply_publication_consequence(
+            db,
+            place,
+            action=action,
+            actor=actor,
+            comment=comment,
+        )
+        db.add(
+            PlaceVerification(
+                place_id=place.id,
+                status=result["verification_status"],
+                confidence_score_before=score_before,
+                confidence_score_after=result["score"],
+                confidence_level_before=level_before,
+                confidence_level_after=confidence_level(result["score"]),
+                verification_source=source,
+                verification_method=result["method"],
+                verifier=actor,
+                verifier_lat=verifier_lat,
+                verifier_lng=verifier_lng,
+                distance_to_place_meters=distance,
+                photo_url=photo_url,
+                comment=comment,
+                created_at=now,
+            )
+        )
+        db.commit()
+        db.refresh(place)
+        return place
+    except Exception:
+        db.rollback()
+        raise
 
-    db.commit()
-    db.refresh(place)
-    return place
+
+def _verification_result(action: str, *, score_before: int, onsite: bool) -> dict[str, Any]:
+    method = "onsite_confirmed" if onsite else "manual_override"
+    mapping: dict[str, dict[str, Any]] = {
+        "exists": {"verification_status": "verified", "score": 100, "method": method, "place_status": "active"},
+        "not_found": {"verification_status": "not_found", "score": 15, "method": method, "place_status": "needs_review"},
+        "closed": {"verification_status": "closed", "score": 0, "method": method, "place_status": "closed"},
+        "moved": {"verification_status": "moved", "score": 40, "method": method, "place_status": "needs_review"},
+        "duplicate": {"verification_status": "duplicate", "score": 0, "method": "manual_override", "place_status": "rejected"},
+        "needs_recheck": {
+            "verification_status": "needs_recheck",
+            "score": min(score_before, 50),
+            "method": "manual_override",
+            "place_status": "active",
+        },
+    }
+    if action not in mapping:
+        raise ValueError(f"Unsupported verification action: {action}")
+    return mapping[action]
+
+
+def _apply_publication_consequence(
+    db: Session,
+    place: Place,
+    *,
+    action: str,
+    actor: str,
+    comment: str | None,
+) -> None:
+    if action in {"exists", "needs_recheck"}:
+        return
+    details = {"verification_action": action}
+    if action == "duplicate":
+        transition_place_publication(
+            db, place, to_status="rejected",
+            reason_code=REASON_DUPLICATE_SUSPECTED,
+            actor=actor, source="place_verification",
+            reason_details=details, human_comment=comment,
+            lock_place=False,
+        )
+    elif action == "closed":
+        transition_place_publication(
+            db, place, to_status="hidden",
+            reason_code=REASON_POLICY_GATE_FAILED,
+            actor=actor, source="place_verification",
+            reason_details=details, human_comment=comment,
+            lock_place=False,
+        )
+    else:
+        transition_place_publication(
+            db, place, to_status="needs_review",
+            reason_code=REASON_LOW_CONFIDENCE,
+            actor=actor, source="place_verification",
+            reason_details=details, human_comment=comment,
+            lock_place=False,
+        )
 
 
 def confirm_place_nearby(
@@ -219,11 +245,9 @@ def confirm_place_nearby(
     place = db.query(Place).filter(Place.id == place_id).first()
     if place is None:
         raise LookupError(f"Place {place_id} not found")
-
     distance = _distance_meters(place.lat, place.lng, verifier_lat, verifier_lng)
     if distance > max_distance_meters:
         raise ValueError(f"Too far from place: {round(distance)}m")
-
     return apply_place_verification(
         db,
         place_id,
@@ -250,29 +274,18 @@ def place_verification_stats(db: Session, city_slug: str) -> dict[str, Any]:
         level = place.existence_confidence_level or "unknown"
         status = place.verification_status or "unverified"
         category_name = place.category or "unknown"
-
-        if status == "verified":
+        if status in {"verified", "trusted"}:
             verified += 1
-        if level == "high":
-            high += 1
-        elif level == "medium":
-            medium += 1
-        elif level == "low":
-            low += 1
-        else:
-            unknown += 1
-        if status == "needs_recheck":
-            needs_recheck += 1
-        if status == "closed":
-            closed += 1
-        if status == "not_found":
-            not_found += 1
-
+        if level == "high": high += 1
+        elif level == "medium": medium += 1
+        elif level == "low": low += 1
+        else: unknown += 1
+        if status == "needs_recheck": needs_recheck += 1
+        if status == "closed": closed += 1
+        if status == "not_found": not_found += 1
         bucket = level if level in {"high", "medium", "low"} else "unknown"
-        if status == "verified":
-            bucket = "verified"
+        if status in {"verified", "trusted"}: bucket = "verified"
         inc(category_name, bucket)
-
     return {
         "city_slug": city_slug,
         "total_places": total,
@@ -298,38 +311,25 @@ def place_verification_summary(db: Session, city_slug: str | None = None) -> dic
         join_city = "JOIN cities ON cities.id = places.city_id"
         city_filter = "WHERE cities.slug = :city_slug"
         params["city_slug"] = city_slug
-
     row = db.execute(
         text(
             f"""
             WITH filtered_places AS (
-                SELECT
-                    places.verification_status AS verification_status,
-                    places.existence_confidence_level AS existence_confidence_level,
-                    places.verified_at AS verified_at
-                FROM places
-                {join_city}
-                {city_filter}
+                SELECT places.verification_status, places.existence_confidence_level, places.verified_at
+                FROM places {join_city} {city_filter}
             )
             SELECT
                 SUM(CASE WHEN verification_status IN ('needs_recheck', 'unverified') OR verification_status IS NULL THEN 1 ELSE 0 END) AS queue_total,
                 SUM(CASE WHEN verification_status = 'needs_recheck' THEN 1 ELSE 0 END) AS needs_recheck,
                 SUM(CASE WHEN verification_status = 'unverified' OR verification_status IS NULL THEN 1 ELSE 0 END) AS unverified,
                 SUM(CASE WHEN existence_confidence_level IN ('low', 'unknown') OR existence_confidence_level IS NULL THEN 1 ELSE 0 END) AS low_confidence,
-                SUM(CASE WHEN verification_status = 'verified' AND verified_at >= :today_start THEN 1 ELSE 0 END) AS verified_today
+                SUM(CASE WHEN verification_status IN ('verified', 'trusted') AND verified_at >= :today_start THEN 1 ELSE 0 END) AS verified_today
             FROM filtered_places
             """
         ),
         params,
     ).mappings().one()
-
-    return {
-        "queue_total": int(row["queue_total"] or 0),
-        "needs_recheck": int(row["needs_recheck"] or 0),
-        "unverified": int(row["unverified"] or 0),
-        "low_confidence": int(row["low_confidence"] or 0),
-        "verified_today": int(row["verified_today"] or 0),
-    }
+    return {key: int(row[key] or 0) for key in ("queue_total", "needs_recheck", "unverified", "low_confidence", "verified_today")}
 
 
 def _verification_base_query(db: Session):
@@ -347,29 +347,23 @@ def _distance_filtered_queue(query, *, lat: float, lng: float, radius_meters: fl
         item["place_id"],
     ))
     total = len(items)
-    return items[offset : offset + limit], total
+    return items[offset: offset + limit], total
 
 
 def _place_queue_payload(place: Place, *, lat: float | None, lng: float | None) -> dict[str, Any]:
     city = place.city
     distance = _distance_meters(place.lat, place.lng, lat, lng) if lat is not None and lng is not None else None
     return {
-        "place_id": place.id,
-        "title": place.title,
-        "slug": place.slug,
-        "city_slug": city.slug if city else None,
-        "category": place.category,
-        "address": place.address,
-        "lat": place.lat,
-        "lng": place.lng,
+        "place_id": place.id, "title": place.title, "slug": place.slug,
+        "city_slug": city.slug if city else None, "category": place.category,
+        "address": place.address, "lat": place.lat, "lng": place.lng,
         "distance_meters": distance,
         "existence_confidence_score": place.existence_confidence_score or 0,
         "existence_confidence_level": place.existence_confidence_level or "unknown",
         "verification_status": place.verification_status or "unverified",
         "verification_source": place.verification_source,
         "verification_method": place.verification_method,
-        "verified_at": place.verified_at,
-        "verified_by": place.verified_by,
+        "verified_at": place.verified_at, "verified_by": place.verified_by,
         "needs_recheck_at": place.needs_recheck_at,
         "verification_comment": place.verification_comment,
     }
@@ -386,12 +380,10 @@ def _enqueue_if_stale(db: Session, state: tuple[int, int], place: Place) -> tupl
 
 
 def _has_pending_task(db: Session, place_id: int) -> bool:
-    return (
-        db.query(PlaceVerificationTask)
-        .filter(PlaceVerificationTask.place_id == place_id, PlaceVerificationTask.status == "pending")
-        .first()
-        is not None
-    )
+    return db.query(PlaceVerificationTask).filter(
+        PlaceVerificationTask.place_id == place_id,
+        PlaceVerificationTask.status == "pending",
+    ).first() is not None
 
 
 def _priority(place: Place) -> int:
