@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from core.publication_state_ownership import PUBLICATION_OWNED_FIELDS
 from models.city import City
 from models.place import Place
 from models.review_queue_item import ReviewQueueItem
@@ -24,24 +25,7 @@ from services.review_queue_service import ensure_review_item
 OPEN_STATUS = "open"
 RESOLVED_STATUS = "resolved"
 PLACE_CHANGE_FIELD = "place_change"
-PUBLIC_PLACE_FIELDS = (
-    "is_active",
-    "is_published",
-    "is_visible_in_catalog",
-    "is_route_eligible",
-    "is_searchable",
-    "publication_status",
-)
-PROTECTED_PUBLICATION_FIELDS = frozenset(
-    {
-        *PUBLIC_PLACE_FIELDS,
-        "publication_reason_code",
-        "publication_reason_details",
-        "publication_comment",
-        "published_at",
-        "unpublished_at",
-    }
-)
+PROTECTED_PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
 RESTORABLE_PLACE_FIELDS = {
     column.name
     for column in Place.__table__.columns
@@ -62,15 +46,13 @@ def propose_place_change(
 ) -> bool:
     if not place.is_published:
         return True
-
     changes = {
-        field_name: {"before": getattr(place, field_name), "after": value}
-        for field_name, value in proposed.items()
-        if field_name in RESTORABLE_PLACE_FIELDS and getattr(place, field_name) != value
+        field: {"before": getattr(place, field), "after": value}
+        for field, value in proposed.items()
+        if field in RESTORABLE_PLACE_FIELDS and getattr(place, field) != value
     }
     if not changes:
         return False
-
     ensure_review_item(
         db,
         city_id=city_id if city_id is not None else place.city_id,
@@ -106,48 +88,34 @@ def list_place_change_reviews(
     )
     if city_slug:
         query = query.filter(City.slug == city_slug)
-
     total = query.count()
     rows = (
         query.order_by(ReviewQueueItem.created_at.asc(), ReviewQueueItem.id.asc())
-        .offset(offset)
-        .limit(limit)
-        .all()
+        .offset(offset).limit(limit).all()
     )
     return [_review_payload(item, place, city) for item, place, city in rows], total
 
 
 def approve_place_change_review(
-    db: Session,
-    review_id: int,
-    *,
-    actor: str,
-    reason: str | None = None,
+    db: Session, review_id: int, *, actor: str, reason: str | None = None
 ) -> dict[str, object] | None:
-    row = _open_review_row(db, review_id)
-    if row is None:
-        return None
-    try:
-        result = _resolve_place_change_review(db, row, action="approve", actor=actor, reason=reason)
-        db.commit()
-        return result
-    except Exception:
-        db.rollback()
-        raise
+    return _resolve_one(db, review_id, action="approve", actor=actor, reason=reason)
 
 
 def reject_place_change_review(
-    db: Session,
-    review_id: int,
-    *,
-    actor: str,
-    reason: str | None = None,
+    db: Session, review_id: int, *, actor: str, reason: str | None = None
+) -> dict[str, object] | None:
+    return _resolve_one(db, review_id, action="reject", actor=actor, reason=reason)
+
+
+def _resolve_one(
+    db: Session, review_id: int, *, action: str, actor: str, reason: str | None
 ) -> dict[str, object] | None:
     row = _open_review_row(db, review_id)
     if row is None:
         return None
     try:
-        result = _resolve_place_change_review(db, row, action="reject", actor=actor, reason=reason)
+        result = _resolve_place_change_review(db, row, action=action, actor=actor, reason=reason)
         db.commit()
         return result
     except Exception:
@@ -165,7 +133,6 @@ def bulk_resolve_place_change_reviews(
 ) -> tuple[list[dict[str, object]], list[int]]:
     if action not in {"approve", "reject"}:
         raise ValueError("Unsupported place change review action")
-
     unique_ids = list(dict.fromkeys(review_ids))
     rows = (
         db.query(ReviewQueueItem, Place, City)
@@ -177,19 +144,13 @@ def bulk_resolve_place_change_reviews(
             ReviewQueueItem.status == OPEN_STATUS,
         )
         .order_by(Place.id.asc(), ReviewQueueItem.id.asc())
-        .with_for_update()
-        .populate_existing()
-        .all()
+        .with_for_update().populate_existing().all()
     )
     rows_by_id = {item.id: (item, place, city) for item, place, city in rows}
     try:
         resolved = [
             _resolve_place_change_review(
-                db,
-                rows_by_id[review_id],
-                action=action,
-                actor=actor,
-                reason=reason,
+                db, rows_by_id[review_id], action=action, actor=actor, reason=reason
             )
             for review_id in unique_ids
             if review_id in rows_by_id
@@ -212,16 +173,13 @@ def _resolve_place_change_review(
     item, place, city = row
     payload = _payload(item)
     old_value = _place_state(place)
-
     blocked_gates: list[str] = []
+
     if action == "approve":
         _apply_pending_changes(place, payload)
         if payload.get("decision") == "hidden":
             _keep_approved_place_private(
-                db,
-                place,
-                actor=actor,
-                reason=reason,
+                db, place, actor=actor, reason=reason,
                 blocked_gates=["review_decision_hidden"],
             )
         else:
@@ -230,23 +188,18 @@ def _resolve_place_change_review(
                 blocked_gates = run_hard_gates(place, city=city)
                 if blocked_gates:
                     _keep_approved_place_private(
-                        db,
-                        place,
-                        actor=actor,
-                        reason=reason,
+                        db, place, actor=actor, reason=reason,
                         blocked_gates=blocked_gates,
                     )
                 else:
                     apply_admin_city_publication_place(
-                        db,
-                        place,
-                        actor=actor,
-                        source="place_change_review",
-                        reason=reason,
-                        lock_place=False,
+                        db, place, actor=actor, source="place_change_review",
+                        reason=reason, lock_place=False,
                     )
             else:
-                _defer_until_city_publication(db, place, actor=actor, reason=reason, city=city)
+                _defer_until_city_publication(
+                    db, place, actor=actor, reason=reason, city=city
+                )
         resolution = "approved"
         audit_action = "approve_place_change_review"
     else:
@@ -256,13 +209,8 @@ def _resolve_place_change_review(
 
     _resolve(item, actor=actor, resolution=resolution)
     write_admin_audit_log(
-        db,
-        actor=actor,
-        action=audit_action,
-        entity_type="review_queue_item",
-        entity_id=item.id,
-        old_value=old_value,
-        new_value=_place_state(place),
+        db, actor=actor, action=audit_action, entity_type="review_queue_item",
+        entity_id=item.id, old_value=old_value, new_value=_place_state(place),
         reason=reason,
     )
     return _review_payload(item, place, city, blocked_gates=blocked_gates)
@@ -279,9 +227,7 @@ def _open_review_row(db: Session, review_id: int) -> tuple[ReviewQueueItem, Plac
             ReviewQueueItem.status == OPEN_STATUS,
         )
         .order_by(Place.id.asc(), ReviewQueueItem.id.asc())
-        .with_for_update()
-        .populate_existing()
-        .first()
+        .with_for_update().populate_existing().first()
     )
 
 
@@ -295,11 +241,9 @@ def _apply_pending_changes(place: Place, payload: dict[str, Any]) -> None:
     changes = payload.get("changes")
     if not isinstance(changes, dict):
         return
-    for field_name, change in changes.items():
-        if field_name not in RESTORABLE_PLACE_FIELDS or not isinstance(change, dict):
-            continue
-        if "after" in change:
-            setattr(place, field_name, change["after"])
+    for field, change in changes.items():
+        if field in RESTORABLE_PLACE_FIELDS and isinstance(change, dict) and "after" in change:
+            setattr(place, field, change["after"])
 
 
 def _restore_previous_place_values(
@@ -312,17 +256,14 @@ def _restore_previous_place_values(
 ) -> None:
     changes = payload.get("changes")
     if isinstance(changes, dict):
-        for field_name, change in changes.items():
-            if field_name not in RESTORABLE_PLACE_FIELDS or not isinstance(change, dict):
-                continue
-            if "before" in change:
-                setattr(place, field_name, change["before"])
+        for field, change in changes.items():
+            if field in RESTORABLE_PLACE_FIELDS and isinstance(change, dict) and "before" in change:
+                setattr(place, field, change["before"])
 
     before_public = payload.get("before_public")
     if not isinstance(before_public, dict):
         place.updated_at = datetime.utcnow()
         return
-
     target_status = str(before_public.get("publication_status") or "draft")
     details = {
         "review_action": "reject",
@@ -331,38 +272,21 @@ def _restore_previous_place_values(
     }
     if bool(before_public.get("is_published")) and target_status == "published":
         apply_admin_city_publication_place(
-            db,
-            place,
-            actor=actor,
-            source="place_change_review_restore",
-            reason=reason,
-            lock_place=False,
+            db, place, actor=actor, source="place_change_review_restore",
+            reason=reason, lock_place=False,
         )
         return
-
-    if target_status not in {
-        "draft",
-        "auto_backlog",
-        "low_confidence",
-        "needs_review",
-        "needs_manual_review",
-        "deferred",
-        "hidden",
-        "unpublished",
-        "rejected",
-    }:
+    allowed = {
+        "draft", "auto_backlog", "low_confidence", "needs_review",
+        "needs_manual_review", "deferred", "hidden", "unpublished", "rejected",
+    }
+    if target_status not in allowed:
         target_status = "draft"
         details["unknown_original_status"] = True
     transition_place_publication(
-        db,
-        place,
-        to_status=target_status,
-        reason_code=REASON_REPAIR_STATE,
-        actor=actor,
-        source="place_change_review_restore",
-        reason_details=details,
-        human_comment=reason,
-        lock_place=False,
+        db, place, to_status=target_status, reason_code=REASON_REPAIR_STATE,
+        actor=actor, source="place_change_review_restore", reason_details=details,
+        human_comment=reason, lock_place=False,
     )
 
 
@@ -375,15 +299,10 @@ def _keep_approved_place_private(
     blocked_gates: list[str],
 ) -> None:
     transition_place_publication(
-        db,
-        place,
-        to_status="needs_review",
-        reason_code=REASON_POLICY_GATE_FAILED,
-        actor=actor,
-        source="place_change_review",
+        db, place, to_status="needs_review", reason_code=REASON_POLICY_GATE_FAILED,
+        actor=actor, source="place_change_review",
         reason_details={"blocked_gates": list(blocked_gates)},
-        human_comment=reason,
-        lock_place=False,
+        human_comment=reason, lock_place=False,
     )
 
 
@@ -396,19 +315,15 @@ def _defer_until_city_publication(
     city: City,
 ) -> None:
     transition_place_publication(
-        db,
-        place,
-        to_status="deferred",
+        db, place, to_status="deferred",
         reason_code=REASON_CITY_PUBLICATION_QUALITY_GATE,
-        actor=actor,
-        source="place_change_review",
+        actor=actor, source="place_change_review",
         reason_details={
             "city_id": city.id,
             "city_launch_status": city.launch_status,
             "city_is_active": bool(city.is_active),
         },
-        human_comment=reason,
-        lock_place=False,
+        human_comment=reason, lock_place=False,
     )
 
 
@@ -457,6 +372,7 @@ def _place_state(place: Place) -> dict[str, object]:
         "is_visible_in_catalog": bool(place.is_visible_in_catalog),
         "is_searchable": bool(place.is_searchable),
         "is_route_eligible": bool(place.is_route_eligible),
+        "route_exclusion_reason": place.route_exclusion_reason,
         "publication_status": place.publication_status,
         "publication_reason_code": place.publication_reason_code,
     }
