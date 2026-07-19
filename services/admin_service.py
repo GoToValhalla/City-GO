@@ -37,6 +37,7 @@ class PlacePublicationBlockedError(ValueError):
 
 def slugify_city_name(name: str) -> str:
     from services.slug_transliterate import transliterate_cyrillic
+
     latin = transliterate_cyrillic(name.strip().lower())
     return re.sub(r"[^a-z0-9]+", "-", latin).strip("-") or "city"
 
@@ -79,42 +80,68 @@ def get_admin_places(
     offset: int = 0,
 ) -> tuple[list, int]:
     query = apply_place_filters(
-        db, db.query(Place), city_slug=city_slug, publication_status=publication_status,
-        verification_status=verification_status, category=category, q=q, preset=preset,
-        has_photo=has_photo, has_address=has_address, has_description=has_description,
-        route_eligible=route_eligible, low_confidence=low_confidence, source=source,
+        db,
+        db.query(Place),
+        city_slug=city_slug,
+        publication_status=publication_status,
+        verification_status=verification_status,
+        category=category,
+        q=q,
+        preset=preset,
+        has_photo=has_photo,
+        has_address=has_address,
+        has_description=has_description,
+        route_eligible=route_eligible,
+        low_confidence=low_confidence,
+        source=source,
     )
     total = query.count()
     return query.order_by(Place.updated_at.desc()).offset(offset).limit(limit).all(), total
 
 
 def create_admin_place(db: Session, payload: AdminPlaceCreate, *, actor: str = "admin") -> Place:
-    place = create_place(db, payload)
-    write_admin_audit_log(
-        db, actor=actor, action="create_place", entity_type="place", entity_id=place.id,
-        new_value={"title": place.title, "publication_status": place.publication_status},
-    )
-    db.commit()
-    db.refresh(place)
-    return place
+    try:
+        place = create_place(db, payload, actor=actor, commit=False)
+        write_admin_audit_log(
+            db,
+            actor=actor,
+            action="create_place",
+            entity_type="place",
+            entity_id=place.id,
+            new_value={"title": place.title, "publication_status": place.publication_status},
+        )
+        db.commit()
+        db.refresh(place)
+        return place
+    except Exception:
+        db.rollback()
+        raise
 
 
 def update_admin_place(db: Session, place_id: int, payload: AdminPlaceUpdate, *, actor: str = "admin") -> Place | None:
-    place = get_place_by_id(db, place_id)
-    if place is None:
-        return None
-    old_value = {"title": place.title, "status": place.status, "publication_status": place.publication_status}
-    place = update_place(db, place_id, payload)
-    if place is None:
-        return None
-    write_admin_audit_log(
-        db, actor=actor, action="update_place", entity_type="place", entity_id=place.id,
-        old_value=old_value,
-        new_value={"title": place.title, "status": place.status, "publication_status": place.publication_status},
-    )
-    db.commit()
-    db.refresh(place)
-    return place
+    try:
+        place = get_place_by_id(db, place_id)
+        if place is None:
+            return None
+        old_value = {"title": place.title, "status": place.status, "publication_status": place.publication_status}
+        place = update_place(db, place_id, payload, actor=actor, commit=False)
+        if place is None:
+            return None
+        write_admin_audit_log(
+            db,
+            actor=actor,
+            action="update_place",
+            entity_type="place",
+            entity_id=place.id,
+            old_value=old_value,
+            new_value={"title": place.title, "status": place.status, "publication_status": place.publication_status},
+        )
+        db.commit()
+        db.refresh(place)
+        return place
+    except Exception:
+        db.rollback()
+        raise
 
 
 def publish_place(db: Session, place_id: int, *, actor: str, reason: str | None = None) -> Place | None:
@@ -125,15 +152,27 @@ def publish_place(db: Session, place_id: int, *, actor: str, reason: str | None 
     failed_gates = list(eligibility.reasons) + unsafe_manual_publish_gates(place)
     if failed_gates:
         raise PlacePublicationBlockedError(
-            place_id=place_id, blocked_reason=failed_gates[0], failed_gates=failed_gates
+            place_id=place_id,
+            blocked_reason=failed_gates[0],
+            failed_gates=failed_gates,
         )
     old_value = _place_publication_snapshot(place)
     apply_admin_city_publication_place(
-        db, place, actor=actor, source="admin_place_publish", reason=reason
+        db,
+        place,
+        actor=actor,
+        source="admin_place_publish",
+        reason=reason,
     )
     write_admin_audit_log(
-        db, actor=actor, action="publish_place", entity_type="place", entity_id=place.id,
-        old_value=old_value, new_value=_place_publication_snapshot(place), reason=reason,
+        db,
+        actor=actor,
+        action="publish_place",
+        entity_type="place",
+        entity_id=place.id,
+        old_value=old_value,
+        new_value=_place_publication_snapshot(place),
+        reason=reason,
     )
     db.commit()
     db.refresh(place)
@@ -146,12 +185,23 @@ def unpublish_place(db: Session, place_id: int, *, actor: str, reason: str) -> P
         return None
     old_value = _place_publication_snapshot(place)
     transition_place_publication(
-        db, place, to_status="unpublished", reason_code=REASON_ADMIN_UNPUBLISH,
-        actor=actor, source="admin_place_unpublish", human_comment=reason,
+        db,
+        place,
+        to_status="unpublished",
+        reason_code=REASON_ADMIN_UNPUBLISH,
+        actor=actor,
+        source="admin_place_unpublish",
+        human_comment=reason,
     )
     write_admin_audit_log(
-        db, actor=actor, action="unpublish_place", entity_type="place", entity_id=place.id,
-        old_value=old_value, new_value=_place_publication_snapshot(place), reason=reason,
+        db,
+        actor=actor,
+        action="unpublish_place",
+        entity_type="place",
+        entity_id=place.id,
+        old_value=old_value,
+        new_value=_place_publication_snapshot(place),
+        reason=reason,
     )
     db.commit()
     db.refresh(place)
@@ -165,18 +215,33 @@ def reject_place(db: Session, place_id: int, *, actor: str, reason: str) -> Plac
     old_value = _place_publication_snapshot(place)
     old_value["verification_status"] = place.verification_status
     transition_place_publication(
-        db, place, to_status="rejected", reason_code=REASON_ADMIN_REJECT,
-        actor=actor, source="admin_place_reject", human_comment=reason,
+        db,
+        place,
+        to_status="rejected",
+        reason_code=REASON_ADMIN_REJECT,
+        actor=actor,
+        source="admin_place_reject",
+        human_comment=reason,
     )
     place.status = "inactive"
     reject_locked_place_verification(
-        db, place, actor=actor, reason=reason, action="admin_place_reject_verification"
+        db,
+        place,
+        actor=actor,
+        reason=reason,
+        action="admin_place_reject_verification",
     )
     new_value = _place_publication_snapshot(place)
     new_value["verification_status"] = place.verification_status
     write_admin_audit_log(
-        db, actor=actor, action="reject_place", entity_type="place", entity_id=place.id,
-        old_value=old_value, new_value=new_value, reason=reason,
+        db,
+        actor=actor,
+        action="reject_place",
+        entity_type="place",
+        entity_id=place.id,
+        old_value=old_value,
+        new_value=new_value,
+        reason=reason,
     )
     db.commit()
     db.refresh(place)
@@ -201,19 +266,32 @@ def create_city_and_queue_import(db: Session, payload: AdminCityCreateRequest, *
         slug = f"{base_slug}-{index}"
         index += 1
     city = City(
-        name=payload.name.strip(), slug=slug, country=payload.country,
-        region=payload.region, timezone=payload.timezone,
-        center_lat=payload.center_lat, center_lng=payload.center_lng,
-        launch_status="importing", is_active=False,
+        name=payload.name.strip(),
+        slug=slug,
+        country=payload.country,
+        region=payload.region,
+        timezone=payload.timezone,
+        center_lat=payload.center_lat,
+        center_lng=payload.center_lng,
+        launch_status="importing",
+        is_active=False,
     )
     db.add(city)
     db.flush()
     finish_city_import_setup(db, city, payload)
     queue_city_import_job(db, city_id=city.id)
     write_admin_audit_log(
-        db, actor=actor, action="create_city_import_request", entity_type="city",
+        db,
+        actor=actor,
+        action="create_city_import_request",
+        entity_type="city",
         entity_id=city.id,
-        new_value={"name": city.name, "slug": city.slug, "launch_status": city.launch_status, "radius_km": payload.radius_km},
+        new_value={
+            "name": city.name,
+            "slug": city.slug,
+            "launch_status": city.launch_status,
+            "radius_km": payload.radius_km,
+        },
         reason="Создан город и поставлена задача на автоматический сбор мест и фото.",
     )
     db.commit()
@@ -234,8 +312,14 @@ def publish_route(db: Session, route_id: int, *, actor: str, reason: str | None 
     old_value = {"is_active": route.is_active}
     route.is_active = True
     write_admin_audit_log(
-        db, actor=actor, action="publish_route", entity_type="route", entity_id=route.id,
-        old_value=old_value, new_value={"is_active": True}, reason=reason,
+        db,
+        actor=actor,
+        action="publish_route",
+        entity_type="route",
+        entity_id=route.id,
+        old_value=old_value,
+        new_value={"is_active": True},
+        reason=reason,
     )
     db.commit()
     db.refresh(route)
@@ -249,8 +333,14 @@ def unpublish_route(db: Session, route_id: int, *, actor: str, reason: str) -> R
     old_value = {"is_active": route.is_active}
     route.is_active = False
     write_admin_audit_log(
-        db, actor=actor, action="unpublish_route", entity_type="route", entity_id=route.id,
-        old_value=old_value, new_value={"is_active": False}, reason=reason,
+        db,
+        actor=actor,
+        action="unpublish_route",
+        entity_type="route",
+        entity_id=route.id,
+        old_value=old_value,
+        new_value={"is_active": False},
+        reason=reason,
     )
     db.commit()
     db.refresh(route)
