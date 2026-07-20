@@ -101,7 +101,7 @@ class TestPlaceColumnIdempotentMigrations(unittest.TestCase):
     def test_clean_db_upgrade_to_head_new(self) -> None:
         result = _alembic("upgrade", "head", timeout=120)
         self.assertEqual(result.returncode, 0, msg=result.stderr[-3000:])
-        self.assertEqual(_alembic_version(), "f0c0c48aa12a")
+        self.assertEqual(_alembic_version(), "de447288c917")
         for column in ("canonical_category", "lifecycle_status", "quality_score", "is_spam_poi", "is_duplicate_suspected", "geo_precision"):
             self.assertTrue(_column_exists(column), f"{column} missing after clean upgrade")
 
@@ -130,7 +130,7 @@ class TestPlaceColumnIdempotentMigrations(unittest.TestCase):
 
         result = _alembic("upgrade", "head", timeout=60)
         self.assertEqual(result.returncode, 0, msg=result.stderr[-3000:])
-        self.assertEqual(_alembic_version(), "f0c0c48aa12a")
+        self.assertEqual(_alembic_version(), "de447288c917")
         # Pre-existing columns must not carry an owner comment — the
         # migrations must not have re-created them.
         self.assertIsNone(_column_comment("canonical_category"))
@@ -225,7 +225,7 @@ class TestPlaceColumnIdempotentMigrations(unittest.TestCase):
 
         result = _alembic("upgrade", "head", timeout=60)
         self.assertEqual(result.returncode, 0, msg=f"stdout={result.stdout[-2000:]} stderr={result.stderr[-2000:]}")
-        self.assertEqual(_alembic_version(), "f0c0c48aa12a")
+        self.assertEqual(_alembic_version(), "de447288c917")
 
     def test_repeated_upgrade_is_a_noop_new(self) -> None:
         first = _alembic("upgrade", "head", timeout=120)
@@ -253,7 +253,7 @@ class TestPlaceColumnIdempotentMigrations(unittest.TestCase):
 
         reupgrade = _alembic("upgrade", "head", timeout=60)
         self.assertEqual(reupgrade.returncode, 0, msg=reupgrade.stderr[-3000:])
-        self.assertEqual(_alembic_version(), "f0c0c48aa12a")
+        self.assertEqual(_alembic_version(), "de447288c917")
         self.assertIsNone(_column_comment("canonical_category"))
 
     def test_no_isolated_connection_deadlock_new(self) -> None:
@@ -277,7 +277,7 @@ class TestPlaceColumnIdempotentMigrations(unittest.TestCase):
         _run_psql_checked("ALTER TABLE places DROP COLUMN canonical_category;", database=FIXTURE_DB)
         succeeded = _alembic("upgrade", "head", timeout=60)
         self.assertEqual(succeeded.returncode, 0, msg=succeeded.stderr[-3000:])
-        self.assertEqual(_alembic_version(), "f0c0c48aa12a")
+        self.assertEqual(_alembic_version(), "de447288c917")
 
 
 if __name__ == "__main__":

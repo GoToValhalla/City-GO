@@ -382,9 +382,19 @@ jobs:
         run: |
           set -euo pipefail
           STAGE_START=$(date +%s)
+          mkdir -p /tmp/city-go-deploy
+          DEPLOY_LOG=/tmp/city-go-deploy/deploy-on-server.log
+          # Migration/container-startup failures surface only in this SSH
+          # session's output (docker inspect, migrate container logs,
+          # alembic_version) — tee it into the deploy-log artifact directory
+          # so a failed deploy's diagnostics survive after the runner exits,
+          # not just in the (sometimes-truncated) live Actions log view.
+          # set -o pipefail (from set -euo pipefail above) makes this
+          # pipeline's exit status the ssh command's real exit status, not
+          # tee's, so failure handling below is unchanged.
           ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "DEPLOY_SHA='${DEPLOY_SHA}' bash -s" <<'REMOTE'
+            "DEPLOY_SHA='${DEPLOY_SHA}' bash -s" 2>&1 | tee "$DEPLOY_LOG" <<'REMOTE'
           set -euo pipefail
           cd /srv/app
 
