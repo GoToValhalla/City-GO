@@ -78,18 +78,26 @@ def test_cleanup_scheduler_restarts_after_completed_task_new(monkeypatch) -> Non
 def test_cleanup_scheduler_continues_after_iteration_failure_new(monkeypatch) -> None:
     calls = 0
 
-    async def fake_to_thread(_function, stop_event):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise RuntimeError("cleanup failed")
-        stop_event.set()
-        return 0
-
-    monkeypatch.setattr(scheduler.asyncio, "to_thread", fake_to_thread)
-
     async def exercise() -> None:
-        await scheduler._scheduler_loop(asyncio.Event(), ThreadEvent())
+        nonlocal calls
+        wake_event = asyncio.Event()
+        thread_stop_event = ThreadEvent()
+
+        async def fake_to_thread(_function, stop_event):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                # Real _scheduler_loop waits on wake_event (up to the real
+                # interval) after a failed iteration before retrying; set it
+                # here so the retry runs immediately instead of the test
+                # blocking on real wall-clock time.
+                wake_event.set()
+                raise RuntimeError("cleanup failed")
+            stop_event.set()
+            return 0
+
+        monkeypatch.setattr(scheduler.asyncio, "to_thread", fake_to_thread)
+        await scheduler._scheduler_loop(wake_event, thread_stop_event)
 
     asyncio.run(exercise())
     assert calls == 2

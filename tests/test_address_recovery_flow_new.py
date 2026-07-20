@@ -110,14 +110,19 @@ def test_address_recovery_flow_saves_summary_new(
     monkeypatch.chdir(tmp_path)
     city = city_factory(slug="kaliningrad", name="Калининград")
     place_factory(slug="flow-summary", title="Summary Place", city_id=city.id, address=None)
-    result = run_address_recovery_flow(
-        db_session,
-        city_slugs=["kaliningrad"],
-        limit=1,
-        sleep_seconds=0,
-        apply_changes=False,
-        include_generic=False,
-    )
+    payload = {
+        "display_name": "улица Мира, 1, Калининград",
+        "address": {"road": "улица Мира", "house_number": "1", "city": "Калининград"},
+    }
+    with patch("services.place_address_recovery.reverse_geocode_payload", return_value=payload):
+        result = run_address_recovery_flow(
+            db_session,
+            city_slugs=["kaliningrad"],
+            limit=1,
+            sleep_seconds=0,
+            apply_changes=False,
+            include_generic=False,
+        )
     summary = json.loads(Path(result["summary_json"]).read_text(encoding="utf-8"))
     assert summary["cities"]
     assert summary["coverage_before_json"]
