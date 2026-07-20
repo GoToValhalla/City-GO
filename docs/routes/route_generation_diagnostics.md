@@ -57,3 +57,6 @@
 1. Admin dry-run response — immediate rejected/selected
 2. SQL: `route_generation_runs` + join `route_generation_candidates`
 3. Pipeline trace в ответе canonical (при `X-Debug`) — stage counts, не per-place
+
+Полная матрица failure-mode → coverage и public/internal boundary:
+`docs/routes/route_diagnostics_completeness.md` (CITYGO-360).

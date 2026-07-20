@@ -18,9 +18,8 @@ pipeline itself has no randomness in its scoring/assembly — verified by
 running this whole module twice in the same session, see
 test_full_dataset_is_deterministic_across_two_runs below).
 
-CI wiring is explicitly out of scope here (belongs to CITYGO-359) — this
-is a plain pytest module, run the same way as every other test in the
-repository.
+Manual CI gate: `scripts/run_route_evaluation_ci_gate.py` and
+`.github/workflows/route-evaluation.yml` (CITYGO-359, workflow_dispatch).
 """
 
 from __future__ import annotations
