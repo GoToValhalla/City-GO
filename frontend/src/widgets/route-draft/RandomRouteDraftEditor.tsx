@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapPinned, Search, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { addDraftPoint, createRandomDraft, loadCategories, removeDraftPoint, replaceDraftPoint, searchDraftPlaces } from '../../api/routes/routeDraft.api'
+import {
+  addDraftPoint,
+  createRandomDraft,
+  createRouteDraftSessionToken,
+  loadCategories,
+  removeDraftPoint,
+  replaceDraftPoint,
+  searchDraftPlaces,
+} from '../../api/routes/routeDraft.api'
 import type { CategoryOption, RouteDraft, RouteDraftSearchItem } from '../../api/routes/routeDraft.types'
 import { buildRandomRoutePlan, nextRandomRouteSeed, type RandomRouteMode, type RandomRoutePlan } from '../../features/routes/model/randomRoutePlan'
 import { MapLibreMap } from '../../shared/map/MapLibreMap'
@@ -49,6 +57,7 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES, in
   const [searchMessage, setSearchMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const sessionTokenRef = useRef(createRouteDraftSessionToken())
 
   const visibleCategories = useMemo(
     () => filterCategoryOptionsForFeatures(categories, features),
@@ -68,6 +77,7 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES, in
   }, [])
 
   useEffect(() => {
+    sessionTokenRef.current = createRouteDraftSessionToken()
     setDraft(null)
     setLastPlan(null)
     setSearch([])
@@ -96,13 +106,15 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES, in
       return
     }
     await run(async () => {
+      const sessionToken = createRouteDraftSessionToken()
+      sessionTokenRef.current = sessionToken
       const nextDraft = await createRandomDraft({
         city_slug: citySlug,
         budget_minutes: plan.minutes,
         selected_category_slugs: plan.categories,
         category_mode: plan.categoryMode,
         seed: plan.seed,
-      })
+      }, sessionToken)
       setDraft(nextDraft)
       setLastPlan(plan)
       setBudget(plan.minutes)
@@ -121,7 +133,7 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES, in
       return
     }
     await run(async () => {
-      const items = await searchDraftPlaces(draft, category.name)
+      const items = await searchDraftPlaces(draft, category.name, sessionTokenRef.current)
       setSearch(items.filter((item) => !draft.points.some((point) => point.place_id === item.place_id)))
       setSearchMessage(items.length ? null : 'Подходящих мест этой категории не найдено.')
     })
@@ -191,7 +203,7 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES, in
               </Link>
               <div className="route-draft-point-actions">
                 <button type="button" disabled={busy} onClick={() => beginReplacement(point.id)}>Заменить</button>
-                <button type="button" disabled={busy} onClick={() => void mutate(removeDraftPoint(draft, point.id))}>Удалить</button>
+                <button type="button" disabled={busy} onClick={() => void mutate(removeDraftPoint(draft, point.id, sessionTokenRef.current))}>Удалить</button>
               </div>
             </li>
           ))}</ol>
@@ -211,7 +223,7 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES, in
               <button type="button" disabled={busy || !searchCategory} onClick={() => void findPlaces()}><Search size={17} /> Показать места</button>
             </div>
             {searchMessage ? <p className="route-search-message">{searchMessage}</p> : null}
-            <div className="route-search-results">{search.map((item) => <button key={item.place_id} type="button" className="route-search-row" disabled={busy} onClick={() => void mutate(replacePointId ? replaceDraftPoint(draft, replacePointId, item.place_id) : addDraftPoint(draft, item.place_id))}>
+            <div className="route-search-results">{search.map((item) => <button key={item.place_id} type="button" className="route-search-row" disabled={busy} onClick={() => void mutate(replacePointId ? replaceDraftPoint(draft, replacePointId, item.place_id, sessionTokenRef.current) : addDraftPoint(draft, item.place_id, sessionTokenRef.current))}>
               <strong>{item.title}</strong>
               <span>{categoryLabel(item.category)}{item.address ? ` · ${item.address}` : ''}</span>
               <small>{replacePointId ? 'Заменить текущую точку' : 'Добавить в конец маршрута'}</small>

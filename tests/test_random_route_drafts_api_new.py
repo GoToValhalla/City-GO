@@ -12,9 +12,20 @@ def _random_payload(city_slug: str, **extra):
         "category_mode": "none",
         "selected_category_slugs": [],
         "seed": 42,
+        "session_token": "test-session-token-01",
     }
     payload.update(extra)
     return payload
+
+
+def _token() -> str:
+    return "test-session-token-01"
+
+
+def _headers() -> dict[str, str]:
+    from services.route_draft_access import SESSION_HEADER
+
+    return {SESSION_HEADER: _token()}
 
 
 def test_random_route_without_categories_creates_non_empty_draft(client, city_factory, place_factory):
@@ -71,17 +82,23 @@ def test_draft_remove_add_replace_and_search_alias_flow(client, city_factory, pl
     cafe = place_factory(slug="edit-cafe", title="Кофейня", city_id=city.id, category="cafe")
     museum = place_factory(slug="edit-museum", title="Музей", city_id=city.id, category="museum")
 
-    search = client.get(f"/routes/drafts/{created['draft_id']}/search-places?q=кофе&limit=5").json()
+    search = client.get(
+        f"/routes/drafts/{created['draft_id']}/search-places",
+        params={"q": "кофе", "limit": 5},
+        headers=_headers(),
+    ).json()
     assert search["items"][0]["category"] == "cafe"
 
     first_point = created["points"][0]
     removed = client.post(
         f"/routes/drafts/{created['draft_id']}/remove-point",
+        headers=_headers(),
         json={"point_id": first_point["id"], "version": created["version"]},
     ).json()
     assert removed["version"] == created["version"] + 1
     stale = client.post(
         f"/routes/drafts/{created['draft_id']}/remove-point",
+        headers=_headers(),
         json={"point_id": removed["points"][0]["id"], "version": created["version"]},
     )
     assert stale.status_code == 409
@@ -89,13 +106,23 @@ def test_draft_remove_add_replace_and_search_alias_flow(client, city_factory, pl
 
     add_response = client.post(
         f"/routes/drafts/{created['draft_id']}/add-point",
-        json={"place_id": cafe.id, "after_position": 1, "version": removed["version"]},
+        headers=_headers(),
+        json={
+            "place_id": cafe.id,
+            "after_position": 1,
+            "version": removed["version"],
+        },
     )
     assert add_response.status_code == 200
     added = add_response.json()
     replace_response = client.post(
         f"/routes/drafts/{created['draft_id']}/replace-point",
-        json={"point_id": added["points"][0]["id"], "replacement_place_id": museum.id, "version": added["version"]},
+        headers=_headers(),
+        json={
+            "point_id": added["points"][0]["id"],
+            "replacement_place_id": museum.id,
+            "version": added["version"],
+        },
     )
     assert replace_response.status_code == 200
     assert museum.id in [point["place_id"] for point in replace_response.json()["points"]]

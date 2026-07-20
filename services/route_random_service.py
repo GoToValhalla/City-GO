@@ -18,7 +18,7 @@ from services.start_point_service import resolve_start
 
 def create_random_route_draft(db: Session, payload: RandomRouteRequest) -> RouteDraft | None:
     city = db.query(City).filter(City.slug == payload.city_slug).first()
-    if city is None:
+    if city is None or not bool(city.is_active) or city.launch_status != "published":
         return None
     start = _start_payload(db, city, payload)
     seed = payload.seed if payload.seed is not None else random.randint(1, 2_147_483_647)

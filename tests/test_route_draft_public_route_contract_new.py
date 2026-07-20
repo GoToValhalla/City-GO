@@ -78,9 +78,10 @@ def test_random_route_endpoint_returns_no_places_for_preview_city_new(client, ci
             "category_mode": "none",
             "selected_category_slugs": [],
             "seed": 42,
+            "session_token": "preview-city-token-01",
         },
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["points"] == []
+    # Unpublished city is treated as not found at the public create boundary.
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "CITY_NOT_FOUND"

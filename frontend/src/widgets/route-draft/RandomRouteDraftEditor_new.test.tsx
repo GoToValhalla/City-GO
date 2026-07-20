@@ -8,6 +8,7 @@ import { RandomRouteDraftEditor } from './RandomRouteDraftEditor'
 vi.mock('../../api/routes/routeDraft.api', () => ({
   addDraftPoint: vi.fn(),
   createRandomDraft: vi.fn(),
+  createRouteDraftSessionToken: vi.fn(() => 'test-draft-session-token'),
   loadCategories: vi.fn(async () => [
     { code: 'coffee', name: 'Кофе' },
     { code: 'sea', name: 'Море' },

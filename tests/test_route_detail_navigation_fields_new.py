@@ -24,10 +24,24 @@ def test_route_detail_returns_navigation_point_fields_new(
         publication_status="published",
         is_active=True,
     )
+    place2 = place_factory(
+        city_id=city.id,
+        slug="navigation-cafe",
+        title="Кафе навигации",
+        category="cafe",
+        address="Парковая 2",
+        lat=54.911,
+        lng=20.411,
+        is_published=True,
+        is_route_eligible=True,
+        publication_status="published",
+        is_active=True,
+    )
     route = Route(city_id=city.id, slug="navigation-route", title="Маршрут навигации")
     db_session.add(route)
     db_session.flush()
     db_session.add(RoutePlace(route_id=route.id, place_id=place.id, position=1))
+    db_session.add(RoutePlace(route_id=route.id, place_id=place2.id, position=2))
     db_session.commit()
 
     response = client.get("/routes/by-slug/navigation-route")
@@ -42,3 +56,4 @@ def test_route_detail_returns_navigation_point_fields_new(
     assert point["is_route_eligible"] is True
     assert point["publication_status"] == "published"
     assert point["is_active"] is True
+    assert len(response.json()["points"]) == 2

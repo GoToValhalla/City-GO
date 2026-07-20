@@ -56,14 +56,15 @@ def replan_route(
     request: ItineraryReplanRequest,
     db: Session = Depends(get_db),
 ) -> ItineraryReplanResponse:
-    assert_route_generation_allowed(db, city_slug=request.city_slug)
-    log_route_generation_started(db, source="itinerary_replan", city_slug=request.city_slug)
+    city_slug = request.current_route.city_slug
+    assert_route_generation_allowed(db, city_slug=city_slug)
+    log_route_generation_started(db, source="itinerary_replan", city_slug=city_slug)
     response = replan_itinerary(db=db, request=request)
     stops = len(response.points or [])
     if stops > 0:
-        log_route_generation_success(db, source="itinerary_replan", city_slug=request.city_slug, stops=stops)
+        log_route_generation_success(db, source="itinerary_replan", city_slug=city_slug, stops=stops)
     else:
         log_route_generation_failed(
-            db, source="itinerary_replan", city_slug=request.city_slug, reason="no_selected_places",
+            db, source="itinerary_replan", city_slug=city_slug, reason="no_selected_places",
         )
     return response

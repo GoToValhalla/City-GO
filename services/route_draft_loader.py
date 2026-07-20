@@ -4,15 +4,30 @@ from sqlalchemy.orm import Session
 
 from models.place import Place
 from models.route_draft import RouteDraft, RouteDraftPoint
+from services.route_draft_access import get_accessible_draft_or_error
 from services.route_draft_errors import RouteDraftError
 from services.route_draft_rules import eligible_place_query
 
 
 def get_draft_or_error(db: Session, draft_id: int) -> RouteDraft:
+    """Internal existence lookup only — not for public HTTP handlers."""
     draft = db.query(RouteDraft).filter(RouteDraft.id == draft_id).first()
     if draft is None:
         raise RouteDraftError("DRAFT_NOT_FOUND", "Draft not found", 404)
     return draft
+
+
+def get_public_draft_or_error(
+    db: Session,
+    draft_id: int,
+    *,
+    session_token: str | None,
+    for_update: bool = False,
+) -> RouteDraft:
+    """Canonical public loader: ownership + lifecycle only (no writes)."""
+    return get_accessible_draft_or_error(
+        db, draft_id, session_token=session_token, for_update=for_update
+    )
 
 
 def check_version(draft: RouteDraft, version: int) -> None:

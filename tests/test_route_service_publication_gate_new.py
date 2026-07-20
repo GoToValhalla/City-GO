@@ -84,9 +84,10 @@ def test_unpublished_route_excluded_from_unfiltered_public_list_new(db_session, 
     assert all(route.slug != "unpublished-3" for route in result)
 
 
-def test_published_route_still_returned_in_public_list_new(db_session, city_factory) -> None:
+def test_published_route_still_returned_in_public_list_new(db_session, city_factory, published_place_factory) -> None:
     city = city_factory(slug="route-gate-city-4")
     route = _route(db_session, city, slug="published-4", is_active=True)
+    _attach_two_eligible_points(db_session, city, route, published_place_factory)
 
     result = get_public_routes_by_city_slug(db_session, "route-gate-city-4")
 
@@ -107,12 +108,26 @@ def test_unpublished_route_not_found_by_public_slug_new(db_session, city_factory
     assert get_public_route_by_slug(db_session, "unpublished-6") is None
 
 
-def test_published_route_still_found_by_public_id_and_slug_new(db_session, city_factory) -> None:
+def test_published_route_still_found_by_public_id_and_slug_new(db_session, city_factory, published_place_factory) -> None:
     city = city_factory(slug="route-gate-city-7")
     route = _route(db_session, city, slug="published-7", is_active=True)
+    _attach_two_eligible_points(db_session, city, route, published_place_factory)
 
     assert get_public_route_by_id(db_session, route.id) is not None
     assert get_public_route_by_slug(db_session, "published-7") is not None
+
+
+def _attach_two_eligible_points(db_session, city, route, published_place_factory) -> None:
+    for index in (1, 2):
+        place = published_place_factory(
+            slug=f"{route.slug}-p{index}",
+            title=f"Point {index}",
+            city_id=city.id,
+            category="cafe" if index == 1 else "park",
+        )
+        db_session.add(RoutePlace(route_id=route.id, place_id=place.id, position=index))
+    db_session.commit()
+    db_session.refresh(route)
 
 
 # --- Internal/admin-safe variants must remain UNFILTERED -------------------
@@ -176,12 +191,10 @@ def test_unpublished_route_places_excluded_new(db_session, city_factory, place_f
     assert all(rp.route_id != route.id for rp in get_route_places(db_session))
 
 
-def test_published_route_places_still_returned_new(db_session, city_factory, place_factory) -> None:
+def test_published_route_places_still_returned_new(db_session, city_factory, published_place_factory) -> None:
     city = city_factory(slug="route-gate-city-9")
     route = _route(db_session, city, slug="published-9", is_active=True)
-    place = place_factory(city_id=city.id)
-    db_session.add(RoutePlace(route_id=route.id, place_id=place.id, position=1))
-    db_session.commit()
+    _attach_two_eligible_points(db_session, city, route, published_place_factory)
 
     result = get_route_places_by_route_id(db_session, route.id)
-    assert [rp.place_id for rp in result] == [place.id]
+    assert len(result) == 2

@@ -243,3 +243,89 @@ def build_destination_enabled_city(city_factory, published_place_factory, db_ses
         destination_slug=destination.slug,
         notes="All places are also DestinationPlaceMembership rows for a published Destination.",
     )
+
+
+def build_closed_status_city(city_factory, published_place_factory, place_factory) -> CityScenario:
+    """Places with status closed / temporarily_closed must never enter public routes."""
+    city = city_factory(slug="eval-closed-status-city", launch_status="published")
+    eligible = _make_places(published_place_factory, city, offsets=_COMPACT_OFFSETS[:2])
+    closed = place_factory(
+        slug="eval-status-closed",
+        city_id=city.id,
+        category="cafe",
+        status="closed",
+        is_published=True,
+        is_visible_in_catalog=True,
+        is_route_eligible=True,
+        publication_status="published",
+        lat=CENTER_LAT + 0.005,
+        lng=CENTER_LNG + 0.005,
+    )
+    temp = place_factory(
+        slug="eval-status-temp-closed",
+        city_id=city.id,
+        category="park",
+        status="temporarily_closed",
+        is_published=True,
+        is_visible_in_catalog=True,
+        is_route_eligible=True,
+        publication_status="published",
+        lat=CENTER_LAT + 0.006,
+        lng=CENTER_LNG + 0.006,
+    )
+    return CityScenario(
+        scenario_id="closed_status_city",
+        city_slug=city.slug,
+        place_ids=eligible + [closed.id, temp.id],
+        eligible_place_ids=eligible,
+        ineligible_place_ids=[closed.id, temp.id],
+        notes="Canonical public contract requires Place.status IS NULL or active.",
+    )
+
+
+def build_public_hidden_category_city(city_factory, published_place_factory, place_factory) -> CityScenario:
+    """PUBLIC_HIDDEN_CATEGORIES leakage scenarios (beyond HARD_EXCLUDED-only checks)."""
+    from services.place_public_visibility import PUBLIC_HIDDEN_CATEGORIES
+    from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
+
+    city = city_factory(slug="eval-hidden-cat-city", launch_status="published")
+    eligible = _make_places(published_place_factory, city, offsets=_COMPACT_OFFSETS[:2])
+    # Categories present in PUBLIC_HIDDEN but exercised explicitly.
+    hidden_samples = ("bank", "atm", "pharmacy", "parking", "transport", "health", "medical")
+    assert set(hidden_samples).issubset(PUBLIC_HIDDEN_CATEGORIES)
+    ineligible_ids = []
+    for index, category in enumerate(hidden_samples):
+        place = place_factory(
+            slug=f"eval-hidden-{category}",
+            city_id=city.id,
+            category=category,
+            is_published=True,
+            is_visible_in_catalog=True,
+            is_route_eligible=False,
+            publication_status="published",
+            lat=CENTER_LAT + 0.01 + 0.001 * index,
+            lng=CENTER_LNG + 0.01 + 0.001 * index,
+        )
+        ineligible_ids.append(place.id)
+    extra = sorted(PUBLIC_HIDDEN_CATEGORIES - HARD_EXCLUDED_CATEGORIES)
+    for index, category in enumerate(extra[:3]):
+        place = place_factory(
+            slug=f"eval-hidden-extra-{category}",
+            city_id=city.id,
+            category=category,
+            is_published=True,
+            is_visible_in_catalog=True,
+            is_route_eligible=False,
+            publication_status="published",
+            lat=CENTER_LAT + 0.02 + 0.001 * index,
+            lng=CENTER_LNG + 0.02 + 0.001 * index,
+        )
+        ineligible_ids.append(place.id)
+    return CityScenario(
+        scenario_id="public_hidden_category_city",
+        city_slug=city.slug,
+        place_ids=eligible + ineligible_ids,
+        eligible_place_ids=eligible,
+        ineligible_place_ids=ineligible_ids,
+        notes="Hidden public categories must never leak even when stored flags look published.",
+    )

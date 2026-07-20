@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from models.city import City
 from models.place import Place
-from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
+from services.place_public_visibility import PUBLIC_HIDDEN_CATEGORIES
 from services.route_finalize_types import FinalRoute
 
 
@@ -113,36 +113,21 @@ def assert_points_satisfy_public_route_contract(
     generation_run_id: str,
     **record_kwargs: Any,
 ) -> None:
-    """Every returned point must resolve to a real Place row that currently
-    satisfies the complete public route contract: city publication (active +
-    published) AND place visibility/eligibility. Re-derived from the
-    database, not trusted from the serialized response, since the response
-    could in principle carry stale/denormalized fields."""
+    """Every returned point must currently match the canonical public route
+    SQL contract (same predicates as production public loaders)."""
     if not points:
         return
+    from services.route_eligibility import public_route_eligible_sql_conditions
+
     place_ids = [int(point.place_id) for point in points]
-    rows = {
-        row.id: row
-        for row in db.query(Place).join(City, Place.city_id == City.id).filter(Place.id.in_(place_ids)).all()
+    valid_ids = {
+        int(row.id)
+        for row in db.query(Place)
+        .join(City, Place.city_id == City.id)
+        .filter(Place.id.in_(place_ids), *public_route_eligible_sql_conditions())
+        .all()
     }
-    violating: list[str] = []
-    for place_id in place_ids:
-        place = rows.get(place_id)
-        if place is None:
-            violating.append(str(place_id))
-            continue
-        city = place.city
-        if city is None or not bool(city.is_active) or city.launch_status != "published":
-            violating.append(str(place_id))
-            continue
-        if not bool(place.is_active) or not bool(place.is_published) or not bool(place.is_visible_in_catalog):
-            violating.append(str(place_id))
-            continue
-        if not bool(place.is_route_eligible):
-            violating.append(str(place_id))
-            continue
-        if getattr(place, "internal_status", None) == "service_only":
-            violating.append(str(place_id))
+    violating = [str(place_id) for place_id in place_ids if place_id not in valid_ids]
     if violating:
         raise RouteInvariantViolation(
             _with_violation(
@@ -254,7 +239,7 @@ def assert_no_forbidden_categories(
     violating = [
         str(point.place_id)
         for point in points
-        if str(getattr(point, "category", "") or "").strip().lower() in HARD_EXCLUDED_CATEGORIES
+        if str(getattr(point, "category", "") or "").strip().lower() in PUBLIC_HIDDEN_CATEGORIES
     ]
     if violating:
         raise RouteInvariantViolation(
