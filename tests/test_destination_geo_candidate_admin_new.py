@@ -91,3 +91,63 @@ def test_geo_search_compatible_with_pipeline_readiness_new(client, monkeypatch):
     readiness = client.get(f"/admin/destinations/{created['slug']}/readiness").json()
     assert readiness["bootstrap_ready"] is True
     assert readiness["bootstrap_blockers"] == []
+
+
+def test_create_from_geo_candidate_invalid_bbox_returns_422_without_row(client, db_session):
+    response = client.post(
+        "/admin/destinations/from-geo-candidate",
+        json=_candidate_body(bbox={"south": 56.0, "west": 20.0, "north": 55.0, "east": 21.0})
+        | {"slug": "invalid-bbox-destination", "name": "Invalid bbox"},
+    )
+
+    assert response.status_code == 422
+    assert db_session.query(Destination).filter_by(slug="invalid-bbox-destination").count() == 0
+
+
+def test_create_from_geo_candidate_invalid_destination_type_returns_422_without_row(client, db_session):
+    response = client.post(
+        "/admin/destinations/from-geo-candidate",
+        json=_candidate_body(destination_type="unsupported")
+        | {"slug": "invalid-type-destination", "name": "Invalid type"},
+    )
+
+    assert response.status_code == 422
+    assert db_session.query(Destination).filter_by(slug="invalid-type-destination").count() == 0
+
+
+def test_scope_from_geo_candidate_invalid_bbox_returns_422_without_scope(client, db_session):
+    dest = client.post("/admin/destinations", json={"slug": "invalid-scope-bbox", "name": "Invalid scope"}).json()
+    response = client.post(
+        f"/admin/destinations/{dest['slug']}/scopes/from-geo-candidate",
+        json=_candidate_body(bbox={"south": 56.0, "west": 20.0, "north": 55.0, "east": 21.0})
+        | {"code": "invalid", "name": "Invalid"},
+    )
+
+    assert response.status_code == 422
+    destination = db_session.query(Destination).filter_by(slug="invalid-scope-bbox").one()
+    assert db_session.query(DestinationScope).filter_by(destination_id=destination.id).count() == 0
+
+
+def test_scope_from_geo_candidate_invalid_destination_type_returns_422_without_scope(client, db_session):
+    dest = client.post("/admin/destinations", json={"slug": "invalid-scope-type", "name": "Invalid scope type"}).json()
+    response = client.post(
+        f"/admin/destinations/{dest['slug']}/scopes/from-geo-candidate",
+        json=_candidate_body(destination_type="unsupported") | {"code": "invalid", "name": "Invalid"},
+    )
+
+    assert response.status_code == 422
+    destination = db_session.query(Destination).filter_by(slug="invalid-scope-type").one()
+    assert db_session.query(DestinationScope).filter_by(destination_id=destination.id).count() == 0
+
+
+def test_scope_from_geo_candidate_duplicate_code_without_recover_returns_409(client, db_session):
+    dest = client.post("/admin/destinations", json={"slug": "duplicate-scope", "name": "Duplicate scope"}).json()
+    url = f"/admin/destinations/{dest['slug']}/scopes/from-geo-candidate"
+    payload = _candidate_body() | {"code": "shared", "name": "Shared", "recover": False}
+
+    assert client.post(url, json=payload).status_code == 200
+    response = client.post(url, json=payload)
+
+    assert response.status_code == 409
+    destination = db_session.query(Destination).filter_by(slug="duplicate-scope").one()
+    assert db_session.query(DestinationScope).filter_by(destination_id=destination.id, code="shared").count() == 1
