@@ -87,10 +87,27 @@ class UserRouteSlotBuildService:
         explanation = dict(state.explanation or {})
         explanation["slot_matches"] = [match.__dict__ for match in matches]
         explanation["summary"] = "Маршрут собран по заданным слотам." if not is_partial else "Маршрут собран частично: часть слотов не удалось заполнить."
+
+        # RouteFinalizeService/route_status() is the single owner of route
+        # readiness (see services/route_status_service.py). `places` is
+        # non-empty here (the empty case returns above), so state.status is
+        # either "ready" or "partial_route" — never "no_route". Slot
+        # completeness may only ever DOWNGRADE that canonical status
+        # ("ready" -> "partial_route" when a required slot is missing); it
+        # must never upgrade "partial_route" to "ready", since that would
+        # let e.g. a single-point route (canonical partial_route) report
+        # itself as ready just because its one required slot happened to be
+        # filled. When a required slot is missing, partial_reason always
+        # reports that specific cause, even if the canonical status was
+        # already partial_route for an unrelated reason (e.g. too few
+        # points) — the slot gap must remain visible either way.
+        status = "partial_route" if is_partial else state.status
+        partial_reason = "slot_constructor_missing_required_slot" if is_partial else state.partial_reason
+
         return state.model_copy(
             update={
-                "status": "partial_route" if is_partial else "ready",
-                "partial_reason": "slot_constructor_missing_required_slot" if is_partial else None,
+                "status": status,
+                "partial_reason": partial_reason,
                 "explanation": explanation,
                 "warnings": [*state.warnings, *warnings],
                 "has_warnings": bool(state.has_warnings or warnings),

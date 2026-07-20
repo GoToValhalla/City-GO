@@ -17,7 +17,7 @@ from services.place_public_visibility import (
 )
 from services.route_eligibility import (
     admin_preview_route_eligible_sql_conditions,
-    route_eligible_sql_conditions,
+    public_route_eligible_sql_conditions,
 )
 from services.route_geometry import walk_minutes_between
 
@@ -42,9 +42,10 @@ ROUTE_FRIENDLY_CATEGORIES = frozenset(
 
 FOOD_AND_REST_CATEGORIES = frozenset({"cafe", "coffee", "food", "restaurant", "bar", "pub"})
 
-# Города в UI могут быть в статусе "готовится" / preview, но уже иметь публичные
-# route-eligible места. Маршрутная сборка должна опираться на активность города и
-# качество мест, а не блокироваться launch_status == published.
+# Used only by the relaxed route-visible city-wide fallback and its diagnostics
+# counters as an additional runtime gate below the canonical public contract
+# (services.place_public_visibility.public_place_conditions), which already
+# requires City.launch_status == "published" for any non-admin caller.
 BLOCKED_CITY_LAUNCH_STATUSES = frozenset({"disabled", "archived", "hidden"})
 LOCATION_FALLBACK_MAX_DISTANCE_METERS = 50_000
 
@@ -191,15 +192,10 @@ class CandidateRetrievalService:
         eligibility_conditions = (
             admin_preview_route_eligible_sql_conditions()
             if admin_preview
-            else route_eligible_sql_conditions()
+            else public_route_eligible_sql_conditions()
         )
         query = select(Place).where(*eligibility_conditions)
         query = query.join(City, Place.city_id == City.id)
-        if not admin_preview:
-            query = query.where(
-                City.is_active.is_(True),
-                ~City.launch_status.in_(BLOCKED_CITY_LAUNCH_STATUSES),
-            )
         if ctx.city_id and not _destination_route_reads_enabled(ctx):
             query = query.where(City.slug == str(ctx.city_id))
 

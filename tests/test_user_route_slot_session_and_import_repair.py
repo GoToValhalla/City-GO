@@ -20,7 +20,16 @@ def test_slot_constructor_fills_route_in_requested_slot_order(db_session, city_f
         lng=44.4991,
         city_id="yerevan",
         build_mode="constructor",
-        time_budget_minutes=120,
+        # 60 minutes -> compute_num_stops() targets 2 stops -> canonical
+        # route_status() requires >= 2 points for "ready" (see
+        # services/route_status_service.py::_expected_min). Both required
+        # slots below are filled with 2 points, so canonical status is
+        # "ready" and CITYGO-356 (Slot Builder must never overwrite the
+        # canonical status with "ready" — only ever downgrade it) leaves it
+        # untouched. A larger budget (e.g. 120 -> target 4 stops, min 3)
+        # would make 2 filled points canonically "partial_route", which
+        # this test is not about.
+        time_budget_minutes=60,
         interests=[],
         avoided_categories=[],
         excluded_place_ids=[],
