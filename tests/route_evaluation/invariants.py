@@ -162,6 +162,7 @@ def assert_correct_city_and_destination_scope(
     expected_status: str,
     actual_status: str,
     generation_run_id: str,
+    db: Session | None = None,
     **record_kwargs: Any,
 ) -> None:
     if not points or expected_city_slug is None:
@@ -171,6 +172,20 @@ def assert_correct_city_and_destination_scope(
         for point in points
         if getattr(point, "city_slug", None) not in (None, expected_city_slug)
     ]
+    if db is not None:
+        place_ids = [int(point.place_id) for point in points]
+        by_id = {
+            int(place_id): str(slug)
+            for place_id, slug in (
+                db.query(Place.id, City.slug)
+                .join(City, Place.city_id == City.id)
+                .filter(Place.id.in_(place_ids))
+                .all()
+            )
+        }
+        for place_id in place_ids:
+            if by_id.get(place_id) != expected_city_slug and str(place_id) not in violating:
+                violating.append(str(place_id))
     if violating:
         raise RouteInvariantViolation(
             _with_violation(
@@ -466,7 +481,7 @@ def run_all_point_invariants(
     assert_correct_city_and_destination_scope(
         points, expected_city_slug=expected_city_slug, scenario_id=scenario_id, entrypoint=entrypoint,
         build_mode=build_mode, expected_status=expected_status, actual_status=actual_status,
-        generation_run_id=generation_run_id, **kwargs,
+        generation_run_id=generation_run_id, db=db, **kwargs,
     )
     assert_no_duplicate_place_ids(
         points, scenario_id=scenario_id, entrypoint=entrypoint, build_mode=build_mode,

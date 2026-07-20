@@ -32,7 +32,7 @@ describe('RandomRouteDraftEditor', () => {
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/categories/')) return json([{ code: 'cafe', name: 'Кофе' }])
-      if (url.includes('/routes/random')) return json(draft)
+      if (url.includes('/routes/random')) return json({ ...draft, ownership_token: 'server-issued-draft-token-01' })
       if (url.includes('/search-places')) return json({ items: [{ place_id: 999, title: 'Новая кофейня', category: 'cafe', address: null, fit_reason: 'category_match', estimated_extra_minutes: 0, score: 3 }] })
       if (url.includes('/remove-point')) return json({ ...draft, version: 2, points: [draft.points[1]] })
       if (url.includes('/add-point') || url.includes('/replace-point')) return json({ ...draft, version: 3 })
@@ -52,6 +52,7 @@ describe('RandomRouteDraftEditor', () => {
     const randomCall = vi.mocked(fetch).mock.calls.find(([input]) => String(input).includes('/routes/random'))
     const payload = JSON.parse(String((randomCall?.[1] as RequestInit | undefined)?.body))
     expect(payload).toMatchObject({ city_slug: 'zelenogradsk', budget_minutes: 120, category_mode: 'none', selected_category_slugs: [] })
+    expect(payload.session_token).toBeUndefined()
     expect(payload.seed).toEqual(expect.any(Number))
     expect(screen.getByTestId('random-route-map')).toHaveAttribute('data-points', '2')
     expect(screen.getByTestId('random-route-map')).toHaveAttribute('data-route-line', 'true')
@@ -60,6 +61,9 @@ describe('RandomRouteDraftEditor', () => {
     fireEvent.change(screen.getByLabelText('Категория места'), { target: { value: 'cafe' } })
     fireEvent.click(screen.getByRole('button', { name: /Показать места/ }))
     await waitFor(() => expect(screen.getByText('Новая кофейня')).toBeTruthy())
+    const searchCall = vi.mocked(fetch).mock.calls.find(([input]) => String(input).includes('/search-places'))
+    const searchHeaders = (searchCall?.[1] as RequestInit | undefined)?.headers as Record<string, string>
+    expect(searchHeaders['X-Route-Draft-Session']).toBe('server-issued-draft-token-01')
     expect(screen.queryByText(/category_match|name_or_quality_match/)).toBeFalsy()
   })
 

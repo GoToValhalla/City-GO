@@ -50,6 +50,7 @@ class RouteSessionRead(BaseModel):
     completed_at: datetime | None = None
     points: list[RouteSessionPointRead] = []
     navigation: ExternalNavigationBlock | None = None
+    ownership_token: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

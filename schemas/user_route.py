@@ -234,3 +234,4 @@ class UserRouteSessionState(BaseModel):
     point_completed_at: dict[str, str] = Field(default_factory=dict)
     skipped_place_ids: list[str] = Field(default_factory=list)
     points: list[UserRouteSessionPointState] = Field(default_factory=list)
+    ownership_token: str | None = None

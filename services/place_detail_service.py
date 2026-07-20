@@ -49,7 +49,6 @@ def get_place_detail_by_slug(db: Session, slug: str) -> dict | None:
         "family_friendly": place.family_friendly,
         "indoor": place.indoor,
         "outdoor": place.outdoor,
-        "is_active": place.is_active,
         "tags": [
             {
                 "id": tag.id,

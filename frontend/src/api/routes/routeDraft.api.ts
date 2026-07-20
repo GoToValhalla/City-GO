@@ -14,34 +14,42 @@ const sessionHeaders = (sessionToken: string) => ({
   [ROUTE_DRAFT_SESSION_HEADER]: sessionToken,
 })
 
-/** Client-generated anonymous ownership token (never echoed by the API). */
+/** Require Web Crypto; never fall back to Math.random. */
 export const createRouteDraftSessionToken = (): string => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return `${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, '').slice(0, 64)
+  if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
+    throw new Error('Secure crypto.randomUUID is required for draft session tokens')
   }
-  return `draft-${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+  return `${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, '').slice(0, 64)
 }
 
-export const createRandomDraft = async (
-  payload: {
-    city_slug: string
-    budget_minutes: number
-    selected_category_slugs: string[]
-    category_mode: 'none' | 'balanced'
-    seed?: number
-  },
-  sessionToken: string,
-): Promise<RouteDraft> => {
+export type RouteDraftCreateResult = {
+  draft: RouteDraft
+  ownershipToken: string
+}
+
+export const createRandomDraft = async (payload: {
+  city_slug: string
+  budget_minutes: number
+  selected_category_slugs: string[]
+  category_mode: 'none' | 'balanced'
+  seed?: number
+}): Promise<RouteDraftCreateResult> => {
   const response = await fetch(buildApiUrl('/routes/random'), {
     method: 'POST',
     headers: jsonHeaders,
     body: JSON.stringify({
       ...payload,
-      session_token: sessionToken,
       start: { type: 'city_center', label: 'Центр города' },
     }),
   })
-  return readJson<RouteDraft>(response)
+  const body = await readJson<RouteDraft & { ownership_token?: string }>(response)
+  const ownershipToken =
+    body.ownership_token || response.headers.get(ROUTE_DRAFT_SESSION_HEADER) || ''
+  if (!ownershipToken) {
+    throw new Error('Server did not return ownership_token for route draft')
+  }
+  const { ownership_token: _ignored, ...draft } = body
+  return { draft: draft as RouteDraft, ownershipToken }
 }
 
 export const removeDraftPoint = async (

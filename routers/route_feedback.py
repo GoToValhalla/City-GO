@@ -1,20 +1,23 @@
-from __future__ import annotations
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
 from models.user_signal import UserSignal
 from schemas.route_feedback import RouteFeedbackCreate, RouteFeedbackRead
+from services.anonymous_ownership import optional_anonymous_session
 
 router = APIRouter(prefix="/route-feedback", tags=["route-feedback"])
 
 
 @router.post("/", response_model=RouteFeedbackRead)
-def post_route_feedback(payload: RouteFeedbackCreate, db: Session = Depends(get_db)) -> RouteFeedbackRead:
+def post_route_feedback(
+    payload: RouteFeedbackCreate,
+    anonymous_subject: str | None = Depends(optional_anonymous_session),
+    db: Session = Depends(get_db),
+) -> RouteFeedbackRead:
     """Сохраняет оценку маршрута как user signal для будущего обучения рекомендаций."""
     signal = UserSignal(
-        user_id=payload.user_id or "anonymous",
+        user_id=anonymous_subject or "anonymous",
         signal_type="route_feedback",
         entity_type="route",
         entity_id=payload.route_id,

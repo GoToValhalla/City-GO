@@ -1,5 +1,7 @@
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+import logging
+import os
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from core.cors import parse_cors_origins
+from core.abuse_control import AbuseControlMiddleware
 from core.config import settings
 from core.import_worker_scheduler import (
     start_import_worker_scheduler,
@@ -26,19 +29,28 @@ from core.route_state_cleanup_scheduler import (
     stop_route_state_cleanup_scheduler,
 )
 from core.router_setup import include_app_routers
+from core.safe_errors import install_public_exception_handlers
 from core.version import get_backend_version
 from db.dependencies import get_db
 from services.feature_toggle_service import is_toggle_enabled
 from services.user_route_state_integrity import validate_route_state_runtime_config
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     validate_route_state_runtime_config()
+    _warn_for_multi_worker_rate_limiting()
     if _is_production():
         missing: list[str] = []
         if not str(settings.admin_api_token or "").strip():
             missing.append("ADMIN_API_TOKEN")
+        if not str(settings.user_route_state_secret or "").strip():
+            missing.append("USER_ROUTE_STATE_SECRET")
+        bot_token = str(settings.bot_token or settings.telegram_bot_token or "").strip()
+        if bot_token and not str(settings.bot_webhook_secret or "").strip():
+            missing.append("BOT_WEBHOOK_SECRET")
         if missing:
             raise RuntimeError("Missing required production secrets: " + ", ".join(missing))
 
@@ -66,12 +78,25 @@ def _is_production() -> bool:
     return str(settings.app_env or "").strip().lower() in {"prod", "production"}
 
 
+def _warn_for_multi_worker_rate_limiting() -> None:
+    raw_workers = os.getenv("WEB_CONCURRENCY", "1")
+    try:
+        worker_count = int(raw_workers)
+    except ValueError:
+        worker_count = 1
+    if worker_count > 1:
+        logger.warning("In-memory rate limits are process-local; WEB_CONCURRENCY=%d weakens aggregate limits", worker_count)
+
+
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     lifespan=lifespan,
 )
 
+install_public_exception_handlers(app)
+
+app.add_middleware(AbuseControlMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=parse_cors_origins(settings.cors_origins),

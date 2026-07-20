@@ -342,9 +342,11 @@ jobs:
           docker save "$BACKEND_IMAGE:latest" "$FRONTEND_IMAGE:latest" | gzip -1 > /tmp/city-go-images.tar.gz
           ARCHIVE_BYTES=$(stat -c%s /tmp/city-go-images.tar.gz 2>/dev/null || stat -f%z /tmp/city-go-images.tar.gz)
           echo "Archive size: ${ARCHIVE_BYTES} bytes ($(awk -v b="$ARCHIVE_BYTES" 'BEGIN { printf "%.2f", b/1048576 }') MiB)"
-          echo "archive_size_bytes=${ARCHIVE_BYTES}" >> "$GITHUB_ENV"
-          echo "archive_size_mib=$(awk -v b="$ARCHIVE_BYTES" 'BEGIN { printf "%.2f", b/1048576 }')" >> "$GITHUB_ENV"
-          echo "timing_download_save_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
+          {
+            echo "archive_size_bytes=${ARCHIVE_BYTES}"
+            echo "archive_size_mib=$(awk -v b="$ARCHIVE_BYTES" 'BEGIN { printf "%.2f", b/1048576 }')"
+            echo "timing_download_save_seconds=$(( $(date +%s) - STAGE_START ))"
+          } >> "$GITHUB_ENV"
 
       - name: Copy compose file to server
         shell: bash

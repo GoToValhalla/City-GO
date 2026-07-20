@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from time import perf_counter
 
-from fastapi import APIRouter, Depends, Header, Request, Response
+from fastapi import APIRouter, Depends, Request, Response
 from services.city_service import get_city_by_id
 from services.feature_toggle_guards import assert_ai_recommendations
 from services.route_toggle_guard import assert_route_generation_allowed
@@ -14,6 +14,7 @@ from schemas.recommendation_route import (
     RecommendationRouteRequest,
     RecommendationRouteResponse,
 )
+from services.anonymous_ownership import optional_anonymous_session
 from services.context_merge_service import RequestContext
 from services.explainability_service import ExplainabilityService
 from services.route_builder_service import RouteBuilderService
@@ -42,7 +43,7 @@ def post_recommendation_route(
     payload: RecommendationRouteRequest,
     request: Request,
     response: Response,
-    x_debug: str | None = Header(default=None, alias="X-Debug"),
+    anonymous_subject: str | None = Depends(optional_anonymous_session),
     db: Session = Depends(get_db),
 ) -> RecommendationRouteResponse:
     started = perf_counter()
@@ -69,38 +70,39 @@ def post_recommendation_route(
     )
 
     builder = RouteBuilderService()
-    profile = build_user_profile_from_signals(db, payload.user_id)
+    profile = (
+        build_user_profile_from_signals(db, anonymous_subject) if anonymous_subject else None
+    )
     final_route = builder.build_route(db=db, request=route_request, profile=profile)
+    signal_user_id = anonymous_subject or "anonymous"
     record_route_build(
         db,
         final_route,
         source="recommendations",
         latency_ms=_latency_ms(started),
         city_id=payload.city_id,
-        user_id=payload.user_id,
+        user_id=signal_user_id,
     )
     stops = len(getattr(final_route, "points", []) or [])
     evt = "route_generation_success" if stops > 0 else "route_generation_failed"
-    record_event(db, event_type=evt, city_slug=city_slug, user_id=payload.user_id,
-                 payload={"stops": stops, "source": "recommendations"})
+    record_event(
+        db,
+        event_type=evt,
+        city_slug=city_slug,
+        user_id=signal_user_id,
+        payload={"stops": stops, "source": "recommendations"},
+    )
 
     explainer = ExplainabilityService()
     explanation = explainer.build_route_explanation(final_route)
 
     body = serialize_final_route(final_route)
     body["explanation"] = explanation
-    if _debug_enabled(x_debug):
-        body["_trace"] = list(getattr(final_route, "pipeline_trace", []) or [])
-
     return RecommendationRouteResponse.model_validate(body)
 
 
 def _latency_ms(started: float) -> int:
     return int((perf_counter() - started) * 1000)
-
-
-def _debug_enabled(value: str | None) -> bool:
-    return str(value or "").strip().casefold() in {"1", "true", "yes", "debug"}
 
 
 def _resolve_city_slug(db: Session, city_slug: str | None, city_id: str | None) -> str | None:
@@ -118,5 +120,4 @@ def _resolve_city_timezone(db: Session, city_slug: str | None, city_id: str | No
         city = db.query(City).filter(City.slug == city_slug).first()
     elif city_id and city_id.isdigit():
         city = get_city_by_id(db, int(city_id))
-    value = str(getattr(city, "timezone", "") or "").strip() if city else ""
-    return value or DEFAULT_ROUTE_TIMEZONE
+    return str(getattr(city, "timezone", None) or DEFAULT_ROUTE_TIMEZONE)

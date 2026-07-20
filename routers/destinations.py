@@ -47,7 +47,7 @@ def read_destinations(
 @router.get("/{slug}", response_model=DestinationDetail)
 def read_destination(slug: str, db: Session = Depends(get_db)) -> DestinationDetail:
     row = get_destination_by_slug(db, slug)
-    if row is None or not row.is_active:
+    if row is None or not row.is_active or not row.is_published:
         raise HTTPException(status_code=404, detail="Destination not found")
     base = _to_list_item(db, row)
     children = [_to_list_item(db, child) for child in list_children(db, row.id)]

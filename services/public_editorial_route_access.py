@@ -17,21 +17,23 @@ def public_city_filters() -> tuple:
     return (City.is_active.is_(True), City.launch_status == "published")
 
 
-def eligible_place_ids_among(db: Session, place_ids: list[int]) -> set[int]:
+def eligible_place_ids_among(db: Session, place_ids: list[int], *, city_id: int | None = None) -> set[int]:
     if not place_ids:
         return set()
-    rows = (
+    query = (
         db.query(Place.id)
         .join(City, Place.city_id == City.id)
         .filter(Place.id.in_(place_ids), *public_route_eligible_sql_conditions())
-        .all()
     )
+    if city_id is not None:
+        query = query.filter(Place.city_id == city_id)
+    rows = query.all()
     return {int(row[0]) for row in rows}
 
 
 def public_editorial_route_places(db: Session, route: Route) -> list[RoutePlace]:
     place_ids = [int(item.place_id) for item in route.route_places]
-    eligible = eligible_place_ids_among(db, place_ids)
+    eligible = eligible_place_ids_among(db, place_ids, city_id=int(route.city_id))
     return [
         item
         for item in sorted(route.route_places, key=lambda row: row.position)

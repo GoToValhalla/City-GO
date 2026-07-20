@@ -1,7 +1,7 @@
 """Admin: eligibility list, data quality, city readiness."""
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
@@ -177,7 +177,7 @@ def recalculate_city_readiness(
         },
     )
     if op.status == "queued":
-        background_tasks.add_task(run_background_operation, op.id)
+        background_tasks.add_task(run_background_operation, op.id, sessionmaker(bind=db.get_bind()))
     return operation_payload(op) or {}
 
 

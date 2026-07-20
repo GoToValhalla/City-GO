@@ -22,7 +22,7 @@ def test_ready_route_status_can_start_session_new(monkeypatch, status: str) -> N
         calls.append("verify")
         return object()
 
-    def fake_start(_self, _db, _request):
+    def fake_start(_self, _db, _request, *, ownership_token=None):
         calls.append("start")
         return expected
 
@@ -45,7 +45,7 @@ def test_non_ready_route_status_cannot_start_session_new(monkeypatch, status: st
         assert lock is True
         return object()
 
-    def fake_start(_self, _db, _request):
+    def fake_start(_self, _db, _request, *, ownership_token=None):
         nonlocal service_called
         service_called = True
         return object()

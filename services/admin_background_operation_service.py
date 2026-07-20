@@ -109,8 +109,11 @@ def snapshot_status_payload(
     }
 
 
-def run_background_operation(operation_id: int) -> None:
-    db = SessionLocal()
+def run_background_operation(
+    operation_id: int,
+    session_factory: Callable[[], Session] = SessionLocal,
+) -> None:
+    db = session_factory()
     try:
         op = get_operation(db, operation_id)
         if op is None:

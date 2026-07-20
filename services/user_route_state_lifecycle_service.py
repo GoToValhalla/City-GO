@@ -95,6 +95,8 @@ class RouteStateLifecycleService:
         self,
         db: Session,
         request: UserRouteSessionStartRequest,
+        *,
+        ownership_token: str | None = None,
     ) -> UserRouteSessionState:
         """Start the separate session aggregate from a usable, current route."""
         from services.user_route_session_service import UserRouteSessionService
@@ -106,7 +108,7 @@ class RouteStateLifecycleService:
             raise UserRouteStateConflictError(
                 f"Route state status {normalized_status or '<empty>'!r} cannot start a session."
             )
-        return UserRouteSessionService().start(db, request)
+        return UserRouteSessionService().start(db, request, ownership_token=ownership_token)
 
     @classmethod
     def _lock_mutable(cls, db: Session, state: UserRouteState) -> Any:

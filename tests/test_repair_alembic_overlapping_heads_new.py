@@ -3,6 +3,7 @@ from sqlalchemy import create_engine, text
 from scripts.repair_alembic_overlapping_heads import (
     CURRENT_DESCENDANT_REVISION,
     LEGACY_ANCESTOR_REVISION,
+    detect_overlapping_heads,
     repair_overlapping_heads,
 )
 
@@ -24,21 +25,20 @@ def _revisions(engine) -> set[str]:
         return set(connection.execute(text("SELECT version_num FROM alembic_version")).scalars())
 
 
-def test_repair_removes_only_redundant_ancestor_new() -> None:
+def test_detect_overlapping_heads_does_not_mutate_new() -> None:
     engine = _engine_with_revisions(LEGACY_ANCESTOR_REVISION, CURRENT_DESCENDANT_REVISION)
-
+    assert detect_overlapping_heads(engine) is True
     assert repair_overlapping_heads(engine) is True
-    assert _revisions(engine) == {CURRENT_DESCENDANT_REVISION}
+    # Must never delete version rows.
+    assert _revisions(engine) == {LEGACY_ANCESTOR_REVISION, CURRENT_DESCENDANT_REVISION}
 
 
-def test_repair_is_idempotent_for_current_head_new() -> None:
+def test_detect_is_false_for_current_head_new() -> None:
     engine = _engine_with_revisions(CURRENT_DESCENDANT_REVISION)
-
     assert repair_overlapping_heads(engine) is False
     assert _revisions(engine) == {CURRENT_DESCENDANT_REVISION}
 
 
-def test_repair_does_nothing_before_version_table_exists_new() -> None:
+def test_detect_false_before_version_table_exists_new() -> None:
     engine = create_engine("sqlite://")
-
     assert repair_overlapping_heads(engine) is False

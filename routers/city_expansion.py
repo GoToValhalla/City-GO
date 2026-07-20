@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
 from schemas.city_expansion import (
     CityCandidateCreate,
@@ -29,42 +30,79 @@ router = APIRouter(prefix="/city-expansion", tags=["city-expansion"])
 
 
 @router.get("/countries", response_model=list[CountryRead])
-def countries(db: Session = Depends(get_db)) -> list[CountryRead]:
+def countries(
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> list[CountryRead]:
+    del auth
     return list_countries(db)
 
 
 @router.post("/countries", response_model=CountryRead)
-def post_country(payload: CountryCreate, db: Session = Depends(get_db)) -> CountryRead:
+def post_country(
+    payload: CountryCreate,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> CountryRead:
+    del auth
     return create_country(db, payload)
 
 
 @router.get("/regions", response_model=list[RegionRead])
-def regions(db: Session = Depends(get_db)) -> list[RegionRead]:
+def regions(
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> list[RegionRead]:
+    del auth
     return list_regions(db)
 
 
 @router.post("/regions", response_model=RegionRead)
-def post_region(payload: RegionCreate, db: Session = Depends(get_db)) -> RegionRead:
+def post_region(
+    payload: RegionCreate,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> RegionRead:
+    del auth
     return create_region(db, payload)
 
 
 @router.get("/city-candidates", response_model=list[CityCandidateRead])
-def city_candidates(db: Session = Depends(get_db)) -> list[CityCandidateRead]:
+def city_candidates(
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> list[CityCandidateRead]:
+    del auth
     return list_city_candidates(db)
 
 
 @router.post("/city-candidates", response_model=CityCandidateRead)
-def post_candidate(payload: CityCandidateCreate, db: Session = Depends(get_db)) -> CityCandidateRead:
+def post_candidate(
+    payload: CityCandidateCreate,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> CityCandidateRead:
+    del auth
     return create_city_candidate(db, payload)
 
 
 @router.get("/scopes", response_model=list[ImportScopeRead])
-def scopes(city_id: int | None = Query(default=None), db: Session = Depends(get_db)) -> list[ImportScopeRead]:
+def scopes(
+    city_id: int | None = Query(default=None),
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> list[ImportScopeRead]:
+    del auth
     return list_import_scopes(db, city_id)
 
 
 @router.post("/scopes", response_model=ImportScopeRead)
-def post_scope(payload: ImportScopeCreate, db: Session = Depends(get_db)) -> ImportScopeRead:
+def post_scope(
+    payload: ImportScopeCreate,
+    auth: AdminContext = Depends(admin_required),
+    db: Session = Depends(get_db),
+) -> ImportScopeRead:
+    del auth
     return create_import_scope(db, payload)
 
 
@@ -72,6 +110,8 @@ def post_scope(payload: ImportScopeCreate, db: Session = Depends(get_db)) -> Imp
 def import_coverage(
     city_slug: str,
     scope_code: str | None = Query(default=None),
+    auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> ImportCoverageReport:
+    del auth
     return build_import_coverage_report(db, city_slug, scope_code)

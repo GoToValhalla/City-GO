@@ -77,11 +77,8 @@ class DebugReportRead(BaseModel):
 class DebugReportCreateResponse(BaseModel):
     report_id: int
     public_id: str
-    admin_url: str
-    copied_summary: str
-    telegram_sent: bool
-    telegram_status: str
-    telegram_error: str | None = None
+    status: str = "accepted"
+    telegram_status: str = "queued"
 
 
 class DebugReportListResponse(BaseModel):

@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom'
 import {
   addDraftPoint,
   createRandomDraft,
-  createRouteDraftSessionToken,
   loadCategories,
   removeDraftPoint,
   replaceDraftPoint,
@@ -57,7 +56,7 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES, in
   const [searchMessage, setSearchMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const sessionTokenRef = useRef(createRouteDraftSessionToken())
+  const sessionTokenRef = useRef<string>('')
 
   const visibleCategories = useMemo(
     () => filterCategoryOptionsForFeatures(categories, features),
@@ -77,7 +76,7 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES, in
   }, [])
 
   useEffect(() => {
-    sessionTokenRef.current = createRouteDraftSessionToken()
+    sessionTokenRef.current = ''
     setDraft(null)
     setLastPlan(null)
     setSearch([])
@@ -106,15 +105,14 @@ export const RandomRouteDraftEditor = ({ citySlug, features = EMPTY_FEATURES, in
       return
     }
     await run(async () => {
-      const sessionToken = createRouteDraftSessionToken()
-      sessionTokenRef.current = sessionToken
-      const nextDraft = await createRandomDraft({
+      const { draft: nextDraft, ownershipToken } = await createRandomDraft({
         city_slug: citySlug,
         budget_minutes: plan.minutes,
         selected_category_slugs: plan.categories,
         category_mode: plan.categoryMode,
         seed: plan.seed,
-      }, sessionToken)
+      })
+      sessionTokenRef.current = ownershipToken
       setDraft(nextDraft)
       setLastPlan(plan)
       setBudget(plan.minutes)

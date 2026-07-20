@@ -1,34 +1,29 @@
-from datetime import datetime
-
 from fastapi.testclient import TestClient
 
 from db.dependencies import get_db
 from main import app
+from schemas.public_place import (
+    PublicCategory,
+    PublicCoordinates,
+    PublicDataQuality,
+    PublicPlaceRead,
+)
 
 
 def test_search_places_returns_structured_response(monkeypatch) -> None:
-    expected_items = [
-        {
-            "id": 1,
-            "title": "Coffee Point",
-            "slug": "coffee-point",
-            "city_id": 1,
-            "category_id": 2,
-            "short_description": "Good coffee place",
-            "category": "coffee",
-            "address": "Kurortny Prospekt 12",
-            "lat": 54.964,
-            "lng": 20.475,
-            "price_level": 1,
-            "dog_friendly": False,
-            "family_friendly": False,
-            "indoor": False,
-            "outdoor": False,
-            "is_active": True,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
-        }
-    ]
+    public_item = PublicPlaceRead(
+        id=1,
+        slug="coffee-point",
+        name="Coffee Point",
+        title="Coffee Point",
+        category="coffee",
+        category_label="Coffee",
+        category_info=PublicCategory(slug="coffee", label="Coffee"),
+        coordinates=PublicCoordinates(lat=54.964, lng=20.475),
+        lat=54.964,
+        lng=20.475,
+        data_quality=PublicDataQuality(is_degraded=False, completeness_score=80),
+    )
 
     def fake_get_places(
         db,
@@ -46,7 +41,7 @@ def test_search_places_returns_structured_response(monkeypatch) -> None:
         assert q == "coffee"
         assert limit == 20
         assert offset == 0
-        return expected_items
+        return [object()]
 
     def fake_get_places_total(
         db,
@@ -60,11 +55,18 @@ def test_search_places_returns_structured_response(monkeypatch) -> None:
         assert q == "coffee"
         return 1
 
+    def fake_build_public_place_reads(db, places):
+        assert len(places) == 1
+        return [public_item]
+
     def fake_get_db():
         yield object()
 
     monkeypatch.setattr("routers.place_search.get_places", fake_get_places)
     monkeypatch.setattr("routers.place_search.get_places_total", fake_get_places_total)
+    monkeypatch.setattr(
+        "routers.place_search.build_public_place_reads", fake_build_public_place_reads
+    )
     app.dependency_overrides[get_db] = fake_get_db
 
     client = TestClient(app)
@@ -85,5 +87,6 @@ def test_search_places_returns_structured_response(monkeypatch) -> None:
     assert len(data["items"]) == 1
     assert data["items"][0]["slug"] == "coffee-point"
     assert data["items"][0]["title"] == "Coffee Point"
+    assert "publication_status" not in data["items"][0]
 
     app.dependency_overrides.clear()

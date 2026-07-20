@@ -88,14 +88,15 @@ def test_eval_random_draft_access_and_stale_point_new(
             "category_mode": "none",
             "selected_category_slugs": [],
             "seed": 3,
-            "session_token": TOKEN,
         },
     )
     assert created.status_code == 200
     body = created.json()
     assert "session_token" not in body
+    token = body["ownership_token"]
+    assert token
     draft_id = body["draft_id"]
-    headers = {"X-Route-Draft-Session": TOKEN}
+    headers = {"X-Route-Draft-Session": token}
 
     assert client.get(f"/routes/drafts/{draft_id}", headers=headers).status_code == 200
     assert client.get(

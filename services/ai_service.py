@@ -2,6 +2,8 @@
 Разбор текстового AI-запроса: эвристики по словарям + вызовы read-only сервисов для ответа.
 """
 
+from dataclasses import dataclass
+
 from sqlalchemy.orm import Session
 
 from services.ai_dictionaries import (
@@ -15,7 +17,25 @@ from services.nearby_service import get_nearby_places
 from services.open_now_service import get_open_now_places
 from services.place_detail_service import get_place_detail_by_slug
 from services.place_service import get_places
-from services.route_service import get_routes_by_city_id
+from services.route_service import get_public_routes_by_city_id
+
+
+@dataclass(frozen=True)
+class PublicAIIntentAccess:
+    public_reader: str
+    publication_gate: str
+    returned_schema: frozenset[str]
+
+
+_PLACE_FIELDS = frozenset({"id", "slug", "title", "city_id", "category_id", "category", "address"})
+PUBLIC_AI_INTENTS = {
+    "place_detail": PublicAIIntentAccess("get_place_detail_by_slug", "apply_public_place_visibility", _PLACE_FIELDS),
+    "places_filtered": PublicAIIntentAccess("get_places(public_only=True)", "apply_public_place_visibility", _PLACE_FIELDS),
+    "collections": PublicAIIntentAccess("get_collections_by_city_id", "city published + collection active", frozenset({"id", "slug", "title", "city_id", "short_description"})),
+    "routes": PublicAIIntentAccess("get_public_routes_by_city_id", "is_public_editorial_route_visible", frozenset({"id", "slug", "title", "city_id", "short_description", "duration_minutes"})),
+    "open_now": PublicAIIntentAccess("get_open_now_places", "apply_public_place_visibility", frozenset({"public place card", "open_time", "close_time"})),
+    "nearby": PublicAIIntentAccess("get_nearby_places", "apply_public_place_visibility", frozenset({"public place card", "lat", "lng", "distance_km"})),
+}
 
 
 def detect_city_slug(query: str) -> str | None:
@@ -232,7 +252,6 @@ def process_ai_query(
                 "title": collection.title,
                 "city_id": collection.city_id,
                 "short_description": collection.short_description,
-                "is_active": collection.is_active,
             }
             for collection in collections
         ]
@@ -247,7 +266,7 @@ def process_ai_query(
         }
 
     if intent == "routes":
-        routes = get_routes_by_city_id(db=db, city_id=city_id or 1)
+        routes = get_public_routes_by_city_id(db=db, city_id=city_id or 1)
 
         results = [
             {
@@ -257,7 +276,6 @@ def process_ai_query(
                 "city_id": route.city_id,
                 "short_description": route.short_description,
                 "duration_minutes": route.duration_minutes,
-                "is_active": route.is_active,
             }
             for route in routes
         ]
@@ -304,7 +322,7 @@ def process_ai_query(
         }
 
     return {
-        "status": "accepted",
+        "status": "rejected",
         "intent": "unknown",
         "city_slug": city_slug,
         "query": query,

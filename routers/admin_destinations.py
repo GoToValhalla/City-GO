@@ -9,7 +9,7 @@ from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
 from models.destination import Destination, DestinationMembershipConflict, DestinationPlaceMembership, DestinationScope
 from models.place import Place
-from routers.destinations import _to_list_item, read_destination
+from routers.destinations import _to_list_item
 from schemas.destination import (
     AdminAssignPlaceRequest,
     AdminDestinationCreate,
@@ -20,6 +20,7 @@ from schemas.destination import (
     DestinationDetail,
     DestinationListResponse,
     DestinationMembershipRead,
+    DestinationScopeSummary,
 )
 from schemas.destination_geo import (
     AdminDestinationFromGeoCandidateRequest,
@@ -46,6 +47,30 @@ from services.destination_geo_candidate_service import (
     to_read_model,
 )
 from services.destination_service import create_destination, list_scopes
+
+
+def _admin_destination_detail(db: Session, slug: str) -> DestinationDetail:
+    """Admin detail: no public publication gate."""
+    row = get_destination_by_slug(db, slug)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Destination not found")
+    base = _to_list_item(db, row)
+    children = [
+        _to_list_item(db, child)
+        for child in db.query(Destination)
+        .filter(Destination.parent_id == row.id)
+        .order_by(Destination.name.asc())
+        .all()
+    ]
+    scopes = [DestinationScopeSummary.model_validate(scope) for scope in list_scopes(db, row.id)]
+    return DestinationDetail(
+        **base.model_dump(),
+        launch_status=row.launch_status,
+        is_published=row.is_published,
+        sub_destinations=children,
+        scopes=scopes,
+    )
+
 
 router = APIRouter(prefix="/admin/destinations", tags=["admin-destinations"])
 
@@ -125,7 +150,7 @@ def admin_create_destination_from_geo_candidate(
     )
     db.commit()
     db.refresh(row)
-    return read_destination(row.slug, db=db)
+    return _admin_destination_detail(db, row.slug)
 
 
 @router.get("", response_model=DestinationListResponse)
@@ -156,7 +181,7 @@ def admin_create_destination(
     write_admin_audit_log(db, actor=auth.actor_id, action="destination_created", entity_type="destination", entity_id=row.id, new_value=data)
     db.commit()
     db.refresh(row)
-    return read_destination(row.slug, db=db)
+    return _admin_destination_detail(db, row.slug)
 
 
 @router.patch("/{slug}", response_model=DestinationDetail)
@@ -179,7 +204,7 @@ def admin_update_destination(
     write_admin_audit_log(db, actor=auth.actor_id, action="destination_updated", entity_type="destination", entity_id=dest.id, old_value=old, new_value=_destination_snapshot(dest))
     db.commit()
     db.refresh(dest)
-    return read_destination(dest.slug, db=db)
+    return _admin_destination_detail(db, dest.slug)
 
 
 @router.get("/{slug}", response_model=DestinationDetail)
@@ -188,7 +213,7 @@ def read_destination_admin(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> DestinationDetail:
-    return read_destination(slug, db=db)
+    return _admin_destination_detail(db, slug)
 
 
 @router.get("/{slug}/scopes")

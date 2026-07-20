@@ -22,7 +22,6 @@ class RandomRouteRequest(BaseModel):
     selected_category_slugs: list[str] = []
     category_mode: str = "none"
     seed: int | None = None
-    session_token: str = Field(..., min_length=8, max_length=255)
 
 
 class DraftPointRead(BaseModel):
@@ -61,6 +60,10 @@ class RouteDraftRead(BaseModel):
     points: list[DraftPointRead]
     warnings: list[RouteWarningRead]
     category_summary: CategorySummaryRead
+
+
+class RouteDraftCreateRead(RouteDraftRead):
+    ownership_token: str
 
 
 class RemovePointRequest(BaseModel):

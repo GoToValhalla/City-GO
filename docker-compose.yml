@@ -2,14 +2,14 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: city_guide
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d city_guide"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -23,26 +23,11 @@ services:
       - -c
       - |
         set -e
-        python - <<'PY'
-        from sqlalchemy import create_engine, inspect, text
-        from core.config import settings
-
-        engine = create_engine(settings.database_url)
-        if inspect(engine).has_table("alembic_version"):
-            with engine.begin() as connection:
-                revisions = set(connection.execute(text("SELECT version_num FROM alembic_version")).scalars())
-                if {"9d0e1f2a3b4c", "fb7e3c2a91d4"}.issubset(revisions):
-                    connection.execute(
-                        text("DELETE FROM alembic_version WHERE version_num = :revision"),
-                        {"revision": "9d0e1f2a3b4c"},
-                    )
-                    print("Alembic overlapping heads repaired")
-        PY
         python scripts/migration_preflight.py
         alembic upgrade head
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DATABASE_URL: ${DATABASE_URL}
       DB_POOL_SIZE: 1
       DB_MAX_OVERFLOW: 1
       DB_POOL_TIMEOUT_SECONDS: 10
@@ -58,7 +43,7 @@ services:
     command: bash -c "PYTHONPATH=/app python scripts/seed_minimal_data.py"
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DATABASE_URL: ${DATABASE_URL}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -71,7 +56,7 @@ services:
     command: bash -c "PYTHONPATH=/app python data/scripts/run_address_recovery_flow.py --all-cities --limit 500 --sleep 1.0 --no-apply"
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DATABASE_URL: ${DATABASE_URL}
       LOCAL_CACHE_DIR: /app/.cache/city-go
     volumes:
       - local_cache:/app/.cache/city-go
@@ -87,7 +72,7 @@ services:
     command: bash -c "PYTHONPATH=/app python data/scripts/run_place_enrichment_export.py --limit 100 --missing-fields address,photo,description --git-artifact"
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DATABASE_URL: ${DATABASE_URL}
       LOCAL_CACHE_DIR: /app/.cache/city-go
     volumes:
       - enrichment_exports:/app/data/exports/place_enrichment
@@ -103,7 +88,7 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --timeout-keep-alive 10
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DATABASE_URL: ${DATABASE_URL}
       WEB_CONCURRENCY: 1
       DB_POOL_SIZE: 3
       DB_MAX_OVERFLOW: 2
@@ -111,6 +96,7 @@ services:
       DB_STATEMENT_TIMEOUT_MS: 10000
       DB_LOCK_TIMEOUT_MS: 3000
       APP_HOST: 0.0.0.0
+      TRUSTED_PROXY_CIDRS: 172.16.0.0/12
       BACKEND_BASE_URL: http://backend:8000
       LOCAL_CACHE_DIR: /app/.cache/city-go
     ports:
@@ -123,7 +109,7 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf --max-time 3 http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf --max-time 3 http://localhost:8000/ready || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -136,7 +122,7 @@ services:
     command: bash -c "python data/scripts/check_import_worker_resources.py && exec python data/scripts/run_admin_import_worker.py"
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DATABASE_URL: ${DATABASE_URL}
       DB_POOL_SIZE: 1
       DB_MAX_OVERFLOW: 1
       DB_POOL_TIMEOUT_SECONDS: 10
@@ -197,7 +183,7 @@ services:
     command: python telegram_bot_main.py
     env_file: .env
     environment:
-      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/city_guide
+      DATABASE_URL: ${DATABASE_URL}
       DB_POOL_SIZE: 1
       DB_MAX_OVERFLOW: 1
       DB_POOL_TIMEOUT_SECONDS: 10

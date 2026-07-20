@@ -165,9 +165,11 @@ jobs:
           else
             git diff --name-only "${BASE_SHA}" "${GITHUB_SHA}" > artifacts/coverage/changed-files.txt
           fi
-          echo "list<<CHANGED_EOF" >> "$GITHUB_OUTPUT"
-          cat artifacts/coverage/changed-files.txt >> "$GITHUB_OUTPUT"
-          echo "CHANGED_EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "list<<CHANGED_EOF"
+            cat artifacts/coverage/changed-files.txt
+            echo "CHANGED_EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: ci-changed-files

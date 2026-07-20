@@ -8,6 +8,8 @@ from models.city import City
 from models.city_start_point import CityStartPoint
 from models.place import Place
 from schemas.start_point import ResolveStartRequest
+from services.city_service import city_is_published
+from services.place_public_visibility import apply_public_place_visibility
 from services.route_draft_rules import OUT_OF_CITY_MAX_METERS, normalize_text, warning
 from services.route_geometry import distance_meters
 
@@ -27,12 +29,14 @@ def list_city_start_points(db: Session, city: City) -> list[dict[str, object]]:
 
 def resolve_start(db: Session, payload: ResolveStartRequest) -> dict[str, object] | None:
     city = db.query(City).filter(City.slug == payload.city_slug).first()
-    if city is None or city.center_lat is None or city.center_lng is None:
+    if city is None or not city_is_published(city) or city.center_lat is None or city.center_lng is None:
         return None
     if payload.type == "geolocation" and payload.lat is not None and payload.lng is not None:
         return _resolve_geo(city, float(payload.lat), float(payload.lng))
     if payload.place_id is not None:
-        place = db.query(Place).filter(Place.id == payload.place_id, Place.city_id == city.id).first()
+        place = apply_public_place_visibility(
+            db.query(Place).filter(Place.id == payload.place_id, Place.city_id == city.id)
+        ).first()
         if place is not None:
             return _resolved("catalog_place", float(place.lat), float(place.lng), place.title, [], [])
     return _resolve_query(db, city, payload.query or "")
@@ -75,7 +79,9 @@ def _resolve_query(db: Session, city: City, query: str) -> dict[str, object]:
 def _query_candidates(db: Session, city: City, query: str) -> list[dict[str, object]]:
     normalized = normalize_text(query)
     start_points = list_city_start_points(db, city)
-    places = db.query(Place).filter(Place.city_id == city.id, Place.is_published.is_(True)).limit(100).all()
+    places = apply_public_place_visibility(
+        db.query(Place).filter(Place.city_id == city.id)
+    ).limit(100).all()
     place_items = [_place_payload(place) for place in places]
     pool = start_points + place_items
     exact = [item for item in pool if normalized in normalize_text(str(item.get("label_ru", "")))]

@@ -10,20 +10,22 @@ from models.place import Place
 from models.route_draft import RouteDraft
 from schemas.route_draft import RandomRouteRequest
 from schemas.start_point import ResolveStartRequest
+from services.anonymous_ownership import hash_ownership_token, issue_ownership_token
 from services.route_draft_recalc import recalculate_draft
 from services.route_draft_rules import eligible_place_query, warning
 from services.route_random_select import point_for_place, select_random_places
 from services.start_point_service import resolve_start
 
 
-def create_random_route_draft(db: Session, payload: RandomRouteRequest) -> RouteDraft | None:
+def create_random_route_draft(db: Session, payload: RandomRouteRequest) -> tuple[RouteDraft, str] | None:
     city = db.query(City).filter(City.slug == payload.city_slug).first()
     if city is None or not bool(city.is_active) or city.launch_status != "published":
         return None
     start = _start_payload(db, city, payload)
     seed = payload.seed if payload.seed is not None else random.randint(1, 2_147_483_647)
     categories = _selected_categories(payload)
-    draft = _draft(city, payload, start, seed, categories)
+    raw_token = issue_ownership_token()
+    draft = _draft(city, payload, start, seed, categories, raw_token)
     db.add(draft)
     db.flush()
     candidates = eligible_place_query(db.query(Place), city.id).all()
@@ -33,7 +35,7 @@ def create_random_route_draft(db: Session, payload: RandomRouteRequest) -> Route
     recalculate_draft(draft)
     db.commit()
     db.refresh(draft)
-    return draft
+    return draft, raw_token
 
 
 def _start_payload(db: Session, city: City, payload: RandomRouteRequest) -> dict[str, object]:
@@ -63,11 +65,19 @@ def _selected_categories(payload: RandomRouteRequest) -> list[str]:
     return sorted({item.strip() for item in payload.selected_category_slugs if item.strip()})
 
 
-def _draft(city: City, payload: RandomRouteRequest, start: dict[str, object], seed: int, categories: list[str]) -> RouteDraft:
+def _draft(
+    city: City,
+    payload: RandomRouteRequest,
+    start: dict[str, object],
+    seed: int,
+    categories: list[str],
+    raw_token: str,
+) -> RouteDraft:
     mode = "balanced" if categories else "none"
     return RouteDraft(
         city_id=city.id,
-        session_token=payload.session_token,
+        session_token=None,
+        session_token_hash=hash_ownership_token(raw_token),
         start_lat=float(start.get("lat") or city.center_lat or 0.0),
         start_lng=float(start.get("lng") or city.center_lng or 0.0),
         start_label=str(start.get("label") or "Центр города"),

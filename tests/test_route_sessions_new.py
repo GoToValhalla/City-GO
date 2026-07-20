@@ -1,6 +1,7 @@
 import models.route_session  # noqa: F401 - register tables for in-memory metadata
 from models.route import Route
 from models.route_place import RoutePlace
+from services.anonymous_ownership import ROUTE_SESSION_HEADER
 
 
 def test_route_session_full_manual_flow_filters_ineligible_points_new(
@@ -69,9 +70,11 @@ def test_route_session_full_manual_flow_filters_ineligible_points_new(
     assert session["current_point_index"] == 0
     assert [point["title"] for point in session["points"]] == ["Парк", "Музей"]
     session_id = session["id"]
+    headers = {ROUTE_SESSION_HEADER: session["ownership_token"]}
 
     first_checkin = client.post(
         f"/route-sessions/{session_id}/events/checkin",
+        headers=headers,
         json={"point_index": 0, "action": "visit"},
     )
 
@@ -82,6 +85,7 @@ def test_route_session_full_manual_flow_filters_ineligible_points_new(
 
     second_checkin = client.post(
         f"/route-sessions/{session_id}/events/checkin",
+        headers=headers,
         json={"point_index": 1, "action": "visit"},
     )
 
@@ -91,7 +95,7 @@ def test_route_session_full_manual_flow_filters_ineligible_points_new(
     assert second_checkin.json()["status"] == "completed"
     assert second_checkin.json()["completed_at"] is not None
 
-    complete_response = client.post(f"/route-sessions/{session_id}/complete")
+    complete_response = client.post(f"/route-sessions/{session_id}/complete", headers=headers)
 
     assert complete_response.status_code == 200
     summary = complete_response.json()

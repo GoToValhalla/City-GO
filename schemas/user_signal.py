@@ -15,15 +15,20 @@ VISIT_PLACE_SIGNALS = frozenset((SIGNAL_VISITED_PLACE,))
 
 
 class UserSignalCreate(BaseModel):
-    user_id: str = Field(min_length=1, max_length=100)
+    user_id: str | None = Field(default=None, max_length=100)
     signal_type: str = Field(min_length=1, max_length=100)
     entity_type: str = Field(min_length=1, max_length=100)
     entity_id: str = Field(min_length=1, max_length=100)
     payload: dict[str, object] | None = None
 
 
-class UserSignalRead(UserSignalCreate):
+class UserSignalRead(BaseModel):
     id: int
+    user_id: str
+    signal_type: str
+    entity_type: str
+    entity_id: str
+    payload: dict[str, object] | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

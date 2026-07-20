@@ -30,7 +30,7 @@ def test_preview_state_cannot_start_session_new(monkeypatch) -> None:
         verified.append((state, lock))
         return object()
 
-    def fake_start(_self, _db, _request):
+    def fake_start(_self, _db, _request, *, ownership_token=None):
         nonlocal service_called
         service_called = True
         return object()
@@ -56,7 +56,7 @@ def test_ready_state_starts_session_after_locked_verification_new(monkeypatch) -
         sequence.append("verify")
         return object()
 
-    def fake_start(_self, _db, _request):
+    def fake_start(_self, _db, _request, *, ownership_token=None):
         sequence.append("start")
         return expected
 

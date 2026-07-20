@@ -14,6 +14,7 @@ class RouteDraft(Base):
     city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False, index=True)
     user_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     session_token: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    session_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", index=True)
     route_status: Mapped[str] = mapped_column(String(32), nullable=False, default="partial")
     start_lat: Mapped[float | None] = mapped_column(Float, nullable=True)

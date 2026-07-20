@@ -52,7 +52,10 @@ def _build_read(
     extra_warnings: list[dict[str, str]],
     ephemeral: bool = False,
 ) -> RouteDraftRead:
-    point_reads = [_point_read(item, index) for index, item in enumerate(points, start=1)]
+    point_reads = [
+        _point_read(item, index, points=points, draft=draft, ephemeral=ephemeral)
+        for index, item in enumerate(points, start=1)
+    ]
     total = _ephemeral_total(draft, points) if ephemeral else int(draft.total_minutes)
     status = _ephemeral_status(draft, points, total) if ephemeral else draft.route_status
     warnings = [RouteWarningRead(**item) for item in (draft.warnings or [])] + [
@@ -72,8 +75,18 @@ def _build_read(
     )
 
 
-def _point_read(item: RouteDraftPoint, position: int) -> DraftPointRead:
+def _point_read(
+    item: RouteDraftPoint,
+    position: int,
+    *,
+    points: list[RouteDraftPoint],
+    draft: RouteDraft,
+    ephemeral: bool,
+) -> DraftPointRead:
     place = item.place
+    walk_from, walk_to = item.walk_minutes_from_prev, item.walk_minutes_to_next
+    if ephemeral:
+        walk_from, walk_to = _recomputed_walks(draft, points, position - 1)
     return DraftPointRead(
         id=item.id,
         place_id=place.id,
@@ -88,20 +101,43 @@ def _point_read(item: RouteDraftPoint, position: int) -> DraftPointRead:
         user_locked=item.user_locked,
         inserted_by_user=item.inserted_by_user,
         replacement_of_place_id=item.replacement_of_place_id,
-        walk_minutes_from_prev=item.walk_minutes_from_prev,
-        walk_minutes_to_next=item.walk_minutes_to_next,
+        walk_minutes_from_prev=walk_from,
+        walk_minutes_to_next=walk_to,
     )
+
+
+def _recomputed_walks(
+    draft: RouteDraft, points: list[RouteDraftPoint], index: int
+) -> tuple[int | None, int | None]:
+    current = points[index].place
+    walk_from: int | None = None
+    walk_to: int | None = None
+    if index == 0 and draft.start_lat is not None and draft.start_lng is not None:
+        walk_from = walk_minutes_between(
+            float(draft.start_lat), float(draft.start_lng), float(current.lat), float(current.lng)
+        )
+    elif index > 0:
+        prev = points[index - 1].place
+        walk_from = walk_minutes_between(
+            float(prev.lat), float(prev.lng), float(current.lat), float(current.lng)
+        )
+    if index + 1 < len(points):
+        nxt = points[index + 1].place
+        walk_to = walk_minutes_between(
+            float(current.lat), float(current.lng), float(nxt.lat), float(nxt.lng)
+        )
+    return walk_from, walk_to
 
 
 def _ephemeral_total(draft: RouteDraft, points: list[RouteDraftPoint]) -> int:
     visits = sum(int(point.visit_minutes or 0) for point in points)
-    if not points or draft.start_lat is None or draft.start_lng is None:
+    if not points:
         return visits
-    first = points[0].place
-    start_walk = walk_minutes_between(
-        float(draft.start_lat), float(draft.start_lng), float(first.lat), float(first.lng)
-    )
-    return int(start_walk + visits)
+    walks = 0
+    for index in range(len(points)):
+        walk_from, _ = _recomputed_walks(draft, points, index)
+        walks += int(walk_from or 0)
+    return int(visits + walks)
 
 
 def _ephemeral_status(draft: RouteDraft, points: list[RouteDraftPoint], total: int) -> str:

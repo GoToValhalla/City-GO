@@ -65,6 +65,7 @@ def get_nearby_places(
 def nearest_city(db: Session, lat: float, lng: float) -> dict[str, object] | None:
     cities = db.query(City).filter(
         City.is_active.is_(True),
+        City.launch_status == "published",
         City.center_lat.isnot(None),
         City.center_lng.isnot(None),
     ).all()

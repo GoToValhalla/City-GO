@@ -162,4 +162,4 @@ def test_post_recommendations_route_debug_trace_header() -> None:
     finally:
         app.dependency_overrides.clear()
     assert response.status_code == 200, response.text
-    assert response.json()["_trace"][0]["stage"] == "hard_filter"
+    assert "_trace" not in response.json()

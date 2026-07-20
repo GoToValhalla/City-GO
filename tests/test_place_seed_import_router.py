@@ -2,15 +2,21 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from core.config import settings
 from main import app
 from schemas.place_seed_import_summary import PlaceSeedImportSummary
 
+_TOKEN = "test-place-seed-admin-token"
+_HEADERS = {"Authorization": f"Bearer {_TOKEN}"}
 
-def test_place_seed_import_endpoint_returns_summary() -> None:
+
+def test_place_seed_import_endpoint_returns_summary(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "admin_api_token", _TOKEN)
     summary = PlaceSeedImportSummary(total=0)
     with patch("routers.place_seed_import.import_place_seed_items", return_value=summary):
         response = TestClient(app).post(
             "/place-seed/import/",
+            headers=_HEADERS,
             json={"items": [], "dry_run": True},
         )
     assert response.status_code == 200

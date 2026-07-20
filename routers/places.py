@@ -1,22 +1,18 @@
 """
-HTTP-слой CRUD и списка мест: делегирует в services.place_service.
+HTTP-слой публичного чтения мест. Привилегированные записи — только /admin/places.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
-from schemas.place import PlaceCreate, PlaceRead, PlaceUpdate
 from schemas.public_place import PublicPlaceRead, PublicPlaceSearchResponse
-from services.place_read_service import build_place_read, build_public_place_read, build_public_place_reads
+from services.place_read_service import build_public_place_read, build_public_place_reads
 from services.place_service import (
-    create_place,
-    delete_place,
     get_place_by_id,
     get_place_by_slug,
     get_places,
     get_places_total,
-    update_place,
 )
 
 router = APIRouter(prefix="/places", tags=["places"])
@@ -87,33 +83,3 @@ def read_place_by_slug(slug: str, db: Session = Depends(get_db)) -> PublicPlaceR
     if place is None:
         raise HTTPException(status_code=404, detail="Place not found")
     return build_public_place_read(db, place)
-
-
-# Создает новое место в базе.
-@router.post("/", response_model=PlaceRead)
-def create_new_place(
-    place_in: PlaceCreate,
-    db: Session = Depends(get_db),
-) -> PlaceRead:
-    return build_place_read(db, create_place(db, place_in))
-
-
-# Обновляет существующее место по идентификатору.
-@router.put("/{place_id}", response_model=PlaceRead)
-def update_existing_place(
-    place_id: int,
-    place_in: PlaceUpdate,
-    db: Session = Depends(get_db),
-) -> PlaceRead:
-    place = update_place(db, place_id, place_in)
-    if place is None:
-        raise HTTPException(status_code=404, detail="Place not found")
-    return build_place_read(db, place)
-
-
-# Удаляет место по идентификатору.
-@router.delete("/{place_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_place(place_id: int, db: Session = Depends(get_db)) -> None:
-    deleted = delete_place(db, place_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Place not found")

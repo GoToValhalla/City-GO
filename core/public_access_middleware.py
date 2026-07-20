@@ -12,7 +12,8 @@ from starlette.responses import JSONResponse, Response
 from db.session import SessionLocal
 from services.feature_toggle_guards import assert_web_public
 
-_SKIP_PREFIXES = ("/admin", "/health", "/ready", "/version", "/docs", "/openapi.json", "/redoc", "/place-coverage")
+_SKIP_EXACT = frozenset({"/health", "/ready", "/version", "/docs", "/openapi.json", "/redoc"})
+_SKIP_PREFIXES = ("/admin/",)
 _TEST_ENV_VALUES = {"test", "ci", "pytest"}
 
 
@@ -29,12 +30,19 @@ def _is_test_request(request: Request | None = None) -> bool:
         return True
     return False
 
+
+def _skip_public_guard(path: str) -> bool:
+    if path in _SKIP_EXACT or path == "/admin":
+        return True
+    return any(path.startswith(prefix) for prefix in _SKIP_PREFIXES)
+
+
 async def public_access_middleware(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
     path = request.url.path
-    if _is_test_request(request) or any(path.startswith(prefix) for prefix in _SKIP_PREFIXES):
+    if _is_test_request(request) or _skip_public_guard(path):
         return await call_next(request)
     db = SessionLocal()
     try:

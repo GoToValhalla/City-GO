@@ -14,6 +14,11 @@ from schemas.user_route import (
     UserRouteSessionState,
     UserRouteState,
 )
+from services.anonymous_ownership import (
+    hash_ownership_token,
+    issue_ownership_token,
+    ownership_tokens_match,
+)
 from services.public_route_place_access import PublicRouteScope, resolve_route_scope
 from services.user_route_place_loader import load_ordered_places
 
@@ -25,8 +30,18 @@ class UserRouteSessionError(ValueError):
     pass
 
 
+class UserRouteSessionNotFound(UserRouteSessionError):
+    pass
+
+
 class UserRouteSessionService:
-    def start(self, db: Session, request: UserRouteSessionStartRequest) -> UserRouteSessionState:
+    def start(
+        self,
+        db: Session,
+        request: UserRouteSessionStartRequest,
+        *,
+        ownership_token: str | None = None,
+    ) -> UserRouteSessionState:
         """Create or return one active session while the caller owns commit/rollback."""
         route_state = request.current_route
         scope = resolve_route_scope(db, route_state)
@@ -48,11 +63,13 @@ class UserRouteSessionService:
         if existing is not None:
             if _session_place_ids(existing) != expected_place_ids:
                 raise UserRouteSessionError("Active route session does not match the current route state")
-            return _session_state(existing)
+            return _reclaim_or_issue(existing, ownership_token)
 
+        raw_token = issue_ownership_token()
         session = RouteSession(
             route_id=route.id,
             user_key=request.user_id or route_state.context.user_id,
+            ownership_token_hash=hash_ownership_token(raw_token),
             status="active",
             current_point_index=0,
             visited_point_indexes=[],
@@ -75,9 +92,16 @@ class UserRouteSessionService:
                 )
             )
         db.flush()
-        return _session_state(session)
+        return _session_state(session, ownership_token=raw_token)
 
-    def apply_action(self, db: Session, session_id: int, request: UserRouteSessionActionRequest) -> UserRouteSessionState:
+    def apply_action(
+        self,
+        db: Session,
+        session_id: int,
+        request: UserRouteSessionActionRequest,
+        *,
+        ownership_token: str | None,
+    ) -> UserRouteSessionState:
         """Apply one state transition under a row lock; caller owns commit."""
         session = (
             db.query(RouteSession)
@@ -85,8 +109,8 @@ class UserRouteSessionService:
             .with_for_update()
             .first()
         )
-        if session is None:
-            raise UserRouteSessionError("Route session not found")
+        if session is None or not ownership_tokens_match(ownership_token, session.ownership_token_hash):
+            raise UserRouteSessionNotFound("Route session not found")
         if session.status in TERMINAL_STATUSES and request.action not in {"abandon"}:
             raise UserRouteSessionError("Route session is already finished")
 
@@ -168,7 +192,18 @@ def _session_place_ids(session: RouteSession) -> list[int]:
     return [int(point.place_id) for point in sorted(list(session.points or []), key=lambda item: int(item.ordering_index))]
 
 
-def _session_state(session: RouteSession) -> UserRouteSessionState:
+def _reclaim_or_issue(session: RouteSession, ownership_token: str | None) -> UserRouteSessionState:
+    stored = str(session.ownership_token_hash or "").strip()
+    if not stored:
+        raw_token = issue_ownership_token()
+        session.ownership_token_hash = hash_ownership_token(raw_token)
+        return _session_state(session, ownership_token=raw_token)
+    if not ownership_tokens_match(ownership_token, stored):
+        raise UserRouteSessionNotFound("Route session not found")
+    return _session_state(session)
+
+
+def _session_state(session: RouteSession, *, ownership_token: str | None = None) -> UserRouteSessionState:
     points = list(session.points or [])
     current = next((point for point in points if point.ordering_index == session.current_point_index), None)
     next_point = next((point for point in points if point.ordering_index > session.current_point_index and not point.is_visited and not point.is_skipped), None)
@@ -197,6 +232,7 @@ def _session_state(session: RouteSession) -> UserRouteSessionState:
             )
             for point in points
         ],
+        ownership_token=ownership_token,
     )
 
 

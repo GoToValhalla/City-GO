@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
@@ -8,8 +8,10 @@ from schemas.route_draft import (
     RandomRouteRequest,
     RemovePointRequest,
     ReplacePointRequest,
+    RouteDraftCreateRead,
     RouteDraftRead,
 )
+from services.anonymous_ownership import require_ownership_header
 from services.route_draft_access import SESSION_HEADER
 from services.route_draft_errors import RouteDraftError
 from services.route_draft_loader import get_public_draft_or_error
@@ -26,22 +28,24 @@ def _draft_error(exc: RouteDraftError) -> HTTPException:
 
 
 def _session_token(
-    x_route_draft_session: str = Header(
-        ...,
-        alias=SESSION_HEADER,
-        min_length=8,
-        max_length=255,
-    ),
+    x_route_draft_session: str | None = Header(default=None, alias=SESSION_HEADER),
 ) -> str:
-    return x_route_draft_session
+    return require_ownership_header(x_route_draft_session, header_name=SESSION_HEADER)
 
 
-@router.post("/random", response_model=RouteDraftRead)
-def create_random_route(payload: RandomRouteRequest, db: Session = Depends(get_db)) -> RouteDraftRead:
-    draft = create_random_route_draft(db, payload)
-    if draft is None:
+@router.post("/random", response_model=RouteDraftCreateRead)
+def create_random_route(
+    payload: RandomRouteRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> RouteDraftCreateRead:
+    created = create_random_route_draft(db, payload)
+    if created is None:
         raise HTTPException(status_code=404, detail={"code": "CITY_NOT_FOUND", "message": "City not found"})
-    return serialize_draft(draft)
+    draft, raw_token = created
+    response.headers[SESSION_HEADER] = raw_token
+    body = serialize_draft(draft)
+    return RouteDraftCreateRead(**body.model_dump(), ownership_token=raw_token)
 
 
 @router.get("/drafts/{draft_id}", response_model=RouteDraftRead)

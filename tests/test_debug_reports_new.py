@@ -4,24 +4,46 @@ from models.debug_report import DebugReport
 
 
 def test_debug_report_stores_sanitized_payload_new(client, db_session):
-    response = client.post("/debug-reports", json=_payload(request_payload={"headers": {"Authorization": "Bearer secret", "Cookie": "sid=1"}, "lat": 54.123456}))
+    response = client.post(
+        "/debug-reports",
+        json=_payload(
+            request_payload={
+                "headers": {"Authorization": "Bearer secret", "Cookie": "sid=1"},
+                "lat": 54.123456,
+            }
+        ),
+    )
     assert response.status_code == 200
     body = response.json()
+    assert "admin_url" not in body
+    assert "telegram_error" not in body
+    assert body["status"] == "accepted"
     row = db_session.query(DebugReport).filter_by(public_id=body["public_id"]).one()
-    assert body["admin_url"].endswith(f"/admin/debug-reports/{row.public_id}")
     assert row.request_payload["headers"]["Authorization"] == "[REDACTED]"
     assert row.request_payload["headers"]["Cookie"] == "[REDACTED]"
 
 
 def test_debug_report_rounds_precise_location_by_default_new(client, db_session):
-    client.post("/debug-reports", json=_payload(location_context={"lat": 54.123456, "lng": 20.654321, "location_source": "user"}))
+    client.post(
+        "/debug-reports",
+        json=_payload(location_context={"lat": 54.123456, "lng": 20.654321, "location_source": "user"}),
+    )
     row = db_session.query(DebugReport).one()
     assert row.location_context["lat"] == 54.12
     assert row.location_context["lng"] == 20.65
 
 
 def test_debug_report_can_keep_route_trace_and_import_context_new(client, db_session):
-    client.post("/debug-reports", json=_payload(category="route", debug_trace={"retrieval": {"raw": 10}}, warnings=["short"], reason_codes=["LOW_QUALITY"], backend_context={"city_admin_import_job_id": 9}))
+    client.post(
+        "/debug-reports",
+        json=_payload(
+            category="route",
+            debug_trace={"retrieval": {"raw": 10}},
+            warnings=["short"],
+            reason_codes=["LOW_QUALITY"],
+            backend_context={"city_admin_import_job_id": 9},
+        ),
+    )
     row = db_session.query(DebugReport).one()
     assert row.debug_trace == {"retrieval": {"raw": 10}}
     assert row.warnings == ["short"]
@@ -31,30 +53,39 @@ def test_debug_report_can_keep_route_trace_and_import_context_new(client, db_ses
 def test_debug_report_telegram_disabled_by_default_new(client, db_session, monkeypatch):
     monkeypatch.setattr("services.debug_report_service.settings.citygo_debug_reports_telegram_enabled", False)
     response = client.post("/debug-reports", json=_payload())
-    assert response.json()["telegram_sent"] is False
+    assert response.json()["telegram_status"] == "queued"
+    row = db_session.query(DebugReport).one()
+    assert row.telegram_sent is False
 
 
 def test_debug_report_telegram_called_when_enabled_new(client, monkeypatch):
     calls = []
     monkeypatch.setattr("services.debug_report_service.settings.citygo_debug_reports_telegram_enabled", True)
     monkeypatch.setattr("services.debug_report_service.settings.citygo_debug_reports_telegram_chat_id", "debug-chat")
-    monkeypatch.setattr("services.debug_report_service.send_admin_alert", lambda **kwargs: calls.append(kwargs) or {"sent": True})
+    monkeypatch.setattr(
+        "services.debug_report_service.send_admin_alert",
+        lambda **kwargs: calls.append(kwargs) or {"sent": True},
+    )
     response = client.post("/debug-reports", json=_payload(category="import", backend_context={"import_job_id": 9}))
-    assert response.json()["telegram_sent"] is True
+    assert response.json()["telegram_status"] == "sent"
     assert calls[0]["job_id"] == 9
     assert calls[0]["chat_id_override"] == "debug-chat"
     assert "Report:" in calls[0]["message"]
 
 
-def test_debug_report_telegram_failure_does_not_break_creation_new(client, monkeypatch):
+def test_debug_report_telegram_failure_does_not_break_creation_new(client, db_session, monkeypatch):
     monkeypatch.setattr("services.debug_report_service.settings.citygo_debug_reports_telegram_enabled", True)
-    monkeypatch.setattr("services.debug_report_service.send_admin_alert", lambda **kwargs: {"sent": False, "reason": "timeout"})
+    monkeypatch.setattr(
+        "services.debug_report_service.send_admin_alert",
+        lambda **kwargs: {"sent": False, "reason": "timeout"},
+    )
     response = client.post("/debug-reports", json=_payload())
     assert response.status_code == 200
     body = response.json()
-    assert body["telegram_sent"] is False
-    assert body["telegram_status"] == "accepted_with_warning"
-    assert body["telegram_error"] == "timeout"
+    assert body["telegram_status"] == "queued"
+    assert "telegram_error" not in body
+    row = db_session.query(DebugReport).one()
+    assert row.telegram_error == "timeout"
 
 
 def test_debug_report_telegram_success_returns_explicit_status_new(client, monkeypatch):
@@ -62,23 +93,26 @@ def test_debug_report_telegram_success_returns_explicit_status_new(client, monke
     monkeypatch.setattr("services.debug_report_service.send_admin_alert", lambda **kwargs: {"sent": True})
     response = client.post("/debug-reports", json=_payload())
     body = response.json()
-    assert body["telegram_sent"] is True
-    assert body["telegram_status"] == "success"
-    assert body["telegram_error"] is None
+    assert body["telegram_status"] == "sent"
+    assert "telegram_error" not in body
 
 
 def test_debug_report_telegram_disabled_returns_explicit_reason_new(client, db_session, monkeypatch):
     monkeypatch.setattr("services.debug_report_service.settings.citygo_debug_reports_telegram_enabled", False)
     response = client.post("/debug-reports", json=_payload())
     body = response.json()
-    assert body["telegram_sent"] is False
-    assert body["telegram_status"] == "accepted_with_warning"
-    assert body["telegram_error"] == "telegram_disabled"
+    assert body["telegram_status"] == "queued"
+    assert "telegram_error" not in body
+    row = db_session.query(DebugReport).one()
+    assert row.telegram_error == "telegram_disabled"
 
 
 def test_debug_report_telegram_failure_is_logged_with_context_new(client, db_session, monkeypatch):
     monkeypatch.setattr("services.debug_report_service.settings.citygo_debug_reports_telegram_enabled", True)
-    monkeypatch.setattr("services.debug_report_service.send_admin_alert", lambda **kwargs: {"sent": False, "reason": "timeout"})
+    monkeypatch.setattr(
+        "services.debug_report_service.send_admin_alert",
+        lambda **kwargs: {"sent": False, "reason": "timeout"},
+    )
 
     response = client.post("/debug-reports", json=_payload(city_slug="zelenogradsk", request_id="req-log-1"))
 

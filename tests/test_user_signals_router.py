@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 from main import app
 from schemas.user_signal import UserDerivedProfile, UserSignalSummary
 
+_ANON_HEADERS = {"X-Anonymous-Session": "test-anonymous-session-token"}
+
 
 def test_user_signal_summary_endpoint_returns_counts() -> None:
     summary = UserSignalSummary(
@@ -15,7 +17,7 @@ def test_user_signal_summary_endpoint_returns_counts() -> None:
         by_entity_type={"place": 1},
     )
     with patch("routers.user_signals.summarize_user_signals", return_value=summary):
-        response = TestClient(app).get("/user-signals/u1/summary")
+        response = TestClient(app).get("/user-signals/summary", headers=_ANON_HEADERS)
     assert response.status_code == 200
     assert response.json()["total"] == 1
 
@@ -32,7 +34,8 @@ def test_user_signal_create_endpoint_returns_signal() -> None:
     with patch("routers.user_signals.create_user_signal", return_value=signal):
         response = TestClient(app).post(
             "/user-signals/",
-            json={"user_id": "u1", "signal_type": "view_place", "entity_type": "place", "entity_id": "p1"},
+            headers=_ANON_HEADERS,
+            json={"user_id": "spoofed", "signal_type": "view_place", "entity_type": "place", "entity_id": "p1"},
         )
     assert response.status_code == 200
     assert response.json()["signal_type"] == "view_place"
@@ -46,6 +49,6 @@ def test_user_derived_profile_endpoint_returns_profile() -> None:
         action_counts={"view_place": 1},
     )
     with patch("routers.user_signals.derive_user_profile", return_value=profile):
-        response = TestClient(app).get("/user-signals/u1/profile")
+        response = TestClient(app).get("/user-signals/profile", headers=_ANON_HEADERS)
     assert response.status_code == 200
     assert response.json()["preferred_categories"] == {"coffee": 1}

@@ -9,8 +9,12 @@ from sqlalchemy.pool import StaticPool
 from db.dependencies import get_db
 from models.route_build_event import RouteBuildEvent  # noqa: F401
 from routers.route_analytics import router
+from services.anonymous_ownership import anonymous_subject_from_token
 from services.route_analytics_service import record_route_build
 from tests.test_route_analytics_service import _route
+
+_ANON_TOKEN = "test-anonymous-session-token"
+_ANON_HEADERS = {"X-Anonymous-Session": _ANON_TOKEN}
 
 
 def _app():
@@ -21,8 +25,9 @@ def _app():
     )
     RouteBuildEvent.__table__.create(bind=engine)
     db = sessionmaker(bind=engine)()
+    subject = anonymous_subject_from_token(_ANON_TOKEN)
     with patch("services.route_analytics_service.SessionLocal", return_value=db):
-        record_route_build(_route("r1", 0.7, []), source="api", latency_ms=10, user_id="u1")
+        record_route_build(_route("r1", 0.7, []), source="api", latency_ms=10, user_id=subject)
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_db] = lambda: db
@@ -36,6 +41,9 @@ def test_route_analytics_summary_endpoint() -> None:
 
 
 def test_user_route_history_endpoint() -> None:
-    response = TestClient(_app()).get("/route-analytics/users/u1/history")
+    response = TestClient(_app()).get(
+        "/route-analytics/users/me/history",
+        headers=_ANON_HEADERS,
+    )
     assert response.status_code == 200
     assert response.json()[0]["route_id"] == "r1"

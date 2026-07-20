@@ -94,9 +94,16 @@ def test_active_route_session_persists_transitions(db_session, city_factory, pub
 
     service = UserRouteSessionService()
     started = service.start(db_session, UserRouteSessionStartRequest(current_route=route, user_id="u1"))
-    completed_first = service.apply_action(db_session, started.session_id, UserRouteSessionActionRequest(action="complete_point"))
-    paused = service.apply_action(db_session, started.session_id, UserRouteSessionActionRequest(action="pause"))
-    finished = service.apply_action(db_session, started.session_id, UserRouteSessionActionRequest(action="finish"))
+    token = started.ownership_token
+    completed_first = service.apply_action(
+        db_session, started.session_id, UserRouteSessionActionRequest(action="complete_point"), ownership_token=token
+    )
+    paused = service.apply_action(
+        db_session, started.session_id, UserRouteSessionActionRequest(action="pause"), ownership_token=token
+    )
+    finished = service.apply_action(
+        db_session, started.session_id, UserRouteSessionActionRequest(action="finish"), ownership_token=token
+    )
 
     assert started.status == "active"
     assert completed_first.current_place_id == str(second.id)

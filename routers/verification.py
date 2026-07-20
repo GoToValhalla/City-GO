@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
 from schemas.place_verification import (
     PlaceVerificationQueueResponse,
@@ -23,8 +24,10 @@ def read_verification_queue(
     status: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> PlaceVerificationQueueResponse:
+    del auth
     items, total = get_place_verification_queue(
         db,
         city_slug=city_slug,
@@ -38,8 +41,10 @@ def read_verification_queue(
 @router.get("/stats/{city_slug}", response_model=PlaceVerificationStats)
 def read_verification_stats(
     city_slug: str,
+    auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> PlaceVerificationStats:
+    del auth
     return PlaceVerificationStats(**place_verification_stats(db, city_slug))
 
 
@@ -47,8 +52,10 @@ def read_verification_stats(
 def confirm_place(
     place_id: int,
     body: PlaceVerificationRequest | None = None,
+    auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> PlaceVerificationResult:
+    del auth
     payload = body or PlaceVerificationRequest(action="exists")
     return _apply(place_id, payload.model_copy(update={"action": "exists"}), db)
 
@@ -57,8 +64,10 @@ def confirm_place(
 def reject_place(
     place_id: int,
     body: PlaceVerificationRequest,
+    auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> PlaceVerificationResult:
+    del auth
     action = body.action if body.action != "exists" else "needs_recheck"
     return _apply(place_id, body.model_copy(update={"action": action}), db)
 
@@ -76,9 +85,9 @@ def _apply(place_id: int, body: PlaceVerificationRequest, db: Session) -> PlaceV
             comment=body.comment,
         )
     except LookupError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=404, detail="Place not found") from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail={"code": "INVALID_REQUEST", "message": "Invalid verification request"}) from exc
 
     return PlaceVerificationResult(
         place_id=place.id,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from time import perf_counter
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -22,13 +22,18 @@ from schemas.user_route import (
     UserRouteStructuredBuildResponse,
     UserRouteUpdateRequest,
 )
+from services.anonymous_ownership import ROUTE_SESSION_HEADER, require_ownership_header
 from services.destination_route_resolution import resolve_route_build_request
 from services.public_route_sanitizer import sanitize_user_route_state
 from services.route_analytics_service import record_route_build
 from services.route_builder_v2_service import RouteBuilderV2Error
 from services.user_route_build_service import RouteBuildTimeoutError, UserRouteBuildService
 from services.user_route_edit_service import UserRouteEditService
-from services.user_route_session_service import UserRouteSessionError, UserRouteSessionService
+from services.user_route_session_service import (
+    UserRouteSessionError,
+    UserRouteSessionNotFound,
+    UserRouteSessionService,
+)
 from services.user_route_state_integrity import UserRouteStateIntegrityError
 from services.user_route_state_lifecycle_service import (
     RouteStateLifecycleService,
@@ -193,14 +198,16 @@ def replace_user_route_place(
         raise
 
 
-@router.get("/{route_id}/alternatives/{place_id}", response_model=UserRouteAlternativesResponse)
-def read_user_route_alternatives(
-    route_id: str,
-    place_id: str,
-    current_route: str = Query(default=""),
-    db: Session = Depends(get_db),
-) -> UserRouteAlternativesResponse:
-    return UserRouteAlternativesResponse(route_id=route_id, place_id=place_id, options=[])
+@router.get("/{route_id}/alternatives/{place_id}")
+def read_user_route_alternatives_deprecated(route_id: str, place_id: str) -> None:
+    del route_id, place_id
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "USE_POST_ALTERNATIVES",
+            "message": "GET alternatives is removed. Use POST /{route_id}/alternatives/{place_id}.",
+        },
+    )
 
 
 @router.post("/{route_id}/alternatives/{place_id}", response_model=UserRouteAlternativesResponse)
@@ -252,13 +259,17 @@ def add_user_route_place(
 def start_user_route_session(
     route_id: str,
     payload: UserRouteSessionStartRequest,
+    x_route_session: str | None = Header(default=None, alias=ROUTE_SESSION_HEADER),
     db: Session = Depends(get_db),
 ) -> UserRouteSessionState:
     _ensure_route_id_matches(route_id, payload.current_route)
     try:
-        result = _lifecycle.start_session(db, payload)
+        result = _lifecycle.start_session(db, payload, ownership_token=x_route_session)
         db.commit()
         return result
+    except UserRouteSessionNotFound as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": str(exc)}) from exc
     except UserRouteSessionError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_session_invalid_request", "message": str(exc)}) from exc
@@ -274,12 +285,17 @@ def start_user_route_session(
 def update_user_route_session(
     session_id: int,
     payload: UserRouteSessionActionRequest,
+    x_route_session: str | None = Header(default=None, alias=ROUTE_SESSION_HEADER),
     db: Session = Depends(get_db),
 ) -> UserRouteSessionState:
+    token = require_ownership_header(x_route_session, header_name=ROUTE_SESSION_HEADER)
     try:
-        result = UserRouteSessionService().apply_action(db, session_id, payload)
+        result = UserRouteSessionService().apply_action(db, session_id, payload, ownership_token=token)
         db.commit()
         return result
+    except UserRouteSessionNotFound as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": str(exc)}) from exc
     except UserRouteSessionError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_session_invalid_transition", "message": str(exc)}) from exc
