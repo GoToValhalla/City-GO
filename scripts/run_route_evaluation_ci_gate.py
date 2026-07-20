@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     md_path.write_text(_markdown_summary(report), encoding="utf-8")
     print(f"Wrote {json_path}")
     print(f"Wrote {md_path}")
-    return 1 if report["failed"] else 0
+    return 1 if report["failed"] or report["pytest_exit_code"] != 0 else 0
 
 
 def _build_report(plugin: RouteEvaluationReportPlugin, *, exit_code: int) -> dict[str, object]:
@@ -65,7 +65,7 @@ def _build_report(plugin: RouteEvaluationReportPlugin, *, exit_code: int) -> dic
         "invariant_violation_count": len(plugin.invariant_failures),
         "deterministic_dataset_failure_count": len(plugin.other_failures),
         "failures": failures,
-        "status": "failed" if plugin.failed else "passed",
+        "status": "failed" if (plugin.failed or exit_code != 0) else "passed",
     }
 
 

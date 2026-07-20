@@ -26,7 +26,7 @@ jobs:
     env:
       APP_ENV: test
       # Fixture suite forces sqlite:///:memory:; keep URL local and offline.
-      DATABASE_URL: sqlite:///:memory:
+      DATABASE_URL: "sqlite:///:memory:"
     steps:
       - name: Require exact confirmation text
         shell: bash
