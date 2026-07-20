@@ -15,6 +15,7 @@ from models.place import Place
 from models.place_scope_link import PlaceScopeLink
 from services.coverage_scope_policy import resolve_scope_policy
 from services.place_change_review_service import propose_place_change
+from services.publication_state_writer import InvalidPublicationTransition, reconcile_published_place_state
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 CURATED_POI_DIR = ROOT_DIR / "data" / "config" / "curated_poi"
@@ -109,7 +110,19 @@ def import_curated_poi_scope(db: Session, *, city_slug: str, scope_code: str, ap
                 place.place_layer = proposed["place_layer"]
                 place.route_policy = proposed["route_policy"]
                 place.transport_required = proposed["transport_required"]
-                place.is_route_eligible = bool(place.is_route_eligible and not place.transport_required)
+                computed_eligible = bool(place.is_route_eligible and not place.transport_required)
+                if place.is_published:
+                    db.flush()
+                    try:
+                        reconcile_published_place_state(
+                            db, place,
+                            route_eligible=computed_eligible,
+                            route_exclusion_reason=None if computed_eligible else "transport_required_scope",
+                            actor="curated_poi_import",
+                            source="curated_poi_import_service",
+                        )
+                    except InvalidPublicationTransition:
+                        pass
                 place.updated_at = datetime.utcnow()
                 updated += 1
         _link(db, place.id, scope.id)

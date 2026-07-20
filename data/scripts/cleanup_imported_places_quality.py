@@ -226,7 +226,7 @@ def _target_status_for_reason(reason: str) -> str:
     if reason == "missing_from_source_repeatedly":
         return REMOVED_FROM_SOURCE_STATUS
 
-    return "draft"
+    return "archived"
 
 
 def _is_bad_title(value: str | None) -> bool:

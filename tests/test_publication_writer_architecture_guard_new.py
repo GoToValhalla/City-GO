@@ -7,6 +7,7 @@ import pytest
 
 from core.publication_state_ownership import (
     CONTROLLED_PLACE_INPUT_FIELDS,
+    PUBLICATION_API_ALIASES,
     PUBLICATION_OWNED_FIELDS,
     VERIFICATION_OWNED_FIELDS,
     VERIFICATION_POLICY_INPUT_FIELDS,
@@ -19,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PUBLICATION_WRITER = (ROOT / "services" / "publication_state_writer.py").resolve()
 VERIFICATION_WRITER = (ROOT / "services" / "place_verification_mutation.py").resolve()
 IMPORT_LIFECYCLE = (ROOT / "services" / "place_import_lifecycle_service.py").resolve()
+LEDGER_MODEL_NAMES = frozenset({"PlacePublicationTransition"})
+PLACE_MODEL_NAME = "Place"
 APPROVED_DYNAMIC_SETATTR = {
     (ROOT / "services" / "admin_place_update_service.py").resolve(),
     (ROOT / "services" / "place_service.py").resolve(),
@@ -27,10 +30,18 @@ APPROVED_DYNAMIC_SETATTR = {
 }
 EXCLUDED_PATH_PARTS = {
     ".git", ".venv", "venv", "node_modules", "frontend", "tests",
-    "migrations", "alembic", "__pycache__",
+    "tests_postgres_integration", "migrations", "alembic", "__pycache__",
 }
 SHARED_MODEL_FIELDS = frozenset({"is_active", "is_searchable", "is_route_eligible"})
 NON_PLACE_MODEL_NAMES = frozenset({"City", "Route", "Category", "Tag", "Collection", "Destination"})
+PLACE_DELETE_TOKENS = (
+    "delete from places",
+    "delete from place ",
+)
+LEDGER_MUTATION_TOKENS = (
+    "update place_publication_transitions",
+    "delete from place_publication_transitions",
+)
 
 
 def _python_files() -> list[Path]:
@@ -139,7 +150,7 @@ def _flatten_targets(node: ast.AST) -> list[ast.AST]:
 
 
 def _owners_for(field: str) -> frozenset[Path]:
-    if field in PUBLICATION_OWNED_FIELDS:
+    if field in PUBLICATION_OWNED_FIELDS or field in PUBLICATION_API_ALIASES:
         return frozenset({PUBLICATION_WRITER})
     if field in VERIFICATION_OWNED_FIELDS:
         return frozenset({VERIFICATION_WRITER})
@@ -163,6 +174,7 @@ def _violations(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
     tree = ast.parse(text, filename=str(path))
     place_names = {"place", "locked_place"} | _typed_names(tree, "Place")
+    ledger_names = {"transition", "ledger_row"} | _typed_names(tree, "PlacePublicationTransition")
     non_place_names = set().union(*(_typed_names(tree, name) for name in NON_PLACE_MODEL_NAMES))
     violations: list[str] = []
 
@@ -218,22 +230,68 @@ def _violations(path: Path) -> list[str]:
                     )
 
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-            if node.func.attr not in {"update", "values"} or "Place" not in ast.unparse(node.func.value):
-                continue
-            fields: list[object] = [keyword.arg for keyword in node.keywords]
-            for argument in node.args:
-                if isinstance(argument, ast.Dict):
-                    fields.extend(key.value for key in argument.keys if isinstance(key, ast.Constant))
-            for field in fields:
-                if forbidden(field):
+            receiver_text = ast.unparse(node.func.value)
+            if node.func.attr == "delete":
+                if _is_place_delete_call(node, place_names, receiver_text):
                     violations.append(
-                        f"{path.relative_to(ROOT)}:{node.lineno}: controlled Place bulk bypass for {field}"
+                        f"{path.relative_to(ROOT)}:{node.lineno}: physical Place deletion is forbidden"
                     )
+                if _is_ledger_mutation_call(node, ledger_names, receiver_text):
+                    violations.append(
+                        f"{path.relative_to(ROOT)}:{node.lineno}: PlacePublicationTransition delete is forbidden"
+                    )
+            if node.func.attr in {"update", "values"}:
+                if "PlacePublicationTransition" in receiver_text or any(
+                    name in receiver_text for name in ledger_names
+                ):
+                    violations.append(
+                        f"{path.relative_to(ROOT)}:{node.lineno}: PlacePublicationTransition update is forbidden"
+                    )
+                elif "Place" in receiver_text:
+                    fields: list[object] = [keyword.arg for keyword in node.keywords]
+                    for argument in node.args:
+                        if isinstance(argument, ast.Dict):
+                            fields.extend(
+                                key.value for key in argument.keys if isinstance(key, ast.Constant)
+                            )
+                    for field in fields:
+                        if forbidden(field):
+                            violations.append(
+                                f"{path.relative_to(ROOT)}:{node.lineno}: controlled Place bulk bypass for {field}"
+                            )
 
     normalized = " ".join(text.lower().split())
     if "update places" in normalized and path.resolve() not in {PUBLICATION_WRITER, VERIFICATION_WRITER}:
         violations.append(f"{path.relative_to(ROOT)}: raw UPDATE places statement")
+    for token in PLACE_DELETE_TOKENS:
+        if token in normalized:
+            violations.append(f"{path.relative_to(ROOT)}: raw DELETE FROM places statement")
+            break
+    for token in LEDGER_MUTATION_TOKENS:
+        if token in normalized:
+            violations.append(f"{path.relative_to(ROOT)}: raw ledger mutation SQL")
+            break
     return violations
+
+
+def _is_place_delete_call(node: ast.Call, place_names: set[str], receiver_text: str) -> bool:
+    if any(token in receiver_text for token in ("query(Place)", "select(Place)", "delete(Place)")):
+        return True
+    if node.args:
+        arg_name = _receiver_name(node.args[0])
+        if arg_name in place_names:
+            return True
+    return False
+
+
+def _is_ledger_mutation_call(node: ast.Call, ledger_names: set[str], receiver_text: str) -> bool:
+    if "PlacePublicationTransition" in receiver_text:
+        return True
+    if node.args:
+        arg_name = _receiver_name(node.args[0])
+        if arg_name in ledger_names:
+            return True
+    return False
 
 
 @title("Only canonical owners may mutate controlled Place state")
@@ -265,6 +323,69 @@ def mutate(db, places_by_id):
     assert {"row", "candidate", "item", "alias", "helper_loaded"}.issubset(
         _typed_names(tree, "Place")
     )
+
+
+def test_guard_detects_forbidden_place_and_ledger_mutations() -> None:
+    samples = {
+        "db.delete(place)": "physical Place deletion is forbidden",
+        "session.delete(locked_place)": "physical Place deletion is forbidden",
+        "db.query(Place).filter(Place.id == 1).delete()": "physical Place deletion is forbidden",
+        "db.query(PlacePublicationTransition).delete()": "PlacePublicationTransition delete is forbidden",
+        "db.query(PlacePublicationTransition).update({'reason_code': 'x'})": (
+            "PlacePublicationTransition update is forbidden"
+        ),
+        'db.execute(text("DELETE FROM places WHERE id = 1"))': "raw DELETE FROM places statement",
+        'db.execute(text("UPDATE place_publication_transitions SET reason_code = \'x\'"))': (
+            "raw ledger mutation SQL"
+        ),
+        'db.execute(text("DELETE FROM place_publication_transitions"))': "raw ledger mutation SQL",
+    }
+    for source, expected in samples.items():
+        tree = ast.parse(f"def example(db, session, place, locked_place):\n    {source}\n")
+        path = ROOT / "services" / "_architecture_guard_probe.py"
+        # Evaluate detection helpers against the parsed sample without writing a file.
+        place_names = {"place", "locked_place"} | _typed_names(tree, "Place")
+        ledger_names = {"transition", "ledger_row"} | _typed_names(tree, "PlacePublicationTransition")
+        found: list[str] = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            receiver_text = ast.unparse(node.func.value)
+            if node.func.attr == "delete":
+                if _is_place_delete_call(node, place_names, receiver_text):
+                    found.append("physical Place deletion is forbidden")
+                if _is_ledger_mutation_call(node, ledger_names, receiver_text):
+                    found.append("PlacePublicationTransition delete is forbidden")
+            if node.func.attr in {"update", "values"} and "PlacePublicationTransition" in receiver_text:
+                found.append("PlacePublicationTransition update is forbidden")
+        normalized = " ".join(source.lower().split())
+        if any(token in normalized for token in PLACE_DELETE_TOKENS):
+            found.append("raw DELETE FROM places statement")
+        if any(token in normalized for token in LEDGER_MUTATION_TOKENS):
+            found.append("raw ledger mutation SQL")
+        assert expected in found, f"guard missed {source!r}; found={found}"
+
+
+def test_guard_does_not_flag_unrelated_model_deletes() -> None:
+    tree = ast.parse(
+        """
+def cleanup(db, route, scope):
+    db.delete(route)
+    db.query(City).filter(City.id == 1).delete()
+    db.delete(scope)
+"""
+    )
+    place_names = {"place", "locked_place"} | _typed_names(tree, "Place")
+    found = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr != "delete":
+            continue
+        receiver_text = ast.unparse(node.func.value)
+        if _is_place_delete_call(node, place_names, receiver_text):
+            found.append(receiver_text)
+    assert found == []
 
 
 @pytest.mark.parametrize("field", sorted(CONTROLLED_PLACE_INPUT_FIELDS))

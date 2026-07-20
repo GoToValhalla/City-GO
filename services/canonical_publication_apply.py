@@ -89,7 +89,7 @@ def apply_canonical_publication_verdict(
         transition_place_publication(
             db,
             place,
-            to_status="hidden",
+            to_status="archived",
             reason_code=primary_publication_reason(verdict.reasons),
             actor=actor,
             source="publication_policy",
@@ -239,7 +239,9 @@ def _effective_verdict(
     )
     if fresh.outcome == "reject":
         return fresh
-    if original.outcome in {"publish", "preserve_public"} and fresh.outcome in {"blocked", "review"}:
+    if original.outcome == "publish":
+        return original
+    if original.outcome == "preserve_public" and fresh.outcome in {"blocked", "review"}:
         return fresh
     return original
 
@@ -261,7 +263,7 @@ def _route_eligibility_verdict_for_publish(place: Place):
         city_id=place.city_id,
         title=place.title,
         category=place.category,
-        canonical_category=place.canonical_category,
+        canonical_category=place.canonical_category or place.category,
         place_layer=place.place_layer or "tourist_catalog",
         lat=place.lat,
         lng=place.lng,

@@ -7,9 +7,10 @@ import pytest
 
 from core.publication_state_ownership import (
     CONTROLLED_PLACE_INPUT_FIELDS,
-    PUBLICATION_OWNED_FIELDS,
+    PUBLICATION_CONTROLLED_INPUT_FIELDS,
     VERIFICATION_OWNED_FIELDS,
 )
+from schemas.admin import AdminPlaceUpdate
 from schemas.place import PlaceUpdate
 from services.admin_place_update_service import _ALLOWED
 from services.place_change_review_service import RESTORABLE_PLACE_FIELDS
@@ -26,13 +27,16 @@ def test_all_generic_boundaries_share_complete_controlled_registry() -> None:
     assert PROTECTED_CONTROLLED_FIELDS == CONTROLLED_PLACE_INPUT_FIELDS
     assert _ALLOWED.isdisjoint(CONTROLLED_PLACE_INPUT_FIELDS)
     assert RESTORABLE_PLACE_FIELDS.isdisjoint(CONTROLLED_PLACE_INPUT_FIELDS)
-    assert "route_exclusion_reason" in PUBLICATION_OWNED_FIELDS
+    assert "route_exclusion_reason" in PUBLICATION_CONTROLLED_INPUT_FIELDS
     assert "verification_status" in VERIFICATION_OWNED_FIELDS
     assert "verified_at" in VERIFICATION_OWNED_FIELDS
 
 
-@pytest.mark.parametrize("field", sorted(CONTROLLED_PLACE_INPUT_FIELDS))
-def test_legacy_update_schema_rejects_every_controlled_field(field: str) -> None:
+_VERIFICATION_CONTROLLED_FIELDS = CONTROLLED_PLACE_INPUT_FIELDS - PUBLICATION_CONTROLLED_INPUT_FIELDS
+
+
+@pytest.mark.parametrize("field", sorted(_VERIFICATION_CONTROLLED_FIELDS))
+def test_legacy_update_schema_rejects_verification_controlled_field(field: str) -> None:
     payload = {
         "slug": "controlled-test",
         "title": "Controlled test",
@@ -42,6 +46,19 @@ def test_legacy_update_schema_rejects_every_controlled_field(field: str) -> None
     }
     with pytest.raises(ValueError):
         PlaceUpdate.model_validate(payload)
+
+
+@pytest.mark.parametrize("field", sorted(PUBLICATION_CONTROLLED_INPUT_FIELDS))
+def test_admin_update_schema_rejects_publication_controlled_field(field: str) -> None:
+    payload = {
+        "slug": "controlled-test",
+        "title": "Controlled test",
+        "lat": 1.0,
+        "lng": 1.0,
+        field: None,
+    }
+    with pytest.raises(ValueError):
+        AdminPlaceUpdate.model_validate(payload)
 
 
 def test_workflow_registry_has_exact_handler_coverage() -> None:

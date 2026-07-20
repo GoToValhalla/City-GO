@@ -151,8 +151,7 @@ def apply_accepted_import_to_place(
             change_set=change_set,
         )
 
-    for field, value in proposed.items():
-        _set_if_changed(place, field, value, changed_fields=None)
+    _apply_proposed_import_fields(place, proposed)
 
     _transition_to_review(
         _session_for(place),
@@ -414,6 +413,36 @@ def _set_if_changed(
     setattr(place, field_name, new_value)
     if changed_fields is not None and field_name not in changed_fields:
         changed_fields.append(field_name)
+
+
+def _apply_proposed_import_fields(place: Place, proposed: dict[str, Any]) -> None:
+    """Apply the fixed accepted-import payload fields via explicit literal calls."""
+    if "category_id" in proposed:
+        _set_if_changed(place, "category_id", proposed["category_id"], changed_fields=None)
+    if "title" in proposed:
+        _set_if_changed(place, "title", proposed["title"], changed_fields=None)
+    if "short_description" in proposed:
+        _set_if_changed(place, "short_description", proposed["short_description"], changed_fields=None)
+    if "category" in proposed:
+        _set_if_changed(place, "category", proposed["category"], changed_fields=None)
+    if "lat" in proposed:
+        _set_if_changed(place, "lat", proposed["lat"], changed_fields=None)
+    if "lng" in proposed:
+        _set_if_changed(place, "lng", proposed["lng"], changed_fields=None)
+    if "source" in proposed:
+        _set_if_changed(place, "source", proposed["source"], changed_fields=None)
+    if "source_url" in proposed:
+        _set_if_changed(place, "source_url", proposed["source_url"], changed_fields=None)
+    if "address" in proposed:
+        _set_if_changed(place, "address", proposed["address"], changed_fields=None)
+    if "opening_hours" in proposed:
+        _set_if_changed(place, "opening_hours", proposed["opening_hours"], changed_fields=None)
+    if "website" in proposed:
+        _set_if_changed(place, "website", proposed["website"], changed_fields=None)
+    if "phone" in proposed:
+        _set_if_changed(place, "phone", proposed["phone"], changed_fields=None)
+    if "average_visit_duration_minutes" in proposed:
+        _set_if_changed(place, "average_visit_duration_minutes", proposed["average_visit_duration_minutes"], changed_fields=None)
 
 
 def _dedupe(values: list[str]) -> list[str]:

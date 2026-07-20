@@ -35,12 +35,18 @@ def test_two_concurrent_proposals_on_same_published_place_never_double_apply_new
     def propose(new_title: str) -> None:
         session = SessionLocal()
         try:
-            local_place = session.query(type(place)).filter(type(place).id == place_id).with_for_update().one()
+            # Lock after the barrier so both workers race from the same start line
+            # instead of serializing on FOR UPDATE before the race begins.
             barrier.wait(timeout=5)
+            local_place = session.query(type(place)).filter(type(place).id == place_id).with_for_update().one()
             applied = propose_place_change(session, place=local_place, proposed={"title": new_title}, reason="import_reimport")
             session.commit()
             with lock:
                 outcomes.append(applied)
+        except Exception:
+            session.rollback()
+            with lock:
+                outcomes.append(False)
         finally:
             session.close()
 
@@ -167,7 +173,6 @@ def test_review_queue_payload_jsonb_round_trips_nested_structures_new(pg_session
     )
     pg_session.commit()
     item_id = item.id
-    pg_session.expunge_all()
 
     fresh_session = SessionLocal()
     try:

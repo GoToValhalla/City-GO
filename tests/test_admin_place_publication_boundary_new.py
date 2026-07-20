@@ -6,7 +6,7 @@ from models.place_publication_transition import PlacePublicationTransition
 from services.admin_place_bulk_service import apply_bulk
 from services.admin_place_update_service import (
     _ALLOWED,
-    _PUBLICATION_CONTROLLED_FIELDS,
+    _CONTROLLED_FIELDS,
     update_admin_place_fields,
 )
 
@@ -15,7 +15,6 @@ from services.admin_place_update_service import (
     ("field", "value"),
     [
         ("is_active", False),
-        ("status", "hidden"),
         ("publication_status", "hidden"),
         ("is_published", False),
         ("is_visible_in_catalog", False),
@@ -49,8 +48,16 @@ def test_generic_admin_update_rejects_every_publication_controlled_field(
         "publication_comment": place.publication_comment,
     }
 
-    with pytest.raises(ValueError, match="Поля публикации нельзя изменять"):
-        update_admin_place_fields(db_session, place.id, {field: value}, actor="test-admin")
+    nested = db_session.begin_nested()
+    with pytest.raises(ValueError, match="Управляемые поля состояния нельзя изменять"):
+        update_admin_place_fields(
+            db_session,
+            place.id,
+            {field: value},
+            actor="test-admin",
+            commit=False,
+        )
+    nested.rollback()
 
     db_session.refresh(place)
     after = {
@@ -69,7 +76,7 @@ def test_generic_admin_update_rejects_every_publication_controlled_field(
 
 
 def test_generic_admin_update_allowlist_cannot_overlap_publication_state() -> None:
-    assert _ALLOWED.isdisjoint(_PUBLICATION_CONTROLLED_FIELDS)
+    assert _ALLOWED.isdisjoint(_CONTROLLED_FIELDS)
 
 
 def test_admin_patch_api_rejects_publication_state_changes(
@@ -77,7 +84,10 @@ def test_admin_patch_api_rejects_publication_state_changes(
     db_session,
     published_place_factory,
 ) -> None:
+    from models.place import Place
+
     place = published_place_factory(slug="admin-patch-publication-bypass")
+    place_id = place.id
 
     response = client.patch(
         f"/admin/places/{place.id}",
@@ -85,11 +95,13 @@ def test_admin_patch_api_rejects_publication_state_changes(
     )
 
     assert response.status_code == 422
-    assert "Поля публикации нельзя изменять" in response.json()["detail"]
-    db_session.refresh(place)
-    assert place.publication_status == "published"
-    assert place.is_published is True
-    assert place.is_visible_in_catalog is True
+    assert "Управляемые поля состояния нельзя изменять" in response.json()["detail"]
+    db_session.expire_all()
+    stored = db_session.get(Place, place_id)
+    assert stored is not None
+    assert stored.publication_status == "published"
+    assert stored.is_published is True
+    assert stored.is_visible_in_catalog is True
 
 
 def test_generic_admin_update_still_updates_ordinary_fields(

@@ -114,6 +114,7 @@ def build_plan(
 def apply_plan(db: Session, plan: dict[str, Any]) -> None:
     """Apply a previously reviewed plan in one caller-owned transaction."""
 
+    savepoint = db.begin_nested()
     try:
         for item in plan["city_changes"]:
             city = (
@@ -159,9 +160,9 @@ def apply_plan(db: Session, plan: dict[str, Any]) -> None:
                 route_eligible_when_published=bool(item["to"]["is_route_eligible"]),
                 lock_place=False,
             )
-        db.commit()
+        savepoint.commit()
     except Exception:
-        db.rollback()
+        savepoint.rollback()
         raise
 
 
@@ -200,6 +201,7 @@ def main() -> None:
         snapshot = write_snapshot(plan)
         if args.apply:
             apply_plan(db, plan)
+            db.commit()
         print(
             json.dumps(
                 {

@@ -133,7 +133,7 @@ def test_manual_category_change_updates_canonical_category_new(client, db_sessio
     )
     db_session.commit()
 
-    updated = update_admin_place_fields(db_session, place.id, {"category": "park", "route_enabled": True}, actor="qa")
+    updated = update_admin_place_fields(db_session, place.id, {"category": "park"}, actor="qa")
 
     assert updated is not None
     assert updated.category == "park"

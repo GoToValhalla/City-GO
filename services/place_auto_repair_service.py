@@ -25,6 +25,9 @@ class PlaceAutoRepairItem:
     reason: str
     safe: bool
     category: str = "unknown"
+    route_eligible: bool | None = None
+    route_exclusion_reason: str | None = None
+    verification_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -56,21 +59,23 @@ class PlaceAutoRepairService:
         place_id = str(getattr(place, "id", "") or getattr(place, "place_id", "") or "unknown")
 
         if category != (getattr(place, "canonical_category", None) or getattr(place, "category", None) or ""):
-            _set(place, "canonical_category", category)
-            _set(place, "category", category)
+            _set_ordinary_field(place, "canonical_category", category)
+            _set_ordinary_field(place, "category", category)
             items.append(PlaceAutoRepairItem(place_id, "repair", "category_alias_normalized", True, category))
 
         if is_route_junk_category(category):
-            _set(place, "is_route_eligible", False)
-            _set(place, "tourist_eligible", False)
-            _set(place, "route_policy", "not_for_routes")
-            _set(place, "route_exclusion_reason", f"auto_repair_non_tourist_category:{category}")
-            items.append(PlaceAutoRepairItem(place_id, "repair", "route_ineligible_utility_or_service", True, category))
+            _set_ordinary_field(place, "tourist_eligible", False)
+            _set_ordinary_field(place, "route_policy", "not_for_routes")
+            items.append(PlaceAutoRepairItem(
+                place_id, "repair", "route_ineligible_utility_or_service", True, category,
+                route_eligible=False,
+                route_exclusion_reason=f"auto_repair_non_tourist_category:{category}",
+            ))
 
         if _missing_or_weak_address(place):
             normalized = _normalize_address(getattr(place, "address", None))
             if normalized:
-                _set(place, "address", normalized)
+                _set_ordinary_field(place, "address", normalized)
                 items.append(PlaceAutoRepairItem(place_id, "repair", "address_normalized", True, category))
             else:
                 items.append(PlaceAutoRepairItem(place_id, "review", "missing_or_weak_address", False, category))
@@ -78,7 +83,7 @@ class PlaceAutoRepairService:
         if not _has_photo(place):
             chosen = _safe_main_photo(place)
             if chosen:
-                _set(place, "image_url", chosen)
+                _set_ordinary_field(place, "image_url", chosen)
                 items.append(PlaceAutoRepairItem(place_id, "repair", "main_photo_selected", True, category))
             else:
                 items.append(PlaceAutoRepairItem(place_id, "review", "missing_photo", False, category))
@@ -86,9 +91,11 @@ class PlaceAutoRepairService:
         if _weak_description(place):
             draft = SAFE_DESCRIPTION_CATEGORIES.get(category)
             if draft and _enough_evidence_for_description(place):
-                _set(place, "short_description", draft)
-                _set(place, "verification_status", "needs_review")
-                items.append(PlaceAutoRepairItem(place_id, "repair", "draft_description_created", True, category))
+                _set_ordinary_field(place, "short_description", draft)
+                items.append(PlaceAutoRepairItem(
+                    place_id, "repair", "draft_description_created", True, category,
+                    verification_status="needs_recheck",
+                ))
             else:
                 items.append(PlaceAutoRepairItem(place_id, "review", "weak_or_missing_description", False, category))
 
@@ -121,9 +128,22 @@ def _summary(items: list[PlaceAutoRepairItem]) -> PlaceAutoRepairSummary:
     )
 
 
-def _set(place: object, field_name: str, value: object) -> None:
-    if hasattr(place, field_name):
-        setattr(place, field_name, value)
+def _set_ordinary_field(place: object, field_name: str, value: object) -> None:
+    """Assign one of the auto-repair ordinary (non-controlled) fields via a literal target."""
+    if field_name == "canonical_category":
+        place.canonical_category = value
+    elif field_name == "category":
+        place.category = value
+    elif field_name == "tourist_eligible":
+        place.tourist_eligible = value
+    elif field_name == "route_policy":
+        place.route_policy = value
+    elif field_name == "address":
+        place.address = value
+    elif field_name == "image_url":
+        place.image_url = value
+    elif field_name == "short_description":
+        place.short_description = value
 
 
 def _missing_or_weak_address(place: object) -> bool:

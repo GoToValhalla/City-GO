@@ -287,6 +287,16 @@ def _apply_profile(
         counters["fields_enriched"] += 1
 
 
+_TEXT_FIELD_SETTERS: dict[str, Callable[[Place, str], None]] = {
+    "address": lambda place, value: setattr(place, "address", value),
+    "website": lambda place, value: setattr(place, "website", value),
+    "phone": lambda place, value: setattr(place, "phone", value),
+    "atmosphere": lambda place, value: setattr(place, "atmosphere", value),
+    "inside": lambda place, value: setattr(place, "inside", value),
+    "best_for": lambda place, value: setattr(place, "best_for", value),
+}
+
+
 def _apply_text_field(
     db: Session,
     *,
@@ -298,6 +308,9 @@ def _apply_text_field(
     job_id: int | None,
     counters: dict[str, int],
 ) -> None:
+    setter = _TEXT_FIELD_SETTERS.get(field_name)
+    if setter is None:
+        return
     cleaned = _clean_string(value)
     if not cleaned:
         return
@@ -316,7 +329,7 @@ def _apply_text_field(
                 payload={"current": current, "candidate": cleaned, "source_type": observation.source_type},
             )
         return
-    setattr(place, field_name, cleaned)
+    setter(place, cleaned)
     _confidence(db, place=place, field_name=field_name, value=cleaned, observation=observation)
     counters["fields_enriched"] += 1
 

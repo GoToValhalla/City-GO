@@ -43,6 +43,26 @@ PROTECTED_PLACE_FIELDS = {
 }
 
 
+def _restore_protected_field(place: Place, attribute: str, value: object) -> None:
+    """Assign a PROTECTED_PLACE_FIELDS attribute via a literal target (no controlled fields)."""
+    if attribute == "address":
+        place.address = value
+    elif attribute == "website":
+        place.website = value
+    elif attribute == "phone":
+        place.phone = value
+    elif attribute == "opening_hours":
+        place.opening_hours = value
+    elif attribute == "short_description":
+        place.short_description = value
+    elif attribute == "atmosphere":
+        place.atmosphere = value
+    elif attribute == "inside":
+        place.inside = value
+    elif attribute == "best_for":
+        place.best_for = value
+
+
 def run_step(db: Session, *, step: str, city: City, job: CityAdminImportJob, batch: ImportBatch, places: list[Place], counters: dict[str, int]) -> None:
     actions = {
         "collect_places": lambda: tuple(_observe_place(db, batch, city, place) for place in places),
@@ -93,7 +113,7 @@ def _enrich_external_sources(
     # Provider collectors can propose values, but manual confidence owns the
     # public field. Restore the protected value after collecting observations.
     for place, attribute, value in protected_values:
-        setattr(place, attribute, value)
+        _restore_protected_field(place, attribute, value)
 
 
 def _observe_place(db: Session, batch: ImportBatch, city: City, place: Place) -> None:
@@ -157,6 +177,7 @@ def _description_draft(db: Session, place: Place, job_id: int | None, *, cache: 
         severity="medium",
         payload={"candidate": draft, "source_type": "citygo_description_draft"},
     )
+    db.flush()
 
 
 def _photo_candidate(db: Session, place: Place) -> None:

@@ -14,6 +14,13 @@ from models.place import Place
 from services.admin_audit_service import write_admin_audit_log
 from services.admin_city_publication_service import publish_city
 from services.place_public_visibility import public_place_conditions
+from services.publication_state_writer import (
+    InvalidPublicationTransition,
+    REASON_ADMIN_UNPUBLISH,
+    REASON_PUBLISHED,
+    REASON_REPAIR_STATE,
+    transition_place_publication,
+)
 
 PUBLIC_CITY_STATUS = "published"
 RECONCILIATION_ACTION = "reconcile_publication_flags"
@@ -187,12 +194,11 @@ def apply_publication_reconciliation(
     changed_audit_ids: list[int] = []
     changed_places = 0
     skipped_destructive = 0
-    now = datetime.utcnow()
     for city in query.order_by(City.id.asc()).all():
         for place in db.query(Place).filter(Place.city_id == city.id).all():
             if place.publication_status == PUBLIC_CITY_STATUS and _has_partial_public_flags(place):
                 old_value = _public_flags(place)
-                _restore_published_place_flags(place, now=now)
+                _restore_published_place_flags(db, place, actor=actor, source="publication_reconciliation")
                 audit = write_admin_audit_log(
                     db,
                     actor=actor,
@@ -217,7 +223,7 @@ def apply_publication_reconciliation(
             if not reason:
                 raise ValueError("Destructive publication reconciliation requires explicit reason")
             old_value = _public_flags(place)
-            _hide_place(place, now=now, reason=reason)
+            _hide_place(db, place, actor=actor, source="publication_reconciliation", reason=reason)
             audit = write_admin_audit_log(
                 db,
                 actor=actor,
@@ -261,10 +267,7 @@ def rollback_publication_reconciliation(
             missing_ids.append(audit.id)
             continue
         previous = _public_flags(place)
-        for key, value in old_value.items():
-            if key in _PUBLIC_FLAG_FIELDS:
-                setattr(place, key, value)
-        place.updated_at = datetime.utcnow()
+        _restore_place_from_snapshot(db, place, old_value, actor=actor)
         write_admin_audit_log(
             db,
             actor=actor,
@@ -315,22 +318,61 @@ def _has_partial_public_flags(place: Place) -> bool:
     return any(values) and not all(values)
 
 
-def _restore_published_place_flags(place: Place, *, now: datetime) -> None:
-    place.is_active = True
-    place.is_published = True
-    place.is_visible_in_catalog = True
-    place.is_searchable = True
-    place.is_route_eligible = True
-    place.unpublished_at = None
-    place.updated_at = now
+def _restore_published_place_flags(db: Session, place: Place, *, actor: str, source: str) -> None:
+    try:
+        transition_place_publication(
+            db,
+            place,
+            to_status=PUBLIC_CITY_STATUS,
+            reason_code=REASON_PUBLISHED,
+            actor=actor,
+            source=source,
+            human_comment=place.publication_comment,
+            route_eligible_when_published=True,
+        )
+    except InvalidPublicationTransition:
+        pass
 
 
-def _hide_place(place: Place, *, now: datetime, reason: str) -> None:
-    place.is_published = False
-    place.is_visible_in_catalog = False
-    place.is_searchable = False
-    place.is_route_eligible = False
-    place.publication_status = "unpublished"
-    place.publication_comment = reason
-    place.unpublished_at = now
-    place.updated_at = now
+def _hide_place(db: Session, place: Place, *, actor: str, source: str, reason: str) -> None:
+    try:
+        transition_place_publication(
+            db,
+            place,
+            to_status="unpublished",
+            reason_code=REASON_ADMIN_UNPUBLISH,
+            actor=actor,
+            source=source,
+            human_comment=reason,
+        )
+    except InvalidPublicationTransition:
+        pass
+
+
+def _restore_place_from_snapshot(db: Session, place: Place, snapshot: dict[str, object], *, actor: str) -> None:
+    target_status = str(snapshot.get("publication_status") or "draft")
+    target_route_eligible = bool(snapshot.get("is_route_eligible"))
+    try:
+        if target_status == PUBLIC_CITY_STATUS:
+            transition_place_publication(
+                db,
+                place,
+                to_status=PUBLIC_CITY_STATUS,
+                reason_code=REASON_PUBLISHED,
+                actor=actor,
+                source="publication_reconciliation_rollback",
+                human_comment=place.publication_comment,
+                route_eligible_when_published=target_route_eligible,
+                route_exclusion_reason_when_published=None if target_route_eligible else "reconciliation_rollback",
+            )
+        else:
+            transition_place_publication(
+                db,
+                place,
+                to_status=target_status,
+                reason_code=REASON_REPAIR_STATE,
+                actor=actor,
+                source="publication_reconciliation_rollback",
+            )
+    except InvalidPublicationTransition:
+        pass

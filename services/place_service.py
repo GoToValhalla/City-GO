@@ -23,6 +23,13 @@ from services.taxonomy_workflow_service import run_workflow
 
 PROTECTED_PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
 PROTECTED_CONTROLLED_FIELDS = CONTROLLED_PLACE_INPUT_FIELDS
+_DERIVED_PLACE_UPDATE_FIELDS = frozenset(
+    {
+        "category", "canonical_category", "lat", "lng", "address", "short_description",
+        "image_url", "opening_hours", "average_visit_duration_minutes", "price_level",
+        "indoor", "outdoor", "dog_friendly", "family_friendly",
+    }
+)
 
 
 def _place_column_payload(payload: dict) -> dict:
@@ -223,20 +230,23 @@ def update_place(
 
             mark_place_stale(db, place.id)
 
-        request_id = uuid4().hex
-        operation = run_workflow(
-            db,
-            workflow="after_place_update",
-            request_id=request_id,
-            idempotency_key=f"legacy-place-update:{place.id}:{request_id}",
-            entity_type="place",
-            entity_id=str(place.id),
-            payload={"source": "place_service", "changed_fields": sorted(changes)},
-            actor=actor,
-            commit=False,
-        )
-        if operation.status != "completed":
-            raise ValueError(operation.error_message or "Workflow обновления места завершился ошибкой")
+        derived_changed = bool(set(changes).intersection(_DERIVED_PLACE_UPDATE_FIELDS))
+        if derived_changed:
+            db.flush()
+            request_id = uuid4().hex
+            operation = run_workflow(
+                db,
+                workflow="after_place_update",
+                request_id=request_id,
+                idempotency_key=f"legacy-place-update:{place.id}:{request_id}",
+                entity_type="place",
+                entity_id=str(place.id),
+                payload={"source": "place_service", "changed_fields": sorted(changes)},
+                actor=actor,
+                commit=False,
+            )
+            if operation.status != "completed":
+                raise ValueError(operation.error_message or "Workflow обновления места завершился ошибкой")
 
         if commit:
             db.commit()
@@ -256,6 +266,7 @@ def delete_place(
     *,
     actor: str = "place_service",
     reason: str = "Deleted through generic place API",
+    commit: bool = True,
 ) -> bool:
     """Soft-delete through the canonical publication state machine; never erase history."""
     try:
@@ -288,9 +299,13 @@ def delete_place(
             human_comment=reason,
             lock_place=False,
         )
-        db.commit()
-        db.refresh(place)
+        if commit:
+            db.commit()
+            db.refresh(place)
+        else:
+            db.flush()
         return True
     except Exception:
-        db.rollback()
+        if commit:
+            db.rollback()
         raise

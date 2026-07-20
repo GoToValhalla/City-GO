@@ -15,6 +15,7 @@ from models.city import City
 from models.place import Place
 from models.taxonomy import QualityRule, TaxonomyBulkBatch, TaxonomyConflict, TaxonomyDecision, TaxonomyMapping
 from services.admin_audit_service import write_admin_audit_log
+from services.publication_state_writer import InvalidPublicationTransition, reconcile_published_place_state
 from services.route_policy_service import evaluate_category_policy
 from services.taxonomy_rule_engine import ClassificationResult, classify_place, persist_decision
 
@@ -128,7 +129,17 @@ def apply_bulk(db: Session, *, batch: TaxonomyBulkBatch, actor: str) -> Taxonomy
         category = db.query(Category).filter(Category.id == item["new_category_id"], Category.is_active.is_(True)).first()
         if category is None: continue
         place.category_id = category.id; place.category = category.code; place.canonical_category = category.code
-        if batch.filters.get("update_route_eligibility"): place.is_route_eligible = bool(item["new_route_eligible"])
+        if batch.filters.get("update_route_eligibility") and place.is_published:
+            db.flush()
+            new_route_eligible = bool(item["new_route_eligible"])
+            try:
+                reconcile_published_place_state(
+                    db, place, route_eligible=new_route_eligible,
+                    route_exclusion_reason=None if new_route_eligible else "taxonomy_bulk_reclassification",
+                    actor=actor, source="taxonomy_bulk_apply",
+                )
+            except InvalidPublicationTransition:
+                pass
         persist_decision(db, place_id=place.id, result=ClassificationResult(category.id, category.code, float(item["confidence"]), None, "Массовая переклассификация.", "bulk"), actor=actor, old_category_id=item["old_category_id"], batch_id=batch.id)
         db.add(place); changed += 1
     batch.status = "applied"; batch.applied_at = datetime.utcnow(); batch.result = {"changed": changed, "skipped": batch.preview["count"] - changed}
@@ -144,7 +155,18 @@ def rollback_bulk(db: Session, *, batch: TaxonomyBulkBatch, actor: str) -> Taxon
         place = db.query(Place).filter(Place.id == item["place_id"], Place.category_id == item["new_category_id"]).first()
         if place is None: continue
         place.category_id = item["old_category_id"]; place.category = item["old_category"]; place.canonical_category = item["old_category"]
-        place.is_route_eligible = bool(item["old_route_eligible"]); db.add(place); restored += 1
+        if place.is_published:
+            db.flush()
+            old_route_eligible = bool(item["old_route_eligible"])
+            try:
+                reconcile_published_place_state(
+                    db, place, route_eligible=old_route_eligible,
+                    route_exclusion_reason=None if old_route_eligible else "taxonomy_bulk_rollback",
+                    actor=actor, source="taxonomy_bulk_rollback",
+                )
+            except InvalidPublicationTransition:
+                pass
+        db.add(place); restored += 1
     batch.status = "rolled_back"; batch.rolled_back_at = datetime.utcnow(); batch.rollback_result = {"restored": restored}
     write_admin_audit_log(db, actor=actor, action="taxonomy.bulk.rolled_back", entity_type="taxonomy_batch", entity_id=batch.id, new_value=batch.rollback_result)
     db.commit(); return batch

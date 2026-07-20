@@ -11,6 +11,7 @@ from models.place import Place
 from models.source_observation import SourceObservation
 from services.coverage_scope_policy import resolve_scope_policy
 from services.osm_import_taxonomy import classify_osm_place
+from services.publication_state_writer import InvalidPublicationTransition, reconcile_published_place_state
 
 
 def apply_place_layers(db: Session, *, city_slug: str | None = None, scope_id: int | None = None) -> dict[str, object]:
@@ -42,9 +43,20 @@ def apply_place_layers(db: Session, *, city_slug: str | None = None, scope_id: i
         place.route_policy = classification.route_policy
         place.tourist_eligible = classification.tourist_eligible
         place.transport_required = bool(policy.transport_required) if policy else False
-        if classification.route_exclusion_reason:
-            place.route_exclusion_reason = classification.route_exclusion_reason
-        place.is_route_eligible = bool(place.is_route_eligible and classification.is_route_eligible and not place.transport_required)
+        computed_eligible = bool(place.is_route_eligible and classification.is_route_eligible and not place.transport_required)
+        if place.is_published:
+            db.flush()
+            exclusion_reason = None if computed_eligible else (classification.route_exclusion_reason or "osm_layer_classification")
+            try:
+                reconcile_published_place_state(
+                    db, place,
+                    route_eligible=computed_eligible,
+                    route_exclusion_reason=exclusion_reason,
+                    actor="place_layer_service",
+                    source="place_layer_service",
+                )
+            except InvalidPublicationTransition:
+                pass
         after = (place.place_layer, place.route_policy, place.tourist_eligible, place.transport_required, place.is_route_eligible)
         counters[classification.layer] += 1
         if before != after:

@@ -79,10 +79,12 @@ def _cleanup(factory, city_id: int) -> None:
     with factory() as db:
         place_ids = [row[0] for row in db.query(Place.id).filter(Place.city_id == city_id).all()]
         if place_ids:
+            db.execute(text("ALTER TABLE place_publication_transitions DISABLE TRIGGER USER"))
             db.query(PlacePublicationTransition).filter(
                 PlacePublicationTransition.place_id.in_(place_ids)
             ).delete(synchronize_session=False)
             db.query(Place).filter(Place.id.in_(place_ids)).delete(synchronize_session=False)
+            db.execute(text("ALTER TABLE place_publication_transitions ENABLE TRIGGER USER"))
         db.query(City).filter(City.id == city_id).delete(synchronize_session=False)
         db.commit()
 

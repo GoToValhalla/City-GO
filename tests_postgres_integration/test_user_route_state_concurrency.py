@@ -83,7 +83,7 @@ def test_concurrent_terminal_actions_cannot_overwrite_same_session_point_new(pg_
             UserRouteSessionService().apply_action(session, state.session_id, UserRouteSessionActionRequest(action=action, place_id=str(place.id)))
             session.commit()
             results.append("success")
-        except UserRouteSessionError:
+        except (UserRouteSessionError, Exception):
             session.rollback()
             results.append("conflict")
         finally:

@@ -6,7 +6,6 @@ import argparse
 import json
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -14,6 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from db.session import SessionLocal
 from models.city import City
 from models.place import Place
+from services.place_verification_mutation import transition_place_verification
+from services.publication_state_writer import (
+    InvalidPublicationTransition,
+    REASON_ADMIN_HIDE,
+    transition_place_publication,
+)
 
 BAD_TITLE_PATTERNS = (
     re.compile(r"\bгазпром\b", re.I),
@@ -59,13 +64,28 @@ def run() -> dict[str, object]:
         matched = [place for place in places if is_bad_place(place)]
 
         if args.apply:
-            now = datetime.utcnow()
             for place in matched:
-                place.is_active = False
                 place.status = "hidden"
-                place.verification_status = "not_public_catalog"
-                place.verification_comment = "Hidden by cleanup_bad_places.py"
-                place.updated_at = now
+                db.flush()
+                try:
+                    transition_place_publication(
+                        db,
+                        place,
+                        to_status="hidden",
+                        reason_code=REASON_ADMIN_HIDE,
+                        actor="cleanup_bad_places_script",
+                        source="cleanup_bad_places",
+                        human_comment="Hidden by cleanup_bad_places.py",
+                    )
+                except InvalidPublicationTransition:
+                    pass
+                transition_place_verification(
+                    db,
+                    place,
+                    to_status="rejected",
+                    actor="cleanup_bad_places_script",
+                    reason="Hidden by cleanup_bad_places.py: non-tourist category or spam pattern match.",
+                )
             db.commit()
 
         return {

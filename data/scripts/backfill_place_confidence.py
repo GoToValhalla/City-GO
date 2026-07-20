@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from db.session import SessionLocal
 from models.city import City
 from models.place import Place
+from services.place_verification_mutation import transition_place_verification
 from services.place_verification_service import confidence_level
 
 
@@ -60,7 +61,7 @@ def run() -> dict[str, object]:
 
             score = initial_score(place)
             level = confidence_level(score)
-            status = "likely_exists" if score >= 60 else "unverified"
+            status = "unverified"
 
             preview.append(
                 {
@@ -73,11 +74,16 @@ def run() -> dict[str, object]:
             )
 
             if args.apply:
-                place.existence_confidence_score = score
-                place.existence_confidence_level = level
-                place.verification_status = status
-                place.verification_source = place.source or "system_inference"
-                place.verification_method = "import_inferred"
+                transition_place_verification(
+                    db,
+                    place,
+                    to_status=status,
+                    actor="backfill_place_confidence_script",
+                    confidence_score=score,
+                    confidence_level=level,
+                    verification_source=place.source or "system_inference",
+                    verification_method="import_inferred",
+                )
                 updated += 1
 
         if args.apply:

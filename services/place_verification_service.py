@@ -163,7 +163,7 @@ def _apply_publication_consequence(db: Session, place: Place, *, action: str, ac
     details = {"verification_action": action}
     if action == "duplicate":
         transition_place_publication(db, place, to_status="rejected", reason_code=REASON_DUPLICATE_SUSPECTED, actor=actor, source="place_verification", reason_details=details, human_comment=comment, lock_place=False)
-    elif action == "closed":
+    elif action in {"closed", "not_found"}:
         transition_place_publication(db, place, to_status="hidden", reason_code=REASON_POLICY_GATE_FAILED, actor=actor, source="place_verification", reason_details=details, human_comment=comment, lock_place=False)
     else:
         transition_place_publication(db, place, to_status="needs_review", reason_code=REASON_LOW_CONFIDENCE, actor=actor, source="place_verification", reason_details=details, human_comment=comment, lock_place=False)

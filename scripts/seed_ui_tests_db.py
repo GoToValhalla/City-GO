@@ -18,6 +18,12 @@ from models.city import City
 from models.destination import Destination, DestinationPlaceMembership, DestinationScope
 from models.place import Place
 from models.place_merge_review import ReviewItem
+from services.place_verification_mutation import transition_place_verification
+from services.publication_state_writer import (
+    InvalidPublicationTransition,
+    REASON_PUBLISHED,
+    transition_place_publication,
+)
 
 
 CITY = {"slug": "zelenogradsk", "name": "Зеленоградск", "region": "Калининградская область", "country": "Россия", "timezone": "Europe/Kaliningrad", "center_lat": 54.9601, "center_lng": 20.4753, "launch_status": "published", "is_active": True, "quality_status": "ready", "readiness_score": 90}
@@ -56,8 +62,40 @@ def _upsert_place(db: Session, city: City, categories: dict[str, Category], row:
     slug, title, code, lat, lng = row
     place = db.query(Place).filter(Place.city_id == city.id, Place.slug == slug).first() or Place(city_id=city.id, slug=slug, title=title, lat=lat, lng=lng)
     category = categories[code]
-    for key, value in _place_payload(title, category, lat, lng).items():
-        setattr(place, key, value)
+    payload = _place_payload(title, category, lat, lng)
+    place.title = payload["title"]
+    place.lat = payload["lat"]
+    place.lng = payload["lng"]
+    place.category_id = payload["category_id"]
+    place.category = payload["category"]
+    place.canonical_category = payload["canonical_category"]
+    place.address = payload["address"]
+    place.short_description = payload["short_description"]
+    place.status = payload["status"]
+    place.lifecycle_status = payload["lifecycle_status"]
+    place.quality_score = payload["quality_score"]
+    place.completeness_score = payload["completeness_score"]
+    place.confidence_score = payload["confidence_score"]
+    db.add(place)
+    db.flush()
+    try:
+        transition_place_publication(
+            db, place,
+            to_status="published",
+            reason_code=REASON_PUBLISHED,
+            actor="seed_ui_tests_db",
+            source="seed_ui_tests_db",
+            route_eligible_when_published=True,
+        )
+    except InvalidPublicationTransition:
+        pass
+    transition_place_verification(
+        db, place,
+        to_status="verified",
+        actor="seed_ui_tests_db",
+        confidence_score=8,
+        confidence_level="high",
+    )
     if slug == "degraded-card":
         place.short_description = None
         place.address = None
@@ -70,10 +108,8 @@ def _place_payload(title: str, category: Category, lat: float, lng: float) -> di
         "title": title, "lat": lat, "lng": lng, "category_id": category.id,
         "category": category.code, "canonical_category": category.code, "address": "Зеленоградск, центр",
         "short_description": f"{title} — тестовое публичное место для локальных UI smoke-проверок.",
-        "status": "active", "lifecycle_status": "active", "publication_status": "published",
-        "is_active": True, "is_published": True, "is_visible_in_catalog": True,
-        "is_route_eligible": True, "is_searchable": True, "quality_score": 80,
-        "completeness_score": 30, "confidence_score": 8, "existence_confidence_level": "high", "verification_status": "verified",
+        "status": "active", "lifecycle_status": "active",
+        "quality_score": 80, "completeness_score": 30, "confidence_score": 8,
     }
 
 

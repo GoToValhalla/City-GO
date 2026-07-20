@@ -8,8 +8,11 @@ def test_validation_closes_issue_when_failure_is_fixed(db_session, draft_place_f
     place = draft_place_factory(
         slug="quality-issue-lifecycle",
         address=None,
-        short_description="Описание достаточной длины для проверки жизненного цикла quality issue. " * 2,
     )
+    place.short_description = (
+        "Описание достаточной длины для проверки жизненного цикла quality issue. " * 2
+    )
+    db_session.flush()
 
     validate_place(db_session, place)
     db_session.flush()

@@ -14,6 +14,7 @@ from schemas.admin_taxonomy import (BulkApply, BulkRequest, CategoryPatch, Categ
     ClassifyPreview, ConflictResolve, MappingPatch, MappingWrite, QualityRulePatch, TreeWrite, WorkflowRun)
 from services.admin_audit_service import write_admin_audit_log
 from services.admin_taxonomy_service import admin_category_taxonomy
+from services.publication_state_writer import InvalidPublicationTransition, reconcile_published_place_state
 from services.taxonomy_admin_service import (apply_bulk, build_tree, category_dict, create_category, list_categories,
     mapping_hash, preview_bulk, rollback_bulk, update_category, update_tree)
 from services.taxonomy_rule_engine import classify_place, persist_decision
@@ -149,7 +150,14 @@ def conflict_resolve(conflict_id: int, body: ConflictResolve, auth: AdminContext
                 target_category_id=category.id, priority=200, confidence=1, conditions={}, conditions_hash="-", created_by=auth.actor_id, comment=body.comment))
         persist_decision(db, place_id=place.id, result=classify_place(db, source=None, source_tags={}, title=place.title,
             description=place.short_description, current_category=place.category, manual_category_id=category.id), actor=auth.actor_id, old_category_id=old)
-    elif body.action == "exclude": place.is_route_eligible = False
+    elif body.action == "exclude" and place.is_published:
+        try:
+            reconcile_published_place_state(
+                db, place, route_eligible=False, route_exclusion_reason="taxonomy_conflict_excluded",
+                actor=auth.actor_id, source="admin_taxonomy_conflict",
+            )
+        except InvalidPublicationTransition:
+            pass
     conflict.status = "deferred" if body.action == "defer" else "resolved"; conflict.resolution = body.model_dump(); conflict.resolved_by = auth.actor_id; conflict.resolved_at = datetime.utcnow()
     write_admin_audit_log(db, actor=auth.actor_id, action="taxonomy.conflict.resolved", entity_type="taxonomy_conflict", entity_id=conflict.id, new_value=body.model_dump())
     db.commit(); return {"resolved": True, "next_available": db.query(TaxonomyConflict).filter(TaxonomyConflict.status == "open").count() > 0}

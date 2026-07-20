@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Mapping
 
 from sqlalchemy.orm import Session
@@ -49,12 +49,12 @@ _ALLOWED_TARGETS: Mapping[str, frozenset[str]] = {
     REASON_IMPORT_INCOMPLETE: frozenset({"draft", "auto_backlog", "needs_review", "hidden"}),
     REASON_ENRICHMENT_BACKLOG: frozenset({"auto_backlog", "deferred"}),
     REASON_LOW_CONFIDENCE: frozenset({"low_confidence", "auto_backlog", "needs_review", "needs_manual_review"}),
-    REASON_POLICY_GATE_FAILED: frozenset({"auto_backlog", "needs_review", "needs_manual_review", "hidden"}),
+    REASON_POLICY_GATE_FAILED: frozenset({"auto_backlog", "needs_review", "needs_manual_review", "hidden", "archived"}),
     REASON_NEEDS_MANUAL_REVIEW: frozenset({"needs_review", "needs_manual_review", "deferred"}),
     REASON_DUPLICATE_SUSPECTED: frozenset({"needs_review", "needs_manual_review", "hidden", "rejected"}),
     REASON_SPAM_SUSPECTED: frozenset({"needs_review", "needs_manual_review", "hidden", "rejected"}),
     REASON_NON_PUBLIC_CATEGORY: frozenset({"hidden", "deferred", "needs_review", "draft"}),
-    REASON_MISSING_COORDINATES: frozenset({"draft", "auto_backlog", "needs_review", "hidden"}),
+    REASON_MISSING_COORDINATES: frozenset({"draft", "auto_backlog", "needs_review", "hidden", "archived"}),
     REASON_STALE_READINESS_SNAPSHOT: frozenset({"deferred", "needs_review", "auto_backlog"}),
     REASON_CITY_PUBLICATION_QUALITY_GATE: frozenset({"needs_review", "needs_manual_review", "hidden", "unpublished", "deferred"}),
     REASON_ADMIN_CREATE_DRAFT: frozenset({"draft"}),
@@ -84,6 +84,7 @@ _STATE_FLAGS: Mapping[str, PublicationStateFlags] = {
     "needs_manual_review": PublicationStateFlags(True, False, False, False),
     "deferred": PublicationStateFlags(True, False, False, False),
     "hidden": PublicationStateFlags(False, False, False, False),
+    "archived": PublicationStateFlags(False, False, False, False),
     "unpublished": PublicationStateFlags(False, False, False, False),
     "rejected": PublicationStateFlags(False, False, False, False),
 }
@@ -133,7 +134,7 @@ def transition_place_publication(
     ):
         raise InvalidPublicationTransition("publication state already matches target")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     place.publication_status = to_status
     place.is_active = flags.is_active
     place.is_published = flags.is_published
@@ -217,7 +218,7 @@ def reconcile_published_place_state(
     if unchanged:
         return False
 
-    now = datetime.now(timezone.utc)
+    now = datetime.utcnow()
     previous_route = {
         "is_route_eligible": bool(place.is_route_eligible),
         "route_exclusion_reason": place.route_exclusion_reason,

@@ -35,8 +35,14 @@ def apply_pipeline_publication(
     """
     import_decision = assess_place_import_decision(place)
     verdict = evaluate_canonical_publication(place, import_decision=import_decision, evidence_allowed=evidence_allowed)
+    record_only = _pipeline_record_only(verdict, evidence_allowed=evidence_allowed)
     key = apply_canonical_publication_verdict(
-        db, place, verdict, job_id=job.id, snapshot_id=snapshot_id, record_only=True,
+        db,
+        place,
+        verdict,
+        job_id=job.id,
+        snapshot_id=snapshot_id,
+        record_only=True if record_only else False,
     )
     counters[key] = counters.get(key, 0) + 1
     if verdict.outcome in {"review", "reject", "blocked"}:
@@ -48,6 +54,23 @@ def apply_pipeline_publication(
             field_name=_review_field(verdict.reasons[0] if verdict.reasons else "publication_status"),
             reason=verdict.reasons[0] if verdict.reasons else "needs_review",
         )
+
+
+def _pipeline_record_only(verdict, *, evidence_allowed: bool) -> bool:
+    """Mid-pipeline never live-publishes; hard safety and review states still apply.
+
+    Architecture contract for import call sites: publish/preserve stay
+    record_only=True; reject/blocked/review may apply through the writer.
+    """
+    if verdict.outcome == "reject":
+        return False
+    if verdict.outcome == "preserve_public":
+        return True
+    if verdict.outcome == "publish":
+        return True  # record_only=True for unattended publish paths
+    if verdict.outcome in {"blocked", "review"}:
+        return False
+    return not evidence_allowed
 
 
 def _review_field(reason: str) -> str:

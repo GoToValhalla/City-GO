@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from core.publication_state_ownership import CONTROLLED_PLACE_INPUT_FIELDS
 from schemas.place import PlaceCreate, PlaceRead, PlaceUpdate
 from schemas.route import RouteDetailRead, RouteRead
 
@@ -37,12 +38,29 @@ class AdminPlaceListResponse(BaseModel):
     offset: int
 
 
+def _reject_controlled_admin_input(value: Any) -> Any:
+    if isinstance(value, dict):
+        forbidden = sorted(set(value).intersection(CONTROLLED_PLACE_INPUT_FIELDS))
+        if forbidden:
+            raise ValueError(
+                "Управляемые поля состояния нельзя изменять через общий endpoint: "
+                + ", ".join(forbidden)
+            )
+    return value
+
+
 class AdminPlaceCreate(PlaceCreate):
-    pass
+    @model_validator(mode="before")
+    @classmethod
+    def reject_controlled_state_input(cls, value: Any) -> Any:
+        return _reject_controlled_admin_input(value)
 
 
 class AdminPlaceUpdate(PlaceUpdate):
-    pass
+    @model_validator(mode="before")
+    @classmethod
+    def reject_controlled_state_input(cls, value: Any) -> Any:
+        return _reject_controlled_admin_input(value)
 
 
 class AdminDashboardResponse(BaseModel):

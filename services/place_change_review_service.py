@@ -229,6 +229,8 @@ def _restore_previous_place_values(db: Session, place: Place, payload: dict[str,
     target_status = str(before_public.get("publication_status") or "draft")
     details = {"review_action": "reject", "restored_from_review_payload": True, "original_publication_status": target_status}
     if bool(before_public.get("is_published")) and target_status == "published":
+        if before_public.get("status"):
+            place.status = str(before_public["status"])
         apply_admin_city_publication_place(db, place, actor=actor, source="place_change_review_restore", reason=reason, lock_place=False)
         return
     allowed = {"draft", "auto_backlog", "low_confidence", "needs_review", "needs_manual_review", "deferred", "hidden", "unpublished", "rejected"}

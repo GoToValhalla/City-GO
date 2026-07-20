@@ -97,7 +97,7 @@ def transition_place_verification(
     )
     if is_noop:
         if reject_noop:
-            raise ValueError("Состояние проверки уже установлено")
+            raise ValueError("уже подтверждено")
         return False
 
     old_value = _snapshot(place)

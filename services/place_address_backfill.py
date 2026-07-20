@@ -16,6 +16,7 @@ from services.place_address_geocode import ReverseGeocodeCandidate, reverse_geoc
 from services.place_address_policy import PLACEHOLDER_ADDRESSES, is_real_address, needs_backfill, should_apply_geocode_result
 from services.place_change_review_service import propose_place_change
 from services.place_import_lifecycle_service import mark_place_for_review
+from services.place_verification_mutation import transition_place_verification
 
 ADDRESS_MATCH_THRESHOLD = 0.72
 _ORIGINAL_REVERSE_GEOCODE = reverse_geocode
@@ -210,12 +211,16 @@ def _mark_existing_address_verified(db: Session, place: Place, source: str, conf
 
 
 def _mark_address_for_review(db: Session, place: Place, candidate: str, source: str) -> None:
-    place.verification_status = "needs_recheck"
-    place.verification_source = source
-    place.verification_method = "address_conflict"
-    place.verification_comment = f"Конфликт адреса. Текущий: {place.address or ''}. Кандидат: {candidate or ''}."[:1000]
-    place.needs_recheck_at = datetime.utcnow()
-    db.add(place)
+    comment = f"Конфликт адреса. Текущий: {place.address or ''}. Кандидат: {candidate or ''}."[:1000]
+    transition_place_verification(
+        db,
+        place,
+        to_status="needs_recheck",
+        actor="place_address_backfill",
+        reason=comment,
+        verification_source=source,
+        verification_method="address_conflict",
+    )
     db.commit()
 
 

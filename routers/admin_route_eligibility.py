@@ -24,6 +24,7 @@ from services.admin_background_operation_service import (
 )
 from services.city_readiness import city_readiness_snapshot, list_cities_readiness
 from services.route_data_quality import build_route_data_quality_report
+from services.publication_state_writer import InvalidPublicationTransition, reconcile_published_place_state
 from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 from services.route_eligibility_dashboard import build_route_readiness_diagnostics, list_eligibility_places
 
@@ -107,9 +108,21 @@ def exclude_forbidden_route_categories(
         Place.is_route_eligible.is_(True),
     ).all()
 
+    affected = 0
     for place in places:
-        place.is_route_eligible = False
-        place.route_exclusion_reason = "forbidden_category_cleanup"
+        if not place.is_published:
+            continue
+        try:
+            if reconcile_published_place_state(
+                db, place,
+                route_eligible=False,
+                route_exclusion_reason="forbidden_category_cleanup",
+                actor=auth.actor_id,
+                source="admin_route_eligibility",
+            ):
+                affected += 1
+        except InvalidPublicationTransition:
+            pass
 
     write_admin_audit_log(
         db,
@@ -118,14 +131,14 @@ def exclude_forbidden_route_categories(
         entity_type="city",
         entity_id=city.slug,
         old_value=None,
-        new_value={"affected": len(places)},
+        new_value={"affected": affected},
         reason="data_quality_action",
     )
     db.commit()
 
     return {
         "city_slug": city.slug,
-        "affected": len(places),
+        "affected": affected,
         "status": "done",
         "reason": "forbidden_category_cleanup",
     }

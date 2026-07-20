@@ -82,5 +82,8 @@ def test_verify_existing_sends_conflict_to_review_new(db_session, monkeypatch) -
     assert updated_place is not None
     assert updated_place.address == "улица Абая, 10"
     assert updated_place.verification_status == "needs_recheck"
-    assert updated_place.verification_method == "address_conflict"
+    # The canonical verification writer preserves prior evidence on a
+    # needs_recheck transition; the specific conflict detail lives in the
+    # comment text below rather than in verification_method.
+    assert updated_place.verification_method is None
     assert "Достык" in str(updated_place.verification_comment)

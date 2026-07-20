@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 
 from db.session import SessionLocal
 from models.place import Place
+from services.publication_state_writer import InvalidPublicationTransition, reconcile_published_place_state
 from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 
@@ -48,9 +49,17 @@ def recompute(db, *, mode: str, batch_size: int) -> dict[str, object]:
                 by_city[str(place.city_id)][reason] += 1
             if needs_update:
                 changed.append(_change(place, verdict.eligible, desired_reason))
-                if mode == "apply":
-                    place.is_route_eligible = verdict.eligible
-                    place.route_exclusion_reason = desired_reason
+                if mode == "apply" and place.is_published:
+                    try:
+                        reconcile_published_place_state(
+                            db, place,
+                            route_eligible=verdict.eligible,
+                            route_exclusion_reason=desired_reason,
+                            actor="recompute_route_eligibility_script",
+                            source="recompute_route_eligibility",
+                        )
+                    except InvalidPublicationTransition:
+                        pass
         if mode == "apply":
             db.commit()
         offset += batch_size

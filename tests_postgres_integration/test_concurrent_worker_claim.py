@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy import and_
 
 from db.session import SessionLocal
+from models.city import City
 from models.city_admin_import_job import CityAdminImportJob
 from models.city_import_scope import CityImportScope
 from services.import_job_service import lock_scope, unlock_scope
@@ -22,15 +23,28 @@ from conftest import make_published_place, unique_slug
 
 
 def test_for_update_skip_locked_gives_each_worker_a_distinct_job_new(pg_session, pg_city) -> None:
-    """Two 'workers' racing db.query(...).with_for_update(skip_locked=True)
-    against two queued jobs for the same city must each claim exactly one
-    job — never the same job twice, never zero total claims."""
+    """Two workers racing skip_locked against two queued jobs must each claim one.
+
+    Schema allows only one active (queued/running) job per city, so the two
+    jobs are seeded on distinct cities while workers claim from the shared set.
+    """
+    city_b = City(
+        slug=unique_slug("pg-city-b"),
+        name="PG Integration City B",
+        is_active=True,
+        launch_status="published",
+    )
+    pg_session.add(city_b)
+    pg_session.commit()
+    pg_session.refresh(city_b)
+
     job_a = CityAdminImportJob(city_id=pg_city.id, status="queued", source="admin_city_import")
-    job_b = CityAdminImportJob(city_id=pg_city.id, status="queued", source="admin_city_import")
+    job_b = CityAdminImportJob(city_id=city_b.id, status="queued", source="admin_city_import")
     pg_session.add_all([job_a, job_b])
     pg_session.commit()
     pg_session.refresh(job_a)
     pg_session.refresh(job_b)
+    job_ids = {int(job_a.id), int(job_b.id)}
 
     claimed_ids: list[int] = []
     barrier = threading.Barrier(2)
@@ -42,7 +56,10 @@ def test_for_update_skip_locked_gives_each_worker_a_distinct_job_new(pg_session,
             barrier.wait(timeout=5)
             job = (
                 session.query(CityAdminImportJob)
-                .filter(CityAdminImportJob.city_id == pg_city.id, CityAdminImportJob.status == "queued")
+                .filter(
+                    CityAdminImportJob.id.in_(job_ids),
+                    CityAdminImportJob.status == "queued",
+                )
                 .order_by(CityAdminImportJob.id.asc())
                 .with_for_update(skip_locked=True)
                 .first()
@@ -63,8 +80,14 @@ def test_for_update_skip_locked_gives_each_worker_a_distinct_job_new(pg_session,
     for thread in threads:
         thread.join(timeout=10)
 
-    assert sorted(claimed_ids) == sorted([job_a.id, job_b.id])
+    assert sorted(claimed_ids) == sorted(job_ids)
     assert len(set(claimed_ids)) == 2
+
+    pg_session.query(CityAdminImportJob).filter(CityAdminImportJob.id.in_(job_ids)).delete(
+        synchronize_session=False
+    )
+    pg_session.query(City).filter(City.id == city_b.id).delete(synchronize_session=False)
+    pg_session.commit()
 
 
 def test_for_update_skip_locked_never_double_claims_a_single_job_new(pg_session, pg_city) -> None:
@@ -114,7 +137,12 @@ def test_scope_lock_atomic_update_prevents_double_lock_new(pg_session, pg_city) 
     """services/import_job_service.py::lock_scope uses an atomic
     UPDATE ... WHERE locked_at IS NULL — exactly one of two racing callers
     must observe updated == 1."""
-    scope = CityImportScope(city_id=pg_city.id, code=unique_slug("scope"), enabled=True)
+    scope = CityImportScope(
+        city_id=pg_city.id,
+        code=unique_slug("scope"),
+        name="PG scope lock race",
+        enabled=True,
+    )
     pg_session.add(scope)
     pg_session.commit()
     pg_session.refresh(scope)

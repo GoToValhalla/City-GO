@@ -15,6 +15,12 @@ from models.place_snapshot import PlaceSnapshot
 from models.review_queue_item import ReviewQueueItem
 from services.place_public_visibility import is_public_hidden_category
 from services.place_quality_signals import is_placeholder_title
+from services.publication_state_writer import (
+    InvalidPublicationTransition,
+    PUBLISHED_STATUS,
+    REASON_PUBLISHED,
+    transition_place_publication,
+)
 
 MODE_SHADOW = "shadow"
 MODE_APPLY = "apply"
@@ -53,6 +59,36 @@ AUTO_ACCEPT_FIELDS = {
     "confidence_score",
     "freshness_score",
 }
+
+
+def _apply_auto_accept_field(place: Place, field_name: str, new_value: Any) -> None:
+    """Assign one of AUTO_ACCEPT_FIELDS via literal attributes (no controlled fields)."""
+    if field_name == "image_url":
+        place.image_url = new_value
+    elif field_name == "website":
+        place.website = new_value
+    elif field_name == "phone":
+        place.phone = new_value
+    elif field_name == "opening_hours":
+        place.opening_hours = new_value
+    elif field_name == "short_description":
+        place.short_description = new_value
+    elif field_name == "atmosphere":
+        place.atmosphere = new_value
+    elif field_name == "inside":
+        place.inside = new_value
+    elif field_name == "best_for":
+        place.best_for = new_value
+    elif field_name == "quality_score":
+        place.quality_score = new_value
+    elif field_name == "photo_score":
+        place.photo_score = new_value
+    elif field_name == "description_score":
+        place.description_score = new_value
+    elif field_name == "confidence_score":
+        place.confidence_score = new_value
+    elif field_name == "freshness_score":
+        place.freshness_score = new_value
 
 
 @dataclass(frozen=True)
@@ -256,17 +292,21 @@ def apply_publication_decision(
 
     if decision.should_publish:
         snapshot_place(db, place, reason="pre_auto_publish")
-        now = datetime.utcnow()
-        place.is_active = True
         place.status = "active"
-        place.is_published = True
-        place.is_visible_in_catalog = True
-        place.is_searchable = True
-        place.is_route_eligible = True
-        place.publication_status = "published"
-        place.publication_comment = f"auto-published by {actor}: trust_score={decision.trust_score}"
-        place.published_at = place.published_at or now
-        place.unpublished_at = None
+        db.flush()
+        try:
+            transition_place_publication(
+                db,
+                place,
+                to_status=PUBLISHED_STATUS,
+                reason_code=REASON_PUBLISHED,
+                actor=actor,
+                source="publication_policy",
+                human_comment=f"auto-published by {actor}: trust_score={decision.trust_score}",
+                route_eligible_when_published=True,
+            )
+        except InvalidPublicationTransition:
+            pass
         row.status = "applied"
     elif decision.decision in {DECISION_REVIEW, DECISION_HIDDEN, DECISION_SHADOW_AUTO_PUBLISH}:
         ensure_review_queue_item(db, place, decision)
@@ -377,7 +417,7 @@ def create_change_review(
             ),
         )
     elif config.mode == MODE_APPLY and config.auto_publish_enabled and field_name in AUTO_ACCEPT_FIELDS and trust_score >= config.auto_publish_threshold:
-        setattr(place, field_name, new_value)
+        _apply_auto_accept_field(place, field_name, new_value)
         row.status = "accepted"
         row.reviewed_by = "publication-policy"
         row.reviewed_at = datetime.utcnow()

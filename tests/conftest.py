@@ -238,6 +238,7 @@ def place_factory(db_session: Session, city_factory, category_factory):
         lat: float = 54.9611,
         lng: float = 20.4703,
         address: str | None = None,
+        short_description: str | None = None,
         image_url: str | None = None,
         price_level: int | None = None,
         dog_friendly: bool = False,
@@ -250,6 +251,11 @@ def place_factory(db_session: Session, city_factory, category_factory):
         is_route_eligible: bool = True,
         is_searchable: bool = True,
         publication_status: str = "published",
+        source: str | None = None,
+        source_url: str | None = None,
+        status: str | None = None,
+        average_visit_duration_minutes: int | None = None,
+        confidence: float | None = None,
     ):
         nonlocal counter
         counter += 1
@@ -273,6 +279,7 @@ def place_factory(db_session: Session, city_factory, category_factory):
             lat=lat,
             lng=lng,
             address=address,
+            short_description=short_description,
             image_url=image_url,
             price_level=price_level,
             dog_friendly=dog_friendly,
@@ -285,6 +292,11 @@ def place_factory(db_session: Session, city_factory, category_factory):
             is_route_eligible=is_route_eligible,
             is_searchable=is_searchable,
             publication_status=publication_status,
+            source=source,
+            source_url=source_url,
+            status=status if status is not None else "active",
+            average_visit_duration_minutes=average_visit_duration_minutes,
+            confidence=confidence,
         )
         db_session.add(place)
         db_session.commit()

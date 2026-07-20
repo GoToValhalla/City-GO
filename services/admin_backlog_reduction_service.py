@@ -15,6 +15,12 @@ from schemas.admin_backlog_reduction import BacklogReductionApplyRequest, Backlo
 from services.admin_audit_service import write_admin_audit_log
 from services.admin_backlog_breakdown_service import build_admin_backlog_breakdown
 from services.admin_backlog_clauses import content_gap_clause, queue_clause, reason_clause, service_category_clause
+from services.publication_state_writer import (
+    InvalidPublicationTransition,
+    REASON_ENRICHMENT_BACKLOG,
+    reconcile_published_place_state,
+    transition_place_publication,
+)
 from services.route_eligibility_policy import evaluate_place_route_eligibility
 
 CONFIRMATION_TEXT = "APPLY"
@@ -186,7 +192,7 @@ def _apply_action(db: Session, spec: ActionSpec, places: list[Place], *, actor: 
     changed = skipped = 0
     skipped_reasons: dict[str, int] = {}
     for place in places:
-        did_change, reason = _apply_place_change(spec, place)
+        did_change, reason = _apply_place_change(db, spec, place, actor=actor)
         changed += int(did_change)
         if reason:
             skipped += 1
@@ -195,32 +201,52 @@ def _apply_action(db: Session, spec: ActionSpec, places: list[Place], *, actor: 
     return {"changed_count": changed, "skipped_count": skipped, "failed_count": 0, "queued_count": 0, "skipped_reasons": skipped_reasons, "errors": []}
 
 
-def _apply_place_change(spec: ActionSpec, place: Place) -> tuple[bool, str | None]:
+def _apply_place_change(db: Session, spec: ActionSpec, place: Place, *, actor: str) -> tuple[bool, str | None]:
     if spec.code == "recompute_route_eligibility":
+        if not place.is_published:
+            return False, "not_published"
         verdict = evaluate_place_route_eligibility(place)
-        place.is_route_eligible = verdict.eligible
-        place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons)
-        return True, None
+        reason = None if verdict.eligible else ",".join(verdict.reasons)
+        changed = reconcile_published_place_state(
+            db, place, route_eligible=verdict.eligible, route_exclusion_reason=reason,
+            actor=actor, source="admin_backlog_reduction",
+        )
+        return changed, None if changed else "already_current"
     if spec.code == "exclude_service_places_from_routes":
         if place.is_route_eligible is not True:
             return False, "already_excluded"
-        place.is_route_eligible = False
-        place.route_exclusion_reason = "service_category"
-        return True, None
+        if not place.is_published:
+            return False, "not_published"
+        changed = reconcile_published_place_state(
+            db, place, route_eligible=False, route_exclusion_reason="service_category",
+            actor=actor, source="admin_backlog_reduction",
+        )
+        return changed, None if changed else "already_current"
     if spec.code == "classify_unknown_categories_deterministic":
         category, confidence = _classify(place)
         if confidence != "high" or not category:
             return False, "ambiguous_category"
         place.canonical_category = category
-        verdict = evaluate_place_route_eligibility(place)
-        place.is_route_eligible = verdict.eligible
-        place.route_exclusion_reason = None if verdict.eligible else ",".join(verdict.reasons)
+        if place.is_published:
+            db.flush()
+            verdict = evaluate_place_route_eligibility(place)
+            reason = None if verdict.eligible else ",".join(verdict.reasons)
+            reconcile_published_place_state(
+                db, place, route_eligible=verdict.eligible, route_exclusion_reason=reason,
+                actor=actor, source="admin_backlog_reduction",
+            )
         return True, None
     if spec.code == "normalize_manual_review_backlog":
         if place.publication_status != "needs_review":
             return False, "explicit_manual_required"
         if _manual_safe_to_auto(place):
-            place.publication_status = "auto_backlog"
+            try:
+                transition_place_publication(
+                    db, place, to_status="auto_backlog", reason_code=REASON_ENRICHMENT_BACKLOG,
+                    actor=actor, source="admin_backlog_reduction",
+                )
+            except InvalidPublicationTransition:
+                pass
             return True, None
         return False, "unknown_manual_reason"
     return False, "unsupported"

@@ -7,13 +7,14 @@ inside imports, admin actions, scripts and tests without external services.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable
 
 from sqlalchemy.orm import Session
 
 from models.data_foundation import QualityScoreHistory
 from models.place import Place
+from services.publication_state_writer import InvalidPublicationTransition, reconcile_published_place_state
 from services.route_eligibility import evaluate_place_route_eligibility
 
 GOLD_MIN_SCORE = 80
@@ -96,8 +97,25 @@ def apply_place_quality_score(
     place.description_score = result.description_score
     place.confidence_score = result.confidence_score
     place.freshness_score = result.freshness_score
-    place.is_route_eligible = result.route_eligible
-    place.route_exclusion_reason = None if result.route_eligible else ",".join(result.route_eligibility_reasons)
+
+    if place.is_published:
+        # Flush pending scalar-field changes first: reconcile_published_place_state
+        # re-queries the row with populate_existing() under a lock, which would
+        # otherwise discard these unflushed in-memory changes.
+        db.flush()
+        exclusion_reason = None if result.route_eligible else ",".join(result.route_eligibility_reasons)
+        try:
+            reconcile_published_place_state(
+                db,
+                place,
+                route_eligible=result.route_eligible,
+                route_exclusion_reason=exclusion_reason,
+                actor="quality_scoring",
+                source="quality_scoring",
+                reason_details={"reason": reason},
+            )
+        except InvalidPublicationTransition:
+            pass
 
     if write_history:
         db.add(
@@ -190,7 +208,7 @@ def _freshness_score(place: Place, *, now: datetime) -> int:
     reference = place.verified_at or place.last_verified_at or place.address_updated_at or place.updated_at or place.created_at
     if reference is None:
         return 0
-    age_days = max((now - reference).days, 0)
+    age_days = max((_as_naive_utc(now) - _as_naive_utc(reference)).days, 0)
     if age_days <= 30:
         return 10
     if age_days <= 90:
@@ -200,6 +218,12 @@ def _freshness_score(place: Place, *, now: datetime) -> int:
     if age_days <= 365:
         return 4
     return 2
+
+
+def _as_naive_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _quality_tier(place: Place, quality_score: int) -> str:

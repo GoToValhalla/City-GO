@@ -24,7 +24,9 @@ from services.import_pipeline.runner import run_enrichment_pipeline
 from services.import_pipeline.steps import STEP_CANCELLED, STEP_ERROR, STEP_QUEUED
 from services.import_pipeline_foundation import run_foundation_pipeline
 from services.photo_enrichment_diagnostics import attach_photo_diagnostics_to_summary, build_photo_enrichment_diagnostics
-from services.place_auto_repair_service import PlaceAutoRepairService
+from services.place_auto_repair_service import PlaceAutoRepairItem, PlaceAutoRepairService
+from services.place_verification_mutation import transition_place_verification
+from services.publication_state_writer import InvalidPublicationTransition, reconcile_published_place_state
 
 class DuplicateActiveJobError(ValueError):
     """Raised when a queue action is attempted while a job is already
@@ -722,7 +724,8 @@ def run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int
         if finalized:
             job = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job.id).first()
             send_admin_alert(title="Import completed with warnings" if total > 0 else "Import pipeline failed", message=f"Pipeline прерван. Изменённых мест: {len(ids)}. Публикация города не изменялась.", level="warning" if total > 0 else "error", city_slug=city.slug if city else None, job_id=int(job.id) if job else None, details={"status": job.status if job else "failed", "places_total": total, "changed_places": len(ids), "city_launch_status": city.launch_status if city else None, "city_is_active": bool(city.is_active) if city else None, "warnings": [{"step": "unified_pipeline", "error": str(exc)[:1000]}]})
-    db.refresh(job)
+    if job is not None:
+        db.refresh(job)
     return job
 
 
@@ -953,6 +956,40 @@ def _refresh_snapshot_light(db: Session, *, city: City, job: CityAdminImportJob,
     return snapshot
 
 
+def _apply_auto_repair_controlled_state(db: Session, places: list[Place], items: list[PlaceAutoRepairItem]) -> None:
+    """Route auto-repair route-eligibility/verification signals through canonical owners."""
+    places_by_id = {str(place.id): place for place in places}
+    for item in items:
+        place = places_by_id.get(item.place_id)
+        if place is None:
+            continue
+        if item.route_eligible is not None and place.is_published:
+            try:
+                reconcile_published_place_state(
+                    db,
+                    place,
+                    route_eligible=item.route_eligible,
+                    route_exclusion_reason=item.route_exclusion_reason,
+                    actor="place_auto_repair",
+                    source="place_auto_repair_service",
+                )
+            except InvalidPublicationTransition:
+                pass
+        if item.verification_status:
+            try:
+                transition_place_verification(
+                    db,
+                    place,
+                    to_status=item.verification_status,
+                    actor="place_auto_repair",
+                    reason=item.reason,
+                )
+            except Exception:
+                # Auto-repair must not abort the import job on verification no-ops
+                # or transient eligibility races; ordinary field repairs already flushed.
+                pass
+
+
 def _run_auto_repair(db: Session, *, city: City, job: CityAdminImportJob, changed_place_ids: list[int]) -> dict[str, object]:
     query = db.query(Place).filter(Place.city_id == city.id)
     if changed_place_ids:
@@ -961,6 +998,11 @@ def _run_auto_repair(db: Session, *, city: City, job: CityAdminImportJob, change
         query = query.order_by(Place.id.desc()).limit(AUTO_REPAIR_CITY_SCAN_LIMIT)
     places = query.all()
     summary = PlaceAutoRepairService().repair_places(places)
+    # Flush ordinary field changes before routing controlled fields through the
+    # canonical writers below: their locked re-query would otherwise discard
+    # these unflushed in-memory changes.
+    db.flush()
+    _apply_auto_repair_controlled_state(db, places, summary.items)
     payload = _serialize_auto_repair_summary(summary)
     details = dict(job.step_details or {})
     details["auto_repair"] = payload

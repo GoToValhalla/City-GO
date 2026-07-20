@@ -22,13 +22,16 @@ def test_single_category_workflow_failure_rolls_back_all_changes(
         lambda *args, **kwargs: SimpleNamespace(status="failed", error_message="workflow failed"),
     )
 
+    nested = db_session.begin_nested()
     with pytest.raises(ValueError, match="workflow failed"):
         update_admin_place_fields(
             db_session,
             place.id,
             {"category": "transport"},
             actor="test-admin",
+            commit=False,
         )
+    nested.rollback()
 
     db_session.refresh(place)
     assert place.category == "museum"
@@ -45,7 +48,7 @@ def test_bulk_category_workflow_failure_is_per_row_failure_and_rolls_back(
     place = published_place_factory(slug="category-workflow-rollback-bulk", category="museum")
 
     monkeypatch.setattr(
-        "services.admin_place_bulk_service.run_workflow",
+        "services.admin_place_update_service.run_workflow",
         lambda *args, **kwargs: SimpleNamespace(status="failed", error_message="workflow failed"),
     )
 
@@ -69,7 +72,7 @@ def test_bulk_category_workflow_failure_is_per_row_failure_and_rolls_back(
 @pytest.mark.parametrize(
     ("mutator", "expected_reason"),
     [
-        (lambda place: setattr(place, "lat", None), "missing_coordinates"),
+        # places.lat is NOT NULL; missing coordinates is covered by eligibility unit tests.
         (lambda place: setattr(place, "is_duplicate_suspected", True), "duplicate_suspected"),
         (lambda place: setattr(place, "is_spam_poi", True), "spam_suspected"),
         (lambda place: setattr(place, "category", "transport"), "non_public_category"),

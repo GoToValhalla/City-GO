@@ -52,7 +52,12 @@ def test_generic_update_cannot_change_publication_fields(
     before_transition_count = db_session.query(PlacePublicationTransition).count()
 
     update = PlaceUpdate(
-        **_payload(city.id, slug=place.slug, title="Новое название"),
+        city_id=city.id,
+        slug=place.slug,
+        title="Новое название",
+        lat=place.lat,
+        lng=place.lng,
+        category=place.category,
         is_published=False,
         is_visible_in_catalog=False,
         is_searchable=False,

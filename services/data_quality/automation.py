@@ -15,6 +15,7 @@ from models.place import Place
 from services.admin_audit_service import write_admin_audit_log
 from services.data_quality.constants import ISSUE_ROUTE_SUSPICIOUS, STOPLIST_CATEGORIES
 from services.data_quality.fingerprint import candidate_fingerprint
+from services.publication_state_writer import InvalidPublicationTransition, reconcile_published_place_state
 
 AUTOMATION_ACTION = "auto_exclude_stoplist_from_routes"
 CANDIDATE_TYPE = "route_eligibility_auto_exclusion"
@@ -92,8 +93,18 @@ def apply_automation(db: Session, payload: dict[str, Any], *, actor: str) -> dic
         candidate.rollback_ref = f"data_quality_candidate:{candidate.id}"
         applied_candidates.append(candidate.id)
 
-        place.is_route_eligible = False
-        place.route_exclusion_reason = ROUTE_EXCLUSION_REASON
+        if place.is_published:
+            try:
+                reconcile_published_place_state(
+                    db,
+                    place,
+                    route_eligible=False,
+                    route_exclusion_reason=ROUTE_EXCLUSION_REASON,
+                    actor=actor,
+                    source="data_quality_automation",
+                )
+            except InvalidPublicationTransition:
+                pass
         issue.status = "auto_applied"
         issue.resolved_at = now
         issue.last_seen_at = now
@@ -138,8 +149,20 @@ def rollback_automation(db: Session, payload: dict[str, Any], *, actor: str) -> 
             "is_route_eligible": bool(place.is_route_eligible),
             "route_exclusion_reason": place.route_exclusion_reason,
         }
-        place.is_route_eligible = bool(rollback_patch.get("is_route_eligible", True))
-        place.route_exclusion_reason = rollback_patch.get("route_exclusion_reason")
+        target_eligible = bool(rollback_patch.get("is_route_eligible", True))
+        target_reason = None if target_eligible else (rollback_patch.get("route_exclusion_reason") or "data_quality_automation_rollback")
+        if place.is_published:
+            try:
+                reconcile_published_place_state(
+                    db,
+                    place,
+                    route_eligible=target_eligible,
+                    route_exclusion_reason=target_reason,
+                    actor=actor,
+                    source="data_quality_automation_rollback",
+                )
+            except InvalidPublicationTransition:
+                pass
         candidate.status = "rolled_back"
         candidate.decided_at = now
         candidate.decided_by = actor

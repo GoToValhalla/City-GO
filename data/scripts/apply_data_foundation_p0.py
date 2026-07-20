@@ -16,6 +16,7 @@ from __future__ import annotations
 from sqlalchemy import create_engine, text
 
 from core.config import settings
+from models.place import Place
 from services.data_foundation_policy import CANONICAL_CATEGORY_SEED, OSM_SPAM_RULE_SEED
 
 
@@ -27,6 +28,16 @@ def _db_url() -> str:
 def _execute_statements(connection, statements: list[str]) -> None:
     for statement in statements:
         connection.execute(text(statement))
+
+
+def _backfill_canonical_category(connection) -> None:
+    """Backfill canonical_category from legacy category via the ORM table (not raw SQL)."""
+    table = Place.__table__
+    connection.execute(
+        table.update()
+        .where(table.c.canonical_category.is_(None), table.c.category.isnot(None))
+        .values(canonical_category=table.c.category)
+    )
 
 
 def apply_schema() -> None:
@@ -65,8 +76,6 @@ def apply_schema() -> None:
                 "ALTER TABLE places ADD COLUMN IF NOT EXISTS is_duplicate_suspected BOOLEAN NOT NULL DEFAULT FALSE",
                 "ALTER TABLE places ADD COLUMN IF NOT EXISTS geo_precision VARCHAR(32)",
                 "ALTER TABLE places ADD COLUMN IF NOT EXISTS critical_field_expired BOOLEAN NOT NULL DEFAULT FALSE",
-                # Backfill canonical category from legacy category.
-                "UPDATE places SET canonical_category = COALESCE(canonical_category, category) WHERE canonical_category IS NULL AND category IS NOT NULL",
                 # Data Foundation tables.
                 """
                 CREATE TABLE IF NOT EXISTS place_field_provenance (
@@ -255,6 +264,7 @@ def apply_schema() -> None:
                 """,
             ],
         )
+        _backfill_canonical_category(connection)
 
         for item in CANONICAL_CATEGORY_SEED:
             connection.execute(

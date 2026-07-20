@@ -1,11 +1,24 @@
 """Apply enrichment import changes to Place records."""
 from __future__ import annotations
 
+from typing import Callable
+
 from sqlalchemy.orm import Session
 
 from models.place import Place
 from schemas.place_enrichment import ImportApplyResult, ImportPreviewResult
 from services.admin_audit_service import write_admin_audit_log
+
+_FIELD_SETTERS: dict[str, Callable[[Place, object], None]] = {
+    "address": lambda place, value: setattr(place, "address", value),
+    "short_description": lambda place, value: setattr(place, "short_description", value),
+    "price_level": lambda place, value: setattr(place, "price_level", value),
+    "dog_friendly": lambda place, value: setattr(place, "dog_friendly", value),
+    "family_friendly": lambda place, value: setattr(place, "family_friendly", value),
+    "outdoor": lambda place, value: setattr(place, "outdoor", value),
+    "indoor": lambda place, value: setattr(place, "indoor", value),
+    "opening_hours": lambda place, value: setattr(place, "opening_hours", value),
+}
 
 
 def apply_preview(
@@ -25,7 +38,11 @@ def apply_preview(
             continue
         changed = False
         for upd in row.updates:
-            setattr(place, upd.field, upd.new_value)
+            setter = _FIELD_SETTERS.get(upd.field)
+            if setter is None:
+                errors.append(f"Unsupported enrichment field {upd.field} for place id={row.place_id}")
+                continue
+            setter(place, upd.new_value)
             fields_updated[upd.field] = fields_updated.get(upd.field, 0) + 1
             changed = True
         if changed:

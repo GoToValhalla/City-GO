@@ -14,7 +14,11 @@ def test_auto_repair_normalizes_category_alias_and_blocks_route_utility_junk() -
 
     assert place.category == "health"
     assert place.canonical_category == "health"
-    assert place.is_route_eligible is False
+    # Route eligibility is a controlled Place field: the pure repair engine
+    # only reports the desired verdict; the canonical publication writer
+    # applies it for already-published places (see admin_city_import_job_service).
+    route_item = next(item for item in summary.items if item.reason == "route_ineligible_utility_or_service")
+    assert route_item.route_eligible is False
     assert place.tourist_eligible is False
     assert summary.repaired_count >= 2
     assert summary.by_reason["route_ineligible_utility_or_service"] == 1
@@ -56,7 +60,11 @@ def test_auto_repair_creates_draft_description_only_with_enough_evidence() -> No
     summary = PlaceAutoRepairService().repair_places([place])
 
     assert "достопримечательность" in place.short_description
-    assert place.verification_status == "needs_review"
+    # Verification status is a controlled Place field: the pure repair engine
+    # only reports the desired verdict; the canonical verification writer
+    # applies it (see admin_city_import_job_service).
+    description_item = next(item for item in summary.items if item.reason == "draft_description_created")
+    assert description_item.verification_status == "needs_recheck"
     assert summary.by_reason["draft_description_created"] == 1
 
 

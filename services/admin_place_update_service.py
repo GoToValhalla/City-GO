@@ -44,19 +44,19 @@ def update_admin_place_fields(
 ) -> Place | None:
     """Update ordinary data only; caller owns the transaction when commit=False."""
 
-    try:
-        updates = dict(fields)
-        reason = updates.pop("reason", None)
-        forbidden = sorted(set(updates).intersection(CONTROLLED_PLACE_INPUT_FIELDS))
-        if forbidden:
-            raise ValueError(
-                "Управляемые поля состояния нельзя изменять через общий endpoint: "
-                + ", ".join(forbidden)
-            )
-        unsupported = sorted(set(updates) - _ALLOWED - {"tag_ids"})
-        if unsupported:
-            raise ValueError("Неподдерживаемые поля места: " + ", ".join(unsupported))
+    updates = dict(fields)
+    reason = updates.pop("reason", None)
+    forbidden = sorted(set(updates).intersection(CONTROLLED_PLACE_INPUT_FIELDS))
+    if forbidden:
+        raise ValueError(
+            "Управляемые поля состояния нельзя изменять через общий endpoint: "
+            + ", ".join(forbidden)
+        )
+    unsupported = sorted(set(updates) - _ALLOWED - {"tag_ids"})
+    if unsupported:
+        raise ValueError("Неподдерживаемые поля места: " + ", ".join(unsupported))
 
+    try:
         requested_derived_change = bool(set(updates).intersection(_DERIVED_STATE_INPUT_FIELDS))
         place = locked_place
         if place is None:
@@ -153,6 +153,9 @@ def update_admin_place_fields(
 
         derived_changed = bool(set(ordinary_changes).intersection(_DERIVED_STATE_INPUT_FIELDS)) or tags_changed
         if derived_changed:
+            # Flush ordinary field writes before workflow steps that re-lock Place
+            # with populate_existing; otherwise FOR UPDATE reloads wipe them.
+            db.flush()
             request_id = uuid4().hex
             operation = run_workflow(
                 db,
@@ -170,6 +173,25 @@ def update_admin_place_fields(
             )
             if operation.status != "completed":
                 raise ValueError(operation.error_message or "Workflow обновления места завершился ошибкой")
+
+        if category_changed and place.publication_status == "published" and place.is_published:
+            category_row = db.query(Category).filter(Category.id == place.category_id).one()
+            if bool(category_row.is_route_eligible) != bool(place.is_route_eligible) or (
+                category_row.is_route_eligible and place.route_exclusion_reason
+            ):
+                from services.publication_state_writer import reconcile_published_place_state
+
+                reconcile_published_place_state(
+                    db,
+                    place,
+                    route_eligible=bool(category_row.is_route_eligible),
+                    route_exclusion_reason=None if category_row.is_route_eligible else f"category:{category_row.code}",
+                    actor=actor,
+                    source="admin_place_update",
+                    reason_details={"category_code": category_row.code},
+                    human_comment="Route eligibility reconciled after category change",
+                    lock_place=False,
+                )
 
         if commit:
             db.commit()

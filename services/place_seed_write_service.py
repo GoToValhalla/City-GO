@@ -50,4 +50,24 @@ def write_place_seed_item(db: Session, item: PlaceSeedItem) -> str:
 
 
 def _update_place(place: Place, payload: dict[str, object]) -> None:
-    tuple(map(lambda item: setattr(place, item[0], item[1]), payload.items()))
+    """Apply ordinary seed fields; publication/verification state has separate canonical owners."""
+    place.city_id = payload["city_id"]
+    place.category_id = payload["category_id"]
+    place.slug = payload["slug"]
+    place.title = payload["title"]
+    place.short_description = payload["short_description"]
+    place.address = payload["address"]
+    place.source = payload["source"]
+    place.source_url = payload["source_url"]
+    place.confidence = payload["confidence"]
+    place.status = payload["status"]
+    place.lat = payload["lat"]
+    place.lng = payload["lng"]
+    place.category = payload["category"]
+    place.opening_hours = payload["opening_hours"]
+    place.average_visit_duration_minutes = payload["average_visit_duration_minutes"]
+    place.price_level = payload["price_level"]
+    place.outdoor = payload["outdoor"]
+    place.indoor = payload["indoor"]
+    place.dog_friendly = payload["dog_friendly"]
+    place.family_friendly = payload["family_friendly"]
