@@ -11,11 +11,11 @@ from schemas.walking_route import WalkingRouteRequest, WalkingRouteResponse
 from services.external_navigation_service import build_external_navigation
 from services.route_service import (
     build_route_points,
-    get_route_by_id,
-    get_route_by_slug,
-    get_routes,
-    get_routes_by_city_id,
-    get_routes_by_city_slug,
+    get_public_route_by_id,
+    get_public_route_by_slug,
+    get_public_routes,
+    get_public_routes_by_city_id,
+    get_public_routes_by_city_slug,
 )
 from services.walking_route_service import build_walking_route
 
@@ -35,17 +35,17 @@ def read_routes(
     db: Session = Depends(get_db),
 ) -> list[RouteRead]:
     if city_slug is not None:
-        return get_routes_by_city_slug(db, city_slug)
+        return get_public_routes_by_city_slug(db, city_slug)
 
     if city_id is not None:
-        return get_routes_by_city_id(db, city_id)
+        return get_public_routes_by_city_id(db, city_id)
 
-    return get_routes(db)
+    return get_public_routes(db)
 
 
 @router.get("/by-slug/{slug}", response_model=RouteDetailRead)
 def read_route_by_slug(slug: str, db: Session = Depends(get_db)) -> RouteDetailRead:
-    route = get_route_by_slug(db, slug)
+    route = get_public_route_by_slug(db, slug)
     if route is None:
         raise HTTPException(status_code=404, detail="Route not found")
 
@@ -55,7 +55,7 @@ def read_route_by_slug(slug: str, db: Session = Depends(get_db)) -> RouteDetailR
 
 @router.get("/{route_id}", response_model=RouteDetailRead)
 def read_route(route_id: int, db: Session = Depends(get_db)) -> RouteDetailRead:
-    route = get_route_by_id(db, route_id)
+    route = get_public_route_by_id(db, route_id)
     if route is None:
         raise HTTPException(status_code=404, detail="Route not found")
 

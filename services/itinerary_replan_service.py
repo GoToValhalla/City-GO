@@ -24,7 +24,7 @@ from services.itinerary_time_service import (
     is_place_open_at,
     resolve_timezone_name,
 )
-from services.route_eligibility import apply_route_eligible_filters, evaluate_place_route_eligibility
+from services.route_eligibility import apply_public_route_eligible_filters, evaluate_place_route_eligibility
 
 
 @dataclass
@@ -116,7 +116,7 @@ def load_route_places(
         return [], []
 
     query = db.query(Place).filter(Place.id.in_(place_ids))
-    places = apply_route_eligible_filters(query).all()
+    places = apply_public_route_eligible_filters(query).all()
     places_by_id = {place.id: place for place in places}
 
     ordered_places: list[Place] = []
@@ -275,7 +275,7 @@ def load_preferred_stop_place(
         return None
 
     query = db.query(Place).filter(Place.id == preferred_stop_place_id)
-    place = apply_route_eligible_filters(query).first()
+    place = apply_public_route_eligible_filters(query).first()
 
     if place is None:
         return None
@@ -316,7 +316,7 @@ def find_best_stop_place(
         Place.city_id == city.id,
         Place.category.in_(target_categories),
     )
-    query = apply_route_eligible_filters(query)
+    query = apply_public_route_eligible_filters(query)
 
     if budget_level is not None:
         query = query.filter(Place.price_level <= budget_level)

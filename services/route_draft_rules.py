@@ -5,8 +5,10 @@ from unicodedata import normalize as unicode_normalize
 
 from sqlalchemy.orm import Query
 
+from models.city import City
 from models.place import Place
-from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES, compile_route_eligible_sql_conditions
+from services.route_eligibility import public_route_eligible_sql_conditions
+from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
 
 WALK_SPEED_KMH = 4.5
 OUT_OF_CITY_MAX_METERS = 50_000
@@ -44,9 +46,13 @@ def category_for_query(query: str | None) -> str | None:
 
 
 def eligible_place_query(query: Query, city_id: int) -> Query:
-    return query.filter(
+    """Public, unauthenticated random/draft route entrypoints must use the
+    complete public route contract (city publication + place visibility +
+    place-level eligibility), not place-level eligibility alone — see
+    services.route_eligibility.public_route_eligible_sql_conditions."""
+    return query.join(City, Place.city_id == City.id).filter(
         Place.city_id == city_id,
-        *compile_route_eligible_sql_conditions(context="tourist_walk"),
+        *public_route_eligible_sql_conditions(),
     )
 
 

@@ -19,7 +19,7 @@ from models.place import Place
 from services.itinerary_time_service import is_place_closed_all_day
 from services.city_place_filters import apply_city_quality_filters
 from services.route_eligibility import (
-    apply_route_eligible_filters,
+    apply_public_route_eligible_filters,
     evaluate_place_route_eligibility,
     is_route_forbidden_category,
 )
@@ -77,7 +77,7 @@ def get_candidate_places(
     query = db.query(Place).filter(
         Place.city_id == city.id,
     )
-    query = apply_route_eligible_filters(query)
+    query = apply_public_route_eligible_filters(query)
     query = apply_city_quality_filters(query, db, city_slug=city.slug)
 
     places = query.all()
