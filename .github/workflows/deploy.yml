@@ -384,17 +384,24 @@ jobs:
           STAGE_START=$(date +%s)
           mkdir -p /tmp/city-go-deploy
           DEPLOY_LOG=/tmp/city-go-deploy/deploy-on-server.log
-          # Migration/container-startup failures surface only in this SSH
-          # session's output (docker inspect, migrate container logs,
-          # alembic_version) — tee it into the deploy-log artifact directory
-          # so a failed deploy's diagnostics survive after the runner exits,
-          # not just in the (sometimes-truncated) live Actions log view.
-          # set -o pipefail (from set -euo pipefail above) makes this
-          # pipeline's exit status the ssh command's real exit status, not
-          # tee's, so failure handling below is unchanged.
-          ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
-            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "DEPLOY_SHA='${DEPLOY_SHA}' bash -s" 2>&1 | tee "$DEPLOY_LOG" <<'REMOTE'
+
+          # Root cause of the previous truthfulness bug: `ssh ... "cmd" | tee
+          # "$LOG" <<'REMOTE' ... REMOTE` attaches the heredoc to `tee` (the
+          # LAST command in the pipeline), not to `ssh` (the first) — bash
+          # binds a heredoc to the command that immediately precedes the
+          # `<<` token reading order, which in a pipeline is the final
+          # command. `tee` would receive the remote script body as ITS OWN
+          # stdin and just echo/log that literal script text, while `ssh`
+          # got no stdin for `bash -s` at all. The step could then exit 0
+          # while deploy-on-server.log contained the script source, not real
+          # execution output. Fix: write the remote script to a real file
+          # first, then run `ssh ... < "$SCRIPT_FILE" | tee "$DEPLOY_LOG"` —
+          # now the heredoc (writing the temp file) is a fully separate
+          # statement from the pipeline, so `ssh` unambiguously reads the
+          # script from that file and `tee` only ever sees ssh's real
+          # stdout/stderr.
+          REMOTE_SCRIPT=$(mktemp /tmp/city-go-deploy-remote.XXXXXX.sh)
+          cat > "$REMOTE_SCRIPT" <<'REMOTE'
           set -euo pipefail
           cd /srv/app
 
@@ -420,32 +427,59 @@ jobs:
             exit 1
           fi
 
-          echo "=== Recording rollback metadata (previous deployed image IDs) ==="
+          echo "=== Recording rollback metadata (previous deployed SHA/images) ==="
           PREVIOUS_SHA="$(cat /srv/app/.last_deployed_sha 2>/dev/null || echo unknown)"
           echo "Previous deployed SHA: ${PREVIOUS_SHA}"
           echo "Attempted SHA: ${DEPLOY_SHA}"
 
-          echo "=== Stop and remove app containers before image replacement ==="
-          docker compose stop frontend backend import-worker bot || true
-          docker compose rm -f frontend backend import-worker bot migrate seed address-backfill place-enrichment-export || true
+          # Truthful rollback tagging: before the new archive overwrites the
+          # `:latest` tags, explicitly re-tag whatever `:latest` currently
+          # resolves to as `:rollback` — a name that always means "the last
+          # image confirmed running before this deploy attempt", independent
+          # of whether the previous deploy's own SHA tag was later pruned.
+          # If there is no current `:latest` (first deploy ever), this is a
+          # no-op, logged as such rather than silently swallowed.
+          for REPO in "$BACKEND_IMAGE" "$FRONTEND_IMAGE"; do
+            if docker image inspect "${REPO}:latest" >/dev/null 2>&1; then
+              docker tag "${REPO}:latest" "${REPO}:rollback"
+              echo "Tagged ${REPO}:latest as ${REPO}:rollback (pre-deploy known-good)."
+            else
+              echo "No existing ${REPO}:latest to tag as rollback (first deploy on this host)."
+            fi
+          done
 
-          echo "=== Safe cleanup before docker load (dangling data only; previous tagged image is preserved for rollback) ==="
-          docker container prune -f || true
-          docker builder prune -f || true
-          rm -rf /tmp/city-go-build-* /tmp/city-go-deploy-* || true
-
-          echo "=== docker load (bounded) ==="
+          echo "=== docker load (bounded) — load new images BEFORE touching running containers ==="
           set +e
           timeout 300s docker load -i /tmp/city-go-images.tar.gz
           LOAD_STATUS=$?
           set -e
           if [ "$LOAD_STATUS" -ne 0 ]; then
             echo "ERROR: docker load timed out or failed (exit code ${LOAD_STATUS})" >&2
+            echo "Running containers were NOT touched — production is still serving the previous image." >&2
             echo "=== Production disk at failure ===" >&2
             df -h / >&2 || true
             docker system df >&2 || true
             exit "$LOAD_STATUS"
           fi
+
+          echo "=== Stop and remove app containers now that new images are already loaded locally ==="
+          # Loading first (above) means this stop/rm window is only as long
+          # as `docker compose up` itself needs, not load+up combined — the
+          # previous ordering stopped containers, THEN spent the docker-load
+          # window with the app already down, adding unnecessary downtime.
+          docker compose stop frontend backend import-worker bot || true
+          docker compose rm -f frontend backend import-worker bot migrate seed address-backfill place-enrichment-export || true
+
+          echo "=== Safe cleanup before compose up (dangling data only; tagged images incl. :rollback are preserved) ==="
+          docker container prune -f || true
+          docker builder prune -f || true
+          # Deliberately does NOT match /tmp/city-go-deploy-remote.sh — that
+          # is THIS running script; deleting it mid-execution would depend
+          # on relying on POSIX unlink-of-an-open-file semantics rather than
+          # a guarantee, for no benefit (the caller already removes it via
+          # `rm -f /tmp/city-go-deploy-remote.sh` right after this SSH
+          # session exits, whether it succeeds or fails).
+          rm -rf /tmp/city-go-build-* || true
 
           echo "=== docker compose up (bounded) ==="
           set +e
@@ -473,9 +507,34 @@ jobs:
 
           rm -f /tmp/city-go-images.tar.gz /tmp/city-go-docker-compose.yml || true
 
-          echo "${DEPLOY_SHA}" > /srv/app/.last_deployed_sha || true
+          # .last_deployed_sha is deliberately NOT written here anymore.
+          # Root cause of the previous bug: this line ran right after
+          # `docker compose up` reported containers as started, before the
+          # separate "Verify build.json" and "Verify backend ready" steps
+          # ran — so a deploy that started containers but never actually
+          # became ready/serving the right build would still record itself
+          # as the last known-good SHA, corrupting the rollback baseline for
+          # every subsequent failure. It is now written by the dedicated
+          # "Record verified deployed SHA" step, which only runs after both
+          # verification steps have succeeded.
           REMOTE
+          chmod 600 "$REMOTE_SCRIPT"
+          scp -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -P "$SSH_PORT" \
+            "$REMOTE_SCRIPT" "$SSH_USER@$SSH_HOST:/tmp/city-go-deploy-remote.sh"
+          rm -f "$REMOTE_SCRIPT"
+
+          set +e
+          ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_SHA='${DEPLOY_SHA}' BACKEND_IMAGE='${BACKEND_IMAGE}' FRONTEND_IMAGE='${FRONTEND_IMAGE}' bash /tmp/city-go-deploy-remote.sh; rc=\$?; rm -f /tmp/city-go-deploy-remote.sh; exit \$rc" \
+            2>&1 | tee "$DEPLOY_LOG"
+          SSH_EXIT=${PIPESTATUS[0]}
+          set -e
           echo "timing_remote_deploy_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
+          if [ "$SSH_EXIT" -ne 0 ]; then
+            echo "ERROR: remote deploy script failed with real exit code ${SSH_EXIT}." >&2
+            exit "$SSH_EXIT"
+          fi
 
       - name: Verify build.json
         shell: bash
@@ -487,42 +546,98 @@ jobs:
         run: |
           set -euo pipefail
           STAGE_START=$(date +%s)
-          expected="${CITY_GO_BUILD_SHA:0:7}"
-          echo "Expected build sha prefix: ${expected}"
+          mkdir -p /tmp/city-go-deploy
+          VERIFY_LOG=/tmp/city-go-deploy/verify-build-json.log
+          expected="${CITY_GO_BUILD_SHA}"
+          echo "Expected build sha (full): ${expected}"
 
-          remote_out="$(ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" bash <<'REMOTE'
-            set -uo pipefail
+          # Root cause of the previous weak check: a single curl attempt with
+          # no retry treated one transient hiccup right after container
+          # startup as a hard deploy failure; comparing only the first 7
+          # characters of the SHA meant two different commits sharing a
+          # short-SHA prefix (rare but possible on a busy repo) would falsely
+          # verify; and there was no explicit HTTP-status gate before trying
+          # to parse the body as JSON, so a non-200 response (e.g. a 502 from
+          # a not-yet-ready reverse proxy) produced a confusing "failed to
+          # parse JSON" message instead of a clear "server returned 502".
+          # The retry loop runs ON THE REMOTE HOST (curl --resolve targets
+          # 127.0.0.1, i.e. this must execute where the app's reverse proxy
+          # actually listens), so it is one SSH session with a real bash
+          # retry loop, not ten separate SSH connections.
+          REMOTE_SCRIPT=$(mktemp /tmp/city-go-deploy-verify.XXXXXX.sh)
+          cat > "$REMOTE_SCRIPT" <<'REMOTE'
+          set -uo pipefail
+          ok=0
+          for attempt in $(seq 1 10); do
+            echo "--- attempt ${attempt}/10 ---"
             status="$(curl -sS --max-time 10 -o /tmp/build.json -w '%{http_code}' \
               --resolve citygo.autismishe.online:443:127.0.0.1 \
-              https://citygo.autismishe.online/build.json)"
-            echo "HTTP_STATUS=${status}"
-            echo "BODY_PREVIEW_BASE64=$(head -c 300 /tmp/build.json | base64 | tr -d '\n')"
-            actual_sha="$(python3 -c 'import json; print(json.load(open("/tmp/build.json")).get("sha", "")[:7])' 2>/dev/null || true)"
-            echo "ACTUAL_SHA=${actual_sha}"
+              https://citygo.autismishe.online/build.json 2>&1)"
+            curl_exit=$?
+            echo "HTTP status: ${status} (curl exit ${curl_exit})"
+
+            if [ "$curl_exit" -ne 0 ] || [ "$status" != "200" ]; then
+              echo "Non-200 response or transport error, will retry if attempts remain."
+              head -c 500 /tmp/build.json 2>/dev/null || true
+              echo
+              sleep 3
+              continue
+            fi
+
+            if ! python3 -c 'import json; json.load(open("/tmp/build.json"))' 2>/tmp/build_json_parse_error.txt; then
+              echo "HTTP 200 but body is not valid JSON:"
+              cat /tmp/build_json_parse_error.txt
+              echo "Body (first 500 bytes):"
+              head -c 500 /tmp/build.json
+              echo
+              sleep 3
+              continue
+            fi
+
+            actual="$(python3 -c 'import json; print(json.load(open("/tmp/build.json")).get("sha", ""))')"
+            echo "Actual sha (full): ${actual}"
+
+            if [ -z "$actual" ]; then
+              echo "build.json parsed but has no non-empty \"sha\" field."
+              cat /tmp/build.json
+              sleep 3
+              continue
+            fi
+
+            if [ "$actual" != "$EXPECTED_SHA" ]; then
+              echo "Deployed build sha does not match expected sha (full-SHA comparison)."
+              echo "  expected: ${EXPECTED_SHA}"
+              echo "  actual:   ${actual}"
+              sleep 3
+              continue
+            fi
+
+            echo "build.json sha matches expected sha exactly."
+            ok=1
+            break
+          done
+
+          if [ "$ok" != "1" ]; then
+            echo "ERROR: build.json did not confirm the expected SHA after 10 attempts (~30s)." >&2
+            exit 1
+          fi
           REMOTE
-          )"
+          chmod 600 "$REMOTE_SCRIPT"
+          scp -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -P "$SSH_PORT" \
+            "$REMOTE_SCRIPT" "$SSH_USER@$SSH_HOST:/tmp/city-go-deploy-verify.sh"
+          rm -f "$REMOTE_SCRIPT"
 
-          echo "$remote_out"
-
-          status="$(grep '^HTTP_STATUS=' <<<"$remote_out" | cut -d= -f2-)"
-          body_preview="$(grep '^BODY_PREVIEW_BASE64=' <<<"$remote_out" | cut -d= -f2- | base64 -d 2>/dev/null || true)"
-          actual="$(grep '^ACTUAL_SHA=' <<<"$remote_out" | cut -d= -f2-)"
-
-          echo "HTTP status: ${status}"
-          echo "Expected sha: ${expected}"
-          echo "Actual sha: ${actual}"
-
-          if [ -z "$actual" ]; then
-            echo "Failed to parse build.json as JSON. Body preview:"
-            echo "${body_preview}"
-            exit 1
-          fi
-
-          if [ "$actual" != "$expected" ]; then
-            echo "Deployed build sha does not match expected sha."
-            exit 1
-          fi
+          set +e
+          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "EXPECTED_SHA='${expected}' bash /tmp/city-go-deploy-verify.sh; rc=\$?; rm -f /tmp/city-go-deploy-verify.sh; exit \$rc" \
+            2>&1 | tee "$VERIFY_LOG"
+          VERIFY_EXIT=${PIPESTATUS[0]}
+          set -e
           echo "timing_build_json_verify_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
+          if [ "$VERIFY_EXIT" -ne 0 ]; then
+            echo "ERROR: build.json verification failed with exit code ${VERIFY_EXIT}." >&2
+            exit "$VERIFY_EXIT"
+          fi
 
       - name: Verify backend ready and final invariants
         shell: bash
@@ -534,8 +649,10 @@ jobs:
         run: |
           set -euo pipefail
           STAGE_START=$(date +%s)
-          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "DEPLOY_SHA='${DEPLOY_SHA}' bash -s" <<'REMOTE'
+          mkdir -p /tmp/city-go-deploy
+          READY_LOG=/tmp/city-go-deploy/verify-backend-ready.log
+          REMOTE_SCRIPT=$(mktemp /tmp/city-go-deploy-ready.XXXXXX.sh)
+          cat > "$REMOTE_SCRIPT" <<'REMOTE'
           set -euo pipefail
           cd /srv/app
 
@@ -601,7 +718,46 @@ jobs:
           echo "=== Concise disk summary ==="
           df -h / | tail -n 1
           REMOTE
+          chmod 600 "$REMOTE_SCRIPT"
+          scp -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -P "$SSH_PORT" \
+            "$REMOTE_SCRIPT" "$SSH_USER@$SSH_HOST:/tmp/city-go-deploy-ready.sh"
+          rm -f "$REMOTE_SCRIPT"
+
+          set +e
+          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_SHA='${DEPLOY_SHA}' bash /tmp/city-go-deploy-ready.sh; rc=\$?; rm -f /tmp/city-go-deploy-ready.sh; exit \$rc" \
+            2>&1 | tee "$READY_LOG"
+          READY_EXIT=${PIPESTATUS[0]}
+          set -e
           echo "timing_readiness_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
+          if [ "$READY_EXIT" -ne 0 ]; then
+            echo "ERROR: backend readiness/invariant check failed with exit code ${READY_EXIT}." >&2
+            exit "$READY_EXIT"
+          fi
+
+      - name: Record verified deployed SHA
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+          DEPLOY_SHA: ${{ env.DEPLOY_TARGET_SHA }}
+        run: |
+          set -euo pipefail
+          # Only reached after "Verify build.json" (confirms the deployed
+          # build actually serves this exact SHA) and "Verify backend ready
+          # and final invariants" (confirms it is actually healthy) have
+          # both succeeded. .last_deployed_sha is the rollback baseline that
+          # "Deploy on server" reads as PREVIOUS_SHA on the next attempt, so
+          # writing it any earlier — as the previous version of this
+          # workflow did, immediately after `docker compose up` returned —
+          # let an unverified/unhealthy deploy poison that baseline.
+          ssh -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_SHA='${DEPLOY_SHA}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          echo "${DEPLOY_SHA}" > /srv/app/.last_deployed_sha
+          echo "Recorded verified deployed SHA: ${DEPLOY_SHA}"
+          REMOTE
 
       - name: Cleanup old images after confirmed healthy deploy
         shell: bash
