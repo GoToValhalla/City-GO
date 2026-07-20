@@ -102,8 +102,8 @@ def admin_create_destination_from_geo_candidate(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> DestinationDetail:
-    candidate = candidate_from_input(payload.candidate)
     try:
+        candidate = candidate_from_input(payload.candidate)
         data = build_destination_payload(
             candidate,
             slug=payload.slug,
@@ -233,8 +233,8 @@ def admin_scope_from_geo_candidate(
     db: Session = Depends(get_db),
 ):
     dest = _destination_or_404(db, slug)
-    candidate = candidate_from_input(payload.candidate)
     try:
+        candidate = candidate_from_input(payload.candidate)
         scope, action = recover_or_create_scope(
             db,
             dest,
