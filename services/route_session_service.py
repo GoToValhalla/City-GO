@@ -10,11 +10,7 @@ from sqlalchemy.orm import Session, joinedload
 from models.route import Route
 from models.route_session import RouteSession, RouteSessionPoint
 from schemas.external_navigation import ExternalNavigationEventRequest
-from services.anonymous_ownership import (
-    hash_ownership_token,
-    issue_ownership_token,
-    ownership_tokens_match,
-)
+from services.anonymous_ownership import hash_ownership_token, issue_ownership_token, ownership_tokens_match
 from services.external_navigation_service import build_external_navigation, record_external_navigation_event
 from services.public_editorial_route_access import (
     load_public_editorial_route_query,
@@ -41,8 +37,6 @@ class RouteSessionUnavailable(RouteSessionError):
 
 
 def start_route_session(db: Session, route_id: int, user_key: str | None = None) -> tuple[RouteSession, str]:
-    # Canonical public loader (active + published city); keep route_places intact
-    # so filtering eligible points does not orphan ORM rows on flush.
     route = load_public_editorial_route_query(db).filter(Route.id == route_id).first()
     if route is None:
         raise RouteSessionNotFound("route_not_found")
@@ -79,9 +73,7 @@ def start_route_session(db: Session, route_id: int, user_key: str | None = None)
 def get_route_session(db: Session, session_id: int, *, ownership_token: str | None) -> RouteSession:
     session = _load_session(db, session_id)
     _require_ownership(session, ownership_token)
-    session.points = sorted(session.points, key=lambda item: item.ordering_index)
-    session.navigation = build_external_navigation(session.points)
-    return session
+    return _decorate_session(session)
 
 
 def update_route_session(
@@ -92,7 +84,7 @@ def update_route_session(
     status: str | None = None,
     current_point_index: int | None = None,
 ) -> RouteSession:
-    session = get_route_session(db, session_id, ownership_token=ownership_token)
+    session = _load_session_for_update(db, session_id, ownership_token=ownership_token)
     if session.status in _TERMINAL_STATUSES:
         raise RouteSessionConflict("route_session_is_terminal")
     if status is not None:
@@ -104,7 +96,7 @@ def update_route_session(
             session.completed_at = None
         session.status = status
     if current_point_index is not None:
-        if current_point_index >= len(session.points):
+        if current_point_index < 0 or current_point_index >= len(session.points):
             raise RouteSessionConflict("current_point_index_out_of_range")
         session.current_point_index = current_point_index
     session.updated_at = datetime.utcnow()
@@ -115,10 +107,10 @@ def update_route_session(
 def check_in_route_point(
     db: Session, session_id: int, point_index: int, action: str, *, ownership_token: str | None
 ) -> RouteSession:
-    session = get_route_session(db, session_id, ownership_token=ownership_token)
+    session = _load_session_for_update(db, session_id, ownership_token=ownership_token)
     if session.status in _TERMINAL_STATUSES:
         raise RouteSessionConflict("route_session_is_terminal")
-    if point_index >= len(session.points):
+    if point_index < 0 or point_index >= len(session.points):
         raise RouteSessionConflict("point_index_out_of_range")
     point = session.points[point_index]
     now = datetime.utcnow()
@@ -148,7 +140,7 @@ def check_in_route_point(
 
 
 def complete_route_session(db: Session, session_id: int, *, ownership_token: str | None) -> RouteSession:
-    session = get_route_session(db, session_id, ownership_token=ownership_token)
+    session = _load_session_for_update(db, session_id, ownership_token=ownership_token)
     if session.status == "abandoned":
         raise RouteSessionConflict("route_session_is_abandoned")
     now = datetime.utcnow()
@@ -180,6 +172,25 @@ def _load_session(db: Session, session_id: int) -> RouteSession:
     )
     if session is None:
         raise RouteSessionNotFound("route_session_not_found")
+    return session
+
+
+def _load_session_for_update(db: Session, session_id: int, *, ownership_token: str | None) -> RouteSession:
+    """Lock the authoritative session row before every read-modify-write transition."""
+    session = db.query(RouteSession).filter(RouteSession.id == session_id).with_for_update().first()
+    if session is None:
+        raise RouteSessionNotFound("route_session_not_found")
+    _require_ownership(session, ownership_token)
+    # Load the point collection only after the parent row is locked. This avoids
+    # PostgreSQL outer-join FOR UPDATE problems and serializes all session state changes.
+    _ = session.points
+    session.points = sorted(session.points, key=lambda item: item.ordering_index)
+    return session
+
+
+def _decorate_session(session: RouteSession) -> RouteSession:
+    session.points = sorted(session.points, key=lambda item: item.ordering_index)
+    session.navigation = build_external_navigation(session.points)
     return session
 
 
