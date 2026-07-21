@@ -1,7 +1,6 @@
 """
 Загрузка настроек приложения из переменных окружения и опционально из `.env`.
 """
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -77,6 +76,10 @@ class Settings(BaseSettings):
     import_worker_scheduler_enabled: bool = False
     import_worker_scheduler_interval_seconds: int = 15
     import_worker_scheduler_batch_limit: int = 1
+
+    admin_background_operation_scheduler_enabled: bool = True
+    admin_background_operation_scheduler_interval_seconds: int = 5
+    admin_background_operation_scheduler_batch_limit: int = 1
 
     admin_allow_in_web_worker_run_once: bool = False
 
