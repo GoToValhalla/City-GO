@@ -102,6 +102,7 @@ export const TmaRoutePage = () => {
       />
     ) : route ? (
       <RouteResultPanel
+        key={`${route.route_id}:${restoring ? 'restoring' : initialSession?.session_id ?? 'none'}`}
         route={route}
         loading={loading || restoring}
         initialSession={restoring ? null : initialSession}
