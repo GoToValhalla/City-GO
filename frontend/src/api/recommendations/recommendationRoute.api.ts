@@ -51,6 +51,11 @@ const preserveOwnershipToken = (session: ActiveRouteSession, ownershipToken: str
   ownership_token: session.ownership_token?.trim() || ownershipToken,
 })
 
+const feedbackSource = (): 'web' | 'telegram' => {
+  if (typeof window === 'undefined') return 'web'
+  return window.location.pathname.startsWith('/telegram') || Boolean(window.Telegram?.WebApp) ? 'telegram' : 'web'
+}
+
 export const buildRecommendationRoute = async (payload: RecommendationRouteRequest): Promise<RecommendationRouteResponse> => {
   const url = buildApiUrl('/v1/user-routes/build')
   const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -69,13 +74,14 @@ export const buildStructuredRouteOptions = async (payload: RecommendationRouteRe
 
 export const sendRouteFeedback = async (route: RecommendationRouteResponse, rating: number, comment?: string, problemTypes: string[] = []) => {
   const url = buildApiUrl('/route-feedback/')
+  const normalizedProblems = [...new Set(problemTypes.map((problem) => problem.trim()).filter(Boolean))]
   const requestBody = {
     route_id: route.route_id,
     user_id: route.context?.user_id ?? null,
     rating,
-    comment: comment?.trim() || null,
-    source: 'web',
-    problem_types: problemTypes.length ? problemTypes : rating <= 2 ? ['bad_route'] : [],
+    comment: comment?.trim().slice(0, 1000) || null,
+    source: feedbackSource(),
+    problem_types: normalizedProblems.length ? normalizedProblems : rating <= 2 ? ['bad_route'] : [],
   }
   const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
   await assertOk(response, { url, method: 'POST', requestBody })
