@@ -24,7 +24,7 @@ export const TmaShell = ({ children, cityChip, onBack = null, title }: Props) =>
   const goBack = useCallback(() => navigate(-1), [navigate])
   useTelegramBackButton(onBack ?? (window.history.length > 1 ? goBack : null))
 
-  if (loading) return <div className="tma-shell app-screen"><div className="tma-content"><Skeleton /><Skeleton /></div></div>
+  if (loading) return <div className="tma-shell app-screen"><div className="tma-content" role="status" aria-live="polite" aria-busy="true"><p>Загружаем приложение…</p><Skeleton /><Skeleton /></div></div>
 
   if (error) return <div className="tma-shell app-screen"><div className="tma-content">
     <ErrorState title="Не удалось загрузить приложение" description={error} retryLabel="Повторить" onRetry={() => window.location.reload()} />
@@ -38,7 +38,7 @@ export const TmaShell = ({ children, cityChip, onBack = null, title }: Props) =>
 
   return <div className="tma-shell app-screen">
     {title || cityChip ? <header className="tma-header">{title ? <h1>{title}</h1> : <span />}{cityChip}</header> : null}
-    <div className="tma-content">{children}</div>
+    <main className="tma-content">{children}</main>
     <nav className="tma-tabbar" aria-label="Навигация">
       <NavLink to="/telegram/places" className={({ isActive }) => isActive ? 'active' : ''}><Store size={20} /><span>Места</span></NavLink>
       <NavLink to="/telegram/route" className={({ isActive }) => isActive ? 'active' : ''}><Route size={20} /><span>Маршрут</span></NavLink>
