@@ -1,10 +1,10 @@
-"""Admin background operation endpoints for heavy refresh/recalculate jobs."""
+"""Admin endpoints for durable heavy refresh/recalculate jobs."""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -20,7 +20,6 @@ from services.admin_background_operation_service import (
     get_operation,
     latest_operation,
     operation_payload,
-    run_background_operation,
     snapshot_status_payload,
 )
 from services.city_readiness import latest_city_readiness_snapshot
@@ -40,7 +39,6 @@ class CityReadinessRecalculateRequest(BaseModel):
 
 @router.post("/coverage-gaps/refresh")
 def queue_coverage_gaps_refresh(
-    background_tasks: BackgroundTasks,
     payload: CoverageGapsRefreshRequest | None = None,
     city_slug: str | None = Query(default=None),
     auth: AdminContext = Depends(admin_required),
@@ -55,14 +53,11 @@ def queue_coverage_gaps_refresh(
         city_slug=target_city,
         params={"city_slug": target_city} if target_city else {},
     )
-    if op.status == "queued":
-        background_tasks.add_task(run_background_operation, op.id)
     return operation_payload(op) or {}
 
 
 @router.post("/city-readiness/recalculate")
 def queue_city_readiness_recalculate(
-    background_tasks: BackgroundTasks,
     payload: CityReadinessRecalculateRequest,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
@@ -74,8 +69,6 @@ def queue_city_readiness_recalculate(
         city_slug=payload.city_slug,
         params=payload.model_dump(),
     )
-    if op.status == "queued":
-        background_tasks.add_task(run_background_operation, op.id)
     return operation_payload(op) or {}
 
 
