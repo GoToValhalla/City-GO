@@ -17,7 +17,7 @@ export const Skeleton = ({ variant = 'card', className }: SkeletonProps) => {
   }
 
   return (
-    <article className={classNames('cg-skeleton-card', className)} aria-label="Загрузка карточки">
+    <article className={classNames('cg-skeleton-card', className)} aria-hidden="true">
       <div className="cg-skeleton-photo" />
       <div className="cg-skeleton-line cg-skeleton-line--title" />
       <div className="cg-skeleton-line cg-skeleton-line--long" />
