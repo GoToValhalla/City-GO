@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, Clock, Map, Pause, Play, Plus, RefreshCw, SkipForward, Star, StopCircle, Wand2 } from 'lucide-react'
+import { CheckCircle2, Clock, Map, Pause, Play, Plus, RefreshCw, SkipForward, Star, StopCircle, Wand2, XCircle } from 'lucide-react'
 import type {
   ActiveRouteAction,
   ActiveRouteSession,
@@ -44,6 +44,26 @@ const FEEDBACK_PROBLEMS = [
   ['too_long', 'Слишком длинный'],
   ['too_short', 'Слишком короткий'],
 ] as const
+
+const ACTION_PENDING_COPY: Record<ActiveRouteAction, string> = {
+  complete_point: 'Отмечаем точку…',
+  skip_point: 'Пропускаем точку…',
+  pause: 'Ставим маршрут на паузу…',
+  resume: 'Продолжаем маршрут…',
+  finish: 'Завершаем маршрут…',
+  abandon: 'Закрываем прогулку…',
+  remove_point: 'Удаляем точку…',
+}
+
+const ACTION_SUCCESS_COPY: Record<ActiveRouteAction, string> = {
+  complete_point: 'Точка отмечена.',
+  skip_point: 'Точка пропущена.',
+  pause: 'Маршрут поставлен на паузу.',
+  resume: 'Маршрут продолжен.',
+  finish: 'Маршрут завершён.',
+  abandon: 'Прогулка закрыта.',
+  remove_point: 'Точка удалена.',
+}
 
 type Props = {
   route: RecommendationRouteResponse
@@ -156,6 +176,7 @@ export const RouteResultPanel = ({
     setSeededForRouteId(route.route_id)
     setSessionState(initialSession)
     setSessionInvalid(false)
+    setSessionStatus(null)
   }
 
   const setSession = (next: ActiveRouteSession | null) => {
@@ -176,18 +197,19 @@ export const RouteResultPanel = ({
   const summary = route.explanation?.summary?.trim() || `Маршрут ${route.route_id}`
   const walkMeters = route.total_walk_distance_meters ?? Math.max(0, route.estimated_distance || 0) * 1000
   const reasons = Object.fromEntries((route.explanation?.points ?? []).map((point) => [point.place_id, point.reason]))
-  const currentPlaceId = session?.current_place_id ?? route.points[0]?.place_id ?? null
-  const currentPoint = route.points.find((point) => point.place_id === currentPlaceId) ?? route.points[0] ?? null
-  const nextPoint = session?.next_place_id
-    ? route.points.find((point) => point.place_id === session.next_place_id) ?? null
-    : session ? null : route.points[1] ?? null
+  const sessionActive = session?.status === 'active'
+  const sessionPaused = session?.status === 'paused'
+  const sessionRunning = sessionActive || sessionPaused || session?.status === 'planned'
   const sessionTerminal = session?.status === 'completed' || session?.status === 'abandoned'
-  const controlsDisabled = loading || sessionPending
-  const canCompleteOrSkip = Boolean(session && (session.status === 'active' || session.status === 'paused') && currentPlaceId && !sessionTerminal)
-  const canPause = session?.status === 'active'
-  const canResume = session?.status === 'paused'
-  const canFinish = Boolean(session && (session.status === 'active' || session.status === 'paused' || session.status === 'planned'))
   const canStart = routeStartable && (!session || sessionTerminal || sessionInvalid)
+  const routeEditingLocked = Boolean(sessionRunning)
+  const currentPlaceId = sessionRunning ? session?.current_place_id ?? null : null
+  const currentPoint = currentPlaceId ? route.points.find((point) => point.place_id === currentPlaceId) ?? null : null
+  const nextPoint = sessionRunning && session?.next_place_id
+    ? route.points.find((point) => point.place_id === session.next_place_id) ?? null
+    : null
+  const controlsDisabled = loading || sessionPending
+  const canCompleteOrSkip = Boolean((sessionActive || sessionPaused) && currentPlaceId)
 
   const submitFeedback = async () => {
     if (!rating || feedbackPending) return
@@ -209,7 +231,7 @@ export const RouteResultPanel = ({
     try {
       setSessionPending(true)
       setSessionStatus('Запускаем маршрут…')
-      const nextSession = await startActiveRouteSession(route, sessionInvalid ? null : session?.ownership_token)
+      const nextSession = await startActiveRouteSession(route)
       setSession(nextSession)
       setSessionStatus('Маршрут начат.')
     } catch (error) {
@@ -227,13 +249,13 @@ export const RouteResultPanel = ({
   }
 
   const applySessionAction = async (action: ActiveRouteAction, placeId?: string | null) => {
-    if (sessionPending || !session) return
+    if (sessionPending || !session || sessionTerminal) return
     try {
       setSessionPending(true)
-      setSessionStatus('Обновляем прогулку…')
-      const nextSession = await updateActiveRouteSession(session, action, placeId ?? currentPlaceId)
+      setSessionStatus(ACTION_PENDING_COPY[action])
+      const nextSession = await updateActiveRouteSession(session, action, placeId)
       setSession(nextSession)
-      setSessionStatus(action === 'finish' ? 'Маршрут завершён.' : 'Прогулка обновлена.')
+      setSessionStatus(ACTION_SUCCESS_COPY[action])
     } catch (error) {
       console.error(error)
       if (isSessionInvalidError(error) || !session.ownership_token?.trim()) {
@@ -255,12 +277,12 @@ export const RouteResultPanel = ({
       : session.status === 'completed'
         ? 'Маршрут завершён.'
         : session.status === 'abandoned'
-          ? 'Маршрут прекращён.'
+          ? 'Прогулка закрыта.'
           : session.status === 'paused'
             ? 'Маршрут на паузе.'
             : session.status === 'planned'
               ? 'Маршрут подготовлен к началу.'
-              : `Текущая точка: ${currentPoint?.title?.trim() || 'следующая точка'}`
+              : `Текущая точка: ${currentPoint?.title?.trim() || 'место уточняется'}`
 
   return <section className="route-result-grid route-result-grid-mobile-first" aria-busy={loading || sessionPending || feedbackPending}>
     <div className="route-result-tile route-result-summary">
@@ -280,11 +302,12 @@ export const RouteResultPanel = ({
         {debug ? <span>Качество {Math.round(quality * 100)}%</span> : null}
       </div>
       <div className="route-main-actions">
-        <button type="button" disabled={loading} onClick={() => onCorrect('rebuild_from_here')}><RefreshCw size={16} /> Пересобрать</button>
-        <button type="button" disabled={loading} onClick={() => onCorrect('extend_route')}><Plus size={16} /> Добавить место</button>
-        <button type="button" disabled={loading || !route.points[0]} onClick={() => route.points[0] && onReplacePoint?.(route.points[0].place_id)}><Wand2 size={16} /> Заменить точку</button>
+        <button type="button" disabled={loading || routeEditingLocked} onClick={() => onCorrect('rebuild_from_here')}><RefreshCw size={16} /> Пересобрать</button>
+        <button type="button" disabled={loading || routeEditingLocked} onClick={() => onCorrect('extend_route')}><Plus size={16} /> Добавить место</button>
+        <button type="button" disabled={loading || routeEditingLocked || !route.points[0]} onClick={() => route.points[0] && onReplacePoint?.(route.points[0].place_id)}><Wand2 size={16} /> Заменить точку</button>
         {hasPoints && canStart ? <button type="button" disabled={controlsDisabled} onClick={() => void startSession()}><Play size={16} /> {sessionTerminal ? 'Начать заново' : 'Начать маршрут'}</button> : null}
       </div>
+      {routeEditingLocked ? <p className="route-muted" role="status">Изменение точек недоступно во время активной прогулки.</p> : null}
       <RouteInsights route={route} />
       <fieldset className="route-correction-bar" disabled={feedbackPending}>
         <legend>Оценка маршрута</legend>
@@ -302,22 +325,26 @@ export const RouteResultPanel = ({
     {hasPoints ? <div className="route-result-tile route-active-session">
       <h2>Активная прогулка</h2>
       <p>{sessionCopy}</p>
-      {nextPoint && session && !sessionTerminal ? <p className="route-muted">Дальше: {nextPoint.title?.trim() || 'следующая точка'}</p> : null}
+      {nextPoint ? <p className="route-muted">Дальше: {nextPoint.title?.trim() || 'следующая точка'}</p> : null}
       {sessionStatus ? <p className="route-start-note" role="status" aria-live="polite">{sessionStatus}</p> : null}
       <div className="route-main-actions">
-        <button type="button" disabled={controlsDisabled || !canCompleteOrSkip} onClick={() => void applySessionAction('complete_point')}><CheckCircle2 size={16} /> Я на месте</button>
-        <button type="button" disabled={controlsDisabled || !canCompleteOrSkip} onClick={() => void applySessionAction('skip_point')}><SkipForward size={16} /> Пропустить</button>
-        {canPause ? <button type="button" disabled={controlsDisabled} onClick={() => void applySessionAction('pause')}><Pause size={16} /> Пауза</button> : null}
-        {canResume ? <button type="button" disabled={controlsDisabled} onClick={() => void applySessionAction('resume')}><Play size={16} /> Продолжить</button> : null}
-        <button type="button" disabled={controlsDisabled || !canFinish} onClick={() => void applySessionAction('finish')}><StopCircle size={16} /> Завершить маршрут</button>
+        <button type="button" disabled={controlsDisabled || !canCompleteOrSkip} onClick={() => void applySessionAction('complete_point', currentPlaceId)}><CheckCircle2 size={16} /> Я на месте</button>
+        <button type="button" disabled={controlsDisabled || !canCompleteOrSkip} onClick={() => void applySessionAction('skip_point', currentPlaceId)}><SkipForward size={16} /> Пропустить</button>
+        {sessionPaused ? (
+          <button type="button" disabled={controlsDisabled} onClick={() => void applySessionAction('resume')}><Play size={16} /> Продолжить</button>
+        ) : (
+          <button type="button" disabled={controlsDisabled || !sessionActive} onClick={() => void applySessionAction('pause')}><Pause size={16} /> Пауза</button>
+        )}
+        <button type="button" disabled={controlsDisabled || !sessionRunning} onClick={() => void applySessionAction('finish')}><StopCircle size={16} /> Завершить маршрут</button>
+        <button type="button" disabled={controlsDisabled || !sessionRunning} onClick={() => void applySessionAction('abandon')}><XCircle size={16} /> Закрыть прогулку</button>
       </div>
     </div> : null}
 
     {hasPoints ? <div className="route-result-tile route-map-tile"><h2>Карта</h2><RouteMapPreview points={route.points} /></div> : null}
     {debug ? <DiagnosticsPanel compact={false} payload={{ screen: 'route', category: 'route', severity: route.user_warnings?.length ? 'warning' : 'info', city_slug: route.city_slug, request_id: route.request_id, route_id: route.route_id, title: 'Route diagnostics', summary: `${route.points.length} точек · ${route.user_warnings?.length ?? 0} предупреждений`, warnings: route.user_warnings ?? [], debug_trace: route.debug_trace, response_summary: { quality_score: route.quality_score, total_places: route.points.length, status: route.status } }} details={route} /> : null}
     {debug ? <RouteDebugTrace route={route} /> : null}
-    {hasPoints ? <div className="route-result-tile"><h2>Куда идти</h2><RoutePointList disabled={loading || sessionPending || Boolean(session && !sessionTerminal)} points={route.points} reasons={reasons} activePlaceId={currentPlaceId} onMove={onMovePoint} onRemove={onRemovePoint} onReplace={onReplacePoint} /></div> : null}
+    {hasPoints ? <div className="route-result-tile"><h2>Куда идти</h2><RoutePointList disabled={loading || sessionPending || routeEditingLocked} points={route.points} reasons={reasons} activePlaceId={currentPlaceId} onMove={onMovePoint} onRemove={onRemovePoint} onReplace={onReplacePoint} /></div> : null}
     {hasPoints ? <details className="route-result-tile route-leg-list"><summary>Переходы между точками</summary>{route.points.slice(0, -1).map((point, index) => <div key={`${point.place_id}-leg`} className="route-leg-row"><span>{index + 1} → {index + 2}</span><strong>{nextLegText(point)}</strong></div>)}</details> : null}
-    <RouteCandidateOptions disabled={loading || sessionPending || Boolean(session && !sessionTerminal)} options={route.candidate_options} onAdd={onAddCandidate} />
+    <RouteCandidateOptions disabled={loading || sessionPending || routeEditingLocked} options={route.candidate_options} onAdd={onAddCandidate} />
   </section>
 }
