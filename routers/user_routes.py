@@ -304,6 +304,26 @@ def update_user_route_session(
         raise _database_http_error(exc) from exc
 
 
+@router.get("/sessions/{session_id}", response_model=UserRouteSessionState)
+def read_user_route_session(
+    session_id: int,
+    route_id: str = Query(...),
+    x_route_session: str | None = Header(default=None, alias=ROUTE_SESSION_HEADER),
+    db: Session = Depends(get_db),
+) -> UserRouteSessionState:
+    """Read-only restore check: proves ownership AND that this session
+    belongs to `route_id`, without mutating anything. Used by clients
+    restoring a persisted session on reopen, before showing it as active
+    progress for the currently displayed route."""
+    token = require_ownership_header(x_route_session, header_name=ROUTE_SESSION_HEADER)
+    try:
+        return UserRouteSessionService().validate(db, session_id, route_id=route_id, ownership_token=token)
+    except UserRouteSessionNotFound as exc:
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": str(exc)}) from exc
+    except SQLAlchemyError as exc:
+        raise _database_http_error(exc) from exc
+
+
 def _failed_preview(payload: UserRoutePreviewRequest, exc: BaseException) -> UserRouteState:
     is_timeout = isinstance(exc, RouteBuildTimeoutError)
     return sanitize_user_route_state(

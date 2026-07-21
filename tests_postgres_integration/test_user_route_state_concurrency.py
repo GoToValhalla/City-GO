@@ -80,7 +80,7 @@ def test_concurrent_terminal_actions_cannot_overwrite_same_session_point_new(pg_
         session = SessionLocal()
         try:
             start.wait(timeout=5)
-            UserRouteSessionService().apply_action(session, state.session_id, UserRouteSessionActionRequest(action=action, place_id=str(place.id)), ownership_token=state.ownership_token)
+            UserRouteSessionService().apply_action(session, state.session_id, UserRouteSessionActionRequest(action=action, place_id=str(place.id), route_id=state.route_id), ownership_token=state.ownership_token)
             session.commit()
             results.append("success")
         except (UserRouteSessionError, Exception):

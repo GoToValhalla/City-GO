@@ -139,20 +139,20 @@ export const startActiveRouteSession = async (currentRoute: RecommendationRouteR
 export const validateActiveRouteSession = async (session: ActiveRouteSession): Promise<void> => {
   const token = session.ownership_token?.trim()
   if (!token) throw new Error('Route session ownership token is missing')
-  const url = buildApiUrl(`/route-sessions/${session.session_id}`)
+  // Proves BOTH ownership and that this session_id still belongs to
+  // session.route_id -- a stale session_id restored from client storage
+  // for a different route must be rejected here, not silently accepted
+  // just because the ownership token happens to be valid for some session.
+  const url = buildApiUrl(`/v1/user-routes/sessions/${session.session_id}?route_id=${encodeURIComponent(session.route_id)}`)
   const response = await fetch(url, { method: 'GET', headers: ownershipHeaders(token) })
   await assertOk(response, { url, method: 'GET' })
-  // This endpoint exposes the internal numeric Route.id, while the TMA cache
-  // stores the public user-route id encoded in Route.slug. A successful
-  // ownership-authenticated read is therefore the authoritative validation;
-  // comparing the two different id domains would reject every valid session.
 }
 
 export const updateActiveRouteSession = async (session: ActiveRouteSession, action: ActiveRouteAction, placeId?: string | null): Promise<ActiveRouteSession> => {
   const token = session.ownership_token?.trim()
   if (!token) throw new Error('Route session ownership token is missing')
   const url = buildApiUrl(`/v1/user-routes/sessions/${session.session_id}/action`)
-  const requestBody = { action, place_id: placeId ?? null }
+  const requestBody = { action, place_id: placeId ?? null, route_id: session.route_id }
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...ownershipHeaders(token) },

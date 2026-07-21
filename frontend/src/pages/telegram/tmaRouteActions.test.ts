@@ -6,7 +6,7 @@ import type { PlaceDetail } from '../../entities/place/model/types'
 import { DEFAULT_CITY, setCurrentCity } from '../../shared/city/currentCity'
 import { saveLocationSnapshot } from '../../shared/location/storage'
 import type { LocationSnapshot } from '../../shared/location/types'
-import { addPlaceToTmaRoute, TmaRouteStartUnavailableError } from './tmaRouteActions'
+import { addPlaceToTmaRoute, TmaRouteAddInFlightError, TmaRouteStartUnavailableError } from './tmaRouteActions'
 import { restoreTmaRoute } from './tmaRouteStorage'
 
 vi.mock('../../api/recommendations/recommendationRoute.api', () => ({
@@ -60,6 +60,38 @@ describe('addPlaceToTmaRoute', () => {
     expect(recommendationApi.addPlaceToUserRoute).toHaveBeenCalledWith(built, '42')
     expect(result).toEqual(withPlace)
     expect(restoreTmaRoute()).toEqual(withPlace)
+  })
+
+  it('defect #3 regression: a second concurrent call while one is in flight is rejected, never issuing a duplicate request_new', async () => {
+    let resolveAdd: ((value: RecommendationRouteResponse) => void) | null = null
+    vi.mocked(recommendationApi.buildRecommendationRoute).mockResolvedValue(routeFixture())
+    vi.mocked(recommendationApi.addPlaceToUserRoute).mockImplementation(
+      () => new Promise((resolve) => { resolveAdd = resolve }),
+    )
+
+    const first = addPlaceToTmaRoute(place)
+    // Synchronously issued before the first call's promise has any chance
+    // to settle -- this is exactly the double-tap race defect #3 fixes.
+    await expect(addPlaceToTmaRoute(place)).rejects.toBeInstanceOf(TmaRouteAddInFlightError)
+    expect(recommendationApi.addPlaceToUserRoute).toHaveBeenCalledTimes(1)
+
+    resolveAdd?.(routeFixture({ points: [{ place_id: '42' }] as never }))
+    await first
+
+    // The lock must be released after completion -- proving no lock leak.
+    vi.mocked(recommendationApi.addPlaceToUserRoute).mockResolvedValue(routeFixture())
+    await expect(addPlaceToTmaRoute(place)).resolves.toBeTruthy()
+    expect(recommendationApi.addPlaceToUserRoute).toHaveBeenCalledTimes(2)
+  })
+
+  it('defect #3 regression: the lock is released even when the underlying request fails_new', async () => {
+    vi.mocked(recommendationApi.buildRecommendationRoute).mockResolvedValue(routeFixture())
+    vi.mocked(recommendationApi.addPlaceToUserRoute).mockRejectedValueOnce(new Error('network error'))
+
+    await expect(addPlaceToTmaRoute(place)).rejects.toThrow('network error')
+
+    vi.mocked(recommendationApi.addPlaceToUserRoute).mockResolvedValue(routeFixture())
+    await expect(addPlaceToTmaRoute(place)).resolves.toBeTruthy()
   })
 
   it('reuses the stored route for the same city instead of rebuilding_new', async () => {

@@ -60,11 +60,31 @@ const buildEmptyRoute = async (citySlug: string, place: PlaceDetail): Promise<Re
   })
 }
 
+export class TmaRouteAddInFlightError extends Error {
+  constructor() {
+    super('Добавление места уже выполняется.')
+    this.name = 'TmaRouteAddInFlightError'
+  }
+}
+
+// A synchronous, non-React lock: React `useState` cannot prevent a second
+// concurrent invocation of an async handler, because state updates are
+// batched/async -- two rapid calls can both observe the stale "not
+// pending" value before either setState commits. A module-level flag is
+// set and checked in the same synchronous tick as the guarded call.
+let addInFlight = false
+
 export const addPlaceToTmaRoute = async (place: PlaceDetail): Promise<RecommendationRouteResponse> => {
-  const city = getCurrentCity()
-  const existing = restoreTmaRoute()
-  const currentRoute = existing && existing.city_slug === city.slug ? existing : await buildEmptyRoute(city.slug, place)
-  const nextRoute = await addPlaceToUserRoute(currentRoute, String(place.id))
-  saveTmaRoute(nextRoute)
-  return nextRoute
+  if (addInFlight) throw new TmaRouteAddInFlightError()
+  addInFlight = true
+  try {
+    const city = getCurrentCity()
+    const existing = restoreTmaRoute()
+    const currentRoute = existing && existing.city_slug === city.slug ? existing : await buildEmptyRoute(city.slug, place)
+    const nextRoute = await addPlaceToUserRoute(currentRoute, String(place.id))
+    saveTmaRoute(nextRoute)
+    return nextRoute
+  } finally {
+    addInFlight = false
+  }
 }

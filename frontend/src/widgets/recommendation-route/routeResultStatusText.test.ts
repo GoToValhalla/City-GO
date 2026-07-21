@@ -14,9 +14,14 @@ describe('statusLabel', () => {
     expect(statusLabel('no_route')).toBe('Маршрут не найден')
   })
 
-  it('falls back to ready only for a genuinely successful status', () => {
+  it('labels ready only for a genuinely successful status', () => {
     expect(statusLabel('ready')).toBe('Маршрут готов')
-    expect(statusLabel(undefined)).toBe('Маршрут готов')
+  })
+
+  it('never treats a missing or unrecognized status as ready', () => {
+    expect(statusLabel(undefined)).toBe('Статус маршрута неизвестен')
+    expect(statusLabel(null)).toBe('Статус маршрута неизвестен')
+    expect(statusLabel('some_future_status')).toBe('Статус маршрута неизвестен')
   })
 })
 

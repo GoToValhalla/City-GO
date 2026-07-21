@@ -19,7 +19,7 @@ import { RouteDebugTrace } from './RouteDebugTrace'
 import { RouteInsights } from './RouteInsights'
 import { RoutePointList } from './RoutePointList'
 import { RouteWarnings } from './RouteWarnings'
-import { emptyCopy, emptyTitle, statusLabel } from './routeResultStatusText'
+import { emptyCopy, emptyTitle, routeStatusUiState, statusLabel } from './routeResultStatusText'
 import { isSessionInvalidError } from './sessionErrors'
 
 const QUALITY_LABELS: Record<RouteQualityStatus, string> = {
@@ -37,7 +37,6 @@ const QUALITY_COPY: Record<RouteQualityStatus, string> = {
 }
 
 const ROUTE_FAILURE_STATUSES = new Set(['preview_failed', 'failed', 'no_route', 'empty'])
-const ROUTE_READY_STATUSES = new Set(['ready', 'partial_route'])
 const FEEDBACK_PROBLEMS = [
   ['bad_route', 'Маршрут не подходит'],
   ['wrong_place', 'Проблема с местом'],
@@ -192,13 +191,19 @@ export const RouteResultPanel = ({
     if (next) setSessionInvalid(false)
   }
 
-  const routeStatus = route.status ?? 'ready'
+  // A missing or unrecognized backend status must never be treated as
+  // ready -- only an explicit 'ready' or 'partial_route' status may ever
+  // enable route start (matching the pre-existing contract: a partial
+  // route is still a real, walkable route). Anything else, including no
+  // status at all, must never fall back to startable.
+  const routeStatus = route.status ?? ''
+  const routeUiStatus = routeStatusUiState(route.status)
   const qualityStatus = normalizeQualityStatus(route)
   const hasPoints = route.points.length > 0
   const meaningfulRoute = route.points.length >= 2
   const routeFailed = ROUTE_FAILURE_STATUSES.has(routeStatus)
-  const routeStartable = ROUTE_READY_STATUSES.has(routeStatus) && meaningfulRoute
-  const isPartial = routeStatus === 'partial_route'
+  const routeStartable = (routeUiStatus === 'ready' || routeUiStatus === 'partial') && meaningfulRoute
+  const isPartial = routeUiStatus === 'partial'
   const debug = isDebugEnabled()
   const quality = route.quality_score ?? 0
   const summary = route.explanation?.summary?.trim() || `Маршрут ${route.route_id}`

@@ -1,16 +1,62 @@
+import hashlib
+import json
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from db.dependencies import get_db
 from models.user_signal import UserSignal
 from schemas.route_feedback import RouteFeedbackCreate, RouteFeedbackRead
-from services.anonymous_ownership import optional_anonymous_session
+from schemas.user_signal import SIGNAL_ROUTE_FEEDBACK
+from services.anonymous_ownership import issue_ownership_token, optional_anonymous_session
 
 router = APIRouter(prefix="/route-feedback", tags=["route-feedback"])
 
 _DUPLICATE_WINDOW = timedelta(minutes=5)
+_SIGNAL_TYPE = SIGNAL_ROUTE_FEEDBACK
+_ENTITY_TYPE = "route"
+
+
+def _dedup_subject(anonymous_subject: str | None, user_id: str | None) -> str:
+    """Every independent caller must get its own identity for
+    deduplication purposes. Priority: a real client-supplied identity
+    (e.g. a Telegram user id) beats a hashed anonymous ownership token,
+    which beats a fresh, single-use random id -- never a shared constant.
+    Collapsing every unidentified caller into one shared string (the
+    previous "anonymous" fallback) would let one anonymous submission
+    suppress every other independent anonymous user's feedback for the
+    same route within the dedup window, which is exactly the defect this
+    replaces."""
+    normalized_user_id = str(user_id or "").strip()
+    if normalized_user_id:
+        return normalized_user_id
+    if anonymous_subject:
+        return anonymous_subject
+    return f"anon-request:{issue_ownership_token(nbytes=16)}"
+
+
+def _dedup_key(*, subject: str, route_id: str, signal_payload: dict[str, object], now: datetime) -> str:
+    """Deterministic fingerprint used as the atomic dedup boundary at the
+    database level (see models/user_signal.py::UserSignal.dedup_key,
+    a unique-indexed column). The time bucket rounds down to the start of
+    the current _DUPLICATE_WINDOW slot, so two submissions with identical
+    subject/route/payload landing in the same window collide on the same
+    key regardless of which request's INSERT reaches the database first --
+    there is no read-then-write gap for a race to exploit."""
+    window_seconds = int(_DUPLICATE_WINDOW.total_seconds())
+    bucket = int(now.timestamp()) // window_seconds
+    fingerprint = "|".join([
+        subject,
+        _SIGNAL_TYPE,
+        _ENTITY_TYPE,
+        route_id,
+        json.dumps(signal_payload, sort_keys=True, default=str),
+        str(bucket),
+    ])
+    return hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()[:64]
 
 
 @router.post("/", response_model=RouteFeedbackRead)
@@ -20,7 +66,7 @@ def post_route_feedback(
     db: Session = Depends(get_db),
 ) -> RouteFeedbackRead:
     """Сохраняет оценку маршрута как user signal для будущего обучения рекомендаций."""
-    subject = anonymous_subject or "anonymous"
+    subject = _dedup_subject(anonymous_subject, payload.user_id)
     signal_payload: dict[str, object] = {
         "rating": payload.rating,
         "comment": payload.comment,
@@ -30,34 +76,37 @@ def post_route_feedback(
         "skipped_place_ids": payload.skipped_place_ids,
         "problem_types": payload.problem_types,
     }
+    now = datetime.utcnow()
+    dedup_key = _dedup_key(subject=subject, route_id=payload.route_id, signal_payload=signal_payload, now=now)
 
-    latest = (
-        db.query(UserSignal)
-        .filter(
-            UserSignal.user_id == subject,
-            UserSignal.signal_type == "route_feedback",
-            UserSignal.entity_type == "route",
-            UserSignal.entity_id == payload.route_id,
+    values = {
+        "user_id": subject,
+        "signal_type": _SIGNAL_TYPE,
+        "entity_type": _ENTITY_TYPE,
+        "entity_id": payload.route_id,
+        "payload": signal_payload,
+        "dedup_key": dedup_key,
+        "created_at": now,
+    }
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        statement = pg_insert(UserSignal).values(**values).on_conflict_do_nothing(
+            index_elements=[UserSignal.dedup_key]
         )
-        .order_by(UserSignal.created_at.desc(), UserSignal.id.desc())
+    elif dialect == "sqlite":
+        statement = sqlite_insert(UserSignal).values(**values).on_conflict_do_nothing(
+            index_elements=[UserSignal.dedup_key]
+        )
+    else:
+        raise RuntimeError(f"Unsupported route-feedback database dialect: {dialect}")
+
+    db.execute(statement)
+    db.commit()
+
+    signal = (
+        db.query(UserSignal)
+        .filter(UserSignal.dedup_key == dedup_key)
+        .order_by(UserSignal.id.desc())
         .first()
     )
-    if (
-        latest is not None
-        and latest.payload == signal_payload
-        and latest.created_at is not None
-        and datetime.utcnow() - latest.created_at <= _DUPLICATE_WINDOW
-    ):
-        return RouteFeedbackRead.model_validate(latest)
-
-    signal = UserSignal(
-        user_id=subject,
-        signal_type="route_feedback",
-        entity_type="route",
-        entity_id=payload.route_id,
-        payload=signal_payload,
-    )
-    db.add(signal)
-    db.commit()
-    db.refresh(signal)
     return RouteFeedbackRead.model_validate(signal)

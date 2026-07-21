@@ -212,3 +212,34 @@ describe('active route session restoration', () => {
     expect(screen.getByText(/Текущая точка: Кафе/)).toBeInTheDocument()
   })
 })
+
+describe('defect #5/#6 regression: route start eligibility by status', () => {
+  afterEach(() => cleanup())
+
+  it('a ready route can start_new', () => {
+    renderPanel({ route: twoPointRoute({ status: 'ready' }) })
+    expect(screen.getByRole('button', { name: /Начать маршрут/ })).toBeInTheDocument()
+  })
+
+  it('a partial_route can still start -- pre-existing contract, not narrowed by the status fix_new', () => {
+    renderPanel({ route: twoPointRoute({ status: 'partial_route' }) })
+    expect(screen.getByRole('button', { name: /Начать маршрут/ })).toBeInTheDocument()
+  })
+
+  it('a missing status can never start -- the actual defect fix, no optimistic ready fallback_new', () => {
+    renderPanel({ route: twoPointRoute({ status: undefined }) })
+    expect(screen.queryByRole('button', { name: /Начать маршрут/ })).toBeNull()
+    expect(screen.getByText(/Статус маршрута неизвестен/)).toBeInTheDocument()
+  })
+
+  it('an unrecognized/future status can never start_new', () => {
+    renderPanel({ route: twoPointRoute({ status: 'some_future_status' }) })
+    expect(screen.queryByRole('button', { name: /Начать маршрут/ })).toBeNull()
+    expect(screen.getByText(/Статус маршрута неизвестен/)).toBeInTheDocument()
+  })
+
+  it('a failed route can never start_new', () => {
+    renderPanel({ route: twoPointRoute({ status: 'failed' }) })
+    expect(screen.queryByRole('button', { name: /Начать маршрут/ })).toBeNull()
+  })
+})

@@ -6,6 +6,7 @@ from models.city import City
 from models.place import Place
 from models.place_image import PLACE_IMAGE_STATUS_NEEDS_REVIEW, PlaceImage
 from models.user_signal import UserSignal
+from schemas.user_signal import SIGNAL_ROUTE_FEEDBACK
 
 ADMIN_ROLES = [
     {
@@ -64,7 +65,7 @@ def admin_coverage(db: Session, city_id: int) -> dict[str, object] | None:
 
 
 def admin_route_feedback(db: Session, *, limit: int = 50, offset: int = 0) -> tuple[list[dict[str, object]], int]:
-    query = db.query(UserSignal).filter(UserSignal.signal_type == "route_feedback").order_by(UserSignal.created_at.desc())
+    query = db.query(UserSignal).filter(UserSignal.signal_type == SIGNAL_ROUTE_FEEDBACK).order_by(UserSignal.created_at.desc())
     total = query.count()
     rows = query.offset(offset).limit(limit).all()
     return [_feedback_payload(row) for row in rows], total

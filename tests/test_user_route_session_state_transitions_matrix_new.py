@@ -82,8 +82,8 @@ def test_user_route_session_start_is_idempotent_for_active_session_new(db_sessio
 
 def test_user_route_session_pause_and_resume_transition_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
-    paused = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="pause"), ownership_token=_tok(state))
-    resumed = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="resume"), ownership_token=_tok(state))
+    paused = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="pause", route_id=state.route_id), ownership_token=_tok(state))
+    resumed = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="resume", route_id=state.route_id), ownership_token=_tok(state))
     assert paused.status == "paused"
     assert paused.paused_at is not None
     assert resumed.status == "active"
@@ -93,7 +93,7 @@ def test_user_route_session_pause_and_resume_transition_new(db_session, city_fac
 def test_user_route_session_rejects_invalid_resume_from_active_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
     with pytest.raises(UserRouteSessionError, match="Invalid session transition from active"):
-        UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="resume"), ownership_token=_tok(state))
+        UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="resume", route_id=state.route_id), ownership_token=_tok(state))
 
 
 def test_user_route_session_complete_point_advances_to_next_point_new(db_session, city_factory, place_factory) -> None:
@@ -102,7 +102,7 @@ def test_user_route_session_complete_point_advances_to_next_point_new(db_session
     updated = UserRouteSessionService().apply_action(
         db_session,
         state.session_id,
-        UserRouteSessionActionRequest(action="complete_point", place_id=first_place_id),
+        UserRouteSessionActionRequest(action="complete_point", place_id=first_place_id, route_id=state.route_id),
         ownership_token=_tok(state),
     )
     assert updated.status == "active"
@@ -117,13 +117,13 @@ def test_user_route_session_skip_last_open_point_completes_route_new(db_session,
     after_first = UserRouteSessionService().apply_action(
         db_session,
         state.session_id,
-        UserRouteSessionActionRequest(action="complete_point", place_id=state.current_place_id),
+        UserRouteSessionActionRequest(action="complete_point", place_id=state.current_place_id, route_id=state.route_id),
         ownership_token=_tok(state),
     )
     completed = UserRouteSessionService().apply_action(
         db_session,
         state.session_id,
-        UserRouteSessionActionRequest(action="skip_point", place_id=after_first.current_place_id),
+        UserRouteSessionActionRequest(action="skip_point", place_id=after_first.current_place_id, route_id=state.route_id),
         ownership_token=_tok(state),
     )
     assert completed.status == "completed"
@@ -133,14 +133,14 @@ def test_user_route_session_skip_last_open_point_completes_route_new(db_session,
 
 def test_user_route_session_rejects_action_after_completed_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
-    completed = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="finish"), ownership_token=_tok(state))
+    completed = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="finish", route_id=state.route_id), ownership_token=_tok(state))
     with pytest.raises(UserRouteSessionError, match="already finished"):
-        UserRouteSessionService().apply_action(db_session, completed.session_id, UserRouteSessionActionRequest(action="pause"), ownership_token=_tok(state))
+        UserRouteSessionService().apply_action(db_session, completed.session_id, UserRouteSessionActionRequest(action="pause", route_id=state.route_id), ownership_token=_tok(state))
 
 
 def test_user_route_session_abandon_is_terminal_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
-    abandoned = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="abandon"), ownership_token=_tok(state))
+    abandoned = UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="abandon", route_id=state.route_id), ownership_token=_tok(state))
     assert abandoned.status == "abandoned"
     assert abandoned.completed_at is not None
 
@@ -148,4 +148,69 @@ def test_user_route_session_abandon_is_terminal_new(db_session, city_factory, pl
 def test_user_route_session_rejects_missing_target_point_new(db_session, city_factory, place_factory) -> None:
     state = _start_session(db_session, city_factory, place_factory)
     with pytest.raises(UserRouteSessionError, match="Route session point not found"):
-        UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="complete_point", place_id="999999"), ownership_token=_tok(state))
+        UserRouteSessionService().apply_action(db_session, state.session_id, UserRouteSessionActionRequest(action="complete_point", place_id="999999", route_id=state.route_id), ownership_token=_tok(state))
+
+
+def test_user_route_session_rejects_mismatched_route_id_new(db_session, city_factory, place_factory) -> None:
+    """The core fix for defect #2: ownership alone must not be enough --
+    a session's own route_id must match the caller-supplied route_id, or
+    the action must be rejected exactly like a missing/unknown session."""
+    state = _start_session(db_session, city_factory, place_factory)
+    with pytest.raises(UserRouteSessionError, match="Route session not found"):
+        UserRouteSessionService().apply_action(
+            db_session,
+            state.session_id,
+            UserRouteSessionActionRequest(action="pause", route_id="a-different-route-id"),
+            ownership_token=_tok(state),
+        )
+
+
+def test_user_route_session_rejects_mismatched_route_id_even_when_session_is_terminal_new(db_session, city_factory, place_factory) -> None:
+    """The route_id check must run BEFORE the terminal-status check --
+    otherwise a caller with a stale/wrong route_id for a session that
+    happens to be completed/abandoned would learn that fact (a 422
+    "already finished") instead of the same non-disclosing 404 "not
+    found" every other mismatch gets. This would leak session state to a
+    caller who has not proven they own that route relationship."""
+    state = _start_session(db_session, city_factory, place_factory)
+    UserRouteSessionService().apply_action(
+        db_session, state.session_id, UserRouteSessionActionRequest(action="finish", route_id=state.route_id), ownership_token=_tok(state)
+    )
+    with pytest.raises(UserRouteSessionError, match="Route session not found"):
+        UserRouteSessionService().apply_action(
+            db_session,
+            state.session_id,
+            UserRouteSessionActionRequest(action="pause", route_id="a-different-route-id"),
+            ownership_token=_tok(state),
+        )
+
+
+def test_user_route_session_validate_succeeds_for_matching_route_and_ownership_new(db_session, city_factory, place_factory) -> None:
+    """Read-only restore check (used by clients validating a persisted
+    session before showing it as active progress) must succeed without
+    mutating anything when both ownership and route_id match."""
+    state = _start_session(db_session, city_factory, place_factory)
+    validated = UserRouteSessionService().validate(
+        db_session, state.session_id, route_id=state.route_id, ownership_token=_tok(state)
+    )
+    assert validated.session_id == state.session_id
+    assert validated.status == "active"
+
+
+def test_user_route_session_validate_rejects_mismatched_route_id_new(db_session, city_factory, place_factory) -> None:
+    """The exact restore-time defect: a stale session_id from client
+    storage that belongs to a DIFFERENT route must never validate as
+    belonging to the route currently being restored."""
+    state = _start_session(db_session, city_factory, place_factory)
+    with pytest.raises(UserRouteSessionError, match="Route session not found"):
+        UserRouteSessionService().validate(
+            db_session, state.session_id, route_id="a-different-route-id", ownership_token=_tok(state)
+        )
+
+
+def test_user_route_session_validate_rejects_wrong_ownership_token_new(db_session, city_factory, place_factory) -> None:
+    state = _start_session(db_session, city_factory, place_factory)
+    with pytest.raises(UserRouteSessionError, match="Route session not found"):
+        UserRouteSessionService().validate(
+            db_session, state.session_id, route_id=state.route_id, ownership_token="wrong-token"
+        )

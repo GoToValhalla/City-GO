@@ -208,6 +208,12 @@ class UserRouteSessionActionRequest(BaseModel):
     place_id: str | None = None
     current_lat: float | None = None
     current_lng: float | None = None
+    # Required so the server can prove the session identified by
+    # session_id in the URL still belongs to the route the caller
+    # believes it is acting on — ownership alone only proves the caller
+    # holds a valid token for SOME session, not that it is the session
+    # for THIS route.
+    route_id: str
 
 
 class UserRouteSessionPointState(BaseModel):

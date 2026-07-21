@@ -1,9 +1,10 @@
 /* @vitest-environment jsdom */
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as featuresApi from '../../api/features/publicFeatures.api'
+import * as recommendationApi from '../../api/recommendations/recommendationRoute.api'
 import type { ActiveRouteSession, RecommendationRouteResponse } from '../../api/recommendations/recommendationRoute.types'
 import { DEFAULT_CITY, setCurrentCity } from '../../shared/city/currentCity'
 import { saveTmaRoute, saveTmaRouteSession } from './tmaRouteStorage'
@@ -22,7 +23,12 @@ vi.mock('../../api/recommendations/recommendationRoute.api', () => ({
   updateActiveRouteSession: vi.fn(),
   ApiRequestError: class ApiRequestError extends Error {
     status: number
-    constructor(params: { status: number }) { super('HTTP error'); this.status = params.status }
+    responseBody: unknown
+    constructor(params: { status: number; responseBody?: unknown }) {
+      super('HTTP error')
+      this.status = params.status
+      this.responseBody = params.responseBody
+    }
   },
 }))
 
@@ -106,5 +112,56 @@ describe('TmaRoutePage', () => {
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Маршрут ещё не начат.')).toBeInTheDocument())
+  })
+
+  it('defect #7 regression: a rapid double-click on a mutation button issues exactly one network call_new', async () => {
+    vi.mocked(featuresApi.getPublicFeatures).mockResolvedValue({ tma_enabled: true })
+    saveTmaRoute(routeFixture())
+    let resolveCorrect: ((value: RecommendationRouteResponse) => void) | null = null
+    vi.mocked(recommendationApi.correctUserRoute).mockImplementation(
+      () => new Promise((resolve) => { resolveCorrect = resolve }),
+    )
+
+    renderPage()
+    await waitFor(() => expect(screen.getByRole('button', { name: /Пересобрать/ })).toBeInTheDocument())
+
+    const rebuildButton = screen.getByRole('button', { name: /Пересобрать/ })
+    // Two clicks fired before React can re-render the disabled state --
+    // the synchronous mutationInFlight lock, not the (still-batched)
+    // `disabled` prop, is what must prevent the second call.
+    fireEvent.click(rebuildButton)
+    fireEvent.click(rebuildButton)
+
+    expect(recommendationApi.correctUserRoute).toHaveBeenCalledTimes(1)
+
+    resolveCorrect?.(routeFixture())
+    await waitFor(() => expect(screen.getByText('Маршрут пересобран.')).toBeInTheDocument())
+
+    // The lock must be released after completion -- a subsequent click
+    // must be able to issue a new request, proving no lock leak. This
+    // second request must also be resolved and awaited to completion,
+    // otherwise the module-level lock is left held and leaks into
+    // whichever test runs next.
+    fireEvent.click(screen.getByRole('button', { name: /Пересобрать/ }))
+    await waitFor(() => expect(recommendationApi.correctUserRoute).toHaveBeenCalledTimes(2))
+    resolveCorrect?.(routeFixture())
+    await waitFor(() => expect(screen.getByText('Маршрут пересобран.')).toBeInTheDocument())
+  })
+
+  it('defect #8 regression: a 409 route_state_conflict shows a distinct, actionable message_new', async () => {
+    vi.mocked(featuresApi.getPublicFeatures).mockResolvedValue({ tma_enabled: true })
+    saveTmaRoute(routeFixture())
+    vi.mocked(recommendationApi.correctUserRoute).mockRejectedValue(
+      new recommendationApi.ApiRequestError({
+        status: 409,
+        responseBody: { detail: { code: 'route_state_conflict', message: 'stale revision' } },
+      } as never),
+    )
+
+    renderPage()
+    await waitFor(() => expect(screen.getByRole('button', { name: /Пересобрать/ })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Пересобрать/ }))
+
+    await waitFor(() => expect(screen.getByText(/Маршрут уже изменился в другом месте/)).toBeInTheDocument())
   })
 })

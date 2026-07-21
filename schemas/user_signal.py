@@ -9,6 +9,16 @@ SIGNAL_DISLIKE_PLACE = "dislike_place"
 SIGNAL_VISITED_PLACE = "visited_place"
 SIGNAL_COMPLETED_ROUTE = "completed_route"
 
+# Owned exclusively by routers/route_feedback.py: that endpoint enforces
+# rating/payload validation and atomic, database-level deduplication
+# (UserSignal.dedup_key) that the generic ingestion path below does not
+# and must not replicate. Any signal_type in this set must be rejected by
+# the generic endpoint -- the dedicated endpoint is the only legitimate
+# writer, so this table can never contain two competing write paths for
+# the same signal_type.
+SIGNAL_ROUTE_FEEDBACK = "route_feedback"
+RESERVED_SIGNAL_TYPES = frozenset((SIGNAL_ROUTE_FEEDBACK,))
+
 POSITIVE_PLACE_SIGNALS = frozenset((SIGNAL_FAVORITE_PLACE, SIGNAL_LIKE_PLACE))
 NEGATIVE_PLACE_SIGNALS = frozenset((SIGNAL_DISLIKE_PLACE,))
 VISIT_PLACE_SIGNALS = frozenset((SIGNAL_VISITED_PLACE,))

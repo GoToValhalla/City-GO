@@ -94,6 +94,26 @@ class UserRouteSessionService:
         db.flush()
         return _session_state(session, ownership_token=raw_token)
 
+    def validate(
+        self,
+        db: Session,
+        session_id: int,
+        *,
+        route_id: str,
+        ownership_token: str | None,
+    ) -> UserRouteSessionState:
+        """Read-only ownership + route-identity check, for restoring a
+        previously persisted client-side session without mutating it.
+        Uses the exact same fenced check as apply_action, so a stale
+        session_id left over from a different route is rejected here too,
+        not only on the next actual mutation."""
+        session = db.query(RouteSession).filter(RouteSession.id == session_id).first()
+        if session is None or not ownership_tokens_match(ownership_token, session.ownership_token_hash):
+            raise UserRouteSessionNotFound("Route session not found")
+        if _public_route_id(session) != str(route_id):
+            raise UserRouteSessionNotFound("Route session not found")
+        return _session_state(session)
+
     def apply_action(
         self,
         db: Session,
@@ -110,6 +130,13 @@ class UserRouteSessionService:
             .first()
         )
         if session is None or not ownership_tokens_match(ownership_token, session.ownership_token_hash):
+            raise UserRouteSessionNotFound("Route session not found")
+        # Ownership proves the caller holds a valid token for THIS
+        # session_id, but not that this session belongs to the route the
+        # caller believes it is restoring/acting on (e.g. a stale
+        # session_id left over in client storage from a different route).
+        # Reject every mismatch instead of trusting session_id alone.
+        if _public_route_id(session) != str(request.route_id):
             raise UserRouteSessionNotFound("Route session not found")
         if session.status in TERMINAL_STATUSES and request.action not in {"abandon"}:
             raise UserRouteSessionError("Route session is already finished")
@@ -203,13 +230,17 @@ def _reclaim_or_issue(session: RouteSession, ownership_token: str | None) -> Use
     return _session_state(session)
 
 
+def _public_route_id(session: RouteSession) -> str:
+    return str(getattr(session.route, "slug", session.route_id)).removeprefix("user-route-")
+
+
 def _session_state(session: RouteSession, *, ownership_token: str | None = None) -> UserRouteSessionState:
     points = list(session.points or [])
     current = next((point for point in points if point.ordering_index == session.current_point_index), None)
     next_point = next((point for point in points if point.ordering_index > session.current_point_index and not point.is_visited and not point.is_skipped), None)
     return UserRouteSessionState(
         session_id=int(session.id),
-        route_id=str(getattr(session.route, "slug", session.route_id)).removeprefix("user-route-"),
+        route_id=_public_route_id(session),
         status=_public_status(session.status),
         current_point_index=int(session.current_point_index or 0),
         current_place_id=str(current.place_id) if current else None,

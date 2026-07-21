@@ -9,7 +9,7 @@ import { ErrorState } from '../../components/ui/ErrorState'
 import { Skeleton } from '../../components/ui/Skeleton'
 import type { PlaceDetail } from '../../entities/place/model/types'
 import { openExternalUrl, twoGisMapLink, yandexMapLink } from '../../shared/map/externalMapLinks'
-import { addPlaceToTmaRoute, TmaRouteStartUnavailableError } from './tmaRouteActions'
+import { addPlaceToTmaRoute, TmaRouteAddInFlightError, TmaRouteStartUnavailableError } from './tmaRouteActions'
 import { TmaShell } from './TmaShell'
 
 export const TmaPlaceDetailPage = () => {
@@ -46,6 +46,10 @@ export const TmaPlaceDetailPage = () => {
       await addPlaceToTmaRoute(place)
       setAddStatus('Место добавлено в маршрут.')
     } catch (err) {
+      // A second concurrent tap that lost the synchronous lock in
+      // addPlaceToTmaRoute -- the first call is still in flight and will
+      // report its own result, so this one must not surface a false error.
+      if (err instanceof TmaRouteAddInFlightError) return
       console.error(err)
       setAddStatus(err instanceof TmaRouteStartUnavailableError ? err.message : 'Не удалось добавить место в маршрут.')
     } finally {

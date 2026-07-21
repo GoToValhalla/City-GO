@@ -100,22 +100,25 @@ describe('recommendationRoute.api', () => {
     expect(result.ownership_token).toBe('owner-token')
   })
 
-  it('sends ownership header on session action and preserves token when omitted_new', async () => {
+  it('sends ownership header and the session route_id on session action, preserving token when omitted_new', async () => {
     const { ownership_token: _ownershipToken, ...responseSession } = session
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(responseSession), { status: 200 }))
     const result = await updateActiveRouteSession(session, 'pause')
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/v1/user-routes/sessions/7/action',
-      expect.objectContaining({ headers: expect.objectContaining({ 'X-Route-Session': 'owner-token' }) }),
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-Route-Session': 'owner-token' }),
+        body: expect.stringContaining('"route_id":"r1"'),
+      }),
     )
     expect(result.ownership_token).toBe('owner-token')
   })
 
-  it('validates restored session through the ownership-protected canonical endpoint_new', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ route_id: 42 }), { status: 200 }))
+  it('validates restored session through the canonical user-route endpoint, proving both ownership and route_id_new', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(session), { status: 200 }))
     await validateActiveRouteSession(session)
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://127.0.0.1:8000/route-sessions/7',
+      'http://127.0.0.1:8000/v1/user-routes/sessions/7?route_id=r1',
       { method: 'GET', headers: { 'X-Route-Session': 'owner-token' } },
     )
   })

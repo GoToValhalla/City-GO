@@ -6,10 +6,19 @@ import { ErrorState } from '../../components/ui/ErrorState'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { getCurrentCity } from '../../shared/city/currentCity'
 import { RouteResultPanel } from '../../widgets/recommendation-route/RouteResultPanel'
+import { isRouteStateConflictError } from '../../widgets/recommendation-route/sessionErrors'
 import { clearTmaRoute, clearTmaRouteSession, restoreTmaRoute, restoreTmaRouteSession, saveTmaRoute, saveTmaRouteSession } from './tmaRouteStorage'
 import { TmaShell } from './TmaShell'
 
 type RouteMutation = () => Promise<RecommendationRouteResponse>
+
+// A synchronous, non-React lock for route mutations: React `loading` state
+// cannot prevent a second concurrent call from a rapid double-tap, because
+// state updates are batched/async. Every mutation entry point below
+// (onAddCandidate, onCorrect, onMovePoint, onReplacePoint) funnels through
+// `apply`, so a single module-level flag, set/checked synchronously, closes
+// the race for all of them.
+let mutationInFlight = false
 
 export const TmaRoutePage = () => {
   const [route, setRoute] = useState<RecommendationRouteResponse | null>(null)
@@ -73,7 +82,8 @@ export const TmaRoutePage = () => {
   }
 
   const apply = async (operation: RouteMutation, pendingMessage: string, successMessage: string) => {
-    if (loading) return
+    if (mutationInFlight) return
+    mutationInFlight = true
     try {
       setLoading(true)
       setError(null)
@@ -89,15 +99,20 @@ export const TmaRoutePage = () => {
       }
     } catch (applyError) {
       console.error(applyError)
-      setError('Не удалось обновить маршрут. Повторите действие.')
+      setError(
+        isRouteStateConflictError(applyError)
+          ? 'Маршрут уже изменился в другом месте. Обновите страницу и повторите действие.'
+          : 'Не удалось обновить маршрут. Повторите действие.',
+      )
       setMutationStatus(null)
     } finally {
+      mutationInFlight = false
       setLoading(false)
     }
   }
 
   const correct = (action: UserRouteCorrectionAction, targetPlaceId?: string | null) => {
-    if (!route || loading) return
+    if (!route || mutationInFlight) return
     const messages: Record<UserRouteCorrectionAction, [string, string]> = {
       remove_place: ['Удаляем точку…', 'Точка удалена.'],
       shorten_route: ['Сокращаем маршрут…', 'Маршрут сокращён.'],
@@ -129,7 +144,7 @@ export const TmaRoutePage = () => {
         onAddCandidate={(placeId) => void apply(() => addPlaceToUserRoute(route, placeId), 'Добавляем место…', 'Место добавлено в маршрут.')}
         onCorrect={correct}
         onMovePoint={(placeId, direction) => {
-          if (loading) return
+          if (mutationInFlight) return
           const index = route.points.findIndex((point) => point.place_id === placeId)
           const swapIndex = direction === 'up' ? index - 1 : index + 1
           if (index < 0 || swapIndex < 0 || swapIndex >= route.points.length) return
@@ -141,7 +156,7 @@ export const TmaRoutePage = () => {
         }}
         onRemovePoint={(placeId) => correct('remove_place', placeId)}
         onReplacePoint={(placeId) => {
-          if (loading) return
+          if (mutationInFlight) return
           const candidate = route.candidate_options?.find((point) => !route.points.some((current) => current.place_id === point.place_id))
           if (!candidate) {
             setError('Для этой точки сейчас нет подходящей замены. Попробуйте добавить место или пересобрать маршрут.')

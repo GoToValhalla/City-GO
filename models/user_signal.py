@@ -19,4 +19,10 @@ class UserSignal(Base):
         JSONB().with_variant(JSON(), "sqlite"),
         nullable=True,
     )
+    # Deterministic fingerprint (see routers/route_feedback.py) enforcing
+    # atomic, database-level deduplication for signal types that need it
+    # (route_feedback). NULL (the default for every other signal type)
+    # never conflicts with anything -- both PostgreSQL and SQLite treat
+    # NULL as distinct from every other NULL under a unique index.
+    dedup_key: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -7,7 +7,7 @@ import * as featuresApi from '../../api/features/publicFeatures.api'
 import * as placesApi from '../../api/places/places.api'
 import { DEFAULT_CITY, setCurrentCity } from '../../shared/city/currentCity'
 import { TmaPlaceDetailPage } from './TmaPlaceDetailPage'
-import { TmaRouteStartUnavailableError } from './tmaRouteActions'
+import { TmaRouteAddInFlightError, TmaRouteStartUnavailableError } from './tmaRouteActions'
 
 vi.mock('../../api/features/publicFeatures.api', () => ({ getPublicFeatures: vi.fn() }))
 vi.mock('../../api/places/places.api', () => ({ getPlaceBySlug: vi.fn() }))
@@ -56,6 +56,23 @@ describe('TmaPlaceDetailPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Добавить в маршрут' }))
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Не удалось добавить место в маршрут.'))
+  })
+
+  it('defect #3 regression: a rejected concurrent add is swallowed silently, not shown as a failure_new', async () => {
+    const { addPlaceToTmaRoute } = await import('./tmaRouteActions')
+    vi.mocked(featuresApi.getPublicFeatures).mockResolvedValue({ tma_enabled: true })
+    vi.mocked(placesApi.getPlaceBySlug).mockResolvedValue(place)
+    vi.mocked(addPlaceToTmaRoute).mockRejectedValue(new TmaRouteAddInFlightError())
+
+    renderPage()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Добавить в маршрут' })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить в маршрут' }))
+
+    // The pending message is shown while the call is in flight, and must
+    // NOT be replaced by any error text once the call is rejected as a
+    // lock conflict -- this is a losing concurrent tap, not a real failure.
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Добавляем в маршрут…'))
+    expect(screen.queryByText('Не удалось добавить место в маршрут.')).toBeNull()
   })
 
   it('confirms success when the route accepts the place_new', async () => {
