@@ -41,6 +41,16 @@ const assertOk = async (response: Response, params: { url: string; method: strin
   throw new ApiRequestError({ status: response.status, url: params.url, method: params.method, responseBody: await readResponseBody(response), requestBody: params.requestBody })
 }
 
+const ownershipHeaders = (ownershipToken?: string | null): Record<string, string> => {
+  const token = ownershipToken?.trim()
+  return token ? { 'X-Route-Session': token } : {}
+}
+
+const preserveOwnershipToken = (session: ActiveRouteSession, ownershipToken: string): ActiveRouteSession => ({
+  ...session,
+  ownership_token: session.ownership_token?.trim() || ownershipToken,
+})
+
 export const buildRecommendationRoute = async (payload: RecommendationRouteRequest): Promise<RecommendationRouteResponse> => {
   const url = buildApiUrl('/v1/user-routes/build')
   const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -57,15 +67,15 @@ export const buildStructuredRouteOptions = async (payload: RecommendationRouteRe
   return response.json()
 }
 
-export const sendRouteFeedback = async (route: RecommendationRouteResponse, rating: number, comment?: string) => {
+export const sendRouteFeedback = async (route: RecommendationRouteResponse, rating: number, comment?: string, problemTypes: string[] = []) => {
   const url = buildApiUrl('/route-feedback/')
   const requestBody = {
     route_id: route.route_id,
     user_id: route.context?.user_id ?? null,
     rating,
-    comment: comment || null,
+    comment: comment?.trim() || null,
     source: 'web',
-    problem_types: rating <= 2 ? ['bad_route'] : [],
+    problem_types: problemTypes.length ? problemTypes : rating <= 2 ? ['bad_route'] : [],
   }
   const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
   await assertOk(response, { url, method: 'POST', requestBody })
@@ -105,18 +115,40 @@ export const replacePlaceInUserRoute = async (currentRoute: RecommendationRouteR
   return response.json()
 }
 
-export const startActiveRouteSession = async (currentRoute: RecommendationRouteResponse): Promise<ActiveRouteSession> => {
+export const startActiveRouteSession = async (currentRoute: RecommendationRouteResponse, ownershipToken?: string | null): Promise<ActiveRouteSession> => {
   const url = buildApiUrl(`/v1/user-routes/${currentRoute.route_id}/session/start`)
   const requestBody = { current_route: currentRoute, user_id: currentRoute.context?.user_id ?? null }
-  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...ownershipHeaders(ownershipToken) },
+    body: JSON.stringify(requestBody),
+  })
   await assertOk(response, { url, method: 'POST', requestBody })
-  return response.json()
+  const session = await response.json() as ActiveRouteSession
+  if (!session.ownership_token?.trim()) throw new Error('Route session ownership token is missing')
+  return session
 }
 
-export const updateActiveRouteSession = async (sessionId: number, action: ActiveRouteAction, placeId?: string | null): Promise<ActiveRouteSession> => {
-  const url = buildApiUrl(`/v1/user-routes/sessions/${sessionId}/action`)
+export const validateActiveRouteSession = async (session: ActiveRouteSession): Promise<void> => {
+  const token = session.ownership_token?.trim()
+  if (!token) throw new Error('Route session ownership token is missing')
+  const url = buildApiUrl(`/route-sessions/${session.session_id}`)
+  const response = await fetch(url, { method: 'GET', headers: ownershipHeaders(token) })
+  await assertOk(response, { url, method: 'GET' })
+  const body = await response.json() as { route_id?: number | string }
+  if (String(body.route_id) !== String(session.route_id)) throw new Error('Route session does not belong to the active route')
+}
+
+export const updateActiveRouteSession = async (session: ActiveRouteSession, action: ActiveRouteAction, placeId?: string | null): Promise<ActiveRouteSession> => {
+  const token = session.ownership_token?.trim()
+  if (!token) throw new Error('Route session ownership token is missing')
+  const url = buildApiUrl(`/v1/user-routes/sessions/${session.session_id}/action`)
   const requestBody = { action, place_id: placeId ?? null }
-  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(requestBody) })
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...ownershipHeaders(token) },
+    body: JSON.stringify(requestBody),
+  })
   await assertOk(response, { url, method: 'POST', requestBody })
-  return response.json()
+  return preserveOwnershipToken(await response.json() as ActiveRouteSession, token)
 }
