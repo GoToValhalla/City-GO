@@ -6,13 +6,24 @@ import subprocess
 from sqlalchemy import create_engine, text
 
 DB_NAME = "city_go_ownership_migration_pytest"
-DB_URL = f"postgresql+psycopg://user@localhost:5432/{DB_NAME}"
+PGHOST = os.getenv("OWNERSHIP_MIGRATION_PGHOST", "localhost")
+PGPORT = os.getenv("OWNERSHIP_MIGRATION_PGPORT", "5432")
+PGUSER = os.getenv("OWNERSHIP_MIGRATION_PGUSER", "user")
+PGPASSWORD = os.getenv("OWNERSHIP_MIGRATION_PGPASSWORD", "")
+DB_URL = f"postgresql+psycopg://{PGUSER}@{PGHOST}:{PGPORT}/{DB_NAME}"
 PREDECESSOR = "de447288c917"
 HEAD = "b7e4f1a9082c"
 
 
 def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "DATABASE_URL": DB_URL}
+    env = {
+        **os.environ,
+        "DATABASE_URL": DB_URL,
+        "PGHOST": PGHOST,
+        "PGPORT": PGPORT,
+        "PGUSER": PGUSER,
+        "PGPASSWORD": PGPASSWORD,
+    }
     return subprocess.run(args, check=check, text=True, capture_output=True, env=env)
 
 
@@ -22,7 +33,7 @@ def recreate_database() -> None:
 
 
 def drop_database() -> None:
-    run("dropdb", "--if-exists", "--force", DB_NAME)
+    run("dropdb", "--if-exists", "--force", DB_NAME, check=False)
 
 
 def alembic(target: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
