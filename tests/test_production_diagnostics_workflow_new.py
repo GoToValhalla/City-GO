@@ -123,7 +123,7 @@ def test_production_diagnostics_workflow_redacts_before_upload_new() -> None:
     text = _read()
     assert "REDACTED" in text
     # Redaction must run (and complete) before the artifact upload step.
-    redact_index = text.index("Redaction here is DEFENSE IN DEPTH ONLY")
+    redact_index = text.index("Redaction is DEFENSE IN DEPTH ONLY")
     upload_index = text.index("Upload redacted diagnostics report")
     assert redact_index < upload_index
 
@@ -133,6 +133,95 @@ def test_production_diagnostics_workflow_uploads_artifact_even_on_failure_new() 
     steps = data["jobs"]["diagnostics"]["steps"]
     upload_step = next(s for s in steps if s.get("uses", "").startswith("actions/upload-artifact"))
     assert upload_step.get("if") == "always()"
+
+
+def test_production_diagnostics_workflow_public_curl_writes_to_raw_log_not_final_report_new() -> None:
+    """The public health/ready curl step must append only to raw-report.log
+    (pre-redaction input), never directly to production-diagnostics-
+    report.txt (the final redacted artifact) -- that was the exact defect:
+    raw curl output landing in the artifact after the only redaction pass
+    had already run."""
+    data = _load()
+    steps = data["jobs"]["diagnostics"]["steps"]
+    public_step = next(s for s in steps if s.get("name", "").startswith("Check public health endpoint"))
+    run_text = public_step["run"]
+    assert '>> "$RAW_LOG"' in run_text
+    assert "REPORT" not in run_text
+    assert "production-diagnostics-report.txt" not in run_text
+
+
+def test_production_diagnostics_workflow_final_redaction_runs_after_both_raw_sources_new() -> None:
+    """The redaction/finalize step must be ordered after BOTH the SSH
+    collection step and the public health-check step, so it is the single
+    point where all raw output has already been written to raw-report.log
+    before redaction reads it."""
+    data = _load()
+    steps = data["jobs"]["diagnostics"]["steps"]
+    names = [s.get("name", "") for s in steps]
+    ssh_index = next(i for i, n in enumerate(names) if n.startswith("Collect read-only production diagnostics"))
+    public_index = next(i for i, n in enumerate(names) if n.startswith("Check public health endpoint"))
+    redact_index = next(i for i, n in enumerate(names) if n.startswith("Redact and finalize diagnostics report"))
+    upload_index = next(i for i, n in enumerate(names) if n.startswith("Upload redacted diagnostics report"))
+    assert ssh_index < redact_index
+    assert public_index < redact_index
+    assert redact_index < upload_index
+
+
+def test_production_diagnostics_workflow_redaction_step_is_the_only_writer_of_final_report_new() -> None:
+    """Only the dedicated redact/finalize step may write to
+    production-diagnostics-report.txt. No other step's `run` block may
+    reference that filename -- proving nothing can append to the final
+    artifact after redaction has produced it."""
+    data = _load()
+    steps = data["jobs"]["diagnostics"]["steps"]
+    for step in steps:
+        name = step.get("name", "")
+        run_text = step.get("run", "")
+        if "production-diagnostics-report.txt" in run_text or 'REPORT=' in run_text:
+            assert name.startswith("Redact and finalize diagnostics report"), (
+                f"step {name!r} references the final report file, but only the "
+                "redact/finalize step is allowed to"
+            )
+
+
+def test_production_diagnostics_workflow_redaction_step_runs_always_new() -> None:
+    """The redaction/finalize step must run even if the SSH step or the
+    public health-check step failed (or raw-report.log doesn't exist yet),
+    so the artifact is still produced (possibly noting partial capture)."""
+    data = _load()
+    steps = data["jobs"]["diagnostics"]["steps"]
+    redact_step = next(s for s in steps if s.get("name", "").startswith("Redact and finalize diagnostics report"))
+    assert redact_step.get("if") == "always()"
+    assert 'if [ ! -f "$RAW_LOG" ]' in redact_step["run"]
+
+
+def test_production_diagnostics_workflow_artifact_path_is_the_redacted_file_only_new() -> None:
+    """The uploaded artifact's `path` must point only at the final
+    redacted report, never at raw-report.log or any other raw file."""
+    data = _load()
+    steps = data["jobs"]["diagnostics"]["steps"]
+    upload_step = next(s for s in steps if s.get("uses", "").startswith("actions/upload-artifact"))
+    path = upload_step["with"]["path"]
+    assert path == "/tmp/city-go-diagnostics/production-diagnostics-report.txt"
+    assert "raw-report.log" not in path
+    assert "raw" not in path.lower()
+
+
+def test_production_diagnostics_workflow_raw_log_never_printed_or_uploaded_new() -> None:
+    """raw-report.log must never be uploaded as an artifact, never `cat`,
+    and never appended to GITHUB_STEP_SUMMARY -- it exists only as
+    redaction input. Comment lines are excluded since this workflow's own
+    explanatory comments legitimately name GITHUB_STEP_SUMMARY to document
+    that raw content is never written there."""
+    text = _strip_comment_lines(_read())
+    assert "cat \"$RAW_LOG\"" not in text
+    assert "cat $RAW_LOG" not in text
+    assert "GITHUB_STEP_SUMMARY" not in text
+    data = _load()
+    steps = data["jobs"]["diagnostics"]["steps"]
+    for step in steps:
+        if step.get("uses", "").startswith("actions/upload-artifact"):
+            assert "raw-report.log" not in step["with"]["path"]
 
 
 def test_production_diagnostics_workflow_rejects_unformatted_docker_inspect_new() -> None:

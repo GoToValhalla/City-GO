@@ -59,13 +59,12 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/tmp/city-go-diagnostics/ssh-keyscan.log || true
 
-      - name: Collect read-only production diagnostics
+      - name: Collect read-only production diagnostics (SSH, raw)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/city-go-diagnostics
           RAW_LOG=/tmp/city-go-diagnostics/raw-report.log
-          REPORT=/tmp/city-go-diagnostics/production-diagnostics-report.txt
 
           REMOTE_SCRIPT=$(mktemp /tmp/city-go-diagnostics-remote.XXXXXX.sh)
           cat > "$REMOTE_SCRIPT" <<'REMOTE'
@@ -239,17 +238,68 @@ jobs:
           rm -f "$REMOTE_SCRIPT"
           echo "Remote diagnostics script exit code: ${SSH_EXIT}" >> "$RAW_LOG"
 
-          # Redaction here is DEFENSE IN DEPTH ONLY, not the security
-          # boundary — the actual boundary is that no unsafe field
-          # (.Config.Env, the full container JSON) is ever collected above
-          # in the first place, via explicit --format allowlists. This
-          # pass is applied to the FULL captured output regardless, in
-          # case of an unexpected/incidental leak in future diagnostics
-          # added to this script. Patterns cover: Authorization headers,
+      - name: Check public health endpoint (from runner, raw)
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/city-go-diagnostics
+          RAW_LOG=/tmp/city-go-diagnostics/raw-report.log
+          BASE_URL="${PRODUCTION_BASE_URL%/}"
+          # Appends to the SAME raw log the SSH step wrote — this is still
+          # raw, unredacted data at this point; the only redaction pass
+          # for the whole report runs in the NEXT step, after this one, so
+          # public curl output is always covered by it.
+          {
+            echo
+            echo "=== public health endpoint: curl -i --max-time 10 ${BASE_URL}/api/health ==="
+            curl -i --max-time 10 "${BASE_URL}/api/health"
+            health_rc=$?
+            echo
+            echo "[exit_code=${health_rc}]"
+            echo
+            echo "=== public ready endpoint: curl -i --max-time 10 ${BASE_URL}/api/ready ==="
+            curl -i --max-time 10 "${BASE_URL}/api/ready"
+            ready_rc=$?
+            echo
+            echo "[exit_code=${ready_rc}]"
+          } >> "$RAW_LOG" 2>&1
+          exit 0
+
+      - name: Redact and finalize diagnostics report (final boundary — runs after ALL raw sources)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/city-go-diagnostics
+          RAW_LOG=/tmp/city-go-diagnostics/raw-report.log
+          REPORT=/tmp/city-go-diagnostics/production-diagnostics-report.txt
+
+          # This is the ONE AND ONLY redaction pass for the entire report,
+          # and it is the LAST step that touches raw-report.log content
+          # before the artifact upload. It runs with if: always(), so it
+          # still produces a (possibly partial) redacted report even if
+          # the SSH step failed, the public curl step failed, or
+          # raw-report.log doesn't exist yet for some reason — nothing
+          # downstream of this step is ever allowed to append to
+          # production-diagnostics-report.txt again.
+          #
+          # Redaction is DEFENSE IN DEPTH ONLY, not the security boundary
+          # — the actual boundary is that no unsafe field (.Config.Env,
+          # the full container JSON) is ever collected in the SSH step,
+          # via explicit --format allowlists. This pass is applied
+          # regardless, in case of an unexpected/incidental leak in
+          # future diagnostics (including public HTTP response headers
+          # such as Set-Cookie, Authorization-related headers, or
+          # response bodies). Patterns cover: Authorization headers,
           # bearer tokens, generic password= / secret= / token=
           # assignments, any *_URL containing a userinfo@ credential
           # (e.g. postgres://user:pass@host), private key blocks, and
           # Set-Cookie / Cookie header values.
+          if [ ! -f "$RAW_LOG" ]; then
+            echo "(no raw diagnostics were captured — SSH and/or public health steps may have failed before producing output)" > "$RAW_LOG"
+          fi
+
           python3 - "$RAW_LOG" "$REPORT" <<'PYEOF'
           import re
           import sys
@@ -274,31 +324,10 @@ jobs:
               f.write(text)
           PYEOF
 
-          echo "=== Redacted report written to ${REPORT} ==="
-          echo "Remote script exit code was: ${SSH_EXIT} (informational only — this step never fails because of it; every diagnostic already ran and was recorded above)."
-
-      - name: Check public health endpoint (from runner, read-only)
-        if: always()
-        shell: bash
-        run: |
-          set -uo pipefail
-          REPORT=/tmp/city-go-diagnostics/production-diagnostics-report.txt
-          BASE_URL="${PRODUCTION_BASE_URL%/}"
-          {
-            echo
-            echo "=== public health endpoint: curl -i --max-time 10 ${BASE_URL}/api/health ==="
-            curl -i --max-time 10 "${BASE_URL}/api/health"
-            health_rc=$?
-            echo
-            echo "[exit_code=${health_rc}]"
-            echo
-            echo "=== public ready endpoint: curl -i --max-time 10 ${BASE_URL}/api/ready ==="
-            curl -i --max-time 10 "${BASE_URL}/api/ready"
-            ready_rc=$?
-            echo
-            echo "[exit_code=${ready_rc}]"
-          } >> "$REPORT" 2>&1
-          exit 0
+          echo "Redacted report written to ${REPORT}"
+          # Deliberately not printed with cat, not appended to
+          # GITHUB_STEP_SUMMARY, and not itself uploaded anywhere — the
+          # raw log's content only ever reaches the redacted file above.
 
       - name: Upload redacted diagnostics report
         if: always()
