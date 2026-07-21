@@ -1,10 +1,12 @@
-"""Shared background operation service for heavy admin jobs."""
+"""Shared durable background-operation queue for heavy admin jobs."""
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from db.session import SessionLocal
@@ -31,25 +33,48 @@ def create_background_operation(
     city_slug: str | None = None,
     params: dict[str, object] | None = None,
 ) -> AdminOperation:
-    existing = latest_operation(db, operation_type=operation_type, city_slug=city_slug)
-    if existing is not None and existing.status in RUNNING_STATUSES:
-        return existing
+    """Insert one durable job; the DB partial unique index arbitrates races."""
+    normalized_city = str(city_slug).strip() if city_slug else None
     op = AdminOperation(
         operation_type=operation_type,
         status="queued",
         actor=actor,
-        city_slug=city_slug,
+        city_slug=normalized_city,
         place_ids=[],
         result=params or {},
     )
     db.add(op)
-    db.commit()
-    db.refresh(op)
-    return op
+    try:
+        db.commit()
+        db.refresh(op)
+        return op
+    except IntegrityError:
+        db.rollback()
+        existing = active_operation(db, operation_type=operation_type, city_slug=normalized_city)
+        if existing is None:
+            raise
+        return existing
 
 
 def get_operation(db: Session, operation_id: int) -> AdminOperation | None:
     return db.query(AdminOperation).filter(AdminOperation.id == operation_id).first()
+
+
+def active_operation(
+    db: Session,
+    *,
+    operation_type: str,
+    city_slug: str | None = None,
+) -> AdminOperation | None:
+    query = db.query(AdminOperation).filter(
+        AdminOperation.operation_type == operation_type,
+        AdminOperation.status.in_(RUNNING_STATUSES),
+    )
+    if city_slug is None:
+        query = query.filter(AdminOperation.city_slug.is_(None))
+    else:
+        query = query.filter(AdminOperation.city_slug == city_slug)
+    return query.order_by(AdminOperation.created_at.asc(), AdminOperation.id.asc()).first()
 
 
 def latest_operation(
@@ -109,15 +134,68 @@ def snapshot_status_payload(
     }
 
 
+def claim_next_background_operation(db: Session) -> int | None:
+    """Atomically claim one queued row; safe across workers and duplicate polls."""
+    candidate = (
+        db.query(AdminOperation.id)
+        .filter(AdminOperation.status == "queued")
+        .order_by(AdminOperation.created_at.asc(), AdminOperation.id.asc())
+        .with_for_update(skip_locked=True)
+        .first()
+    )
+    if candidate is None:
+        db.rollback()
+        return None
+    operation_id = int(candidate[0])
+    claimed = db.execute(
+        update(AdminOperation)
+        .where(AdminOperation.id == operation_id, AdminOperation.status == "queued")
+        .values(status="running", updated_at=datetime.utcnow())
+    ).rowcount
+    if claimed != 1:
+        db.rollback()
+        return None
+    db.commit()
+    return operation_id
+
+
+def run_queued_background_operations(*, limit: int = 1, session_factory: Callable[[], Session] = SessionLocal) -> int:
+    processed = 0
+    for _ in range(max(1, limit)):
+        with session_factory() as claim_db:
+            operation_id = claim_next_background_operation(claim_db)
+        if operation_id is None:
+            break
+        run_background_operation(operation_id, session_factory=session_factory, already_claimed=True)
+        processed += 1
+    return processed
+
+
 def run_background_operation(
     operation_id: int,
     session_factory: Callable[[], Session] = SessionLocal,
+    *,
+    already_claimed: bool = False,
 ) -> None:
     db = session_factory()
     try:
         op = get_operation(db, operation_id)
         if op is None:
             return
+        if not already_claimed:
+            claimed = db.execute(
+                update(AdminOperation)
+                .where(AdminOperation.id == operation_id, AdminOperation.status == "queued")
+                .values(status="running", updated_at=datetime.utcnow())
+            ).rowcount
+            if claimed != 1:
+                db.rollback()
+                return
+            db.commit()
+            db.refresh(op)
+        elif op.status != "running":
+            return
+
         runner = _runner_for(op.operation_type)
         if runner is None:
             op.status = "failed"
@@ -125,15 +203,16 @@ def run_background_operation(
             op.updated_at = datetime.utcnow()
             db.commit()
             return
-        op.status = "running"
-        op.updated_at = datetime.utcnow()
-        db.commit()
         try:
             result = runner(db, op)
             op.status = "completed"
             op.result = result
             op.error_message = None
         except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            op = get_operation(db, operation_id)
+            if op is None:
+                return
             op.status = "failed"
             op.error_message = str(exc)
             write_system_log(
