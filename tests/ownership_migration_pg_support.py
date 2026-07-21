@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 
 from sqlalchemy import create_engine, text
 
@@ -39,7 +40,7 @@ def drop_database() -> None:
 def alembic(target: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
     command = "downgrade" if target == "downgrade" else "upgrade"
     revision = PREDECESSOR if target == "downgrade" else target
-    return run(".venv/bin/alembic", command, revision, check=check)
+    return run(sys.executable, "-m", "alembic", command, revision, check=check)
 
 
 def execute(statement: str) -> None:
