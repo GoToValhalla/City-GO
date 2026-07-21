@@ -9,12 +9,15 @@ import { RouteResultPanel } from '../../widgets/recommendation-route/RouteResult
 import { clearTmaRoute, clearTmaRouteSession, restoreTmaRoute, restoreTmaRouteSession, saveTmaRoute, saveTmaRouteSession } from './tmaRouteStorage'
 import { TmaShell } from './TmaShell'
 
+type RouteMutation = () => Promise<RecommendationRouteResponse>
+
 export const TmaRoutePage = () => {
   const [route, setRoute] = useState<RecommendationRouteResponse | null>(null)
-  const [initialSession, setInitialSession] = useState<ActiveRouteSession | null>(null)
+  const [activeSession, setActiveSession] = useState<ActiveRouteSession | null>(null)
   const [restoring, setRestoring] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [mutationStatus, setMutationStatus] = useState<string | null>(null)
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null)
 
   useEffect(() => {
@@ -30,7 +33,7 @@ export const TmaRoutePage = () => {
         else clearTmaRouteSession()
         if (!cancelled) {
           setRoute(null)
-          setInitialSession(null)
+          setActiveSession(null)
           setRestoring(false)
         }
         return
@@ -46,12 +49,12 @@ export const TmaRoutePage = () => {
 
       try {
         await validateActiveRouteSession(restoredSession)
-        if (!cancelled) setInitialSession(restoredSession)
+        if (!cancelled) setActiveSession(restoredSession)
       } catch (restoreError) {
         console.error(restoreError)
         clearTmaRouteSession()
         if (!cancelled) {
-          setInitialSession(null)
+          setActiveSession(null)
           setRecoveryNotice('Сохранённую прогулку не удалось продолжить. Маршрут можно начать заново.')
         }
       } finally {
@@ -64,25 +67,30 @@ export const TmaRoutePage = () => {
   }, [])
 
   const onSessionChange = (session: ActiveRouteSession | null) => {
+    setActiveSession(session)
     if (session) saveTmaRouteSession(session)
     else clearTmaRouteSession()
   }
 
-  const apply = async (operation: Promise<RecommendationRouteResponse>) => {
+  const apply = async (operation: RouteMutation, pendingMessage: string, successMessage: string) => {
     if (loading) return
     try {
       setLoading(true)
       setError(null)
-      const next = await operation
+      setMutationStatus(pendingMessage)
+      const next = await operation()
       setRoute(next)
       saveTmaRoute(next)
-      if (initialSession && initialSession.route_id !== next.route_id) {
+      setMutationStatus(successMessage)
+      if (activeSession && activeSession.route_id !== next.route_id) {
         clearTmaRouteSession()
-        setInitialSession(null)
+        setActiveSession(null)
+        setRecoveryNotice('Маршрут изменился. Активную прогулку нужно начать заново.')
       }
     } catch (applyError) {
       console.error(applyError)
       setError('Не удалось обновить маршрут. Повторите действие.')
+      setMutationStatus(null)
     } finally {
       setLoading(false)
     }
@@ -90,12 +98,21 @@ export const TmaRoutePage = () => {
 
   const correct = (action: UserRouteCorrectionAction, targetPlaceId?: string | null) => {
     if (!route || loading) return
-    void apply(correctUserRoute(route, action, targetPlaceId))
+    const messages: Record<UserRouteCorrectionAction, [string, string]> = {
+      remove_place: ['Удаляем точку…', 'Точка удалена.'],
+      shorten_route: ['Сокращаем маршрут…', 'Маршрут сокращён.'],
+      rebuild_from_here: ['Пересобираем маршрут…', 'Маршрут пересобран.'],
+      avoid_category: ['Обновляем предпочтения…', 'Категория исключена.'],
+      extend_route: ['Добавляем место…', 'Маршрут дополнен.'],
+    }
+    const [pending, success] = messages[action]
+    void apply(() => correctUserRoute(route, action, targetPlaceId), pending, success)
   }
 
   return <TmaShell title="Маршрут">
     {restoring ? <div role="status" aria-live="polite" aria-busy="true"><p>Проверяем сохранённый маршрут…</p><Skeleton /><Skeleton /></div> : null}
     {!restoring && error ? <ErrorState title="Маршрут не обновился" description={error} /> : null}
+    {!restoring && mutationStatus ? <p className="route-start-note" role="status" aria-live="polite">{mutationStatus}</p> : null}
     {!restoring && recoveryNotice ? <p className="route-start-note" role="status" aria-live="polite">{recoveryNotice}</p> : null}
     {!restoring && !route ? (
       <EmptyState
@@ -104,12 +121,12 @@ export const TmaRoutePage = () => {
       />
     ) : !restoring && route ? (
       <RouteResultPanel
-        key={`${route.route_id}:${initialSession?.session_id ?? 'none'}`}
+        key={`${route.route_id}:${activeSession?.session_id ?? 'none'}`}
         route={route}
         loading={loading}
-        initialSession={initialSession}
+        initialSession={activeSession}
         onSessionChange={onSessionChange}
-        onAddCandidate={(placeId) => void apply(addPlaceToUserRoute(route, placeId))}
+        onAddCandidate={(placeId) => void apply(() => addPlaceToUserRoute(route, placeId), 'Добавляем место…', 'Место добавлено в маршрут.')}
         onCorrect={correct}
         onMovePoint={(placeId, direction) => {
           if (loading) return
@@ -120,25 +137,27 @@ export const TmaRoutePage = () => {
           const nextIds = [...ids]
           nextIds[index] = ids[swapIndex]
           nextIds[swapIndex] = ids[index]
-          void apply(updateUserRouteOrder(route, nextIds))
+          void apply(() => updateUserRouteOrder(route, nextIds), 'Меняем порядок точек…', 'Порядок точек обновлён.')
         }}
         onRemovePoint={(placeId) => correct('remove_place', placeId)}
         onReplacePoint={(placeId) => {
           if (loading) return
           const candidate = route.candidate_options?.find((point) => !route.points.some((current) => current.place_id === point.place_id))
           if (!candidate) {
-            correct('remove_place', placeId)
+            setError('Для этой точки сейчас нет подходящей замены. Попробуйте добавить место или пересобрать маршрут.')
+            setMutationStatus(null)
             return
           }
-          void apply(replacePlaceInUserRoute(route, placeId, candidate.place_id))
+          void apply(() => replacePlaceInUserRoute(route, placeId, candidate.place_id), 'Подбираем замену…', 'Точка заменена.')
         }}
       />
     ) : null}
     {!restoring && route ? <button type="button" className="cg-button cg-button--ghost" disabled={loading} onClick={() => {
       clearTmaRoute()
       setRoute(null)
-      setInitialSession(null)
+      setActiveSession(null)
       setRecoveryNotice(null)
+      setMutationStatus(null)
       setError(null)
     }}>Очистить маршрут</button> : null}
   </TmaShell>
