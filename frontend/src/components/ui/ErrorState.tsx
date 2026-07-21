@@ -21,7 +21,7 @@ export const ErrorState = ({
   retryLabel = 'Повторить',
   title = 'Что-то пошло не так',
 }: ErrorStateProps) => (
-  <section className={classNames('cg-state', 'cg-state--error', className)}>
+  <section className={classNames('cg-state', 'cg-state--error', className)} role="alert" aria-live="assertive">
     <div className="cg-state__icon" aria-hidden="true">{icon ?? <AlertTriangle size={22} />}</div>
     <strong className="cg-state__title">{title}</strong>
     <p className="cg-state__description">{description}</p>
