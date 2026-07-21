@@ -125,8 +125,9 @@ export const startActiveRouteSession = async (currentRoute: RecommendationRouteR
   })
   await assertOk(response, { url, method: 'POST', requestBody })
   const session = await response.json() as ActiveRouteSession
-  if (!session.ownership_token?.trim()) throw new Error('Route session ownership token is missing')
-  return session
+  const token = session.ownership_token?.trim() || ownershipToken?.trim()
+  if (!token) throw new Error('Route session ownership token is missing')
+  return preserveOwnershipToken(session, token)
 }
 
 export const validateActiveRouteSession = async (session: ActiveRouteSession): Promise<void> => {
@@ -135,8 +136,10 @@ export const validateActiveRouteSession = async (session: ActiveRouteSession): P
   const url = buildApiUrl(`/route-sessions/${session.session_id}`)
   const response = await fetch(url, { method: 'GET', headers: ownershipHeaders(token) })
   await assertOk(response, { url, method: 'GET' })
-  const body = await response.json() as { route_id?: number | string }
-  if (String(body.route_id) !== String(session.route_id)) throw new Error('Route session does not belong to the active route')
+  // This endpoint exposes the internal numeric Route.id, while the TMA cache
+  // stores the public user-route id encoded in Route.slug. A successful
+  // ownership-authenticated read is therefore the authoritative validation;
+  // comparing the two different id domains would reject every valid session.
 }
 
 export const updateActiveRouteSession = async (session: ActiveRouteSession, action: ActiveRouteAction, placeId?: string | null): Promise<ActiveRouteSession> => {
