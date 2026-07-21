@@ -25,14 +25,34 @@ export type TelegramBackButton = {
   offClick?: (callback: () => void) => void
 }
 
+export type TelegramMainButton = {
+  isVisible?: boolean
+  isActive?: boolean
+  isProgressVisible?: boolean
+  show?: () => void
+  hide?: () => void
+  enable?: () => void
+  disable?: () => void
+  showProgress?: (leaveActive?: boolean) => void
+  hideProgress?: () => void
+  setText?: (text: string) => void
+  onClick?: (callback: () => void) => void
+  offClick?: (callback: () => void) => void
+}
+
 export type TelegramWebApp = {
   version?: string
   platform?: string
   colorScheme?: 'light' | 'dark'
+  themeParams?: Record<string, string | undefined>
   initData?: string
+  viewportHeight?: number
+  viewportStableHeight?: number
+  isActive?: boolean
   isVersionAtLeast?: (version: string) => boolean
   LocationManager?: TelegramLocationManager
   BackButton?: TelegramBackButton
+  MainButton?: TelegramMainButton
   onEvent?: (event: string, callback: () => void) => void
   offEvent?: (event: string, callback: () => void) => void
   safeAreaInset?: Record<string, number>
@@ -47,7 +67,6 @@ export type TelegramWebApp = {
   setHeaderColor?: (color: string) => void
   setBackgroundColor?: (color: string) => void
   openLink?: (url: string, options?: { try_instant_view?: boolean }) => void
-  MainButton?: { hide?: () => void }
 }
 
 declare global {
