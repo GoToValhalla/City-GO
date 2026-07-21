@@ -43,9 +43,6 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
             missing.append("ADMIN_API_TOKEN")
         if not str(settings.user_route_state_secret or "").strip():
             missing.append("USER_ROUTE_STATE_SECRET")
-        bot_token = str(settings.bot_token or settings.telegram_bot_token or "").strip()
-        if bot_token and not str(settings.bot_webhook_secret or "").strip():
-            missing.append("BOT_WEBHOOK_SECRET")
         if missing:
             raise RuntimeError("Missing required production secrets: " + ", ".join(missing))
 
