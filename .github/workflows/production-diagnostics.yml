@@ -104,8 +104,22 @@ jobs:
           run "docker compose ps -a" docker compose ps -a
           run "docker ps -a --no-trunc" docker ps -a --no-trunc
 
-          section "docker inspect app-backend-1 (full, raw)"
-          docker inspect app-backend-1
+          # SECURITY: never run an unformatted/full `docker inspect` on any
+          # container. The full JSON includes .Config.Env — raw production
+          # environment values (DB URLs, tokens, secrets) in plain text.
+          # Every inspect call below uses an explicit --format allowlist of
+          # non-secret diagnostic fields only. Regex redaction later is
+          # defense in depth, never the security boundary: it cannot
+          # guarantee coverage of unknown secret names, JSON-escaped or
+          # multiline values, or future environment variables, so unsafe
+          # fields (.Config.Env, the full container JSON) must never be
+          # collected in the first place.
+          section "backend identity"
+          docker inspect app-backend-1 --format 'ContainerID: {{.Id}}
+          Name: {{.Name}}
+          ImageID: {{.Image}}
+          ImageName: {{.Config.Image}}
+          RestartCount: {{.RestartCount}}'
           echo "[exit_code=$?]"
 
           section "formatted backend state"
@@ -130,6 +144,14 @@ jobs:
           {{.Output}}
           {{end}}' 2>&1 || echo "(no healthcheck log available)"
 
+          section "backend network names and IPs"
+          docker inspect app-backend-1 --format '{{range $net, $cfg := .NetworkSettings.Networks}}Network: {{$net}} IPAddress: {{$cfg.IPAddress}}
+          {{end}}' || echo "(no network info)"
+
+          section "backend mounts (destination and type only, no host source paths)"
+          docker inspect app-backend-1 --format '{{range .Mounts}}Type: {{.Type}} Destination: {{.Destination}}
+          {{end}}' || echo "(no mounts)"
+
           run "docker logs --timestamps --tail 1000 app-backend-1" \
             docker logs --timestamps --tail 1000 app-backend-1
 
@@ -143,13 +165,20 @@ jobs:
           run "bot container state" docker compose ps -a bot
 
           section "image metadata: backend:latest, backend:rollback, frontend:latest, frontend:rollback"
+          # Labels: only an explicit allowlist of standard, independently
+          # verified non-secret OCI build-metadata keys is ever printed —
+          # never the full labels map ({{json .Config.Labels}}), since an
+          # arbitrary future label key cannot be assumed non-secret.
           for ref in city-go-backend:latest city-go-backend:rollback city-go-frontend:latest city-go-frontend:rollback; do
             echo "--- ${ref} ---"
             docker images --digests --no-trunc --format 'ID={{.ID}} Repo={{.Repository}} Tag={{.Tag}} Digest={{.Digest}} Created={{.CreatedAt}}' --filter "reference=*${ref}" || true
             image_id="$(docker images -q --filter "reference=*${ref}" | head -n1)"
             if [ -n "$image_id" ]; then
-              echo "Labels:"
-              docker inspect "$image_id" --format '{{json .Config.Labels}}' || true
+              echo "Labels (allowlisted, standard OCI build-metadata keys only):"
+              docker inspect "$image_id" --format \
+                'org.opencontainers.image.revision={{index .Config.Labels "org.opencontainers.image.revision"}}
+          org.opencontainers.image.created={{index .Config.Labels "org.opencontainers.image.created"}}
+          org.opencontainers.image.source={{index .Config.Labels "org.opencontainers.image.source"}}' || true
             else
               echo "(no local image matches ${ref})"
             fi
@@ -158,10 +187,8 @@ jobs:
           section "images currently assigned to all application containers"
           docker compose ps -a --format 'table {{.Name}}\t{{.Image}}' || true
           for c in app-backend-1 app-frontend-1 app-bot-1 app-migrate-1 app-db-1; do
-            if docker inspect "$c" >/dev/null 2>&1; then
-              echo "--- ${c} ---"
-              docker inspect "$c" --format 'Image={{.Image}} ImageName={{.Config.Image}}'
-            fi
+            echo "--- ${c} ---"
+            docker inspect "$c" --format 'Image={{.Image}} ImageName={{.Config.Image}}' 2>&1 || echo "(container ${c} not found)"
           done
 
           run "current .last_deployed_sha (read-only)" cat /srv/app/.last_deployed_sha
@@ -188,30 +215,41 @@ jobs:
           echo "############################################################"
           REMOTE
           chmod 600 "$REMOTE_SCRIPT"
-          scp -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -P "$SSH_PORT" \
-            "$REMOTE_SCRIPT" "$SSH_USER@$SSH_HOST:/tmp/city-go-diagnostics-remote.sh"
-          rm -f "$REMOTE_SCRIPT"
 
+          # STRICTLY READ-ONLY / no server-side file: the script is never
+          # copied to the host (no scp/sftp/rsync, no remote temp path, no
+          # remote rm) — it is piped directly into `bash -s` over the SSH
+          # session's own stdin via `< "$REMOTE_SCRIPT"` (a local input
+          # redirection, evaluated by THIS shell before ssh ever runs, not
+          # a pipeline). This is the input-redirection form, not the
+          # `cmd | ssh ... <<'EOF'` pipeline form: the historical bug in
+          # deploy.yml was a heredoc binding to the LAST command of a
+          # pipe (`tee`, not `ssh`) because both were chained with `|`.
+          # Here there is no `|` between anything and ssh at all — `<`
+          # attaches this file directly to ssh's own stdin, and ssh's
+          # remote command is exactly `bash -s`, which reads the script
+          # from that same stdin. The remote host receives, creates, and
+          # persists nothing.
           set +e
           ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
             -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "bash /tmp/city-go-diagnostics-remote.sh; rc=\$?; rm -f /tmp/city-go-diagnostics-remote.sh; exit \$rc" \
-            > "$RAW_LOG" 2>&1
+            'bash -s' < "$REMOTE_SCRIPT" > "$RAW_LOG" 2>&1
           SSH_EXIT=$?
           set -e
+          rm -f "$REMOTE_SCRIPT"
           echo "Remote diagnostics script exit code: ${SSH_EXIT}" >> "$RAW_LOG"
 
-          # Redact secrets before this content is ever written to the log
-          # file that gets uploaded as an artifact — applied to the FULL
-          # captured output (docker inspect env arrays included), never
-          # just to a subset. Patterns cover: Authorization headers, bearer
-          # tokens, generic password= / secret= / token= assignments,
-          # any *_URL containing a userinfo@ credential (e.g. postgres://
-          # user:pass@host), private key blocks, Set-Cookie / Cookie
-          # header values, and raw environment-variable value lines from
-          # `docker inspect`'s .Config.Env array (which this script never
-          # requests directly, but is redacted defensively in case any
-          # future edit adds it).
+          # Redaction here is DEFENSE IN DEPTH ONLY, not the security
+          # boundary — the actual boundary is that no unsafe field
+          # (.Config.Env, the full container JSON) is ever collected above
+          # in the first place, via explicit --format allowlists. This
+          # pass is applied to the FULL captured output regardless, in
+          # case of an unexpected/incidental leak in future diagnostics
+          # added to this script. Patterns cover: Authorization headers,
+          # bearer tokens, generic password= / secret= / token=
+          # assignments, any *_URL containing a userinfo@ credential
+          # (e.g. postgres://user:pass@host), private key blocks, and
+          # Set-Cookie / Cookie header values.
           python3 - "$RAW_LOG" "$REPORT" <<'PYEOF'
           import re
           import sys
