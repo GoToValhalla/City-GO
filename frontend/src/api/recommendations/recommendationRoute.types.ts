@@ -218,6 +218,7 @@ export type ActiveRoutePointState = {
 export type ActiveRouteSession = {
   session_id: number
   route_id: string
+  ownership_token: string
   status: ActiveRouteStatus
   current_point_index: number
   current_place_id?: string | null
