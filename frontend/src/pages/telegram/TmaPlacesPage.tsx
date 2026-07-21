@@ -9,6 +9,18 @@ import { getCurrentCity } from '../../shared/city/currentCity'
 import { categoryLabel } from '../../shared/place/categoryLabels'
 import { TmaShell } from './TmaShell'
 
+const placeTitle = (place: { title?: string | null; category?: string | null }): string => {
+  const rawCategory = place.category?.trim() || ''
+  return place.title?.trim() || (rawCategory ? categoryLabel(rawCategory) : '') || 'Место без названия'
+}
+
+const placeMeta = (place: { category?: string | null; address?: string | null }): string => {
+  const rawCategory = place.category?.trim() || ''
+  const category = (rawCategory ? categoryLabel(rawCategory) : '') || 'Категория уточняется'
+  const address = place.address?.trim()
+  return address ? `${category} · ${address}` : category
+}
+
 export const TmaPlacesPage = () => {
   const [city, setCity] = useState(getCurrentCity())
   const navigate = useNavigate()
@@ -27,19 +39,15 @@ export const TmaPlacesPage = () => {
     {initialError ? <ErrorState title="Не удалось загрузить места" description={error ?? undefined} retryLabel="Повторить" onRetry={retry} /> : null}
     {initialLoading ? <div className="tma-place-card-list" role="status" aria-live="polite" aria-busy="true"><p>Загружаем места…</p><Skeleton /><Skeleton /><Skeleton /></div> : null}
     {!initialError && !initialLoading && places.length === 0 ? <EmptyState title="Мест пока нет" description="В этом городе ещё нет опубликованных мест." /> : null}
-    {places.length > 0 ? (
-      <div className="tma-place-card-list" aria-busy={loading}>
-        {places.map((place) => (
-          <button key={place.id} type="button" className="tma-place-card" onClick={() => navigate(`/telegram/places/${place.slug}`)}>
-            {place.image_url ? <img src={place.image_url} alt="" loading="lazy" /> : <span className="telegram-map-pin" aria-hidden="true" />}
-            <span className="tma-place-card-body">
-              <strong>{place.title}</strong>
-              <span>{categoryLabel(place.category)}{place.address ? ` · ${place.address}` : ''}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-    ) : null}
+    {places.length > 0 ? <div className="tma-place-card-list" aria-busy={loading}>
+      {places.map((place) => {
+        const title = placeTitle(place)
+        return <button key={place.id} type="button" className="tma-place-card" onClick={() => navigate(`/telegram/places/${place.slug}`)} aria-label={`Открыть место: ${title}`}>
+          {place.image_url?.trim() ? <img src={place.image_url} alt="" loading="lazy" /> : <span className="telegram-map-pin" aria-hidden="true" />}
+          <span className="tma-place-card-body"><strong>{title}</strong><span>{placeMeta(place)}</span></span>
+        </button>
+      })}
+    </div> : null}
     {incrementalError ? <ErrorState title="Не удалось загрузить ещё места" description={error ?? undefined} retryLabel="Повторить" onRetry={retry} /> : null}
     {!error && places.length > 0 ? <PlacesLoadMoreTrigger onVisible={loadMore} loading={loading} hasMore={hasMore} /> : null}
   </TmaShell>
