@@ -1,0 +1,339 @@
+name: 99 · CITY GO · Production Diagnostics
+
+# Manual-only, read-only production diagnostics. Every remote command is a
+# read/inspect command (docker ps/inspect/logs, curl, cat, df, free, uname) —
+# nothing here starts, stops, restarts, recreates, or removes a container,
+# writes to the database, or touches .env/secrets. See "STRICTLY READ-ONLY"
+# markers on each remote command for the specific guarantee.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type exactly RUN_READ_ONLY_PRODUCTION_DIAGNOSTICS to confirm.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  diagnostics:
+    name: Read-only production diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SSH_PRIVATE_KEY_B64: ${{ secrets.SSH_PRIVATE_KEY }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || 22 }}
+      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL || 'https://citygo.autismishe.online' }}
+    steps:
+      - name: Require exact confirmation text
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirmation }}" != "RUN_READ_ONLY_PRODUCTION_DIAGNOSTICS" ]; then
+            echo "ERROR: confirmation input must be exactly RUN_READ_ONLY_PRODUCTION_DIAGNOSTICS (got: '${{ inputs.confirmation }}')." >&2
+            exit 1
+          fi
+
+      - name: Validate diagnostics secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY_B64" || (echo "SSH_PRIVATE_KEY secret is missing" >&2; exit 1)
+          test -n "$SSH_HOST" || (echo "SSH_HOST secret is missing" >&2; exit 1)
+          test -n "$SSH_USER" || (echo "SSH_USER secret is missing" >&2; exit 1)
+
+      - name: Setup SSH key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh /tmp/city-go-diagnostics
+          echo "$SSH_PRIVATE_KEY_B64" | base64 --decode --ignore-garbage > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts 2>/tmp/city-go-diagnostics/ssh-keyscan.log || true
+
+      - name: Collect read-only production diagnostics (SSH, raw)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/city-go-diagnostics
+          RAW_LOG=/tmp/city-go-diagnostics/raw-report.log
+
+          REMOTE_SCRIPT=$(mktemp /tmp/city-go-diagnostics-remote.XXXXXX.sh)
+          cat > "$REMOTE_SCRIPT" <<'REMOTE'
+          set -uo pipefail
+          cd /srv/app
+
+          section() { echo; echo "=== $1 ==="; }
+
+          # run NAME CMD... : STRICTLY READ-ONLY. Runs one command, always
+          # records its real exit code, and always continues to the next
+          # diagnostic regardless of failure (per requirement 4) — nothing
+          # here is allowed to abort the rest of the report.
+          run() {
+            local name="$1"; shift
+            section "$name"
+            "$@"
+            local rc=$?
+            echo "[exit_code=${rc}]"
+            return 0
+          }
+
+          echo "############################################################"
+          echo "# CITY GO READ-ONLY PRODUCTION DIAGNOSTICS"
+          echo "# STRICTLY READ-ONLY: no start/stop/restart/rm/up/down/kill,"
+          echo "# no docker compose mutation, no DB writes, no file edits."
+          echo "############################################################"
+
+          run "UTC timestamp" date -u +"%Y-%m-%dT%H:%M:%SZ"
+          run "hostname" hostname
+          run "uptime" uptime
+          run "disk usage" df -h
+          run "memory usage" free -h
+          run "docker version" docker version
+          run "docker compose version" docker compose version
+
+          run "docker compose ps -a" docker compose ps -a
+          run "docker ps -a --no-trunc" docker ps -a --no-trunc
+
+          # SECURITY: never run an unformatted/full `docker inspect` on any
+          # container. The full JSON includes .Config.Env — raw production
+          # environment values (DB URLs, tokens, secrets) in plain text.
+          # Every inspect call below uses an explicit --format allowlist of
+          # non-secret diagnostic fields only. Regex redaction later is
+          # defense in depth, never the security boundary: it cannot
+          # guarantee coverage of unknown secret names, JSON-escaped or
+          # multiline values, or future environment variables, so unsafe
+          # fields (.Config.Env, the full container JSON) must never be
+          # collected in the first place.
+          section "backend identity"
+          docker inspect app-backend-1 --format 'ContainerID: {{.Id}}
+          Name: {{.Name}}
+          ImageID: {{.Image}}
+          ImageName: {{.Config.Image}}
+          RestartCount: {{.RestartCount}}'
+          echo "[exit_code=$?]"
+
+          section "formatted backend state"
+          docker inspect app-backend-1 --format '
+          Status: {{.State.Status}}
+          Running: {{.State.Running}}
+          Restarting: {{.State.Restarting}}
+          ExitCode: {{.State.ExitCode}}
+          OOMKilled: {{.State.OOMKilled}}
+          Error: {{.State.Error}}
+          StartedAt: {{.State.StartedAt}}
+          FinishedAt: {{.State.FinishedAt}}
+          Health.Status: {{if .State.Health}}{{.State.Health.Status}}{{else}}(no healthcheck configured){{end}}
+          '
+          echo "[exit_code=$?]"
+
+          section "backend healthcheck command (from image/compose config)"
+          docker inspect app-backend-1 --format '{{json .Config.Healthcheck}}' || echo "(no healthcheck config)"
+
+          section "every stored healthcheck result (timestamp, exit code, output)"
+          docker inspect app-backend-1 --format '{{range .State.Health.Log}}--- {{.Start}} -> {{.End}} exit={{.ExitCode}} ---
+          {{.Output}}
+          {{end}}' 2>&1 || echo "(no healthcheck log available)"
+
+          section "backend network names and IPs"
+          docker inspect app-backend-1 --format '{{range $net, $cfg := .NetworkSettings.Networks}}Network: {{$net}} IPAddress: {{$cfg.IPAddress}}
+          {{end}}' || echo "(no network info)"
+
+          section "backend mounts (destination and type only, no host source paths)"
+          docker inspect app-backend-1 --format '{{range .Mounts}}Type: {{.Type}} Destination: {{.Destination}}
+          {{end}}' || echo "(no mounts)"
+
+          run "docker logs --timestamps --tail 1000 app-backend-1" \
+            docker logs --timestamps --tail 1000 app-backend-1
+
+          run "docker compose logs --timestamps --tail 1000 backend" \
+            docker compose logs --timestamps --tail 1000 backend
+
+          run "docker compose logs --timestamps --tail 300 migrate" \
+            docker compose logs --timestamps --tail 300 migrate
+
+          run "frontend container state" docker compose ps -a frontend
+          run "bot container state" docker compose ps -a bot
+
+          section "image metadata: backend:latest, backend:rollback, frontend:latest, frontend:rollback"
+          # Labels: only an explicit allowlist of standard, independently
+          # verified non-secret OCI build-metadata keys is ever printed —
+          # never the full labels map ({{json .Config.Labels}}), since an
+          # arbitrary future label key cannot be assumed non-secret.
+          for ref in city-go-backend:latest city-go-backend:rollback city-go-frontend:latest city-go-frontend:rollback; do
+            echo "--- ${ref} ---"
+            docker images --digests --no-trunc --format 'ID={{.ID}} Repo={{.Repository}} Tag={{.Tag}} Digest={{.Digest}} Created={{.CreatedAt}}' --filter "reference=*${ref}" || true
+            image_id="$(docker images -q --filter "reference=*${ref}" | head -n1)"
+            if [ -n "$image_id" ]; then
+              echo "Labels (allowlisted, standard OCI build-metadata keys only):"
+              docker inspect "$image_id" --format \
+                'org.opencontainers.image.revision={{index .Config.Labels "org.opencontainers.image.revision"}}
+          org.opencontainers.image.created={{index .Config.Labels "org.opencontainers.image.created"}}
+          org.opencontainers.image.source={{index .Config.Labels "org.opencontainers.image.source"}}' || true
+            else
+              echo "(no local image matches ${ref})"
+            fi
+          done
+
+          section "images currently assigned to all application containers"
+          docker compose ps -a --format 'table {{.Name}}\t{{.Image}}' || true
+          for c in app-backend-1 app-frontend-1 app-bot-1 app-migrate-1 app-db-1; do
+            echo "--- ${c} ---"
+            docker inspect "$c" --format 'Image={{.Image}} ImageName={{.Config.Image}}' 2>&1 || echo "(container ${c} not found)"
+          done
+
+          run "current .last_deployed_sha (read-only)" cat /srv/app/.last_deployed_sha
+
+          section "Alembic current revision (existing read-only method: psql SELECT version_num)"
+          timeout 15s docker compose exec -T db psql -U postgres -d city_guide -tA -c "SELECT version_num FROM alembic_version;"
+          echo "[exit_code=$?]"
+
+          section "internal health request: curl -i --max-time 10 http://localhost:8000/health"
+          curl -i --max-time 10 http://localhost:8000/health
+          internal_health_rc=$?
+          echo
+          echo "[exit_code=${internal_health_rc}]"
+
+          section "internal ready request: curl -i --max-time 10 http://localhost:8000/ready"
+          curl -i --max-time 10 http://localhost:8000/ready
+          internal_ready_rc=$?
+          echo
+          echo "[exit_code=${internal_ready_rc}]"
+
+          echo
+          echo "############################################################"
+          echo "# END OF READ-ONLY DIAGNOSTICS — no mutating command was run."
+          echo "############################################################"
+          REMOTE
+          chmod 600 "$REMOTE_SCRIPT"
+
+          # STRICTLY READ-ONLY / no server-side file: the script is never
+          # copied to the host (no scp/sftp/rsync, no remote temp path, no
+          # remote rm) — it is piped directly into `bash -s` over the SSH
+          # session's own stdin via `< "$REMOTE_SCRIPT"` (a local input
+          # redirection, evaluated by THIS shell before ssh ever runs, not
+          # a pipeline). This is the input-redirection form, not the
+          # `cmd | ssh ... <<'EOF'` pipeline form: the historical bug in
+          # deploy.yml was a heredoc binding to the LAST command of a
+          # pipe (`tee`, not `ssh`) because both were chained with `|`.
+          # Here there is no `|` between anything and ssh at all — `<`
+          # attaches this file directly to ssh's own stdin, and ssh's
+          # remote command is exactly `bash -s`, which reads the script
+          # from that same stdin. The remote host receives, creates, and
+          # persists nothing.
+          set +e
+          ssh -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+            -o StrictHostKeyChecking=accept-new -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            'bash -s' < "$REMOTE_SCRIPT" > "$RAW_LOG" 2>&1
+          SSH_EXIT=$?
+          set -e
+          rm -f "$REMOTE_SCRIPT"
+          echo "Remote diagnostics script exit code: ${SSH_EXIT}" >> "$RAW_LOG"
+
+      - name: Check public health endpoint (from runner, raw)
+        if: always()
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/city-go-diagnostics
+          RAW_LOG=/tmp/city-go-diagnostics/raw-report.log
+          BASE_URL="${PRODUCTION_BASE_URL%/}"
+          # Appends to the SAME raw log the SSH step wrote — this is still
+          # raw, unredacted data at this point; the only redaction pass
+          # for the whole report runs in the NEXT step, after this one, so
+          # public curl output is always covered by it.
+          {
+            echo
+            echo "=== public health endpoint: curl -i --max-time 10 ${BASE_URL}/api/health ==="
+            curl -i --max-time 10 "${BASE_URL}/api/health"
+            health_rc=$?
+            echo
+            echo "[exit_code=${health_rc}]"
+            echo
+            echo "=== public ready endpoint: curl -i --max-time 10 ${BASE_URL}/api/ready ==="
+            curl -i --max-time 10 "${BASE_URL}/api/ready"
+            ready_rc=$?
+            echo
+            echo "[exit_code=${ready_rc}]"
+          } >> "$RAW_LOG" 2>&1
+          exit 0
+
+      - name: Redact and finalize diagnostics report (final boundary — runs after ALL raw sources)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/city-go-diagnostics
+          RAW_LOG=/tmp/city-go-diagnostics/raw-report.log
+          REPORT=/tmp/city-go-diagnostics/production-diagnostics-report.txt
+
+          # This is the ONE AND ONLY redaction pass for the entire report,
+          # and it is the LAST step that touches raw-report.log content
+          # before the artifact upload. It runs with if: always(), so it
+          # still produces a (possibly partial) redacted report even if
+          # the SSH step failed, the public curl step failed, or
+          # raw-report.log doesn't exist yet for some reason — nothing
+          # downstream of this step is ever allowed to append to
+          # production-diagnostics-report.txt again.
+          #
+          # Redaction is DEFENSE IN DEPTH ONLY, not the security boundary
+          # — the actual boundary is that no unsafe field (.Config.Env,
+          # the full container JSON) is ever collected in the SSH step,
+          # via explicit --format allowlists. This pass is applied
+          # regardless, in case of an unexpected/incidental leak in
+          # future diagnostics (including public HTTP response headers
+          # such as Set-Cookie, Authorization-related headers, or
+          # response bodies). Patterns cover: Authorization headers,
+          # bearer tokens, generic password= / secret= / token=
+          # assignments, any *_URL containing a userinfo@ credential
+          # (e.g. postgres://user:pass@host), private key blocks, and
+          # Set-Cookie / Cookie header values.
+          if [ ! -f "$RAW_LOG" ]; then
+            echo "(no raw diagnostics were captured — SSH and/or public health steps may have failed before producing output)" > "$RAW_LOG"
+          fi
+
+          python3 - "$RAW_LOG" "$REPORT" <<'PYEOF'
+          import re
+          import sys
+
+          src, dst = sys.argv[1], sys.argv[2]
+          with open(src, "r", encoding="utf-8", errors="replace") as f:
+              text = f.read()
+
+          patterns = [
+              (re.compile(r'(?i)(authorization\s*:\s*)\S+.*'), r'\1[REDACTED]'),
+              (re.compile(r'(?i)(bearer\s+)[A-Za-z0-9\-_\.=]+'), r'\1[REDACTED]'),
+              (re.compile(r'(?i)\b(TELEGRAM_BOT_TOKEN|BOT_TOKEN|ADMIN_API_TOKEN|USER_ROUTE_STATE_SECRET|BOT_WEBHOOK_SECRET|SSH_PRIVATE_KEY|SECRET_KEY|API_KEY|PASSWORD|POSTGRES_PASSWORD)\s*=\s*\S+'), r'\1=[REDACTED]'),
+              (re.compile(r'(?i)\b(token|secret|password|apikey|api_key)"\s*:\s*"[^"]*"'), r'\1": "[REDACTED]"'),
+              (re.compile(r'(?i)://[^:/\s]+:[^@/\s]+@'), '://[REDACTED_CREDENTIALS]@'),
+              (re.compile(r'(?im)^(set-cookie|cookie)\s*:.*$'), r'\1: [REDACTED]'),
+              (re.compile(r'-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----', re.S), '[REDACTED PRIVATE KEY BLOCK]'),
+          ]
+          for pattern, repl in patterns:
+              text = pattern.sub(repl, text)
+
+          with open(dst, "w", encoding="utf-8") as f:
+              f.write(text)
+          PYEOF
+
+          echo "Redacted report written to ${REPORT}"
+          # Deliberately not printed with cat, not appended to
+          # GITHUB_STEP_SUMMARY, and not itself uploaded anywhere — the
+          # raw log's content only ever reaches the redacted file above.
+
+      - name: Upload redacted diagnostics report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-diagnostics-report
+          path: /tmp/city-go-diagnostics/production-diagnostics-report.txt
+          if-no-files-found: warn
+          retention-days: 7
