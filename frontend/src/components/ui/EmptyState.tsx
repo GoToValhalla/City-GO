@@ -26,7 +26,7 @@ export const EmptyState = ({
   const resolvedTitle = title ?? message ?? 'Здесь пока ничего нет'
 
   return (
-    <section className={classNames('cg-state', className)}>
+    <section className={classNames('cg-state', className)} role="status" aria-live="polite">
       <div className="cg-state__icon" aria-hidden="true">
         {icon ?? <MapPinned size={22} />}
       </div>
