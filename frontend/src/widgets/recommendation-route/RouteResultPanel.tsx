@@ -165,6 +165,7 @@ export const RouteResultPanel = ({
   const [feedbackComment, setFeedbackComment] = useState('')
   const [feedbackProblems, setFeedbackProblems] = useState<string[]>([])
   const [feedbackPending, setFeedbackPending] = useState(false)
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
   const [feedbackStatus, setFeedbackStatus] = useState<string | null>(null)
   const [session, setSessionState] = useState<ActiveRouteSession | null>(initialSession)
   const [sessionPending, setSessionPending] = useState(false)
@@ -177,6 +178,12 @@ export const RouteResultPanel = ({
     setSessionState(initialSession)
     setSessionInvalid(false)
     setSessionStatus(null)
+    setRating(null)
+    setFeedbackComment('')
+    setFeedbackProblems([])
+    setFeedbackPending(false)
+    setFeedbackSubmitted(false)
+    setFeedbackStatus(null)
   }
 
   const setSession = (next: ActiveRouteSession | null) => {
@@ -210,13 +217,15 @@ export const RouteResultPanel = ({
     : null
   const controlsDisabled = loading || sessionPending
   const canCompleteOrSkip = Boolean((sessionActive || sessionPaused) && currentPlaceId)
+  const feedbackReasonRequired = Boolean(rating && rating <= 3 && feedbackProblems.length === 0)
 
   const submitFeedback = async () => {
-    if (!rating || feedbackPending) return
+    if (!rating || feedbackPending || feedbackSubmitted || feedbackReasonRequired) return
     try {
       setFeedbackPending(true)
       setFeedbackStatus('Отправляем отзыв…')
       await sendRouteFeedback(route, rating, feedbackComment, feedbackProblems)
+      setFeedbackSubmitted(true)
       setFeedbackStatus('Спасибо. Отзыв сохранён.')
     } catch (error) {
       console.error(error)
@@ -309,14 +318,15 @@ export const RouteResultPanel = ({
       </div>
       {routeEditingLocked ? <p className="route-muted" role="status">Изменение точек недоступно во время активной прогулки.</p> : null}
       <RouteInsights route={route} />
-      <fieldset className="route-correction-bar" disabled={feedbackPending}>
+      <fieldset className="route-correction-bar" disabled={feedbackPending || feedbackSubmitted}>
         <legend>Оценка маршрута</legend>
         <div>{[1, 2, 3, 4, 5].map((value) => <button key={value} type="button" aria-pressed={rating === value} onClick={() => setRating(value)}><Star size={16} /> {value}</button>)}</div>
         {rating && rating <= 3 ? <div>{FEEDBACK_PROBLEMS.map(([value, label]) => <label key={value}><input type="checkbox" checked={feedbackProblems.includes(value)} onChange={(event) => setFeedbackProblems((current) => event.target.checked ? [...current, value] : current.filter((item) => item !== value))} /> {label}</label>)}</div> : null}
+        {feedbackReasonRequired ? <p className="route-muted" role="status">Выберите, что именно не подошло.</p> : null}
         <label>Комментарий<textarea value={feedbackComment} maxLength={1000} onChange={(event) => setFeedbackComment(event.target.value)} /></label>
-        <button type="button" disabled={!rating || feedbackPending} onClick={() => void submitFeedback()}>Отправить отзыв</button>
+        <button type="button" disabled={!rating || feedbackPending || feedbackSubmitted || feedbackReasonRequired} onClick={() => void submitFeedback()}>{feedbackSubmitted ? 'Отзыв отправлен' : 'Отправить отзыв'}</button>
       </fieldset>
-      {feedbackStatus ? <p className="route-feedback-status" aria-live="polite">{feedbackStatus}</p> : null}
+      {feedbackStatus ? <p className="route-feedback-status" role="status" aria-live="polite">{feedbackStatus}</p> : null}
       <RouteDataNotes route={route} />
     </div>
 
