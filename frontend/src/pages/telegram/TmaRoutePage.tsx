@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { addPlaceToUserRoute, correctUserRoute, replacePlaceInUserRoute, updateUserRouteOrder, validateActiveRouteSession } from '../../api/recommendations/recommendationRoute.api'
 import type { ActiveRouteSession, RecommendationRouteResponse, UserRouteCorrectionAction } from '../../api/recommendations/recommendationRoute.types'
 import { EmptyState } from '../../components/ui/EmptyState'
+import { ErrorState } from '../../components/ui/ErrorState'
+import { Skeleton } from '../../components/ui/Skeleton'
 import { getCurrentCity } from '../../shared/city/currentCity'
 import { RouteResultPanel } from '../../widgets/recommendation-route/RouteResultPanel'
 import { clearTmaRoute, clearTmaRouteSession, restoreTmaRoute, restoreTmaRouteSession, saveTmaRoute, saveTmaRouteSession } from './tmaRouteStorage'
@@ -92,20 +94,20 @@ export const TmaRoutePage = () => {
   }
 
   return <TmaShell title="Маршрут">
-    {restoring ? <p role="status" aria-live="polite">Проверяем сохранённый маршрут…</p> : null}
-    {error ? <p className="route-error-inline" role="alert">{error}</p> : null}
-    {recoveryNotice ? <p className="route-start-note" role="status">{recoveryNotice}</p> : null}
+    {restoring ? <div role="status" aria-live="polite" aria-busy="true"><p>Проверяем сохранённый маршрут…</p><Skeleton /><Skeleton /></div> : null}
+    {!restoring && error ? <ErrorState title="Маршрут не обновился" description={error} /> : null}
+    {!restoring && recoveryNotice ? <p className="route-start-note" role="status" aria-live="polite">{recoveryNotice}</p> : null}
     {!restoring && !route ? (
       <EmptyState
         title="Маршрут пока пуст"
         description="Добавьте места из каталога кнопкой «Добавить в маршрут» на странице места."
       />
-    ) : route ? (
+    ) : !restoring && route ? (
       <RouteResultPanel
-        key={`${route.route_id}:${restoring ? 'restoring' : initialSession?.session_id ?? 'none'}`}
+        key={`${route.route_id}:${initialSession?.session_id ?? 'none'}`}
         route={route}
-        loading={loading || restoring}
-        initialSession={restoring ? null : initialSession}
+        loading={loading}
+        initialSession={initialSession}
         onSessionChange={onSessionChange}
         onAddCandidate={(placeId) => void apply(addPlaceToUserRoute(route, placeId))}
         onCorrect={correct}
@@ -132,11 +134,12 @@ export const TmaRoutePage = () => {
         }}
       />
     ) : null}
-    {route ? <button type="button" className="cg-button cg-button--ghost" disabled={loading || restoring} onClick={() => {
+    {!restoring && route ? <button type="button" className="cg-button cg-button--ghost" disabled={loading} onClick={() => {
       clearTmaRoute()
       setRoute(null)
       setInitialSession(null)
       setRecoveryNotice(null)
+      setError(null)
     }}>Очистить маршрут</button> : null}
   </TmaShell>
 }
