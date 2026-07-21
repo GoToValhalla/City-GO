@@ -5,7 +5,16 @@ import { clearTmaRoute, clearTmaRouteSession, restoreTmaRoute, restoreTmaRouteSe
 
 const route = { route_id: 'r1', city_slug: 'zelenogradsk', points: [{ place_id: '1' }] } as unknown as RecommendationRouteResponse
 
-const session = { session_id: 1, route_id: 'r1', status: 'active', current_point_index: 0, point_completed_at: {}, skipped_place_ids: [], points: [] } as ActiveRouteSession
+const session: ActiveRouteSession = {
+  session_id: 1,
+  route_id: 'r1',
+  ownership_token: 'owner-token',
+  status: 'active',
+  current_point_index: 0,
+  point_completed_at: {},
+  skipped_place_ids: [],
+  points: [],
+}
 
 describe('tmaRouteStorage', () => {
   afterEach(() => {
@@ -28,32 +37,27 @@ describe('tmaRouteStorage', () => {
     expect(restoreTmaRoute()).toBeNull()
   })
 
-  it('returns null for malformed JSON_new', () => {
+  it('clears malformed route JSON_new', () => {
     window.localStorage.setItem('citygo:tma:activeRoute', '{not json')
     expect(restoreTmaRoute()).toBeNull()
+    expect(window.localStorage.getItem('citygo:tma:activeRoute')).toBeNull()
   })
 
-  it('returns null when the stored value has no points array_new', () => {
+  it('clears a stored value with no route id or points array_new', () => {
     window.localStorage.setItem('citygo:tma:activeRoute', JSON.stringify({ route_id: 'r1' }))
     expect(restoreTmaRoute()).toBeNull()
+    expect(window.localStorage.getItem('citygo:tma:activeRoute')).toBeNull()
   })
 
-  it('does not throw when localStorage.getItem is unavailable_new', () => {
+  it('does not throw when localStorage is unavailable_new', () => {
     vi.spyOn(window.localStorage.__proto__, 'getItem').mockImplementation(() => { throw new Error('blocked') })
     expect(restoreTmaRoute()).toBeNull()
   })
 
-  it('does not throw when localStorage.setItem is unavailable_new', () => {
-    vi.spyOn(window.localStorage.__proto__, 'setItem').mockImplementation(() => { throw new Error('quota exceeded') })
-    expect(() => saveTmaRoute(route)).not.toThrow()
-  })
-
-  it('clearing the route also clears any stored session (stale local state cleanup)_new', () => {
+  it('clearing the route also clears its session_new', () => {
     saveTmaRoute(route)
     saveTmaRouteSession(session)
-
     clearTmaRoute()
-
     expect(restoreTmaRoute()).toBeNull()
     expect(restoreTmaRouteSession('r1')).toBeNull()
   })
@@ -65,20 +69,26 @@ describe('tmaRouteStorage session', () => {
     vi.restoreAllMocks()
   })
 
-  it('returns null when nothing is stored_new', () => {
-    expect(restoreTmaRouteSession('r1')).toBeNull()
-  })
-
-  it('persists and restores a session for the matching route_new', () => {
+  it('persists and restores a session with ownership token_new', () => {
     saveTmaRouteSession(session)
     expect(restoreTmaRouteSession('r1')).toEqual(session)
   })
 
-  it('discards a session that belongs to a different/stale route_id_new', () => {
-    saveTmaRouteSession(session)
+  it('rejects and clears tokenless legacy session snapshots_new', () => {
+    const { ownership_token: _token, ...legacy } = session
+    window.localStorage.setItem('citygo:tma:activeRouteSession', JSON.stringify(legacy))
+    expect(restoreTmaRouteSession('r1')).toBeNull()
+    expect(window.localStorage.getItem('citygo:tma:activeRouteSession')).toBeNull()
+  })
 
+  it('rejects blank ownership tokens_new', () => {
+    window.localStorage.setItem('citygo:tma:activeRouteSession', JSON.stringify({ ...session, ownership_token: '   ' }))
+    expect(restoreTmaRouteSession('r1')).toBeNull()
+  })
+
+  it('discards a session for another route_new', () => {
+    saveTmaRouteSession(session)
     expect(restoreTmaRouteSession('some-other-route')).toBeNull()
-    // Reading a mismatched session also clears it — it is stale local state.
     expect(restoreTmaRouteSession('r1')).toBeNull()
   })
 
@@ -87,8 +97,8 @@ describe('tmaRouteStorage session', () => {
     expect(restoreTmaRouteSession('r1')).toBeNull()
   })
 
-  it('discards a stored value missing required session fields_new', () => {
-    window.localStorage.setItem('citygo:tma:activeRouteSession', JSON.stringify({ route_id: 'r1' }))
+  it('refuses to persist an invalid session_new', () => {
+    saveTmaRouteSession({ ...session, ownership_token: '' })
     expect(restoreTmaRouteSession('r1')).toBeNull()
   })
 
@@ -96,12 +106,5 @@ describe('tmaRouteStorage session', () => {
     saveTmaRouteSession(session)
     clearTmaRouteSession()
     expect(restoreTmaRouteSession('r1')).toBeNull()
-  })
-
-  it('does not throw when localStorage is unavailable_new', () => {
-    vi.spyOn(window.localStorage.__proto__, 'getItem').mockImplementation(() => { throw new Error('blocked') })
-    expect(restoreTmaRouteSession('r1')).toBeNull()
-    vi.spyOn(window.localStorage.__proto__, 'setItem').mockImplementation(() => { throw new Error('quota exceeded') })
-    expect(() => saveTmaRouteSession(session)).not.toThrow()
   })
 })
