@@ -13,6 +13,9 @@ export const TmaPlacesPage = () => {
   const [city, setCity] = useState(getCurrentCity())
   const navigate = useNavigate()
   const { error, hasMore, loading, loadMore, places, retry } = usePlacesPagination(city.slug)
+  const initialLoading = loading && places.length === 0
+  const initialError = Boolean(error && places.length === 0)
+  const incrementalError = Boolean(error && places.length > 0)
 
   useEffect(() => {
     const syncCity = () => setCity(getCurrentCity())
@@ -21,11 +24,11 @@ export const TmaPlacesPage = () => {
   }, [])
 
   return <TmaShell title={`Места: ${city.name}`}>
-    {error ? <ErrorState title="Не удалось загрузить места" description={error} retryLabel="Повторить" onRetry={retry} /> : null}
-    {!error && loading && places.length === 0 ? <div className="tma-place-card-list"><Skeleton /><Skeleton /><Skeleton /></div> : null}
-    {!error && !loading && places.length === 0 ? <EmptyState title="Мест пока нет" description="В этом городе ещё нет опубликованных мест." /> : null}
-    {!error && places.length > 0 ? (
-      <div className="tma-place-card-list">
+    {initialError ? <ErrorState title="Не удалось загрузить места" description={error ?? undefined} retryLabel="Повторить" onRetry={retry} /> : null}
+    {initialLoading ? <div className="tma-place-card-list" role="status" aria-live="polite" aria-busy="true"><p>Загружаем места…</p><Skeleton /><Skeleton /><Skeleton /></div> : null}
+    {!initialError && !initialLoading && places.length === 0 ? <EmptyState title="Мест пока нет" description="В этом городе ещё нет опубликованных мест." /> : null}
+    {places.length > 0 ? (
+      <div className="tma-place-card-list" aria-busy={loading}>
         {places.map((place) => (
           <button key={place.id} type="button" className="tma-place-card" onClick={() => navigate(`/telegram/places/${place.slug}`)}>
             {place.image_url ? <img src={place.image_url} alt="" loading="lazy" /> : <span className="telegram-map-pin" aria-hidden="true" />}
@@ -37,6 +40,7 @@ export const TmaPlacesPage = () => {
         ))}
       </div>
     ) : null}
-    {!error ? <PlacesLoadMoreTrigger onVisible={loadMore} loading={loading} hasMore={hasMore} /> : null}
+    {incrementalError ? <ErrorState title="Не удалось загрузить ещё места" description={error ?? undefined} retryLabel="Повторить" onRetry={retry} /> : null}
+    {!error && places.length > 0 ? <PlacesLoadMoreTrigger onVisible={loadMore} loading={loading} hasMore={hasMore} /> : null}
   </TmaShell>
 }
