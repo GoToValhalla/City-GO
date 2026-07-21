@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildRecommendationRoute, correctUserRoute } from './recommendationRoute.api'
-import type { RecommendationRouteRequest } from './recommendationRoute.types'
+import {
+  buildRecommendationRoute,
+  correctUserRoute,
+  startActiveRouteSession,
+  updateActiveRouteSession,
+  validateActiveRouteSession,
+} from './recommendationRoute.api'
+import type { ActiveRouteSession, RecommendationRouteRequest, RecommendationRouteResponse } from './recommendationRoute.types'
 
 const payload: RecommendationRouteRequest = {
   lat: 54.96, lng: 20.48, time_budget_minutes: 120, interests: ['coffee'],
@@ -8,7 +14,7 @@ const payload: RecommendationRouteRequest = {
   is_visiting: false, city_id: null, visit_city_id: null, visit_days: null, user_id: null,
 }
 
-const emptyRoute = {
+const emptyRoute: RecommendationRouteResponse = {
   route_id: 'r1',
   total_places: 0,
   total_minutes: 0,
@@ -22,18 +28,27 @@ const emptyRoute = {
   explanation: {},
 }
 
+const session: ActiveRouteSession = {
+  session_id: 7,
+  route_id: 'r1',
+  ownership_token: 'owner-token',
+  status: 'active',
+  current_point_index: 0,
+  point_completed_at: {},
+  skipped_place_ids: [],
+  points: [],
+}
+
 describe('recommendationRoute.api', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
   it('posts route request to user routes build endpoint', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(emptyRoute), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    )
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(emptyRoute), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
 
     const result = await buildRecommendationRoute(payload)
 
@@ -46,21 +61,17 @@ describe('recommendationRoute.api', () => {
 
   it('throws error when build response is not ok', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 500 }))
-
     await expect(buildRecommendationRoute(payload)).rejects.toThrow('HTTP 500')
   })
 
   it('does not build demo route when backend is unavailable', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'))
-
     await expect(buildRecommendationRoute(payload)).rejects.toThrow('Failed to fetch')
   })
 
   it('posts route correction with first place as remove target', async () => {
     const mockData = { ...emptyRoute, revision: 2 }
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify(mockData), { status: 200 }),
-    )
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(mockData), { status: 200 }))
 
     await correctUserRoute({
       ...mockData,
@@ -69,16 +80,46 @@ describe('recommendationRoute.api', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/v1/user-routes/correct',
-      expect.objectContaining({
-        body: expect.stringContaining('"target_place_id":"p1"'),
-        method: 'POST',
-      }),
+      expect.objectContaining({ body: expect.stringContaining('"target_place_id":"p1"'), method: 'POST' }),
     )
   })
 
-  it('does not correct demo route when backend is unavailable', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'))
+  it('requires backend to return ownership token when a session starts_new', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ...session, ownership_token: '' }), { status: 200 }))
+    await expect(startActiveRouteSession(emptyRoute)).rejects.toThrow('ownership token is missing')
+  })
 
-    await expect(correctUserRoute({ ...emptyRoute, points: [] }, 'extend_route')).rejects.toThrow('Failed to fetch')
+  it('sends ownership header on session reclaim_new', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(session), { status: 200 }))
+    await startActiveRouteSession(emptyRoute, 'owner-token')
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/v1/user-routes/r1/session/start',
+      expect.objectContaining({ headers: expect.objectContaining({ 'X-Route-Session': 'owner-token' }) }),
+    )
+  })
+
+  it('sends ownership header on session action and preserves token when omitted_new', async () => {
+    const { ownership_token: _ownershipToken, ...responseSession } = session
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(responseSession), { status: 200 }))
+    const result = await updateActiveRouteSession(session, 'pause')
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/v1/user-routes/sessions/7/action',
+      expect.objectContaining({ headers: expect.objectContaining({ 'X-Route-Session': 'owner-token' }) }),
+    )
+    expect(result.ownership_token).toBe('owner-token')
+  })
+
+  it('validates restored session through canonical endpoint_new', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ route_id: 'r1' }), { status: 200 }))
+    await validateActiveRouteSession(session)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/route-sessions/7',
+      { method: 'GET', headers: { 'X-Route-Session': 'owner-token' } },
+    )
+  })
+
+  it('rejects restored session when canonical route id differs_new', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ route_id: 'another-route' }), { status: 200 }))
+    await expect(validateActiveRouteSession(session)).rejects.toThrow('does not belong')
   })
 })
