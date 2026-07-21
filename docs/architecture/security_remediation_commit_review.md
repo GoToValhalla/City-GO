@@ -47,6 +47,12 @@ only its Docker bridge range; direct clients cannot select a forged limiter key.
 The migration uses Alembic transactional DDL and guarded column/index creation.
 Legacy `route_drafts.session_token` is hashed and cleared in the same `UPDATE`.
 An injected trigger failure proves the whole migration rolls back, including DDL
-and `alembic_version`. Rerun at head is a no-op. Downgrade is supported for the
-revision-owned hash columns/indexes only; it cannot restore deliberately erased
-plaintext secrets and therefore is a schema rollback, not credential recovery.
+and `alembic_version`. Rerun at head is a no-op. `downgrade()` is intentionally
+irreversible: it raises a clear error before any DDL runs, instead of dropping
+`session_token_hash` — since the raw token is destroyed in `upgrade()`, dropping
+the hash column would permanently and silently erase the only remaining
+ownership record for every draft this migration touched. Historical
+`route_sessions` rows with no `ownership_token_hash` (no raw token was ever
+issued for them) are explicitly transitioned to the terminal `abandoned` status
+with a recorded `abandon_reason`, so they become honestly terminal instead of
+permanently unreachable.

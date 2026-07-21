@@ -2,34 +2,43 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from core import abuse_control
-from core.abuse_control import AbuseControlMiddleware, reset_abuse_control_store
-from core.abuse.proxy_client import client_ip
-from core.abuse.rate_limit_store import AbuseControlStore
-from starlette.requests import Request
-from fastapi.routing import APIRoute
-from core.admin_auth import admin_required
-from main import app as production_app
-from main import _warn_for_multi_worker_rate_limiting
 from concurrent.futures import ThreadPoolExecutor
 
+from fastapi import FastAPI
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
+from starlette.requests import Request
 
-def test_abuse_control_rate_limits_and_payload_new(monkeypatch) -> None:
+from core import abuse_control
+from core.abuse.proxy_client import client_ip
+from core.abuse.rate_limit_store import AbuseControlStore
+from core.abuse_control import AbuseControlMiddleware, reset_abuse_control_store
+from core.admin_auth import admin_required
+from main import _warn_for_multi_worker_rate_limiting
+from main import app as production_app
+
+
+def test_abuse_control_rate_limits_and_payload_new() -> None:
     reset_abuse_control_store()
-    monkeypatch.setattr(abuse_control, "_is_test_request", lambda: False)
     app = FastAPI()
     app.add_middleware(AbuseControlMiddleware)
 
     @app.post("/routes/random")
-    def random_route() -> dict[str, str]:
-        return {"ok": "1"}
+    async def random_route(request: Request) -> dict[str, int]:
+        return {"bytes": len(await request.body())}
 
     client = TestClient(app)
     too_large = client.post("/routes/random", headers={"content-length": "999999"}, content=b"x")
     assert too_large.status_code == 413
+
+    # Actual bytes are authoritative even when the client does not provide a
+    # trustworthy Content-Length value.
+    streamed = client.post(
+        "/routes/random",
+        content=(b"x" * 64_000 for _ in range(5)),
+        headers={"transfer-encoding": "chunked"},
+    )
+    assert streamed.status_code == 413
 
     statuses = [client.post("/routes/random", json={}).status_code for _ in range(35)]
     assert 429 in statuses
@@ -82,11 +91,21 @@ def test_rate_limit_store_serializes_concurrent_hits_new() -> None:
     assert sum(allowed) == 20
 
 
-def test_recommendation_aliases_have_equal_limits_new() -> None:
+def test_recommendation_aliases_share_policy_bucket_new() -> None:
     canonical = abuse_control.match_rule("/recommendations/route", "POST")
     alias = abuse_control.match_rule("/v1/recommendations/route", "POST")
     assert canonical is not None and alias is not None
-    assert (canonical.limit, canonical.window_seconds) == (alias.limit, alias.window_seconds)
+    assert (canonical.limit, canonical.window_seconds, canonical.key) == (
+        alias.limit,
+        alias.window_seconds,
+        alias.key,
+    )
+
+
+def test_prefix_matching_is_path_segment_safe_new() -> None:
+    assert abuse_control.match_rule("/routes/random", "POST") is not None
+    assert abuse_control.match_rule("/routes-random", "POST") is None
+    assert abuse_control.match_rule("/ai-malicious", "POST") is None
 
 
 def test_multi_worker_configuration_emits_warning_new(monkeypatch, caplog) -> None:

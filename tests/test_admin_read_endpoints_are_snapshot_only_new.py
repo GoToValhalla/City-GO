@@ -36,16 +36,23 @@ def test_route_readiness_get_uses_snapshot_reader_not_live_compute():
     assert "compute_city_readiness" not in source
 
 
-def test_heavy_admin_posts_queue_background_operations():
+def test_heavy_admin_posts_enqueue_durable_operations():
     background_router = (ROOT / "routers" / "admin_background_operations.py").read_text(encoding="utf-8")
     readiness_router = (ROOT / "routers" / "admin_route_eligibility.py").read_text(encoding="utf-8")
     address_router = (ROOT / "routers" / "admin_place_ops.py").read_text(encoding="utf-8")
     address_service = (ROOT / "services" / "admin_address_job_service.py").read_text(encoding="utf-8")
+    queue_service = (ROOT / "services" / "admin_background_operation_service.py").read_text(encoding="utf-8")
 
     assert '@router.post("/coverage-gaps/refresh")' in background_router
     assert '@router.post("/city-readiness/recalculate")' in background_router
-    assert "background_tasks.add_task(run_background_operation" in background_router
-    assert "background_tasks.add_task(run_background_operation" in readiness_router
+    assert "create_background_operation(" in background_router
+    assert "create_background_operation(" in readiness_router
+    assert "BackgroundTasks" not in background_router
+    assert "BackgroundTasks" not in readiness_router
+    assert "background_tasks.add_task(run_background_operation" not in background_router
+    assert "background_tasks.add_task(run_background_operation" not in readiness_router
+    assert "run_queued_background_operations" in queue_service
+    assert "claim_next_background_operation" in queue_service
     assert "background_tasks.add_task(run_address_refresh_operation" in address_router
-    assert "status=\"queued\"" in address_service
+    assert 'status="queued"' in address_service
     assert "_run_refresh(" not in address_service.split("def queue_address_refresh", 1)[1].split("def run_address_refresh_operation", 1)[0]

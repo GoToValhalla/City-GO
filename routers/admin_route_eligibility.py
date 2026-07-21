@@ -1,7 +1,7 @@
 """Admin: eligibility list, data quality, city readiness."""
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy.orm import Session, sessionmaker
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
@@ -20,7 +20,6 @@ from services.admin_background_operation_service import (
     OP_CITY_READINESS_RECALCULATE,
     create_background_operation,
     operation_payload,
-    run_background_operation,
 )
 from services.city_readiness import city_readiness_snapshot, list_cities_readiness
 from services.route_data_quality import build_route_data_quality_report
@@ -159,7 +158,6 @@ def list_city_readiness(
 @router.post("/readiness/{city_slug}/recalculate")
 def recalculate_city_readiness(
     city_slug: str,
-    background_tasks: BackgroundTasks,
     body: dict[str, object] | None = None,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
@@ -176,8 +174,6 @@ def recalculate_city_readiness(
             "recalculate_place_scores": body.get("recalculate_place_scores") is not False,
         },
     )
-    if op.status == "queued":
-        background_tasks.add_task(run_background_operation, op.id, sessionmaker(bind=db.get_bind()))
     return operation_payload(op) or {}
 
 

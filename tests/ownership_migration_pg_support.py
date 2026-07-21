@@ -2,17 +2,37 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import URL, create_engine, text
 
 DB_NAME = "city_go_ownership_migration_pytest"
-DB_URL = f"postgresql+psycopg://user@localhost:5432/{DB_NAME}"
+PGHOST = os.getenv("OWNERSHIP_MIGRATION_PGHOST", "localhost")
+PGPORT = os.getenv("OWNERSHIP_MIGRATION_PGPORT", "5432")
+PGUSER = os.getenv("OWNERSHIP_MIGRATION_PGUSER", "user")
+PGPASSWORD = os.getenv("OWNERSHIP_MIGRATION_PGPASSWORD", "")
+DB_URL = URL.create(
+    "postgresql+psycopg",
+    username=PGUSER,
+    password=PGPASSWORD or None,
+    host=PGHOST,
+    port=int(PGPORT),
+    database=DB_NAME,
+)
+DATABASE_URL = DB_URL.render_as_string(hide_password=False)
 PREDECESSOR = "de447288c917"
-HEAD = "b7e4f1a9082c"
+OWNERSHIP_REVISION = "b7e4f1a9082c"
 
 
 def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "DATABASE_URL": DB_URL}
+    env = {
+        **os.environ,
+        "DATABASE_URL": DATABASE_URL,
+        "PGHOST": PGHOST,
+        "PGPORT": PGPORT,
+        "PGUSER": PGUSER,
+        "PGPASSWORD": PGPASSWORD,
+    }
     return subprocess.run(args, check=check, text=True, capture_output=True, env=env)
 
 
@@ -22,13 +42,13 @@ def recreate_database() -> None:
 
 
 def drop_database() -> None:
-    run("dropdb", "--if-exists", "--force", DB_NAME)
+    run("dropdb", "--if-exists", "--force", DB_NAME, check=False)
 
 
 def alembic(target: str, *, check: bool = True) -> subprocess.CompletedProcess[str]:
     command = "downgrade" if target == "downgrade" else "upgrade"
     revision = PREDECESSOR if target == "downgrade" else target
-    return run(".venv/bin/alembic", command, revision, check=check)
+    return run(sys.executable, "-m", "alembic", command, revision, check=check)
 
 
 def execute(statement: str) -> None:

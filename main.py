@@ -10,24 +10,19 @@ from sqlalchemy.orm import Session
 from starlette.requests import Request
 from starlette.responses import Response
 
-from core.cors import parse_cors_origins
 from core.abuse_control import AbuseControlMiddleware
+from core.admin_background_operation_scheduler import (
+    start_admin_background_operation_scheduler,
+    stop_admin_background_operation_scheduler,
+)
+from core.cors import parse_cors_origins
 from core.config import settings
-from core.import_worker_scheduler import (
-    start_import_worker_scheduler,
-    stop_import_worker_scheduler,
-)
-from core.place_verification_scheduler import (
-    start_place_verification_scheduler,
-    stop_place_verification_scheduler,
-)
+from core.import_worker_scheduler import start_import_worker_scheduler, stop_import_worker_scheduler
+from core.place_verification_scheduler import start_place_verification_scheduler, stop_place_verification_scheduler
 from core.public_access_middleware import public_access_middleware
 from core.readiness import check_database_ready
 from core.request_logging import log_request
-from core.route_state_cleanup_scheduler import (
-    start_route_state_cleanup_scheduler,
-    stop_route_state_cleanup_scheduler,
-)
+from core.route_state_cleanup_scheduler import start_route_state_cleanup_scheduler, stop_route_state_cleanup_scheduler
 from core.router_setup import include_app_routers
 from core.safe_errors import install_public_exception_handlers
 from core.version import get_backend_version
@@ -57,6 +52,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     start_place_verification_scheduler()
     start_import_worker_scheduler()
     start_route_state_cleanup_scheduler()
+    start_admin_background_operation_scheduler()
     try:
         yield
     finally:
@@ -66,12 +62,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 async def _stop_schedulers() -> None:
     """Stop every owned scheduler even if an earlier stop raises or is cancelled."""
     try:
-        await stop_route_state_cleanup_scheduler()
+        await stop_admin_background_operation_scheduler()
     finally:
         try:
-            await stop_import_worker_scheduler()
+            await stop_route_state_cleanup_scheduler()
         finally:
-            await stop_place_verification_scheduler()
+            try:
+                await stop_import_worker_scheduler()
+            finally:
+                await stop_place_verification_scheduler()
 
 
 def _is_production() -> bool:
@@ -88,11 +87,7 @@ def _warn_for_multi_worker_rate_limiting() -> None:
         logger.warning("In-memory rate limits are process-local; WEB_CONCURRENCY=%d weakens aggregate limits", worker_count)
 
 
-app = FastAPI(
-    title=settings.app_name,
-    version="0.1.0",
-    lifespan=lifespan,
-)
+app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 
 install_public_exception_handlers(app)
 
@@ -140,10 +135,7 @@ def ready() -> JSONResponse | dict[str, str]:
     db_ready, reason = check_database_ready()
     if db_ready:
         return {"status": "ok", "database": "ok"}
-    return JSONResponse(
-        status_code=503,
-        content={"status": "error", "database": reason},
-    )
+    return JSONResponse(status_code=503, content={"status": "error", "database": reason})
 
 
 @app.get("/features/public")
