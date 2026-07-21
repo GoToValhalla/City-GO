@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { addPlaceToUserRoute, correctUserRoute, replacePlaceInUserRoute, updateUserRouteOrder } from '../../api/recommendations/recommendationRoute.api'
+import { addPlaceToUserRoute, correctUserRoute, replacePlaceInUserRoute, updateUserRouteOrder, validateActiveRouteSession } from '../../api/recommendations/recommendationRoute.api'
 import type { ActiveRouteSession, RecommendationRouteResponse, UserRouteCorrectionAction } from '../../api/recommendations/recommendationRoute.types'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { getCurrentCity } from '../../shared/city/currentCity'
@@ -10,19 +10,55 @@ import { TmaShell } from './TmaShell'
 export const TmaRoutePage = () => {
   const [route, setRoute] = useState<RecommendationRouteResponse | null>(null)
   const [initialSession, setInitialSession] = useState<ActiveRouteSession | null>(null)
+  const [restoring, setRestoring] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null)
 
   useEffect(() => {
-    const city = getCurrentCity()
-    const restored = restoreTmaRoute()
-    const matchesCity = restored && restored.city_slug === city.slug
-    setRoute(matchesCity ? restored : null)
-    // A route for a different/no-longer-restorable city means its session
-    // (if any) is stale local state too — never show progress for a route
-    // that is no longer the active one.
-    setInitialSession(matchesCity ? restoreTmaRouteSession(restored!.route_id) : null)
-    if (!matchesCity) clearTmaRouteSession()
+    let cancelled = false
+
+    const restore = async () => {
+      const city = getCurrentCity()
+      const restoredRoute = restoreTmaRoute()
+      const matchesCity = Boolean(restoredRoute && restoredRoute.city_slug === city.slug)
+
+      if (!matchesCity || !restoredRoute) {
+        if (restoredRoute) clearTmaRoute()
+        else clearTmaRouteSession()
+        if (!cancelled) {
+          setRoute(null)
+          setInitialSession(null)
+          setRestoring(false)
+        }
+        return
+      }
+
+      const restoredSession = restoreTmaRouteSession(restoredRoute.route_id)
+      if (!cancelled) setRoute(restoredRoute)
+
+      if (!restoredSession) {
+        if (!cancelled) setRestoring(false)
+        return
+      }
+
+      try {
+        await validateActiveRouteSession(restoredSession)
+        if (!cancelled) setInitialSession(restoredSession)
+      } catch (restoreError) {
+        console.error(restoreError)
+        clearTmaRouteSession()
+        if (!cancelled) {
+          setInitialSession(null)
+          setRecoveryNotice('Сохранённую прогулку не удалось продолжить. Маршрут можно начать заново.')
+        }
+      } finally {
+        if (!cancelled) setRestoring(false)
+      }
+    }
+
+    void restore()
+    return () => { cancelled = true }
   }, [])
 
   const onSessionChange = (session: ActiveRouteSession | null) => {
@@ -31,41 +67,49 @@ export const TmaRoutePage = () => {
   }
 
   const apply = async (operation: Promise<RecommendationRouteResponse>) => {
+    if (loading) return
     try {
       setLoading(true)
       setError(null)
       const next = await operation
       setRoute(next)
       saveTmaRoute(next)
-    } catch (err) {
-      console.error(err)
-      setError('Не удалось обновить маршрут')
+      if (initialSession && initialSession.route_id !== next.route_id) {
+        clearTmaRouteSession()
+        setInitialSession(null)
+      }
+    } catch (applyError) {
+      console.error(applyError)
+      setError('Не удалось обновить маршрут. Повторите действие.')
     } finally {
       setLoading(false)
     }
   }
 
   const correct = (action: UserRouteCorrectionAction, targetPlaceId?: string | null) => {
-    if (!route) return
+    if (!route || loading) return
     void apply(correctUserRoute(route, action, targetPlaceId))
   }
 
   return <TmaShell title="Маршрут">
-    {error ? <p className="route-error-inline">{error}</p> : null}
-    {!route ? (
+    {restoring ? <p role="status" aria-live="polite">Проверяем сохранённый маршрут…</p> : null}
+    {error ? <p className="route-error-inline" role="alert">{error}</p> : null}
+    {recoveryNotice ? <p className="route-start-note" role="status">{recoveryNotice}</p> : null}
+    {!restoring && !route ? (
       <EmptyState
         title="Маршрут пока пуст"
         description="Добавьте места из каталога кнопкой «Добавить в маршрут» на странице места."
       />
-    ) : (
+    ) : route ? (
       <RouteResultPanel
         route={route}
-        loading={loading}
-        initialSession={initialSession}
+        loading={loading || restoring}
+        initialSession={restoring ? null : initialSession}
         onSessionChange={onSessionChange}
         onAddCandidate={(placeId) => void apply(addPlaceToUserRoute(route, placeId))}
         onCorrect={correct}
         onMovePoint={(placeId, direction) => {
+          if (loading) return
           const index = route.points.findIndex((point) => point.place_id === placeId)
           const swapIndex = direction === 'up' ? index - 1 : index + 1
           if (index < 0 || swapIndex < 0 || swapIndex >= route.points.length) return
@@ -77,12 +121,21 @@ export const TmaRoutePage = () => {
         }}
         onRemovePoint={(placeId) => correct('remove_place', placeId)}
         onReplacePoint={(placeId) => {
+          if (loading) return
           const candidate = route.candidate_options?.find((point) => !route.points.some((current) => current.place_id === point.place_id))
-          if (!candidate) { correct('remove_place', placeId); return }
+          if (!candidate) {
+            correct('remove_place', placeId)
+            return
+          }
           void apply(replacePlaceInUserRoute(route, placeId, candidate.place_id))
         }}
       />
-    )}
-    {route ? <button type="button" className="cg-button cg-button--ghost" onClick={() => { clearTmaRoute(); setRoute(null); setInitialSession(null) }}>Очистить маршрут</button> : null}
+    ) : null}
+    {route ? <button type="button" className="cg-button cg-button--ghost" disabled={loading || restoring} onClick={() => {
+      clearTmaRoute()
+      setRoute(null)
+      setInitialSession(null)
+      setRecoveryNotice(null)
+    }}>Очистить маршрут</button> : null}
   </TmaShell>
 }
