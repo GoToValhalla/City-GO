@@ -1,3 +1,4 @@
+/* @vitest-environment jsdom */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ActiveRouteSession, RecommendationRouteResponse } from '../../api/recommendations/recommendationRoute.types'
@@ -67,18 +68,21 @@ describe('RouteResultPanel active session controls', () => {
     expect(screen.getByRole('button', { name: /начать маршрут/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /я на месте/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /пропустить/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^пауза$/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /завершить маршрут/i })).toBeDisabled()
-    expect(screen.queryByRole('button', { name: /^пауза$/i })).not.toBeInTheDocument()
   })
 
-  it('exposes only valid active-session transitions', () => {
+  it('exposes only valid active-session transitions and locks route edits', () => {
     renderPanel(session('active'))
     expect(screen.queryByRole('button', { name: /начать маршрут/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /пересобрать/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /добавить место/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /я на месте/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /пропустить/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /^пауза$/i })).toBeEnabled()
     expect(screen.queryByRole('button', { name: /продолжить/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /завершить маршрут/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /закрыть прогулку/i })).toBeEnabled()
   })
 
   it('uses resume rather than pause for a paused session', async () => {
@@ -86,10 +90,10 @@ describe('RouteResultPanel active session controls', () => {
     renderPanel(session('paused'))
     expect(screen.queryByRole('button', { name: /^пауза$/i })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /продолжить/i }))
-    await waitFor(() => expect(updateActiveRouteSession).toHaveBeenCalledWith(expect.objectContaining({ status: 'paused' }), 'resume', '1'))
+    await waitFor(() => expect(updateActiveRouteSession).toHaveBeenCalledWith(expect.objectContaining({ status: 'paused' }), 'resume'))
   })
 
-  it('blocks terminal mutations and starts a new session explicitly', async () => {
+  it('blocks terminal mutations and starts a new session without reclaiming the terminal token', async () => {
     const restarted = session('active')
     vi.mocked(startActiveRouteSession).mockResolvedValue(restarted)
     renderPanel(session('completed'))
@@ -97,6 +101,6 @@ describe('RouteResultPanel active session controls', () => {
     expect(screen.getByRole('button', { name: /пропустить/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /завершить маршрут/i })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: /начать заново/i }))
-    await waitFor(() => expect(startActiveRouteSession).toHaveBeenCalledWith(route, 'owner-token'))
+    await waitFor(() => expect(startActiveRouteSession).toHaveBeenCalledWith(route))
   })
 })
