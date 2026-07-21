@@ -18,6 +18,7 @@ class RouteSession(Base):
     user_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     ownership_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
+    abandon_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     current_point_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     visited_point_indexes: Mapped[list[int]] = mapped_column(_json, default=list, nullable=False)
     skipped_point_indexes: Mapped[list[int]] = mapped_column(_json, default=list, nullable=False)

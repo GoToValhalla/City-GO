@@ -21,7 +21,7 @@ DB_URL = URL.create(
 )
 DATABASE_URL = DB_URL.render_as_string(hide_password=False)
 PREDECESSOR = "de447288c917"
-HEAD = "b7e4f1a9082c"
+OWNERSHIP_REVISION = "b7e4f1a9082c"
 
 
 def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
