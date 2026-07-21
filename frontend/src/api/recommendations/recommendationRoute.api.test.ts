@@ -84,18 +84,20 @@ describe('recommendationRoute.api', () => {
     )
   })
 
-  it('requires backend to return ownership token when a session starts_new', async () => {
+  it('requires a new session response to contain an ownership token_new', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ ...session, ownership_token: '' }), { status: 200 }))
     await expect(startActiveRouteSession(emptyRoute)).rejects.toThrow('ownership token is missing')
   })
 
-  it('sends ownership header on session reclaim_new', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(session), { status: 200 }))
-    await startActiveRouteSession(emptyRoute, 'owner-token')
+  it('sends ownership header on session reclaim and preserves the supplied token_new', async () => {
+    const { ownership_token: _ownershipToken, ...responseSession } = session
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(responseSession), { status: 200 }))
+    const result = await startActiveRouteSession(emptyRoute, 'owner-token')
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/v1/user-routes/r1/session/start',
       expect.objectContaining({ headers: expect.objectContaining({ 'X-Route-Session': 'owner-token' }) }),
     )
+    expect(result.ownership_token).toBe('owner-token')
   })
 
   it('sends ownership header on session action and preserves token when omitted_new', async () => {
@@ -109,8 +111,8 @@ describe('recommendationRoute.api', () => {
     expect(result.ownership_token).toBe('owner-token')
   })
 
-  it('validates restored session through canonical endpoint_new', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ route_id: 'r1' }), { status: 200 }))
+  it('validates restored session through the ownership-protected canonical endpoint_new', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ route_id: 42 }), { status: 200 }))
     await validateActiveRouteSession(session)
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/route-sessions/7',
@@ -118,8 +120,19 @@ describe('recommendationRoute.api', () => {
     )
   })
 
-  it('rejects restored session when canonical route id differs_new', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ route_id: 'another-route' }), { status: 200 }))
-    await expect(validateActiveRouteSession(session)).rejects.toThrow('does not belong')
+  it('rejects restored session when ownership validation fails_new', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ detail: 'Route session not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    await expect(validateActiveRouteSession(session)).rejects.toMatchObject({ status: 404 })
+  })
+
+  it('fails locally before requests when an ownership token is missing_new', async () => {
+    const tokenless = { ...session, ownership_token: undefined }
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    await expect(validateActiveRouteSession(tokenless)).rejects.toThrow('ownership token is missing')
+    await expect(updateActiveRouteSession(tokenless, 'pause')).rejects.toThrow('ownership token is missing')
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
