@@ -1,9 +1,23 @@
 from __future__ import annotations
 
 import hashlib
+import os
+
+import pytest
 
 from tests.ownership_migration_pg_support import (
-    HEAD, PREDECESSOR, alembic, drop_database, execute, recreate_database, scalar,
+    HEAD,
+    PREDECESSOR,
+    alembic,
+    drop_database,
+    execute,
+    recreate_database,
+    scalar,
+)
+
+pytestmark = pytest.mark.skipif(
+    not os.getenv("ROUTE_OWNERSHIP_MIGRATION_POSTGRES"),
+    reason="requires explicit PostgreSQL migration harness",
 )
 
 
@@ -34,6 +48,9 @@ def test_route_ownership_migration_postgres_new() -> None:
         assert failed.returncode != 0
         assert scalar("SELECT version_num FROM alembic_version") == PREDECESSOR
         assert scalar("SELECT session_token FROM route_drafts WHERE random_seed=8") == "rollback-token"
-        assert scalar("SELECT COUNT(*) FROM information_schema.columns WHERE table_name='route_drafts' AND column_name='session_token_hash'") == 0
+        assert scalar(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_name='route_drafts' AND column_name='session_token_hash'"
+        ) == 0
     finally:
         drop_database()
