@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import '@testing-library/jest-dom/vitest'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ActiveRouteSession, RecommendationRouteResponse } from '../../api/recommendations/recommendationRoute.types'
 import { RouteResultPanel } from './RouteResultPanel'
 
@@ -59,6 +60,8 @@ const renderPanel = (initialSession: ActiveRouteSession | null = null) => render
 )
 
 describe('RouteResultPanel active session controls', () => {
+  afterEach(() => cleanup())
+
   it('requires an explicit start before progress actions_new', () => {
     renderPanel()
     expect(screen.getByRole('button', { name: /Начать маршрут/ })).toBeEnabled()

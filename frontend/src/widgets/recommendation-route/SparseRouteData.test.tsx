@@ -1,6 +1,7 @@
 /* @vitest-environment jsdom */
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import '@testing-library/jest-dom/vitest'
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RecommendationRoutePoint } from '../../api/recommendations/recommendationRoute.types'
 import { RouteCandidateOptions } from './RouteCandidateOptions'
 import { RoutePointList } from './RoutePointList'
@@ -21,6 +22,8 @@ const sparsePoint = {
 } as unknown as RecommendationRoutePoint
 
 describe('sparse route data', () => {
+  afterEach(() => cleanup())
+
   it('renders route point fallbacks without throwing_new', () => {
     render(<RoutePointList points={[sparsePoint]} />)
     expect(screen.getByText('Категория уточняется')).toBeInTheDocument()

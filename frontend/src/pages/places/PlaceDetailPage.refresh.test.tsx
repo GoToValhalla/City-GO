@@ -23,9 +23,13 @@ describe('PlaceDetailPage refresh', () => {
   it('renders skeleton and refreshes open detail every 45 seconds', async () => {
     vi.useFakeTimers()
     mockGet.mockResolvedValue(place)
-    render(<MemoryRouter initialEntries={['/places/museum']}><Routes><Route path="/places/:slug" element={<PlaceDetailPage />} /></Routes></MemoryRouter>)
+    const { container } = render(<MemoryRouter initialEntries={['/places/museum']}><Routes><Route path="/places/:slug" element={<PlaceDetailPage />} /></Routes></MemoryRouter>)
 
-    expect(screen.getAllByLabelText('Загрузка карточки')).toHaveLength(2)
+    // Skeletons are decorative and intentionally aria-hidden (Stage 4.2:
+    // "keep skeletons presentation-only") -- they are not meant to be
+    // individually announced to screen readers, so they are asserted by
+    // structure rather than by accessible name/label.
+    expect(container.querySelectorAll('.place-detail-loading [aria-hidden="true"]')).toHaveLength(2)
     await act(async () => { await Promise.resolve() })
     expect(screen.getByRole('heading', { name: 'Музей' })).toBeInTheDocument()
 

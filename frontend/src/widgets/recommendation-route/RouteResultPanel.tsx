@@ -202,7 +202,13 @@ export const RouteResultPanel = ({
   const hasPoints = route.points.length > 0
   const meaningfulRoute = route.points.length >= 2
   const routeFailed = ROUTE_FAILURE_STATUSES.has(routeStatus)
-  const routeStartable = (routeUiStatus === 'ready' || routeUiStatus === 'partial') && meaningfulRoute
+  // A failed or unrecognized/missing status means there is nothing
+  // startable regardless of point count -- the start affordance must not
+  // exist at all. A valid (ready/partial) status with too few points is a
+  // different case: the route is real, just not full yet, so the
+  // affordance stays visible and explains itself via disabled state.
+  const startEligibleStatus = routeUiStatus === 'ready' || routeUiStatus === 'partial'
+  const routeStartable = startEligibleStatus && meaningfulRoute
   const isPartial = routeUiStatus === 'partial'
   const debug = isDebugEnabled()
   const quality = route.quality_score ?? 0
@@ -253,7 +259,10 @@ export const RouteResultPanel = ({
       if (isSessionInvalidError(error)) {
         setSession(null)
         setSessionInvalid(true)
-        setSessionStatus('Сохранённая прогулка больше не действует. Начните маршрут заново.')
+        // sessionCopy already renders this exact message once sessionInvalid
+        // is true -- setting sessionStatus to the same text would render it
+        // a second time in a separate element.
+        setSessionStatus(null)
       } else {
         setSessionStatus('Не удалось начать маршрут. Попробуйте ещё раз.')
       }
@@ -275,7 +284,10 @@ export const RouteResultPanel = ({
       if (isSessionInvalidError(error) || !session.ownership_token?.trim()) {
         setSession(null)
         setSessionInvalid(true)
-        setSessionStatus('Сохранённая прогулка больше не действует. Начните маршрут заново.')
+        // sessionCopy already renders this exact message once sessionInvalid
+        // is true -- setting sessionStatus to the same text would render it
+        // a second time in a separate element.
+        setSessionStatus(null)
       } else {
         setSessionStatus('Не удалось обновить прогулку. Повторите действие.')
       }
@@ -319,7 +331,9 @@ export const RouteResultPanel = ({
         <button type="button" disabled={loading || routeEditingLocked} onClick={() => onCorrect('rebuild_from_here')}><RefreshCw size={16} /> Пересобрать</button>
         <button type="button" disabled={loading || routeEditingLocked} onClick={() => onCorrect('extend_route')}><Plus size={16} /> Добавить место</button>
         <button type="button" disabled={loading || routeEditingLocked || !route.points[0]} onClick={() => route.points[0] && onReplacePoint?.(route.points[0].place_id)}><Wand2 size={16} /> Заменить точку</button>
-        {hasPoints && canStart ? <button type="button" disabled={controlsDisabled} onClick={() => void startSession()}><Play size={16} /> {sessionTerminal ? 'Начать заново' : 'Начать маршрут'}</button> : null}
+        {hasPoints && startEligibleStatus && (!session || sessionTerminal || sessionInvalid) ? (
+          <button type="button" disabled={controlsDisabled || !canStart} onClick={() => void startSession()}><Play size={16} /> {sessionTerminal ? 'Начать заново' : 'Начать маршрут'}</button>
+        ) : null}
       </div>
       {routeEditingLocked ? <p className="route-muted" role="status">Изменение точек недоступно во время активной прогулки.</p> : null}
       <RouteInsights route={route} />

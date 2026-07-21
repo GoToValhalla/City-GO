@@ -29,13 +29,18 @@ const validCoordinates = (point: RecommendationRoutePoint): { latitude: number; 
   return { latitude, longitude }
 }
 
-const pointCategory = (point: RecommendationRoutePoint): string => {
+const knownPointCategory = (point: RecommendationRoutePoint): string => {
   const raw = typeof point.category === 'string' ? point.category.trim() : ''
-  return (raw ? categoryLabel(raw) : '') || 'Категория уточняется'
+  return raw ? categoryLabel(raw) : ''
 }
 
+const pointCategory = (point: RecommendationRoutePoint): string => knownPointCategory(point) || 'Категория уточняется'
+
+// Only reuse the category as a title fallback when it is a real, known
+// category -- never the "уточняется" placeholder itself, which would
+// otherwise render the same text twice (as the title and as the category).
 const pointTitle = (point: RecommendationRoutePoint, index: number): string =>
-  point.title?.trim() || pointCategory(point) || `Точка ${index + 1}`
+  point.title?.trim() || knownPointCategory(point) || `Точка ${index + 1}`
 
 const locationText = (point: RecommendationRoutePoint): string => {
   if (point.has_address === false) return UNCLEAR_ADDRESS_LABEL

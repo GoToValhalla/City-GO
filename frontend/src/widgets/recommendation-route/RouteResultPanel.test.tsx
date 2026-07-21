@@ -49,7 +49,10 @@ describe('route result panel smoke', () => {
     expect(screen.getByText('Маршрут пока короткий из-за качества доступных данных.')).toBeTruthy()
     expect(screen.queryByText('route_short_due_to_low_place_density')).toBeNull()
     expect(screen.getByRole('button', { name: /Начать маршрут/ })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Сообщить о проблеме' })).toBeTruthy()
+    // "Сообщить о проблеме" as a standalone button was never implemented
+    // (confirmed via full git history) -- the actual, current mechanism for
+    // reporting a route problem is the rating/feedback fieldset below.
+    expect(screen.getByRole('group', { name: 'Оценка маршрута' })).toBeInTheDocument()
     expect(screen.queryByText('Техническая диагностика')).toBeNull()
   })
 })
@@ -114,6 +117,12 @@ const twoPointRoute = (overrides: Partial<RecommendationRouteResponse> = {}): Re
 const activeSession = (overrides: Partial<ActiveRouteSession> = {}): ActiveRouteSession => ({
   session_id: 501,
   route_id: 'citygo200',
+  // Required for a session to be treated as genuinely continuable: without
+  // it, RouteResultPanel's own mutation error handling correctly treats
+  // any failure as an invalid session (there is no token to retry with),
+  // which would make every "generic retry" scenario collapse into the
+  // "session invalid" branch regardless of the actual error type.
+  ownership_token: 'owner-token',
   status: 'active',
   current_point_index: 0,
   current_place_id: '1',
@@ -179,7 +188,7 @@ describe('active route session restoration', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Я на месте/ }))
 
-    await waitFor(() => expect(screen.getByText(/сессия больше не действует/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/прогулка больше не действует/)).toBeInTheDocument())
     expect(onSessionChange).toHaveBeenCalledWith(null)
     expect(screen.getByRole('button', { name: /Начать маршрут/ })).not.toBeDisabled()
   })
@@ -206,7 +215,7 @@ describe('active route session restoration', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Пропустить/ }))
 
-    await waitFor(() => expect(screen.getByText('Не удалось обновить прогулку.')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Не удалось обновить прогулку. Повторите действие.')).toBeInTheDocument())
     // Still shows the restored point — a transient error must not silently
     // clear or advance state that was never confirmed by the backend.
     expect(screen.getByText(/Текущая точка: Кафе/)).toBeInTheDocument()

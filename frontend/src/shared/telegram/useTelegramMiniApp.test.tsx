@@ -22,6 +22,9 @@ describe('useTelegramMiniApp', () => {
     expect(onEvent).toHaveBeenCalledWith('safeAreaChanged', expect.any(Function))
     expect(document.documentElement.style.getPropertyValue('--tg-safe-bottom')).toBe('18px')
     unmount()
-    expect(offEvent).toHaveBeenCalledTimes(5)
+    // One offEvent call per subscribed lifecycle event (see EVENTS in
+    // useTelegramMiniApp.ts) -- asserted by content, not a hardcoded count,
+    // so this test does not go stale again the next time an event is added.
+    expect(offEvent).toHaveBeenCalledTimes(onEvent.mock.calls.length)
   })
 })

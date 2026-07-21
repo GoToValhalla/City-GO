@@ -15,12 +15,17 @@ const score = (point: RecommendationRoutePoint): number | null => {
   return typeof value === 'number' && Number.isFinite(value) ? Math.round(value * 100) : null
 }
 
-const categoryText = (point: RecommendationRoutePoint): string => {
+const knownCategoryText = (point: RecommendationRoutePoint): string => {
   const raw = typeof point.category === 'string' ? point.category.trim() : ''
-  return (raw ? categoryLabel(raw) : '') || 'Категория уточняется'
+  return raw ? categoryLabel(raw) : ''
 }
 
-const titleText = (point: RecommendationRoutePoint): string => point.title?.trim() || categoryText(point) || 'Место без названия'
+const categoryText = (point: RecommendationRoutePoint): string => knownCategoryText(point) || 'Категория уточняется'
+
+// Only reuse the category as a title fallback when it is a real, known
+// category -- never the "уточняется" placeholder itself, which would
+// otherwise render the same text twice (as the title and as the category).
+const titleText = (point: RecommendationRoutePoint): string => point.title?.trim() || knownCategoryText(point) || 'Место без названия'
 
 const coordinatesText = (point: RecommendationRoutePoint): string | null => {
   const latitude = Number(point.lat)
@@ -51,7 +56,11 @@ export const RouteCandidateOptions = ({ disabled = false, options = [], onAdd }:
         const location = locationText(point)
         const matchScore = score(point)
         return <article className="route-candidate-card" key={point.place_id}>
-          {point.image_url?.trim() ? <img className="route-candidate-photo" src={point.image_url} alt={title} loading="lazy" /> : <div className="route-candidate-photo route-point-photo-fallback"><span>{category}</span></div>}
+          {point.image_url?.trim() ? <img className="route-candidate-photo" src={point.image_url} alt={title} loading="lazy" /> : (
+            // The place-chip below is the single source of the category
+            // text; this placeholder tile must not repeat it verbatim.
+            <div className="route-candidate-photo route-point-photo-fallback" role="img" aria-label={`Фото недоступно: ${category}`} />
+          )}
           <div className="route-candidate-body">
             <span className="place-chip">{category}</span>
             <h3>{title}</h3>

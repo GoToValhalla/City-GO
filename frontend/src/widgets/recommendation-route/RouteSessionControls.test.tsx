@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ActiveRouteSession, RecommendationRouteResponse } from '../../api/recommendations/recommendationRoute.types'
 import { startActiveRouteSession, updateActiveRouteSession } from '../../api/recommendations/recommendationRoute.api'
@@ -61,7 +62,10 @@ const renderPanel = (initialSession: ActiveRouteSession | null = null) => render
 )
 
 describe('RouteResultPanel active session controls', () => {
-  afterEach(() => vi.clearAllMocks())
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
 
   it('does not reinterpret transition controls as start before a session exists', () => {
     renderPanel()
@@ -90,7 +94,7 @@ describe('RouteResultPanel active session controls', () => {
     renderPanel(session('paused'))
     expect(screen.queryByRole('button', { name: /^пауза$/i })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /продолжить/i }))
-    await waitFor(() => expect(updateActiveRouteSession).toHaveBeenCalledWith(expect.objectContaining({ status: 'paused' }), 'resume'))
+    await waitFor(() => expect(updateActiveRouteSession).toHaveBeenCalledWith(expect.objectContaining({ status: 'paused' }), 'resume', undefined))
   })
 
   it('blocks terminal mutations and starts a new session without reclaiming the terminal token', async () => {

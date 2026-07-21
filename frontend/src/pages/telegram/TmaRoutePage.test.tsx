@@ -21,6 +21,7 @@ vi.mock('../../api/recommendations/recommendationRoute.api', () => ({
   sendRouteFeedback: vi.fn(),
   startActiveRouteSession: vi.fn(),
   updateActiveRouteSession: vi.fn(),
+  validateActiveRouteSession: vi.fn(),
   ApiRequestError: class ApiRequestError extends Error {
     status: number
     responseBody: unknown
@@ -58,6 +59,10 @@ const routeFixture = (): RecommendationRouteResponse => ({
 const sessionFixture = (): ActiveRouteSession => ({
   session_id: 1,
   route_id: 'r1',
+  // Required by tmaRouteStorage.ts::isSession (Stage 4.1: reject tokenless
+  // restored route sessions) -- without this, saveTmaRouteSession silently
+  // no-ops and the session is never actually persisted for restore.
+  ownership_token: 'owner-token',
   status: 'active',
   current_point_index: 0,
   current_place_id: '1',
@@ -85,6 +90,7 @@ describe('TmaRoutePage', () => {
 
   it('reopen during an active route restores both the route and the in-progress session_new', async () => {
     vi.mocked(featuresApi.getPublicFeatures).mockResolvedValue({ tma_enabled: true })
+    vi.mocked(recommendationApi.validateActiveRouteSession).mockResolvedValue(undefined)
     saveTmaRoute(routeFixture())
     saveTmaRouteSession(sessionFixture())
 
@@ -106,6 +112,9 @@ describe('TmaRoutePage', () => {
 
   it('a session for a stale/mismatched route_id is not shown as active progress_new', async () => {
     vi.mocked(featuresApi.getPublicFeatures).mockResolvedValue({ tma_enabled: true })
+    vi.mocked(recommendationApi.validateActiveRouteSession).mockRejectedValue(
+      new recommendationApi.ApiRequestError({ status: 404, url: 'x', method: 'GET', responseBody: { detail: 'Route session not found' } }),
+    )
     saveTmaRoute(routeFixture())
     saveTmaRouteSession({ ...sessionFixture(), route_id: 'a-different-route' })
 
