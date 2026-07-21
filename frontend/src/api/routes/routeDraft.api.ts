@@ -48,7 +48,8 @@ export const createRandomDraft = async (payload: {
   if (!ownershipToken) {
     throw new Error('Server did not return ownership_token for route draft')
   }
-  const { ownership_token: _ignored, ...draft } = body
+  const draft = { ...body }
+  delete draft.ownership_token
   return { draft: draft as RouteDraft, ownershipToken }
 }
 
