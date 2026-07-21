@@ -4,12 +4,23 @@ const ROUTE_STORAGE_KEY = 'citygo:tma:activeRoute'
 const SESSION_STORAGE_KEY = 'citygo:tma:activeRouteSession'
 
 const isRoute = (value: unknown): value is RecommendationRouteResponse =>
-  Boolean(value && typeof value === 'object' && Array.isArray((value as RecommendationRouteResponse).points))
+  Boolean(value && typeof value === 'object' && typeof (value as RecommendationRouteResponse).route_id === 'string' && Array.isArray((value as RecommendationRouteResponse).points))
 
 const isSession = (value: unknown): value is ActiveRouteSession => {
   if (!value || typeof value !== 'object') return false
   const session = value as Partial<ActiveRouteSession>
-  return typeof session.session_id === 'number' && typeof session.route_id === 'string' && typeof session.status === 'string'
+  return typeof session.session_id === 'number'
+    && Number.isInteger(session.session_id)
+    && session.session_id > 0
+    && typeof session.route_id === 'string'
+    && Boolean(session.route_id.trim())
+    && typeof session.ownership_token === 'string'
+    && Boolean(session.ownership_token.trim())
+    && typeof session.status === 'string'
+    && typeof session.current_point_index === 'number'
+    && Array.isArray(session.skipped_place_ids)
+    && Array.isArray(session.points)
+    && Boolean(session.point_completed_at && typeof session.point_completed_at === 'object')
 }
 
 export const restoreTmaRoute = (): RecommendationRouteResponse | null => {
@@ -17,8 +28,13 @@ export const restoreTmaRoute = (): RecommendationRouteResponse | null => {
     const raw = window.localStorage.getItem(ROUTE_STORAGE_KEY)
     if (!raw) return null
     const parsed: unknown = JSON.parse(raw)
-    return isRoute(parsed) ? parsed : null
+    if (!isRoute(parsed)) {
+      window.localStorage.removeItem(ROUTE_STORAGE_KEY)
+      return null
+    }
+    return parsed
   } catch {
+    try { window.localStorage.removeItem(ROUTE_STORAGE_KEY) } catch { /* ignore */ }
     return null
   }
 }
@@ -27,7 +43,7 @@ export const saveTmaRoute = (route: RecommendationRouteResponse): void => {
   try {
     window.localStorage.setItem(ROUTE_STORAGE_KEY, JSON.stringify(route))
   } catch {
-    // localStorage unavailable — route still works for this session, just not restored on reopen.
+    // Storage is an optional recovery cache; the current screen remains usable.
   }
 }
 
@@ -40,9 +56,6 @@ export const clearTmaRoute = (): void => {
   clearTmaRouteSession()
 }
 
-/** Restores the last known session state ONLY when it belongs to the given
- * route — a session for a different/stale route_id is stale local state
- * and must not be shown as if it were still authoritative. */
 export const restoreTmaRouteSession = (routeId: string): ActiveRouteSession | null => {
   try {
     const raw = window.localStorage.getItem(SESSION_STORAGE_KEY)
@@ -60,10 +73,14 @@ export const restoreTmaRouteSession = (routeId: string): ActiveRouteSession | nu
 }
 
 export const saveTmaRouteSession = (session: ActiveRouteSession): void => {
+  if (!isSession(session)) {
+    clearTmaRouteSession()
+    return
+  }
   try {
     window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session))
   } catch {
-    // localStorage unavailable — session still works for this screen, just not restored on reopen.
+    // Storage is an optional recovery cache; the current screen remains usable.
   }
 }
 
