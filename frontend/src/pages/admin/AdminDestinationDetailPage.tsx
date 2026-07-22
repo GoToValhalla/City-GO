@@ -2,6 +2,9 @@ import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { adminDelete, adminGet, adminPatch, adminPost, adminPostLong } from './adminApi'
 import { AdminDestinationGeoSearchPanel } from './AdminDestinationGeoSearchPanel'
+import { bootstrapLabel, sectionLabel } from './adminPublicationLabels'
+import { buildDestinationReadinessGates } from './adminDestinationReadinessGates'
+import { AdminReadinessBreakdown } from './AdminReadinessBreakdown'
 import { AdminLoading, AdminSectionError } from './shared/AdminStates'
 import './AdminDataPipeline.css'
 
@@ -293,6 +296,22 @@ export const AdminDestinationDetailPage = () => {
           <article className="admin-metric-card"><span>Время работы</span><strong>{readiness?.opening_hours_coverage_pct ?? 0}%</strong></article>
         </div>
         {readiness?.degraded_sections.length ? <p className="admin-state-warning">Требуют внимания: {readiness.degraded_sections.map(sectionLabel).join(', ')}</p> : null}
+        {readiness ? (
+          <AdminReadinessBreakdown
+            title="Почему направление не готово"
+            gates={buildDestinationReadinessGates({
+              address_coverage_pct: readiness.address_coverage_pct,
+              photo_coverage_pct: readiness.photo_coverage_pct,
+              description_coverage_pct: readiness.description_coverage_pct,
+              coordinates_coverage_pct: readiness.coordinates_coverage_pct,
+              opening_hours_coverage_pct: readiness.opening_hours_coverage_pct,
+              pending_reviews: readiness.pending_reviews,
+              route_eligible_places: readiness.route_eligible_places,
+              published_places: readiness.published_places,
+              degraded_sections: readiness.degraded_sections,
+            })}
+          />
+        ) : null}
       </section>
 
       <section className="admin-section">
@@ -440,27 +459,11 @@ const reasonLabel = (value?: string | null) => ({
   VALUE_CONFLICT: 'Значение отличается от текущего',
 }[value ?? ''] ?? 'Требуется проверка')
 
-const sectionLabel = (value: string) => ({
-  address: 'адреса',
-  photo: 'фото',
-  description: 'описания',
-  category: 'категории',
-  coordinates: 'координаты',
-  opening_hours: 'время работы',
-  pending_reviews: 'заявки на проверку',
-}[value] ?? value)
-
 const profileLabel = (value: string) => ({
   tourist_core: 'Туристические места',
   food_and_coffee: 'Еда и кофе',
   nature_walk: 'Прогулки и природа',
   useful_services: 'Полезные сервисы',
-}[value] ?? value)
-
-const bootstrapLabel = (value: string) => ({
-  NO_SCOPES: 'нет контуров',
-  NO_ENABLED_SCOPES: 'нет включённых контуров',
-  INVALID_SCOPE_GEOMETRY: 'проверьте координаты контура',
 }[value] ?? value)
 
 const assignmentLabel = (value: string) => ({

@@ -12,16 +12,8 @@ import type {
   QualityCity,
 } from './adminPlatformTypes'
 import { AdminEmpty, AdminError, AdminLoading, AdminSectionError } from './shared/AdminStates'
+import { BLOCKER_LABELS } from './adminPublicationLabels'
 import './AdminQuality.css'
-
-const BLOCKER_LABELS: Record<string, string> = {
-  no_photo: 'без фото',
-  no_address: 'без адреса',
-  low_quality: 'низкое качество',
-  stale: 'перепроверка',
-  route_ineligible: 'исключены из маршрутов',
-  excluded_by_design: 'исключено правилами',
-}
 
 const BUCKET_LABELS: Record<string, string> = {
   route_blocker: 'Блокеры',

@@ -4,6 +4,10 @@ import { adminGet, adminPatch, adminPost } from './adminApi'
 import { AdminPlaceForm, type AdminPlaceFormValue } from './AdminPlaceForm'
 import { categoryText } from './adminRouteCopy'
 import { publicationStatusText, verificationStatusText } from './adminHumanText'
+import { buildPlaceReadinessGates } from './adminPlaceReadinessGates'
+import { gateLabel } from './adminPublicationLabels'
+import { AdminPublicationDiagnostics } from './AdminPublicationDiagnostics'
+import { AdminReadinessBreakdown } from './AdminReadinessBreakdown'
 import { AdminError, AdminLoading } from './shared/AdminStates'
 
 type Detail = {
@@ -185,9 +189,31 @@ export const AdminPlaceDetailPage = () => {
         <span className={`admin-badge pub-${data.publication_status}`}>{publicationStatusText(data.publication_status)}</span>
         <span className="admin-badge">{verificationStatusText(data.verification_status)}</span>
         <span className="admin-badge">Качество {data.quality_score}% · {data.quality_tier}</span>
-        <span className="admin-badge">Уверенность {data.existence_confidence_score}%</span>
+        <span className="admin-badge">Доверие {data.existence_confidence_score}%</span>
         <span className="admin-badge">В маршрутах: {data.route_enabled ? 'да' : 'нет'}</span>
       </div>
+
+      {(() => {
+        const gates = buildPlaceReadinessGates(data)
+        const failed = gates.filter((gate) => !gate.ok).map((gate) => gateLabel(gate.key))
+        const reviewBlockers = [
+          data.route_exclusion_reason,
+          data.verification_status !== 'verified' ? `Проверка: ${verificationStatusText(data.verification_status)}` : null,
+        ].filter((value): value is string => Boolean(value))
+        return (
+          <>
+            <AdminPublicationDiagnostics
+              title="Диагностика публикации места"
+              qualityScore={data.quality_score}
+              trustScore={data.existence_confidence_score}
+              failedGateLabels={failed}
+              reviewBlockers={reviewBlockers}
+              snapshotVersionLabel="нет в ответе API"
+            />
+            <AdminReadinessBreakdown gates={gates} title="Готовность карточки" />
+          </>
+        )
+      })()}
 
       {data.image_url && <img className="admin-place-hero" src={data.image_url} alt={data.title} onError={(event) => { event.currentTarget.hidden = true }} />}
 

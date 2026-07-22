@@ -48,6 +48,9 @@ describe('AdminPlaceDetailPage emergency hide', () => {
     renderPage()
 
     await waitFor(() => expect(screen.getByText('Экстренное скрытие')).toBeInTheDocument())
+    expect(screen.getByText('Диагностика публикации места')).toBeInTheDocument()
+    expect(screen.getByText('Готовность карточки')).toBeInTheDocument()
+    expect(screen.getByText(/Нет основного фото/i)).toBeInTheDocument()
     const button = screen.getByRole('button', { name: /Экстренно скрыть место/i })
     expect(button).toBeDisabled()
 

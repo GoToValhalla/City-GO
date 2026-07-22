@@ -4,6 +4,7 @@ import { adminGet, adminPost } from './adminApi'
 import { AdminCityCreateForm } from './AdminCityCreateForm'
 import { AdminCitySettingsPanel, type CitySettings } from './AdminCitySettingsPanel'
 import { readinessStatusText } from './adminHumanText'
+import { blockerLabel } from './adminPublicationLabels'
 import type { AdminCitiesResponse, AdminCityPublicationResponse } from './adminTypes'
 import type { CityReadiness } from './adminRouteTypes'
 import { AdminError, AdminLoading } from './shared/AdminStates'
@@ -108,7 +109,15 @@ export const AdminCitiesPage = () => {
                   <td>
                     {readiness[c.slug] ? (
                       <span className={`admin-quality admin-quality-${readiness[c.slug].status === 'ready' ? 'green' : readiness[c.slug].status === 'needs_review' ? 'yellow' : 'red'}`}>
-                        {readiness[c.slug].readiness_score}% · {readinessStatusText(readiness[c.slug].status)}
+                        {readiness[c.slug].readiness_score}%
+                        {readiness[c.slug].status === 'ready'
+                          ? ` · ${readinessStatusText(readiness[c.slug].status)}`
+                          : ` · ${Object.entries(readiness[c.slug].components)
+                            .filter(([, value]) => Number(value) < 100)
+                            .sort((a, b) => Number(a[1]) - Number(b[1]))
+                            .slice(0, 2)
+                            .map(([key, value]) => `${blockerLabel(key)} ${value}%`)
+                            .join(' · ') || readinessStatusText(readiness[c.slug].status)}`}
                       </span>
                     ) : '—'}
                   </td>
