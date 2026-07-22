@@ -70,11 +70,16 @@ def _install_osm_contract() -> None:
 
 def _candidate_from_osm(item: dict[str, object]) -> DestinationCandidate:
     category = str(item["category"])
+    # average_visit_duration_minutes is intentionally NOT set here: OSM does
+    # not provide a real per-place visit duration, and a fabricated flat
+    # constant fed a real quality-score component
+    # (route_base_quality_score.base_quality_score) and a coverage predicate
+    # (place_coverage_counts.has_visit_duration) as if it were genuine
+    # evidence for every destination candidate.
     changes = {
         "short_description": item.get("short_description"),
         "address": item.get("address"),
         "opening_hours": item.get("opening_hours"),
-        "average_visit_duration_minutes": 25,
         "category": category,
         "canonical_category": category,
     }

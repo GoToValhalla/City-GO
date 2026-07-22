@@ -30,6 +30,27 @@ _PLACEHOLDER_PATTERNS_BY_FIELD: dict[str, tuple[re.Pattern[str], ...]] = {
     ),
 }
 
+# CITYGO-265: exact strings the now-removed _category_profile() (services/
+# place_enrichment_sources.py) used to generate for atmosphere/inside/best_for
+# -- one fixed template per category group, applied to every place in that
+# group regardless of its actual content, tagged with a fabricated
+# confidence=0.55 and source_type="citygo_category_rules" as if it were
+# genuine provider evidence. Kept here (not regenerated) purely so the
+# sanitizer and the read-only audit can recognize historical rows.
+_PLACEHOLDER_CATEGORY_PROFILE_VALUES: dict[str, frozenset[str]] = {
+    "atmosphere": frozenset({"Еда и отдых", "Культура и история", "Прогулка на свежем воздухе"}),
+    "inside": frozenset({
+        "Зал, меню и возможность сделать паузу",
+        "Экспозиции, архитектурные детали или исторический контекст",
+        "Открытое пространство и точки для остановки",
+    }),
+    "best_for": frozenset({
+        "Кофе, перекус или спокойная остановка в маршруте",
+        "Первое знакомство с городом и неспешная прогулка",
+        "Прогулка, фото и спокойный маршрут",
+    }),
+}
+
 
 def _text_fragments(value: object) -> list[str]:
     if value is None:
@@ -70,6 +91,10 @@ def is_placeholder_enrichment_value(field: str, value: object, *, title: str | N
         exact_description = f"{title.strip()} {PLACEHOLDER_DESCRIPTION_SUFFIX}".strip()
         if any(fragment == exact_description for fragment in fragments):
             return True
+
+    category_profile_values = _PLACEHOLDER_CATEGORY_PROFILE_VALUES.get(canonical_field)
+    if category_profile_values and any(fragment in category_profile_values for fragment in fragments):
+        return True
 
     return any(pattern.search(fragment) for pattern in patterns for fragment in fragments)
 

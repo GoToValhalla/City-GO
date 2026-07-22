@@ -105,3 +105,79 @@ def test_audit_placeholder_enrichment_is_read_only_and_reports_counts(db_session
     assert report["fields"]["address"]["count"] == 1
     assert report["fields"]["opening_hours"]["count"] == 1
     assert report["fields"]["short_description"]["count"] == 1
+
+
+# --- CITYGO-265: category-profile fabrication (atmosphere/inside/best_for) --
+
+
+def test_placeholder_detector_catches_former_category_profile_values_new() -> None:
+    """The now-removed _category_profile() (services/place_enrichment_sources.py)
+    generated these exact strings per category group -- kept in the sanitizer
+    purely for historical-row detection, not regenerated."""
+    assert is_placeholder_enrichment_value("atmosphere", "Еда и отдых")
+    assert is_placeholder_enrichment_value("inside", "Экспозиции, архитектурные детали или исторический контекст")
+    assert is_placeholder_enrichment_value("best_for", "Прогулка, фото и спокойный маршрут")
+
+
+def test_placeholder_detector_does_not_flag_a_genuine_atmosphere_value_new() -> None:
+    assert not is_placeholder_enrichment_value("atmosphere", "Уютная веранда с видом на залив")
+
+
+def test_audit_placeholder_enrichment_reports_polluted_category_profile_fields_new(db_session, place_factory):
+    clean = place_factory(title="Настоящая атмосфера", address="Улица, 4")
+    clean.atmosphere = "Уютная веранда с видом на залив"
+    polluted = place_factory(title="Выдуманная атмосфера", address="Улица, 5")
+    polluted.atmosphere = "Еда и отдых"
+    polluted.inside = "Зал, меню и возможность сделать паузу"
+    polluted.best_for = "Кофе, перекус или спокойная остановка в маршруте"
+    db_session.commit()
+
+    report = audit_placeholder_enrichment(db_session, limit_ids=10)
+
+    db_session.refresh(clean)
+    db_session.refresh(polluted)
+    assert clean.atmosphere == "Уютная веранда с видом на залив"
+    assert report["fields"]["atmosphere"]["count"] == 1
+    assert polluted.id in report["fields"]["atmosphere"]["place_ids"]
+    assert report["fields"]["inside"]["count"] == 1
+    assert report["fields"]["best_for"]["count"] == 1
+
+
+def test_audit_placeholder_enrichment_flags_fabricated_confidence_rows_new(db_session, place_factory):
+    """Rows in place_field_confidence tagged source_type="citygo_category_rules"
+    are a durable historical marker even if the field itself was later
+    edited by an admin and no longer holds the exact fabricated string."""
+    from models.place_field_confidence import PlaceFieldConfidence
+
+    place = place_factory(title="Место с историей", address="Улица, 6")
+    db_session.add(PlaceFieldConfidence(
+        place_id=place.id, field_name="atmosphere", confidence=0.55,
+        source_type="citygo_category_rules", raw_value={"value": "Еда и отдых"},
+    ))
+    db_session.commit()
+
+    report = audit_placeholder_enrichment(db_session, limit_ids=10)
+
+    assert report["fabricated_confidence_source_type"] == "citygo_category_rules"
+    assert report["fabricated_confidence_rows"]["atmosphere"]["count"] == 1
+    assert place.id in report["fabricated_confidence_rows"]["atmosphere"]["place_ids"]
+    assert report["total_fabricated_confidence_rows"] == 1
+
+
+def test_audit_placeholder_enrichment_suspects_former_category_lookup_values_new(db_session, place_factory):
+    """average_visit_duration_minutes/price_level had no lineage tracking, so
+    an exact-value-per-category match against the removed lookup table is
+    the best available historical signal -- explicitly reported as a
+    heuristic (possible false positive), separate from the proven matches
+    above."""
+    suspected = place_factory(title="Подозрительная длительность", address="Улица, 7", category="museum")
+    suspected.average_visit_duration_minutes = 75  # former _visit_duration()["museum"]
+    suspected.price_level = 1  # former _price_level()["museum"]
+    db_session.commit()
+
+    report = audit_placeholder_enrichment(db_session, limit_ids=10)
+
+    assert report["suspected_category_lookup_fields"]["average_visit_duration_minutes"]["count"] == 1
+    assert suspected.id in report["suspected_category_lookup_fields"]["average_visit_duration_minutes"]["place_ids"]
+    assert report["suspected_category_lookup_fields"]["price_level"]["count"] == 1
+    assert report["total_suspected_category_lookup_matches"] == 2

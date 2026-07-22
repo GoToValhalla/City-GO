@@ -86,15 +86,24 @@ def test_enrich_places_from_sources_fills_profile_from_legal_sources(monkeypatch
     assert place.phone == "+7 999 111-22-33"
     assert place.opening_hours == {"raw": "10:00-18:00", "display": "10:00-18:00"}
     assert place.short_description == "Музей о море и городских историях"
-    assert place.atmosphere == "Культура и история"
-    assert place.inside
-    assert place.best_for
+    # CITYGO-265: atmosphere/inside/best_for are no longer fabricated from a
+    # per-category template when no real provider supplies them -- neither
+    # Geoapify nor the official-site scrape in this test provides these
+    # fields, so they must stay unset rather than being filled with a fixed
+    # "Культура и история"-style string that had nothing to do with this
+    # specific place.
+    assert place.atmosphere is None
+    assert place.inside is None
+    assert place.best_for is None
 
     observations = db_session.query(SourceObservation).filter_by(canonical_place_id=place.id).all()
     assert {item.source_type for item in observations} == {"geoapify", "official_site"}
     assert counters["source_observations"] == 2
     assert counters["provider_errors"] == 0
-    assert counters["fields_enriched"] >= 8
+    # CITYGO-265: previously >= 8 included 3 fabricated atmosphere/inside/
+    # best_for writes on top of the genuine address/website/phone/opening_hours/
+    # short_description/photo fields from the two real providers above.
+    assert counters["fields_enriched"] >= 5
 
     confidence_fields = {
         item.field_name: item.source_type

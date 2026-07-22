@@ -174,7 +174,7 @@ def test_citygo_342_published_place_change_set_persisted_without_live_overwrite(
         "address": "New Addr",
     }
 
-    decision = apply_accepted_import_to_place(place, item, category_id=place.category_id, visit_duration_minutes=60)
+    decision = apply_accepted_import_to_place(place, item, category_id=place.category_id)
     db_session.commit()
     db_session.refresh(place)
 
@@ -198,7 +198,7 @@ def test_citygo_342_unpublished_place_diff_applies_and_stays_hidden(db_session, 
         "address": "New Addr",
     }
 
-    decision = apply_accepted_import_to_place(place, item, category_id=place.category_id, visit_duration_minutes=60)
+    decision = apply_accepted_import_to_place(place, item, category_id=place.category_id)
 
     assert decision.action == "needs_review"
     assert place.address == "New Addr"

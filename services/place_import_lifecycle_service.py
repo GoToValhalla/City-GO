@@ -51,7 +51,6 @@ def apply_accepted_import_to_place(
     place: Place,
     item: dict[str, Any],
     category_id: int,
-    visit_duration_minutes: int,
 ) -> PlaceImportDecision:
     """Apply a real source diff while delegating publication state to the writer."""
 
@@ -104,8 +103,13 @@ def apply_accepted_import_to_place(
     _set_proposed_if_non_empty(proposed, "opening_hours", item.get("opening_hours"))
     _set_proposed_if_non_empty(proposed, "website", item.get("website"))
     _set_proposed_if_non_empty(proposed, "phone", item.get("phone"))
-    if place.average_visit_duration_minutes is None:
-        proposed["average_visit_duration_minutes"] = visit_duration_minutes
+    # average_visit_duration_minutes is intentionally never set here from a
+    # category-derived default: OSM does not provide a real per-place visit
+    # duration, and a fabricated value fed a real quality-score component
+    # (route_base_quality_score.base_quality_score) and a coverage predicate
+    # (place_coverage_counts.has_visit_duration) as if it were genuine
+    # evidence. The field stays NULL until a real source (admin-entered,
+    # curated POI data, or a genuine provider) supplies one.
 
     changed_fields = [field for field, value in proposed.items() if getattr(place, field) != value]
     if not changed_fields:

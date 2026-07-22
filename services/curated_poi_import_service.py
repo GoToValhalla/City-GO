@@ -79,7 +79,11 @@ def import_curated_poi_scope(db: Session, *, city_slug: str, scope_code: str, ap
                 tourist_eligible=bool(row.get("tourist_eligible", True)),
                 transport_required=bool(row.get("transport_required", policy.transport_required)),
                 route_exclusion_reason="transport_required_scope" if policy.transport_required else None,
-                average_visit_duration_minutes=int(row.get("average_visit_duration_minutes") or 45),
+                # No fallback to a fabricated default: if the curated row
+                # doesn't specify a real visit duration, the field stays
+                # NULL rather than inventing one that would be treated as
+                # genuine evidence by quality scoring/coverage checks.
+                average_visit_duration_minutes=_curated_visit_duration(row),
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
             )
@@ -140,6 +144,11 @@ def _load_rows(city_slug: str, scope_code: str) -> list[dict[str, Any]]:
 
 def _valid(row: dict[str, Any]) -> bool:
     return bool(row.get("title") and row.get("lat") is not None and row.get("lng") is not None)
+
+
+def _curated_visit_duration(row: dict[str, Any]) -> int | None:
+    value = row.get("average_visit_duration_minutes")
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
 
 def _find_existing(db: Session, city_id: int, row: dict[str, Any]) -> Place | None:

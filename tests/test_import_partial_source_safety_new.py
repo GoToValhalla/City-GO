@@ -67,7 +67,7 @@ def _accepted_item(*, address):
 def test_existing_address_survives_incoming_null_new():
     place = _place(1, slug="known-cafe", source_url="https://www.openstreetmap.org/node/1")
 
-    apply_accepted_import_to_place(place, _accepted_item(address=None), category_id=1, visit_duration_minutes=30)
+    apply_accepted_import_to_place(place, _accepted_item(address=None), category_id=1)
 
     assert place.address == "Known address"
 
@@ -75,7 +75,7 @@ def test_existing_address_survives_incoming_null_new():
 def test_existing_address_survives_incoming_blank_new():
     place = _place(1, slug="known-cafe", source_url="https://www.openstreetmap.org/node/1")
 
-    apply_accepted_import_to_place(place, _accepted_item(address="   "), category_id=1, visit_duration_minutes=30)
+    apply_accepted_import_to_place(place, _accepted_item(address="   "), category_id=1)
 
     assert place.address == "Known address"
 

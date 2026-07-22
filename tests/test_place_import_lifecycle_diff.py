@@ -58,7 +58,7 @@ def test_unchanged_place_is_not_touched():
     old_updated_at = place.updated_at
     old_verified_at = place.last_verified_at
 
-    decision = apply_accepted_import_to_place(place, _item(), category_id=10, visit_duration_minutes=75)
+    decision = apply_accepted_import_to_place(place, _item(), category_id=10)
 
     assert decision.action == "unchanged"
     assert decision.changed_fields == []
@@ -75,7 +75,6 @@ def test_changed_published_place_stays_public_and_unmodified_pending_review():
         place,
         _item(address="Новая улица, 2"),
         category_id=10,
-        visit_duration_minutes=75,
     )
 
     assert decision.action == "needs_review"
@@ -118,7 +117,6 @@ def test_changed_unpublished_place_uses_writer_and_is_sent_to_review(
         place,
         _item(address="Новая улица, 2"),
         category_id=place.category_id,
-        visit_duration_minutes=75,
     )
 
     assert decision.action == "needs_review"
@@ -180,7 +178,6 @@ def test_new_unchanged_imported_place_gets_reason_and_ledger(
         place,
         _item(),
         category_id=place.category_id,
-        visit_duration_minutes=75,
     )
 
     assert decision.action == "unchanged"

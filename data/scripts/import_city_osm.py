@@ -945,8 +945,15 @@ def _process_one_item(
             is_route_eligible=False,
             is_searchable=False,
             publication_status="needs_review" if _gate.decision != "hidden" else _gate.publication_status,
-            price_level=_price_level(item["category"]),
-            average_visit_duration_minutes=_visit_duration(item["category"]),
+            # price_level/average_visit_duration_minutes are intentionally left
+            # unset here: neither OSM nor any other source used by this import
+            # provides them for this item. A per-category lookup table (the
+            # former _price_level()/_visit_duration() helpers) was a fabricated
+            # value with no basis in the actual place, persisted as if it were
+            # real evidence -- and average_visit_duration_minutes specifically
+            # fed a real quality-score component (route_base_quality_score.py)
+            # and a coverage predicate (place_coverage_counts.has_visit_duration),
+            # both of which were unconditionally satisfied for every place.
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
@@ -958,7 +965,6 @@ def _process_one_item(
         place=place,
         item=item,
         category_id=category.id,
-        visit_duration_minutes=_visit_duration(item["category"]),
     )
 
     if matched_existing:
@@ -1473,36 +1479,6 @@ def _fallback_title(category: str, source_external_id: str) -> str | None:
         return None
     suffix = source_external_id.rsplit(":", 1)[-1]
     return f"{label} OSM {suffix}"
-
-
-def _price_level(category: str) -> int:
-    return {
-        "park": 0,
-        "beach": 0,
-        "walk": 0,
-        "viewpoint": 0,
-        "culture": 1,
-        "museum": 1,
-        "useful": 1,
-        "health": 1,
-        "cafe": 2,
-        "food": 2,
-    }.get(category, 1)
-
-
-def _visit_duration(category: str) -> int:
-    return {
-        "cafe": 30,
-        "food": 60,
-        "museum": 75,
-        "culture": 45,
-        "viewpoint": 20,
-        "park": 45,
-        "beach": 60,
-        "walk": 45,
-        "useful": 10,
-        "health": 10,
-    }.get(category, 30)
 
 
 def _osm_url(item: dict[str, Any]) -> str:

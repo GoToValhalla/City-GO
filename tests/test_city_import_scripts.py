@@ -198,6 +198,26 @@ def test_save_source_observation_duplicate_conflict_does_not_crash_new(db_sessio
     assert len(rows) == 1
 
 
+def test_apply_import_never_fabricates_visit_duration_or_price_level_new(db_session):
+    """CITYGO-265: a newly created place must never get a category-derived
+    average_visit_duration_minutes/price_level -- OSM does not provide either
+    of these for this item, and the former _visit_duration()/_price_level()
+    per-category lookup tables fabricated them regardless, persisted as if
+    they were real evidence. average_visit_duration_minutes specifically fed
+    a real quality-score component (route_base_quality_score.base_quality_score)
+    and a coverage predicate (place_coverage_counts.has_visit_duration), both
+    unconditionally satisfied for every place as a result."""
+    city, scope, batch = _city_scope_batch(db_session)
+    raw = [{"type": "node", "id": 200, "lat": 54.35, "lon": 18.65, "tags": {"name": "No Fabrication Cafe", "amenity": "cafe"}}]
+    normalized = [_normalize_osm_object(raw[0], city.slug)]
+
+    _apply_import(db_session, city, scope, "tourist_core", raw, normalized)
+
+    place = db_session.query(Place).filter_by(slug=normalized[0]["slug"]).one()
+    assert place.average_visit_duration_minutes is None
+    assert place.price_level is None
+
+
 def test_apply_import_sets_created_outcome_for_new_place_new(db_session):
     city, scope, batch = _city_scope_batch(db_session)
     raw = [{"type": "node", "id": 100, "lat": 54.35, "lon": 18.65, "tags": {"name": "New Cafe", "amenity": "cafe"}}]
@@ -305,7 +325,7 @@ def test_apply_import_sets_hidden_needs_review_outcome_new(db_session, monkeypat
     import data.scripts.import_city_osm as import_city_osm
     from services.place_import_lifecycle_service import PlaceImportDecision
 
-    def _force_hidden_decision(*, place, item, category_id, visit_duration_minutes):
+    def _force_hidden_decision(*, place, item, category_id):
         return PlaceImportDecision(
             action="hidden",
             status="draft",
@@ -344,7 +364,7 @@ def test_hidden_outcomes_are_distinguishable_and_map_to_correct_counters_new(db_
     import data.scripts.import_city_osm as import_city_osm
     from services.place_import_lifecycle_service import PlaceImportDecision
 
-    def _force_hidden_decision(*, place, item, category_id, visit_duration_minutes):
+    def _force_hidden_decision(*, place, item, category_id):
         return PlaceImportDecision(
             action="hidden",
             status="draft",

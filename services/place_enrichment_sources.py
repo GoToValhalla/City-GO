@@ -81,7 +81,12 @@ def enrich_places_from_sources(
             _record_observation(db, city=city, batch=batch, place=place, observation=observation)
             counters["source_observations"] += 1
             _apply_profile(db, city=city, place=place, profile=profile, observation=observation, job_id=job_id, counters=counters)
-        _apply_category_profile(db, city=city, place=place, job_id=job_id, counters=counters)
+        # _apply_category_profile() was removed: it fabricated atmosphere/
+        # inside/best_for from a per-category template (e.g. every "cafe"
+        # received the identical hardcoded text), tagged with a fake
+        # confidence=0.55 and source_type="citygo_category_rules" as if it
+        # were genuine provider evidence. These fields now stay unset unless
+        # a real provider profile (_collect_profiles above) supplies them.
         _queue_missing_fields(db, city=city, place=place, job_id=job_id)
         if job is not None and index % HEARTBEAT_EVERY_N_PLACES == 0:
             touch_progress(job, processed=index)
@@ -398,19 +403,6 @@ def _apply_description(
     counters["fields_enriched"] += 1
 
 
-def _apply_category_profile(db: Session, *, city: City, place: Place, job_id: int | None, counters: dict[str, int]) -> None:
-    profile = _category_profile(place)
-    synthetic = ProviderObservation(
-        source_type="citygo_category_rules",
-        source_external_id=f"place:{place.id}:category-profile",
-        source_url=None,
-        raw_payload={"category": place.category, "canonical_category": place.canonical_category},
-        confidence=0.55,
-    )
-    for field_name, value in profile.items():
-        _apply_text_field(db, city=city, place=place, field_name=field_name, value=value, observation=synthetic, job_id=job_id, counters=counters)
-
-
 def _queue_missing_fields(db: Session, *, city: City, place: Place, job_id: int | None) -> None:
     missing = {
         "address": not _clean_string(place.address),
@@ -640,15 +632,6 @@ def _phone_from_text(page: str) -> str | None:
     return match.group(0).strip() if match else None
 
 
-def _category_profile(place: Place) -> dict[str, str | None]:
-    category = (place.canonical_category or place.category or "").lower()
-    if category in {"coffee", "cafe", "restaurant", "food", "bar", "bakery"}:
-        return {"atmosphere": "Еда и отдых", "inside": "Зал, меню и возможность сделать паузу", "best_for": "Кофе, перекус или спокойная остановка в маршруте"}
-    if category in {"museum", "culture", "art", "historic", "monument", "architecture"}:
-        return {"atmosphere": "Культура и история", "inside": "Экспозиции, архитектурные детали или исторический контекст", "best_for": "Первое знакомство с городом и неспешная прогулка"}
-    if category in {"park", "walk", "viewpoint", "beach", "nature"}:
-        return {"atmosphere": "Прогулка на свежем воздухе", "inside": "Открытое пространство и точки для остановки", "best_for": "Прогулка, фото и спокойный маршрут"}
-    return {"atmosphere": None, "inside": None, "best_for": None}
 
 
 def _fetch_json(url: str) -> dict[str, Any]:
