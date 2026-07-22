@@ -6,6 +6,7 @@ from services.projection_observability import log_projection_read, logger
 
 def test_projection_read_info_event_is_not_filtered_new(caplog) -> None:
     assert logger.level == logging.INFO
+    logger.disabled = True
     with caplog.at_level(logging.INFO, logger=logger.name):
         log_projection_read(
             read_path="search",
@@ -19,6 +20,7 @@ def test_projection_read_info_event_is_not_filtered_new(caplog) -> None:
 
     record = next(row for row in caplog.records if row.name == "citygo.public_read_projections")
     payload = json.loads(record.message)
+    assert logger.disabled is False
     assert payload == {
         "city_id": 7,
         "event": "projection_read",
