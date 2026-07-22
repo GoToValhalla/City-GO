@@ -44,8 +44,13 @@ def test_routing_rebuild_and_candidate_set_are_projection_only(db_session, place
     place = place_factory(slug="route-node", title="Route Node", lat=54.9, lng=20.3)
     _snapshot(db_session, place)
     assert rebuild_routing_place_nodes(db_session)["status"] == "succeeded"
-    assert rebuild_route_candidate_sets(db_session)["status"] == "succeeded"
+    result = rebuild_route_candidate_sets(db_session)
+    assert result["status"] == "succeeded"
+    assert result["expected_count"] == result["actual_count"] == 1
+    assert result["generation"] and result["is_complete"] is True
     db_session.commit()
+    readiness = projection_readiness(db_session, projection_type="route_candidate_set", city_id=None)
+    assert readiness.expected_count == readiness.actual_count == 1
     update_toggle(db_session, key="routing_projection_reads_enabled", scope="global", scope_id=None, value_bool=True, actor="test")
     ctx = SimpleNamespace(city_id="zelenogradsk", location=(54.9, 20.3), radius_meters=10_000,
                           avoided_place_ids=[], avoided_categories=[], destination_id=None)

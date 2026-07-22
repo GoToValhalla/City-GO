@@ -81,4 +81,4 @@ def _finish(db, job, actual, *, complete):
 
 
 def _summary(job, status):
-    return {"job_id": job.id, "projection_type": job.projection_type, "status": status, "source_snapshot_version": job.source_snapshot_version, "processed_count": job.processed_count, "rebuilt_count": job.rebuilt_count, "skipped_count": 1 if status == "skipped" else 0, "failed_count": job.failed_count, "error_summary": job.error_summary}
+    return {"job_id": job.id, "projection_type": job.projection_type, "status": status, "source_snapshot_version": job.source_snapshot_version, "processed_count": job.processed_count, "rebuilt_count": job.rebuilt_count, "expected_count": job.expected_count, "actual_count": job.actual_count, "generation": job.generation, "is_complete": job.is_complete, "skipped_count": 1 if status == "skipped" else 0, "failed_count": job.failed_count, "error_summary": job.error_summary}

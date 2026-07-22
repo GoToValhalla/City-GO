@@ -46,7 +46,7 @@ def projection_readiness(db: Session, *, projection_type: str, city_id: int | No
     job = success or latest
     return ProjectionReadiness(
         projection_type, city_id, reason == "projection_ready", reason, version,
-        getattr(job, "source_snapshot_version", None), len(snapshots),
+        getattr(job, "source_snapshot_version", None), int(getattr(job, "expected_count", len(snapshots)) or 0),
         int(getattr(job, "actual_count", 0) or 0), getattr(latest, "id", None), getattr(success, "id", None),
     )
 
