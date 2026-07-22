@@ -1,0 +1,67 @@
+name: 04 · CITY GO · Stage 5 Production Operations
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Stage 5 operation
+        required: true
+        type: choice
+        options: [status, readiness, rebuild, enable_search, enable_catalog, enable_routing, disable_search, disable_catalog, disable_routing, disable_all]
+      scope:
+        description: Projection scope (toggles are global only)
+        required: true
+        default: global
+        type: choice
+        options: [global, city]
+      city_id:
+        description: Positive numeric city ID; required for city scope
+        required: false
+        type: string
+      confirmation:
+        description: Type CONFIRM_STAGE5_PRODUCTION_MUTATION for mutations
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage5-production-operations
+  cancel-in-progress: false
+
+jobs:
+  operate:
+    name: Guarded Stage 5 production operation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      PRODUCTION_BASE_URL: ${{ secrets.PRODUCTION_BASE_URL || vars.PRODUCTION_BASE_URL || 'https://citygo.autismishe.online' }}
+      ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+      OPERATION: ${{ inputs.operation }}
+      SCOPE: ${{ inputs.scope }}
+      CITY_ID: ${{ inputs.city_id }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Checkout validated implementation
+        uses: actions/checkout@v4
+
+      - name: Validate secret availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ADMIN_API_TOKEN:-}" || { echo '{"status":"failed","reason":"ADMIN_API_TOKEN is not configured"}' >&2; exit 1; }
+
+      - name: Execute canonical Stage 5 operation
+        shell: bash
+        run: python scripts/stage5_production_ops.py 2>&1 | tee stage5-production-result.json
+
+      - name: Publish structured result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stage5-production-result-${{ github.run_id }}
+          path: stage5-production-result.json
+          if-no-files-found: ignore
+          retention-days: 14
