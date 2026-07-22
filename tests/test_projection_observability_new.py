@@ -18,7 +18,7 @@ def test_projection_read_info_event_is_not_filtered_new(caplog) -> None:
             projection_version=3,
         )
 
-    record = next(row for row in caplog.records if row.name == "citygo.public_read_projections")
+    record = next(row for row in caplog.records if row.name == logger.name)
     payload = json.loads(record.message)
     assert logger.disabled is False
     assert payload == {
