@@ -37,6 +37,13 @@ class WorkerOutcome:
     skip_reason: str | None = None
     elapsed_seconds: float = 0.0
     exit_code: int = 0
+    # Diagnostic fields for a claimed-but-non-terminal job, sourced from the
+    # runner's own freshly reloaded row (see run_queued_import_jobs) -- never
+    # invented here. Populated whenever a job was claimed, regardless of
+    # whether it ultimately reached a terminal status.
+    claimed_by: str | None = None
+    expected_claimed_by: str | None = None
+    finished_at: str | None = None
     _started_at: float = field(default_factory=time.monotonic, repr=False, compare=False)
 
     def finalize(self, *, exit_code: int) -> "WorkerOutcome":
@@ -131,6 +138,9 @@ def run_worker_loop(
                     outcome.claimed = True
                     outcome.terminal_status = str(first.get("terminal_status") or None)
                     outcome.processed = outcome.terminal_status in TERMINAL_JOB_STATUSES
+                    outcome.claimed_by = first.get("claimed_by")
+                    outcome.expected_claimed_by = first.get("expected_claimed_by")
+                    outcome.finished_at = first.get("finished_at")
                 elif not outcome.claimed:
                     outcome.skip_reason = outcome.skip_reason or "no_queued_job_matched"
             if consecutive_failures:
@@ -235,14 +245,24 @@ def main() -> int:
         _print_outcome(outcome.finalize(exit_code=1))
         return 1
 
-    # Runtime expired without the claimed job ever reaching a terminal
-    # status: a stalled job looks identical to "the worker ran fine" unless
-    # this is treated as a failure explicitly.
+    # A claimed job that never reached a terminal status is always a
+    # failure -- a stalled job must never look identical to "the worker ran
+    # fine". "max_runtime_without_terminal_progress" is reserved for a
+    # genuine timeout: it is only ever set by run_worker_loop's own runtime
+    # check above (started_at ... max_runtime_seconds), never invented here.
+    # Any other non-terminal outcome (e.g. the runner's finalize_import_job
+    # call was rejected under lock -- lost ownership or already
+    # terminalized by a concurrent stall-sweep/cancel) gets its own
+    # truthful reason instead of being mislabeled as a timeout that never
+    # actually happened.
     if not is_dry_run and outcome.claimed and not outcome.processed:
-        outcome.skip_reason = outcome.skip_reason or "max_runtime_without_terminal_progress"
+        if outcome.skip_reason != "max_runtime_without_terminal_progress":
+            outcome.skip_reason = "job_finalize_did_not_reach_terminal_status"
         print(
             f"import_worker_job_did_not_reach_terminal_status job_id={outcome.matched_job_id} "
-            f"status={outcome.terminal_status!r}",
+            f"status={outcome.terminal_status!r} reason={outcome.skip_reason} "
+            f"claimed_by={outcome.claimed_by!r} expected_claimed_by={outcome.expected_claimed_by!r} "
+            f"finished_at={outcome.finished_at!r}",
             file=sys.stderr,
             flush=True,
         )

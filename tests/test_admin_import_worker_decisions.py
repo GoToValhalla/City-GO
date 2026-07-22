@@ -224,7 +224,8 @@ def test_healthy_post_start_memory_does_not_self_deadlock_new(
     result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
 
     assert result["processed"] == 1
-    assert result["claimed_jobs"] == [{"job_id": job.id, "terminal_status": "success"}]
+    assert result["claimed_jobs"][0]["job_id"] == job.id
+    assert result["claimed_jobs"][0]["terminal_status"] == "success"
     db_session.refresh(job)
     assert job.status == "success"
 
@@ -624,3 +625,115 @@ def test_dry_run_reports_no_matching_job_for_unrelated_city_slug_new(
     result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1, city_slug=target_city.slug, dry_run=True)
 
     assert result["would_process"] == []
+
+
+def test_stale_pre_run_job_object_cannot_report_false_running_status_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """Production Job #10 regression: a runner whose finalize_import_job
+    call is rejected under lock (lost ownership / already terminalized by
+    a concurrent stall-sweep or cancel) expunges the caller's pre-run `job`
+    object and returns a FRESH, separately re-fetched row instead. Before
+    this fix, run_queued_import_jobs read `job.status` from its own
+    pre-run reference (still showing "running" in memory) rather than the
+    runner's actual return value, so a job that genuinely reached a
+    terminal status was reported as "running" and misdiagnosed by the
+    worker as a runtime stall. This fake runner simulates that exact
+    shape: it mutates the DB directly (not through the caller's `job`
+    object) and returns a brand-new ORM instance."""
+    _patch_session_local(monkeypatch, db_session)
+    city = city_factory(slug="worker-stale-object", name="Worker Stale Object")
+    job = _create_import_job(db_session, city_id=city.id)
+
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
+        # Mutate via a completely independent query/object, then EXPUNGE
+        # the caller's original pre-run `job` instance from the session so
+        # any read through that stale reference cannot reflect this write
+        # -- reproducing finalize_import_job's own expunge-on-rejection
+        # behavior instead of relying on identity-map coincidence.
+        fresh = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).populate_existing().one()
+        fresh.status = "success"
+        fresh.started_at = fresh.started_at or datetime.utcnow()
+        fresh.finished_at = datetime.utcnow()
+        db.flush()
+        db.expunge(job)
+        db.commit()
+        return db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).populate_existing().one()
+
+    monkeypatch.setattr(tasks, "run_city_import_job", fake_run_city_import_job)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    assert result["processed"] == 1
+    assert result["claimed_jobs"][0]["terminal_status"] == "success"
+    assert result["claimed_jobs"][0]["job_id"] == job.id
+
+
+def test_runner_return_value_used_not_stale_pre_run_reference_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """Direct contract test: if the runner's returned row disagrees with
+    whatever the pre-run `job` reference would show, run_queued_import_jobs
+    must report the RETURNED row's status -- proving the fix reads
+    the runner's return value rather than any object captured before the
+    call."""
+    _patch_session_local(monkeypatch, db_session)
+    city = city_factory(slug="worker-return-value-contract", name="Worker Return Value Contract")
+    job = _create_import_job(db_session, city_id=city.id)
+
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
+        fresh = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).populate_existing().one()
+        fresh.status = "partial_success"
+        fresh.claimed_by = "import-worker-return-value-test"
+        fresh.started_at = fresh.started_at or datetime.utcnow()
+        fresh.finished_at = datetime.utcnow()
+        db.flush()
+        db.commit()
+        return fresh
+
+    monkeypatch.setattr(tasks, "run_city_import_job", fake_run_city_import_job)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    claimed = result["claimed_jobs"][0]
+    assert claimed["job_id"] == job.id
+    assert claimed["terminal_status"] == "partial_success"
+    assert claimed["claimed_by"] == "import-worker-return-value-test"
+    assert claimed["finished_at"] is not None
+
+
+def test_non_terminal_runner_result_reports_truthful_diagnostic_fields_new(
+    db_session: Session,
+    city_factory: Callable[..., Any],
+    monkeypatch,
+) -> None:
+    """When a runner returns a row still stuck at "running" (finalize was
+    genuinely rejected and nothing else recovered it), the claimed_jobs
+    entry must carry the diagnostic fields (claimed_by,
+    expected_claimed_by, finished_at) the worker layer needs to report a
+    truthful, non-timeout reason instead of the misleading
+    "max_runtime_without_terminal_progress" label."""
+    _patch_session_local(monkeypatch, db_session)
+    city = city_factory(slug="worker-non-terminal-diagnostics", name="Worker Non Terminal Diagnostics")
+    job = _create_import_job(db_session, city_id=city.id)
+
+    def fake_run_city_import_job(db: Session, *, city_id: int, actor_id: str, job_id: int | None = None) -> CityAdminImportJob:
+        fresh = db.query(CityAdminImportJob).filter(CityAdminImportJob.id == job_id).populate_existing().one()
+        fresh.claimed_by = "some-other-worker"
+        db.flush()
+        db.commit()
+        return fresh
+
+    monkeypatch.setattr(tasks, "run_city_import_job", fake_run_city_import_job)
+
+    result = tasks.run_queued_import_jobs(actor_id="test-worker", limit=1)
+
+    claimed = result["claimed_jobs"][0]
+    assert claimed["job_id"] == job.id
+    assert claimed["terminal_status"] == "running"
+    assert claimed["claimed_by"] == "some-other-worker"
+    assert claimed["finished_at"] is None

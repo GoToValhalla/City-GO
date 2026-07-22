@@ -299,3 +299,71 @@ def test_safe_one_job_exits_nonzero_when_claimed_job_stalls_past_max_runtime_new
     exit_code = worker.main()
 
     assert exit_code == 1
+
+
+def test_non_terminal_result_without_real_timeout_is_not_labeled_max_runtime_new(monkeypatch, capsys) -> None:
+    """Production Job #10: the worker ran ~235s of a 900s budget (no real
+    timeout ever fired) yet a claimed job came back non-terminal (its
+    finalize_import_job call was rejected under lock -- lost ownership or
+    already terminalized elsewhere). This must never be reported as
+    "max_runtime_without_terminal_progress", since runtime never actually
+    expired -- that label is reserved for run_worker_loop's own runtime
+    check. The truthful reason plus the diagnostic fields (job_id, status,
+    claimed_by, expected_claimed_by, finished_at) must appear instead."""
+    monkeypatch.setattr(
+        worker, "run_queued_import_jobs",
+        lambda **_kwargs: {
+            "processed": 0, "failed": 0, "queue": {},
+            "claimed_jobs": [{
+                "job_id": 10, "terminal_status": "running",
+                "claimed_by": "import-worker-abc123", "expected_claimed_by": "import-worker-abc123",
+                "finished_at": None,
+            }],
+        },
+    )
+    # Runtime is nowhere near expiring: started_at then one fast check.
+    monotonic_values = iter([0.0, 5.0, 10.0, 15.0])
+    monkeypatch.setattr(worker.time, "monotonic", lambda: next(monotonic_values))
+
+    exit_code = worker.main()
+
+    assert exit_code == 1
+    err = capsys.readouterr().err
+    assert "max_runtime_without_terminal_progress" not in err
+    assert "job_finalize_did_not_reach_terminal_status" in err
+    assert "job_id=10" in err
+    assert "status='running'" in err
+    assert "claimed_by='import-worker-abc123'" in err
+    assert "expected_claimed_by='import-worker-abc123'" in err
+    assert "finished_at=None" in err
+
+
+def test_real_runtime_expiration_still_reports_max_runtime_without_terminal_progress_new(monkeypatch, capsys) -> None:
+    """The genuine timeout path (run_worker_loop's own runtime check firing
+    before max_iterations is exhausted) must still report
+    "max_runtime_without_terminal_progress" -- this label must not be
+    removed entirely, only stopped from firing when runtime never
+    actually expired."""
+    monkeypatch.setenv("IMPORT_WORKER_MAX_RUNTIME_SECONDS", "10")
+    monkeypatch.setattr(
+        worker, "run_queued_import_jobs",
+        lambda **_kwargs: {
+            "processed": 0, "failed": 0, "queue": {},
+            "claimed_jobs": [{"job_id": 11, "terminal_status": "running", "claimed_by": "w1", "expected_claimed_by": "w1", "finished_at": None}],
+        },
+    )
+    # started_at=0.0, then the loop's own runtime check must see elapsed
+    # time already >= max_runtime_seconds (10) on its very first pass,
+    # simulating a genuine timeout even though max_iterations=1 means the
+    # loop body itself only ever runs once in this worker's safe_one_job
+    # mode. Reusing run_worker_loop directly (bypassing main()'s
+    # max_iterations=1 wiring) proves the timeout branch itself still
+    # produces the reserved label independent of main()'s new gating.
+    monotonic_values = iter([0.0] + [20.0] * 10)
+    monkeypatch.setattr(worker.time, "monotonic", lambda: next(monotonic_values))
+
+    outcome = worker.run_worker_loop(
+        limit=1, sleep_seconds=5, max_runtime_seconds=10, max_iterations=None,
+    )
+
+    assert outcome.skip_reason == "max_runtime_without_terminal_progress"

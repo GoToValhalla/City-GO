@@ -272,25 +272,43 @@ def run_queued_import_jobs(
             # our own — that still expects to operate on it afterward.
             savepoint = db.begin_nested()
             try:
+                # Every runner returns the row exactly as finalize_import_job
+                # left it (freshly reloaded on success, or re-fetched fresh
+                # after a rejected finalize expunged the pre-run object) --
+                # that return value, not the `job` loaded before the call
+                # above, is the only truthful post-run state. Reusing the
+                # pre-run `job` here previously reported a stale "running"
+                # status whenever finalize_import_job rejected the write
+                # (lost ownership / already terminalized by a concurrent
+                # stall-sweep or cancel), which the worker then misreported
+                # as "max_runtime_without_terminal_progress" even though the
+                # pipeline had actually finished and runtime had not expired.
                 if source == SOURCE_ENRICHMENT_ONLY:
-                    run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
+                    job = run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
                 elif source == SOURCE_SNAPSHOT_REFRESH:
-                    run_snapshot_refresh_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
+                    job = run_snapshot_refresh_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
                 elif source == SOURCE_ADDRESS_ENRICHMENT:
-                    run_address_enrichment_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
+                    job = run_address_enrichment_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
                 elif source == SOURCE_PHOTO_ENRICHMENT:
-                    run_photo_enrichment_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
+                    job = run_photo_enrichment_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
                 else:
-                    run_city_import_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
+                    job = run_city_import_job(db, city_id=city_id, actor_id=actor_id, job_id=job_id)
                 processed += 1
-                claimed_jobs.append({"job_id": job_id, "terminal_status": str(job.status)})
+                actual_status = str(job.status) if job is not None else "unknown"
+                claimed_jobs.append({
+                    "job_id": job_id,
+                    "terminal_status": actual_status,
+                    "claimed_by": job.claimed_by if job is not None else None,
+                    "expected_claimed_by": worker_id,
+                    "finished_at": job.finished_at.isoformat() if job is not None and job.finished_at else None,
+                })
                 _log_worker_decision(
                     db,
                     event="worker_job_finished",
                     actor_id=actor_id,
                     message=f"Import worker finished job #{job_id}",
                     job=job,
-                    details={"final_status": job.status, "source": source},
+                    details={"final_status": actual_status, "source": source},
                 )
                 db.commit()
             except (Exception, SystemExit) as exc:  # noqa: BLE001
@@ -322,7 +340,13 @@ def run_queued_import_jobs(
                 error = {"job_id": job_id, "city_id": city_id, "source": source, "error": str(exc)[:500]}
                 errors.append(error)
                 failed_job = _mark_worker_exception(db, job_id=job_id, error=str(exc), expected_claimed_by=worker_id)
-                claimed_jobs.append({"job_id": job_id, "terminal_status": str(failed_job.status if failed_job else "failed")})
+                claimed_jobs.append({
+                    "job_id": job_id,
+                    "terminal_status": str(failed_job.status if failed_job else "failed"),
+                    "claimed_by": failed_job.claimed_by if failed_job is not None else None,
+                    "expected_claimed_by": worker_id,
+                    "finished_at": failed_job.finished_at.isoformat() if failed_job is not None and failed_job.finished_at else None,
+                })
                 _log_worker_decision(
                     db,
                     event="worker_job_failed",
