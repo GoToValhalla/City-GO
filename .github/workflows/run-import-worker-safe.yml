@@ -120,7 +120,7 @@ jobs:
           MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-900}"
           RUN_MODE="${RUN_MODE:-safe_one_job}"
           CITY_SLUG="${CITY_SLUG:-}"
-          STARTUP_HOST_FLOOR_MB=550
+          STARTUP_HOST_FLOOR_MB=500
           RUNTIME_HOST_FLOOR_MB=256
           RUNTIME_CGROUP_PERCENT=85
           FAIL=0

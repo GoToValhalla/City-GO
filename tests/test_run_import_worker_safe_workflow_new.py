@@ -64,7 +64,7 @@ def test_workflow_preflight_checks_health_memory_and_running_state_new() -> None
 
     assert "preflight: public health/ready" in text
     assert "preflight: host memory" in text
-    assert "STARTUP_HOST_FLOOR_MB=550" in text
+    assert "STARTUP_HOST_FLOOR_MB=500" in text
     assert "preflight: import-worker must not already be running" in text
     assert "PREFLIGHT FAILED" in text
 
