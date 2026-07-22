@@ -19,6 +19,7 @@ from routers.admin_import_jobs import router as admin_import_jobs_router
 from routers.admin_import_pipeline import router as admin_import_pipeline_router
 from routers.admin_import_queue import router as admin_import_queue_router
 from routers.admin_ops import router as admin_ops_router
+from routers.admin_projections import router as admin_projections_router
 from routers.admin_read_models import router as admin_read_models_router
 from routers.admin_reviews import router as admin_reviews_router
 from routers.admin_route_health import router as admin_route_health_router
@@ -83,6 +84,7 @@ def include_app_routers(app: FastAPI) -> None:
 
 
 _ROOT_ROUTERS = (
+    admin_projections_router,
     admin_taxonomy_router,
     debug_reports_router,
     admin_router,

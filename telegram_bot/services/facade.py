@@ -17,6 +17,11 @@ from services.city_service import get_available_cities
 from telegram_bot.quality import category_code, is_hours_reliable, is_place_bot_visible, is_route_point_bot_eligible
 from telegram_bot.schemas import BotCity, BotPlace, BotRoute, BotRoutePoint, Page
 from telegram_bot.utils import haversine_meters
+from services.catalog_projection_read_service import CATALOG_PROJECTION_TOGGLE, get_catalog_place, list_catalog_places
+from services.feature_toggle_service import is_toggle_enabled
+from services.search_projection_read_service import SEARCH_PROJECTION_TOGGLE, search_public_places_via_projection
+from services.routing_projection_candidate_service import ROUTING_PROJECTION_TOGGLE, routing_projection_candidates
+from types import SimpleNamespace
 
 DEFAULT_LIMIT = 5
 CATEGORY_GROUPS = {
@@ -88,7 +93,7 @@ class BotFacade:
         city = self._city_row(city_slug)
         if city is None:
             return None
-        rows = self._route_candidate_rows(city, limit)
+        rows = self._projected_route_rows(city, limit) if is_toggle_enabled(self.db, ROUTING_PROJECTION_TOGGLE, default=False) else self._route_candidate_rows(city, limit)
         if len(rows) < 2:
             return None
         points = [
@@ -130,6 +135,12 @@ class BotFacade:
         return route if len(route.points) >= 2 else None
 
     def places_by_category(self, city_slug: str, category_group: str, page: int = 0, limit: int = DEFAULT_LIMIT) -> Page:
+        if is_toggle_enabled(self.db, CATALOG_PROJECTION_TOGGLE, default=False):
+            items, _ = list_catalog_places(self.db, city_slug=city_slug, limit=10_000)
+            categories = CATEGORY_GROUPS.get(category_group, {category_group})
+            rows = [_bot_place_from_public(row) for row in items if not categories or row.category in categories]
+            start = page * limit
+            return Page(rows[start:start + limit], page, len(rows) > start + limit)
         city = self._city_row(city_slug)
         if city is None:
             return Page([], page, False)
@@ -143,12 +154,18 @@ class BotFacade:
         return Page(valid[start:start + limit], page, len(valid) > start + limit)
 
     def place(self, place_id: int) -> BotPlace | None:
+        if is_toggle_enabled(self.db, CATALOG_PROJECTION_TOGGLE, default=False):
+            row = get_catalog_place(self.db, place_id=place_id)
+            return _bot_place_from_public(row) if row else None
         row = self.db.query(Place).options(joinedload(Place.category_ref)).filter(Place.id == place_id).first()
         if row is None or not self._public_place(row):
             return None
         return self._place(row)
 
     def search_places(self, city_slug: str, query: str, page: int = 0, limit: int = DEFAULT_LIMIT) -> Page:
+        if is_toggle_enabled(self.db, SEARCH_PROJECTION_TOGGLE, default=False):
+            rows, total = search_public_places_via_projection(self.db, q=query, city_slug=city_slug, limit=limit, offset=page * limit)
+            return Page([_bot_place_from_public(row) for row in rows], page, total > (page + 1) * limit)
         city = self._city_row(city_slug)
         normalized = query.strip()
         if city is None or not normalized:
@@ -168,6 +185,11 @@ class BotFacade:
         return Page(valid[start:start + limit], page, len(valid) > start + limit)
 
     def nearby_places(self, city_slug: str, lat: float, lng: float, category: str | None = None, limit: int = 10) -> list[BotPlace]:
+        if is_toggle_enabled(self.db, CATALOG_PROJECTION_TOGGLE, default=False):
+            rows, _ = list_catalog_places(self.db, city_slug=city_slug, limit=10_000)
+            categories = CATEGORY_GROUPS.get(category, {category}) if category and category != "all" else set()
+            projected = [_bot_place_from_public(row, distance_m=int(haversine_meters(lat, lng, row.lat, row.lng))) for row in rows if row.lat is not None and row.lng is not None and (not categories or row.category in categories)]
+            return sorted([row for row in projected if (row.distance_m or 0) <= 3_000], key=lambda row: row.distance_m or 0)[:limit]
         city = self._city_row(city_slug)
         if city is None:
             return []
@@ -357,6 +379,12 @@ class BotFacade:
     def _field_confidence(self, place_id: int, field_name: str) -> PlaceFieldConfidence | None:
         return self.db.query(PlaceFieldConfidence).filter_by(place_id=place_id, field_name=field_name).first()
 
+    def _projected_route_rows(self, city: City, limit: int) -> list[Place]:
+        location = (city.center_lat, city.center_lng) if city.center_lat is not None and city.center_lng is not None else None
+        ctx = SimpleNamespace(city_id=city.slug, location=location, radius_meters=50_000,
+                              avoided_place_ids=[], avoided_categories=[], destination_id=None)
+        return routing_projection_candidates(self.db, ctx)[:limit]
+
 
 def _points_distance_km(points: list[BotRoutePoint]) -> float:
     distance_m = 0.0
@@ -383,3 +411,10 @@ def _safe_image_url(value: str | None) -> str | None:
     if "placeholder" in lowered or "no-photo" in lowered or "no_photo" in lowered:
         return None
     return value
+
+
+def _bot_place_from_public(row, *, distance_m: int | None = None) -> BotPlace:
+    return BotPlace(id=row.id, title=row.title, category=row.category, category_name=row.category_label,
+                    short_description=row.short_description, address=row.address, image_url=_safe_image_url(row.image_url),
+                    opening_hours_display=_format_opening_hours(row.opening_hours), hours_reliable=False,
+                    lat=row.lat, lng=row.lng, distance_m=distance_m, slug=row.slug)

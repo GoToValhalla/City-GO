@@ -8,6 +8,11 @@ from sqlalchemy.orm import Session
 from db.dependencies import get_db
 from schemas.nearby import NearbyPlaceRead, NearestCityRead
 from services.nearby_service import get_nearby_places, nearest_city
+from services.catalog_projection_read_service import CATALOG_PROJECTION_TOGGLE
+from services.catalog_projection_nearby_service import nearby_catalog_places
+from services.feature_toggle_service import is_toggle_enabled
+from services.projection_http_error import raise_projection_unavailable
+from services.public_read_projection_service import PublicReadProjectionError
 
 router = APIRouter(prefix="/nearby", tags=["nearby"])
 
@@ -21,6 +26,11 @@ def read_nearby_places(
     db: Session = Depends(get_db),
 ) -> list[NearbyPlaceRead]:
     _reject_null_island(lat, lng)
+    if is_toggle_enabled(db, CATALOG_PROJECTION_TOGGLE, default=False):
+        try:
+            return nearby_catalog_places(db, lat=lat, lng=lng, radius_km=radius_km)
+        except PublicReadProjectionError as exc:
+            raise_projection_unavailable(exc, read_path="public_catalog")
     return get_nearby_places(
         db=db,
         lat=lat,

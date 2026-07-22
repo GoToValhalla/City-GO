@@ -2,32 +2,18 @@
 
 from __future__ import annotations
 
-from typing import NoReturn
-
-from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.city import City
-from models.place import Place
 from models.search_routing_stage5 import SearchPlaceDocument
-from services.place_public_visibility import apply_public_place_visibility
-from services.public_read_projection_service import FRESH_STATUS, PublicReadProjectionError
+from schemas.public_place import PublicPlaceRead
+from services.public_read_projection_service import FRESH_STATUS
 from services.search_projection_readiness import assert_search_projection_ready
+from services.projection_observability import log_projection_read
+from time import perf_counter
 
 SEARCH_PROJECTION_TOGGLE = "search_projection_reads_enabled"
-
-
-def raise_projection_http_error(exc: PublicReadProjectionError) -> NoReturn:
-    raise HTTPException(
-        status_code=503,
-        detail={
-            "code": "public_read_projection_unavailable",
-            "reason": exc.reason,
-            "read_path": "search",
-            "message": str(exc),
-        },
-    ) from exc
 
 
 def search_public_places_via_projection(
@@ -42,18 +28,21 @@ def search_public_places_via_projection(
     offset: int = 0,
     sort_by: str = "title",
     sort_order: str = "asc",
-) -> tuple[list[Place], int]:
+) -> tuple[list[PublicPlaceRead], int]:
     resolved_city_id = _resolve_city_id(db, city_id=city_id, city_slug=city_slug)
     if city_slug is not None and resolved_city_id is None and city_id is None:
         return [], 0
-    assert_search_projection_ready(db, city_id=resolved_city_id)
+    started = perf_counter()
+    readiness = assert_search_projection_ready(db, city_id=resolved_city_id)
     docs = _matching_search_docs(
         db, q=q, city_id=resolved_city_id, sort_by=sort_by, sort_order=sort_order
     )
-    places = _load_visible_places(
-        db, [int(doc.place_id) for doc in docs], category_id=category_id, tag_id=tag_id
-    )
-    return places[offset : offset + limit], len(places)
+    filtered = [doc for doc in docs if _matches_projection_filters(doc, category_id, tag_id)]
+    items = [PublicPlaceRead(**doc.public_payload) for doc in filtered]
+    log_projection_read(read_path="search", projection_type="search_place_document", city_id=resolved_city_id,
+                        uses_projection=True, latency_ms=int((perf_counter() - started) * 1000),
+                        source_version=readiness.source_version, projection_version=readiness.projection_version)
+    return items[offset : offset + limit], len(items)
 
 
 def _matching_search_docs(db, *, q, city_id, sort_by, sort_order) -> list[SearchPlaceDocument]:
@@ -71,18 +60,11 @@ def _matching_search_docs(db, *, q, city_id, sort_by, sort_order) -> list[Search
     return list(query.order_by(ordered).all())
 
 
-def _load_visible_places(db, place_ids, *, category_id, tag_id) -> list[Place]:
-    if not place_ids:
-        return []
-    query = apply_public_place_visibility(db.query(Place).filter(Place.id.in_(place_ids)))
-    if category_id is not None:
-        query = query.filter(Place.category_id == category_id)
-    if tag_id is not None:
-        from models.place_tag import PlaceTag
-
-        query = query.join(PlaceTag, Place.id == PlaceTag.place_id).filter(PlaceTag.tag_id == tag_id)
-    by_id = {int(place.id): place for place in query.all()}
-    return [by_id[place_id] for place_id in place_ids if place_id in by_id]
+def _matches_projection_filters(doc: SearchPlaceDocument, category_id: int | None, tag_id: int | None) -> bool:
+    metadata = doc.tags_payload or {}
+    category_matches = category_id is None or metadata.get("category_id") == category_id
+    tag_ids = metadata.get("tag_ids", [])
+    return category_matches and (tag_id is None or tag_id in tag_ids)
 
 
 def _resolve_city_id(db: Session, *, city_id: int | None, city_slug: str | None) -> int | None:

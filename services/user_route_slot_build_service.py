@@ -14,6 +14,9 @@ from services.public_route_place_access import (
 )
 from services.route_diversity_policy import normalize_category
 from services.user_route_recalc_service import UserRouteRecalcService
+from services.feature_toggle_service import is_toggle_enabled
+from services.routing_projection_candidate_service import ROUTING_PROJECTION_TOGGLE, routing_projection_candidates
+from types import SimpleNamespace
 
 RELATED_SLOT_CATEGORIES: dict[str, tuple[str, ...]] = {
     "cafe": ("cafe", "coffee"),
@@ -44,16 +47,17 @@ class UserRouteSlotBuildService:
         places: list[Place] = []
         matches: list[SlotMatch] = []
         used_ids: set[int] = set()
-        scope = resolve_intent_scope(db, request)
+        projected = _projection_candidates(db, request)
+        scope = None if projected is not None else resolve_intent_scope(db, request)
 
         for index, slot in enumerate(request.route_slots, 1):
             slot_id = str(slot.get("slot_id") or f"slot-{index}")
             requested = normalize_category(slot.get("category") or slot.get("type"))
             required = bool(slot.get("required", True))
             selected_id = _optional_int(slot.get("selected_place_id"))
-            place = self._selected_place(db, selected_id, requested, used_ids, scope=scope) if selected_id else None
+            place = _projected_match(projected, selected_id, requested, used_ids) if projected is not None else (self._selected_place(db, selected_id, requested, used_ids, scope=scope) if selected_id else None)
             if place is None:
-                place = self._first_slot_candidate(db, request, requested, used_ids, scope=scope)
+                place = _projected_match(projected, None, requested, used_ids) if projected is not None else self._first_slot_candidate(db, request, requested, used_ids, scope=scope)
             if place is None:
                 status = "missing_required" if required else "missing_optional"
                 matches.append(SlotMatch(slot_id, requested, None, status, f"Не нашли подходящую точку для слота {requested or slot_id}."))
@@ -173,3 +177,16 @@ def _optional_int(value: object) -> int | None:
     except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
+
+
+def _projection_candidates(db: Session, request: UserRouteBuildRequest) -> list[Place] | None:
+    if not is_toggle_enabled(db, ROUTING_PROJECTION_TOGGLE, default=False):
+        return None
+    ctx = SimpleNamespace(city_id=request.city_id, destination_id=request.destination_id,
+                          location=(request.lat, request.lng) if request.lat is not None and request.lng is not None else None,
+                          radius_meters=0, avoided_place_ids=[], avoided_categories=[])
+    return routing_projection_candidates(db, ctx)
+
+
+def _projected_match(rows: list[Place], selected_id: int | None, requested: str, used_ids: set[int]) -> Place | None:
+    return next((row for row in rows if row.id not in used_ids and (selected_id is None or row.id == selected_id) and (not requested or _category_matches(requested, row.category))), None)

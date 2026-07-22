@@ -18,6 +18,9 @@ REASON_EMPTY = "projection_empty"
 REASON_STALE = "projection_stale"
 REASON_MISSING = "projection_missing"
 REASON_VERSION = "projection_version_incompatible"
+REASON_INCOMPLETE = "projection_incomplete"
+REASON_FAILED = "projection_rebuild_failed"
+REASON_RUNNING = "projection_rebuild_running"
 PUBLIC_READ_PATHS: tuple[str, ...] = ("public_catalog", "search", "routing")
 PROJECTION_TYPES: tuple[str, ...] = ("search_place_document", "routing_place_node", "route_candidate_set")
 REBUILD_JOB_STATUSES: tuple[str, ...] = ("queued", "running", "succeeded", "failed", "skipped")
@@ -42,7 +45,7 @@ def is_projection_stale(
         return True
     if source_snapshot_version is None or projection_snapshot_version is None:
         return True
-    return int(projection_snapshot_version) < int(source_snapshot_version)
+    return int(projection_snapshot_version) != int(source_snapshot_version)
 
 
 def assert_projection_fresh(
@@ -122,8 +125,10 @@ def build_search_document_from_snapshot(
         "title": str(title) if title is not None else None,
         "searchable_text": " ".join(searchable_parts).strip() or None,
         "category": str(category) if category is not None else None,
-        "tags_payload": {"tags": list(tags)} if isinstance(tags, list) else {"tags": tags},
+        "tags_payload": _search_metadata(snapshot, tags),
+        "public_payload": dict(snapshot.get("public_payload") or {}),
         "is_public": is_public,
+        "is_catalog_visible": is_public and bool(snapshot.get("is_catalog_visible", False)),
         "is_search_visible": is_public and is_search_visible,
         "ranking_score": float(snapshot.get("ranking_score", snapshot.get("quality_score", 0.0)) or 0.0),
         "freshness_status": FRESH_STATUS,
@@ -149,6 +154,7 @@ def build_routing_node_from_snapshot(
         "average_visit_duration_minutes": snapshot.get("average_visit_duration_minutes"),
         "is_route_visible": is_public and is_route_visible,
         "quality_score": int(snapshot.get("quality_score", 0) or 0),
+        "place_payload": dict(snapshot.get("place_payload") or snapshot.get("public_payload") or {}),
         "freshness_status": FRESH_STATUS,
     }
 
@@ -220,3 +226,13 @@ def assert_required_snapshot_fields(snapshot: Mapping[str, object], required_fie
     missing = [field for field in required_fields if snapshot.get(field) is None]
     if missing:
         raise PublicReadProjectionError(f"Missing snapshot fields: {missing}")
+
+
+def _search_metadata(snapshot: Mapping[str, object], tags: object) -> dict[str, object]:
+    metadata: dict[str, object] = {"tags": list(tags) if isinstance(tags, list) else tags}
+    optional = {
+        "tag_ids": list(snapshot.get("tag_ids") or []),
+        "category_id": snapshot.get("category_id"),
+        "destination_ids": list(snapshot.get("destination_ids") or []),
+    }
+    return metadata | {key: value for key, value in optional.items() if value not in (None, [])}

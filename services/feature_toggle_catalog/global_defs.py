@@ -32,5 +32,21 @@ GLOBAL_TOGGLES: tuple[ToggleDef, ...] = (
         "scope": "global",
         "group": "data",
     },
+    {
+        "key": "routing_projection_reads_enabled",
+        "label": "Routing projections",
+        "description": "Route candidates read RoutingPlaceNode and RouteCandidateSet. OFF = legacy path",
+        "default": False,
+        "scope": "global",
+        "group": "data",
+    },
+    {
+        "key": "catalog_projection_reads_enabled",
+        "label": "Catalog projections",
+        "description": "Public catalog reads SearchPlaceDocument. OFF = Stage 4 path",
+        "default": False,
+        "scope": "global",
+        "group": "data",
+    },
     {"key": "debug_mode", "label": "Debug mode", "description": "Расширенная диагностика в API", "default": False, "scope": "global", "group": "system"},
 )

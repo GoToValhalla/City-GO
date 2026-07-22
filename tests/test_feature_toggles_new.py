@@ -61,6 +61,12 @@ def test_search_projection_reads_toggle_in_catalog_new() -> None:
     assert toggle["group"] == "data"
 
 
+def test_stage5_routing_and_catalog_toggles_default_off_new() -> None:
+    by_key = {item["key"]: item for item in GLOBAL_TOGGLES}
+    assert by_key["routing_projection_reads_enabled"]["default"] is False
+    assert by_key["catalog_projection_reads_enabled"]["default"] is False
+
+
 def test_public_features_endpoint_defaults_tma_enabled_new(client: TestClient) -> None:
     response = client.get("/features/public")
     assert response.status_code == 200

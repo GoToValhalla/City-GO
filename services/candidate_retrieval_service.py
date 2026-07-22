@@ -20,6 +20,9 @@ from services.route_eligibility import (
     public_route_eligible_sql_conditions,
 )
 from services.route_geometry import walk_minutes_between
+from services.feature_toggle_service import is_toggle_enabled
+from services.routing_projection_candidate_service import ROUTING_PROJECTION_TOGGLE, routing_projection_candidates
+from services.projection_observability import log_projection_read
 
 ROUTE_FRIENDLY_CATEGORIES = frozenset(
     {
@@ -65,7 +68,16 @@ class CandidateRetrievalService:
         ctx: MergedContext,
     ) -> list[Place]:
 
+        if is_toggle_enabled(db, ROUTING_PROJECTION_TOGGLE, default=False):
+            candidates = routing_projection_candidates(db, ctx)
+            ranked = self._pre_rank_candidates(candidates, ctx)
+            final = _coerce_candidate_list(balance_candidates_by_category(ranked, self.TARGET_CANDIDATES))
+            self.last_debug = {"read_path": "projection", "raw_candidates_count": len(candidates), "final_candidates_count": len(final)}
+            return final
+
         self._apply_city_center_location_fallback(db, ctx)
+        log_projection_read(read_path="routing", projection_type="routing_place_node", city_id=None,
+                            uses_projection=False, latency_ms=0)
         density = self._safe_spatial_density(db, ctx)
         retrieval_counts = self._safe_retrieval_counts(db, ctx)
         city_wide_eligible = _safe_int(density.get("city_wide_eligible"))

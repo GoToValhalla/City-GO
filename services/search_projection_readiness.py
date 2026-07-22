@@ -2,29 +2,25 @@
 
 from __future__ import annotations
 
-from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from models.place_published_snapshot import PublishedPlaceSnapshot
 from models.search_routing_stage5 import SearchPlaceDocument
 from services.public_read_projection_service import (
     FRESH_STATUS,
     PublicReadProjectionError,
     REASON_EMPTY,
-    REASON_MISSING,
     REASON_STALE,
     REASON_VERSION,
-    choose_public_read_path,
 )
+from services.projection_readiness_service import assert_projection_ready
+from services.projection_snapshot_source import latest_published_snapshots
 
 
-def assert_search_projection_ready(db: Session, *, city_id: int | None) -> None:
+def assert_search_projection_ready(db: Session, *, city_id: int | None):
+    status = assert_projection_ready(db, projection_type="search_place_document", city_id=city_id)
     snapshots = latest_search_snapshots(db, city_id=city_id)
     if not snapshots:
-        raise PublicReadProjectionError(
-            "Authoritative published search snapshots are missing",
-            reason=REASON_MISSING,
-        )
+        return status
     docs_by_place = docs_by_place_id(db, city_id=city_id)
     if not docs_by_place:
         raise PublicReadProjectionError(
@@ -45,40 +41,13 @@ def assert_search_projection_ready(db: Session, *, city_id: int | None) -> None:
                 reason=REASON_STALE,
             )
         matched_versions.append(int(doc.source_snapshot_version))
-    source_version = max(int(row.snapshot_version) for row in snapshots)
-    choose_public_read_path(
-        read_path="search",
-        projection_type="search_place_document",
-        projection_count=len(matched_versions),
-        source_snapshot_version=source_version,
-        projection_snapshot_version=max(matched_versions),
-        freshness_status=FRESH_STATUS,
-        fallback_allowed=False,
-    )
+    if len(matched_versions) != len(snapshots) or status.actual_count < len(snapshots):
+        raise PublicReadProjectionError("Search projection is incomplete", reason="projection_incomplete")
+    return status
 
 
-def latest_search_snapshots(db: Session, *, city_id: int | None) -> list[PublishedPlaceSnapshot]:
-    query = db.query(
-        PublishedPlaceSnapshot.place_id,
-        func.max(PublishedPlaceSnapshot.snapshot_version).label("max_version"),
-    ).filter(
-        PublishedPlaceSnapshot.is_public.is_(True),
-        PublishedPlaceSnapshot.is_search_visible.is_(True),
-    )
-    if city_id is not None:
-        query = query.filter(PublishedPlaceSnapshot.city_id == city_id)
-    latest = query.group_by(PublishedPlaceSnapshot.place_id).subquery()
-    return list(
-        db.query(PublishedPlaceSnapshot)
-        .join(
-            latest,
-            and_(
-                PublishedPlaceSnapshot.place_id == latest.c.place_id,
-                PublishedPlaceSnapshot.snapshot_version == latest.c.max_version,
-            ),
-        )
-        .all()
-    )
+def latest_search_snapshots(db: Session, *, city_id: int | None):
+    return [row for row in latest_published_snapshots(db, city_id=city_id) if row.is_search_visible]
 
 
 def docs_by_place_id(db: Session, *, city_id: int | None) -> dict[int, SearchPlaceDocument]:

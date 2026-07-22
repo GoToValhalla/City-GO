@@ -23,6 +23,9 @@ from services.route_eligibility import (
     evaluate_place_route_eligibility,
     is_route_forbidden_category,
 )
+from services.feature_toggle_service import is_toggle_enabled
+from services.routing_projection_candidate_service import ROUTING_PROJECTION_TOGGLE, routing_projection_candidates
+from types import SimpleNamespace
 
 
 # Получает город по slug.
@@ -70,6 +73,15 @@ def get_candidate_places(
     merged_context: dict,
     start_context,
 ) -> list[Place]:
+    if is_toggle_enabled(db, ROUTING_PROJECTION_TOGGLE, default=False):
+        location = (getattr(start_context, "lat", None), getattr(start_context, "lng", None))
+        if None in location:
+            location = None
+        ctx = SimpleNamespace(
+            city_id=request.city_slug, location=location, radius_meters=getattr(request, "radius_meters", 0),
+            avoided_place_ids=[], avoided_categories=[], destination_id=getattr(request, "destination_id", None),
+        )
+        return [row for row in routing_projection_candidates(db, ctx) if passes_basic_filters(row, merged_context)]
     city = get_city_by_slug(db, request.city_slug)
     if city is None:
         return []

@@ -16,6 +16,8 @@ CITY_STATUS_PUBLISHED = "published"
 
 
 def _find_row(db: Session, *, key: str, scope: str, scope_id: str | None) -> FeatureToggle | None:
+    if not hasattr(db, "query"):
+        return None
     return db.query(FeatureToggle).filter(
         FeatureToggle.key == key, FeatureToggle.scope == scope, FeatureToggle.scope_id == scope_id,
     ).first()
@@ -27,7 +29,7 @@ def _default_for(key: str, catalog: tuple[ToggleDef, ...]) -> bool:
 
 def is_toggle_enabled(db: Session, key: str, *, scope: str = "global", scope_id: str | None = None, default: bool | None = None) -> bool:
     row = _find_row(db, key=key, scope=scope, scope_id=scope_id)
-    if row is not None:
+    if isinstance(row, FeatureToggle):
         return row.value_bool
     if default is not None:
         return default
@@ -52,6 +54,10 @@ def update_toggle(
     db: Session, *, key: str, scope: str, scope_id: str | None, value_bool: bool, actor: str,
     reason: str | None = None, description: str | None = None,
 ) -> FeatureToggle:
+    if value_bool:
+        from services.projection_activation_service import assert_toggle_activation_safe
+
+        assert_toggle_activation_safe(db, key)
     if scope == "city" and key == CITY_PUBLICATION_TOGGLE:
         _apply_city_publication_toggle(db, city_slug=scope_id, should_publish=value_bool, actor=actor, reason=reason)
 

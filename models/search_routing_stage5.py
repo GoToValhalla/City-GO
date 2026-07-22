@@ -24,7 +24,9 @@ class SearchPlaceDocument(Base):
     searchable_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     tags_payload: Mapped[dict[str, object] | None] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), nullable=True)
+    public_payload: Mapped[dict[str, object]] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), default=dict, nullable=False)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    is_catalog_visible: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     is_search_visible: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     ranking_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False, index=True)
     freshness_status: Mapped[str] = mapped_column(String(32), default="fresh", nullable=False, index=True)
@@ -50,6 +52,7 @@ class RoutingPlaceNode(Base):
     average_visit_duration_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_route_visible: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     quality_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True)
+    place_payload: Mapped[dict[str, object]] = mapped_column(JSONB().with_variant(JSON(), "sqlite"), default=dict, nullable=False)
     freshness_status: Mapped[str] = mapped_column(String(32), default="fresh", nullable=False, index=True)
     built_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
@@ -73,21 +76,4 @@ class RouteCandidateSet(Base):
     built_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
-class ProjectionRebuildJob(Base):
-    """Operational job for rebuilding read projections."""
-
-    __tablename__ = "projection_rebuild_jobs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    projection_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    city_id: Mapped[int | None] = mapped_column(ForeignKey("cities.id"), nullable=True, index=True)
-    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False, index=True)
-    source_snapshot_version: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    processed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    rebuilt_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    skipped_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+from models.projection_rebuild_job import ProjectionRebuildJob  # noqa: E402,F401

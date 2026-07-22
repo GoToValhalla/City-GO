@@ -1,7 +1,7 @@
 # City GO — Public Read Projections v2
 
-Date: 2026-07-02
-Status: implementation contract
+Date: 2026-07-22
+Status: Stage 5 live contract
 Roadmap: Phase 3 — Public Read Projections
 Jira: CITYGO-142, CITYGO-143, CITYGO-144, CITYGO-145
 
@@ -33,7 +33,7 @@ Implemented in `services/public_read_projection_service.py`.
 Rules:
 
 - public read paths use projections when projections are present and fresh;
-- empty projection blocks public read unless fallback is explicitly allowed;
+- enabled projection reads never fall back to write-side tables;
 - stale projection blocks public read;
 - unsupported read paths and projection types are rejected.
 
@@ -66,7 +66,7 @@ Covered in `tests/test_public_read_projection_service.py`:
 - public catalog/search/routing choose projection read path;
 - empty projection is blocked;
 - stale projection is blocked;
-- explicit fallback decision is visible;
+- OFF toggles preserve the legacy decision explicitly;
 - freshness helper detects version and status drift;
 - search document builder maps public/search flags;
 - routing node builder maps public/route flags;
@@ -82,3 +82,24 @@ Covered in `tests/test_public_read_projection_service.py`:
 - rebuild summary is deterministic;
 - repo docs and tests exist;
 - CI is green.
+
+## Canonical readiness reasons
+
+- `projection_missing`;
+- `projection_empty`;
+- `projection_incomplete`;
+- `projection_stale`;
+- `projection_rebuild_running`;
+- `projection_rebuild_failed`;
+- `projection_version_incompatible`.
+
+The historical `fallback_allowed` pure-function parameter remains covered as a decision primitive,
+but no enabled live Stage 5 caller passes it. Runtime fallback is achieved only by disabling the
+affected feature toggle.
+
+## Payload ownership
+
+`SearchPlaceDocument.public_payload` is the complete public place response captured from the
+published snapshot. `RoutingPlaceNode.place_payload` contains only the route-runtime fields needed
+by the existing quality pipeline. Enabled readers do not rehydrate `Place` rows. Projection payloads
+are derived and cannot be used to mutate publication or write-side catalog facts.

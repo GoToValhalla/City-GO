@@ -6,6 +6,7 @@ import models.place_published_snapshot  # noqa: F401
 import models.search_routing_stage5  # noqa: F401
 from models.place_published_snapshot import PublishedPlaceSnapshot
 from models.search_routing_stage5 import SearchPlaceDocument
+from models.feature_toggle import FeatureToggle
 from services.data_foundation_projection_service import build_snapshot_from_place
 from services.feature_toggle_service import update_toggle
 from services.public_read_projection_service import (
@@ -30,6 +31,11 @@ def _enable_projection_reads(db_session) -> None:
     )
 
 
+def _force_unsafe_projection_reads(db_session) -> None:
+    db_session.add(FeatureToggle(key=SEARCH_PROJECTION_TOGGLE, scope="global", scope_id=None, value_bool=True))
+    db_session.commit()
+
+
 def _seed_published_searchable(db_session, place_factory, *, title: str = "Coffee Point"):
     place = place_factory(title=title, slug="coffee-point")
     snapshot = build_snapshot_from_place(place, snapshot_version=1)
@@ -51,7 +57,7 @@ def test_search_projection_toggle_off_uses_legacy_path(client, db_session, place
 @title("Toggle ON with fresh projection returns search hits")
 def test_search_projection_toggle_on_fresh_projection(client, db_session, place_factory) -> None:
     place, _ = _seed_published_searchable(db_session, place_factory)
-    rebuild_search_place_documents(db_session, city_id=place.city_id)
+    rebuild_search_place_documents(db_session)
     db_session.commit()
     _enable_projection_reads(db_session)
 
@@ -66,7 +72,7 @@ def test_search_projection_toggle_on_fresh_projection(client, db_session, place_
 @title("Toggle ON with missing snapshots returns projection_missing")
 def test_search_projection_missing_snapshots(client, db_session, place_factory) -> None:
     place_factory(title="Coffee Point", slug="coffee-point")
-    _enable_projection_reads(db_session)
+    _force_unsafe_projection_reads(db_session)
     response = client.get("/places/search/", params={"q": "Coffee", "city_slug": "zelenogradsk"})
     assert response.status_code == 503
     detail = response.json()["detail"]
@@ -78,7 +84,7 @@ def test_search_projection_missing_snapshots(client, db_session, place_factory) 
 @title("Toggle ON with empty projection returns projection_empty")
 def test_search_projection_empty(client, db_session, place_factory) -> None:
     place, _ = _seed_published_searchable(db_session, place_factory)
-    _enable_projection_reads(db_session)
+    _force_unsafe_projection_reads(db_session)
     response = client.get(
         "/places/search/",
         params={"q": "Coffee", "city_id": place.city_id},
@@ -95,7 +101,7 @@ def test_search_projection_stale_status(client, db_session, place_factory) -> No
     doc = db_session.query(SearchPlaceDocument).filter(SearchPlaceDocument.place_id == place.id).one()
     doc.freshness_status = "stale"
     db_session.commit()
-    _enable_projection_reads(db_session)
+    _force_unsafe_projection_reads(db_session)
 
     response = client.get("/places/search/", params={"q": "Coffee", "city_id": place.city_id})
     assert response.status_code == 503
@@ -111,7 +117,7 @@ def test_search_projection_version_incompatible(client, db_session, place_factor
     newer = build_snapshot_from_place(place, snapshot_version=2)
     db_session.add(newer)
     db_session.commit()
-    _enable_projection_reads(db_session)
+    _force_unsafe_projection_reads(db_session)
 
     response = client.get("/places/search/", params={"q": "Coffee", "city_id": place.city_id})
     assert response.status_code == 503

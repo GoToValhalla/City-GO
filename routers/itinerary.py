@@ -27,6 +27,8 @@ from services.route_generation_logging import (
     log_route_generation_success,
 )
 from services.route_toggle_guard import assert_route_generation_allowed
+from services.public_read_projection_service import PublicReadProjectionError
+from services.projection_http_error import raise_projection_unavailable
 
 router = APIRouter(prefix="/routes", tags=["itinerary"])
 
@@ -40,7 +42,10 @@ def generate_itinerary(
     response.headers["X-Deprecated"] = "Use POST /v1/user-routes/build instead"
     assert_route_generation_allowed(db, city_slug=request.city_slug)
     log_route_generation_started(db, source="itinerary_generate", city_slug=request.city_slug)
-    response_body = generate_itinerary_stub(db=db, request=request)
+    try:
+        response_body = generate_itinerary_stub(db=db, request=request)
+    except PublicReadProjectionError as exc:
+        raise_projection_unavailable(exc, read_path="routing")
     stops = len(response_body.points or [])
     if stops > 0:
         log_route_generation_success(db, source="itinerary_generate", city_slug=request.city_slug, stops=stops)

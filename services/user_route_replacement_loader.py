@@ -7,6 +7,11 @@ from schemas.user_route import UserRouteState
 from services.place_staleness_policy import is_route_usable_place
 from services.public_route_place_access import public_route_place_query, resolve_route_scope
 from services.route_geometry import distance_meters
+from services.feature_toggle_service import is_toggle_enabled
+from services.routing_projection_candidate_service import (
+    ROUTING_PROJECTION_TOGGLE,
+    routing_projection_candidates_for_route,
+)
 
 
 def find_replacement_place(
@@ -16,6 +21,10 @@ def find_replacement_place(
     category: str | None,
     excluded_ids: set[str],
 ) -> Place | None:
+    if is_toggle_enabled(db, ROUTING_PROJECTION_TOGGLE, default=False):
+        candidates = routing_projection_candidates_for_route(db, route)
+        filtered = tuple(filter(lambda place: _usable(place, category, excluded_ids), candidates))
+        return min(filtered, key=lambda place: _distance_from_start(place, route), default=None)
     scope = resolve_route_scope(db, route)
     if scope is None:
         return None

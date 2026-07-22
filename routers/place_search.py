@@ -13,9 +13,11 @@ from services.place_service import get_places, get_places_total
 from services.public_read_projection_service import PublicReadProjectionError
 from services.search_projection_read_service import (
     SEARCH_PROJECTION_TOGGLE,
-    raise_projection_http_error,
     search_public_places_via_projection,
 )
+from services.projection_http_error import raise_projection_unavailable
+from services.projection_observability import log_projection_read
+from time import perf_counter
 
 router = APIRouter(prefix="/places/search", tags=["place-search"])
 
@@ -33,7 +35,9 @@ def search_places(
     sort_order: str = Query(default="asc"),
     db: Session = Depends(get_db),
 ) -> PublicPlaceSearchResponse:
-    if is_toggle_enabled(db, SEARCH_PROJECTION_TOGGLE, default=False):
+    started = perf_counter()
+    projection_enabled = is_toggle_enabled(db, SEARCH_PROJECTION_TOGGLE, default=False)
+    if projection_enabled:
         try:
             items, total = search_public_places_via_projection(
                 db,
@@ -48,7 +52,7 @@ def search_places(
                 sort_order=sort_order,
             )
         except PublicReadProjectionError as exc:
-            raise_projection_http_error(exc)
+            raise_projection_unavailable(exc, read_path="search")
     else:
         items = get_places(
             db=db,
@@ -71,8 +75,12 @@ def search_places(
             q=q,
         )
 
+    if not projection_enabled:
+        log_projection_read(read_path="search", projection_type="search_place_document", city_id=city_id,
+                            uses_projection=False, latency_ms=int((perf_counter() - started) * 1000))
+
     return PublicPlaceSearchResponse(
-        items=build_public_place_reads(db, items),
+        items=items if projection_enabled else build_public_place_reads(db, items),
         total=total,
         limit=limit,
         offset=offset,

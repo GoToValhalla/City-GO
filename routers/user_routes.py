@@ -35,6 +35,8 @@ from services.user_route_session_service import (
     UserRouteSessionService,
 )
 from services.user_route_state_integrity import UserRouteStateIntegrityError
+from services.public_read_projection_service import PublicReadProjectionError
+from services.projection_http_error import raise_projection_unavailable
 from services.user_route_state_lifecycle_service import (
     RouteStateLifecycleService,
     UserRouteMutationRejectedError,
@@ -66,6 +68,9 @@ def build_user_route(payload: UserRouteBuildRequest, db: Session = Depends(get_d
     except RouteBuildTimeoutError as exc:
         db.rollback()
         raise HTTPException(status_code=422, detail={"code": "route_build_deadline_exceeded", "message": str(exc)}) from exc
+    except PublicReadProjectionError as exc:
+        db.rollback()
+        raise_projection_unavailable(exc, read_path="routing")
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
@@ -99,6 +104,9 @@ def preview_user_route(payload: UserRoutePreviewRequest, db: Session = Depends(g
     except RouteBuildTimeoutError as exc:
         db.rollback()
         return _failed_preview(payload, exc)
+    except PublicReadProjectionError as exc:
+        db.rollback()
+        raise_projection_unavailable(exc, read_path="routing")
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
@@ -116,7 +124,10 @@ def build_structured_user_route(
     payload: UserRouteStructuredBuildRequest,
     db: Session = Depends(get_db),
 ) -> UserRouteStructuredBuildResponse:
-    return UserRouteEditService().structured_options(db, payload)
+    try:
+        return UserRouteEditService().structured_options(db, payload)
+    except PublicReadProjectionError as exc:
+        raise_projection_unavailable(exc, read_path="routing")
 
 
 @router.post("/correct", response_model=UserRouteState)
@@ -128,6 +139,9 @@ def correct_user_route(payload: UserRouteCorrectRequest, db: Session = Depends(g
     except UserRouteMutationRejectedError as exc:
         db.rollback()
         raise _route_mutation_http_error(exc) from exc
+    except PublicReadProjectionError as exc:
+        db.rollback()
+        raise_projection_unavailable(exc, read_path="routing")
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
@@ -162,6 +176,9 @@ def update_user_route(
     except UserRouteMutationRejectedError as exc:
         db.rollback()
         raise _route_mutation_http_error(exc) from exc
+    except PublicReadProjectionError as exc:
+        db.rollback()
+        raise_projection_unavailable(exc, read_path="routing")
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
@@ -187,6 +204,9 @@ def replace_user_route_place(
     except UserRouteMutationRejectedError as exc:
         db.rollback()
         raise _route_mutation_http_error(exc) from exc
+    except PublicReadProjectionError as exc:
+        db.rollback()
+        raise_projection_unavailable(exc, read_path="routing")
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
@@ -225,6 +245,9 @@ def read_user_route_alternatives_from_state(
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
+    except PublicReadProjectionError as exc:
+        db.rollback()
+        raise_projection_unavailable(exc, read_path="routing")
     except SQLAlchemyError as exc:
         db.rollback()
         raise _database_http_error(exc) from exc
@@ -244,6 +267,9 @@ def add_user_route_place(
     except UserRouteMutationRejectedError as exc:
         db.rollback()
         raise _route_mutation_http_error(exc) from exc
+    except PublicReadProjectionError as exc:
+        db.rollback()
+        raise_projection_unavailable(exc, read_path="routing")
     except _ROUTE_STATE_ERRORS as exc:
         db.rollback()
         raise _route_state_http_error(exc) from exc
