@@ -8,6 +8,7 @@ from schemas.route_feedback import RouteFeedbackCreate
 
 ROOT = Path(__file__).resolve().parents[1]
 ROUTER_SOURCE = (ROOT / "routers" / "route_feedback.py").read_text(encoding="utf-8")
+APPLICATION_SOURCE = (ROOT / "services" / "route_feedback_application.py").read_text(encoding="utf-8")
 USER_SIGNALS_ROUTER_SOURCE = (ROOT / "routers" / "user_signals.py").read_text(encoding="utf-8")
 
 
@@ -42,12 +43,12 @@ def test_route_feedback_router_deduplicates_atomically_at_the_database_level_new
     INSERT ... ON CONFLICT DO NOTHING against a unique-indexed column,
     never a check-then-insert read followed by a separate write (which
     cannot close a race between two concurrent requests)."""
-    assert "_DUPLICATE_WINDOW = timedelta(minutes=5)" in ROUTER_SOURCE
-    assert "on_conflict_do_nothing" in ROUTER_SOURCE
-    assert "dedup_key" in ROUTER_SOURCE
+    assert "_DUPLICATE_WINDOW = timedelta(minutes=5)" in APPLICATION_SOURCE
+    assert "on_conflict_do_nothing" in APPLICATION_SOURCE
+    assert "dedup_key" in APPLICATION_SOURCE
     # The exact defect being guarded against: a bare read (SELECT ... latest)
     # followed by a conditional, non-atomic decision to insert.
-    assert "latest.payload == signal_payload" not in ROUTER_SOURCE
+    assert "latest.payload == signal_payload" not in APPLICATION_SOURCE
 
 
 def test_route_feedback_router_never_collapses_anonymous_identity_into_a_shared_constant_new() -> None:
@@ -55,7 +56,7 @@ def test_route_feedback_router_never_collapses_anonymous_identity_into_a_shared_
     a single shared literal identity for every caller lacking a real
     identity -- see the real behavioral proof (two independent anonymous
     callers get independent rows) in tests/test_route_feedback_new.py."""
-    assert 'anonymous_subject or "anonymous"' not in ROUTER_SOURCE
+    assert 'anonymous_subject or "anonymous"' not in APPLICATION_SOURCE
     assert "_dedup_subject" in ROUTER_SOURCE
 
 
@@ -65,8 +66,8 @@ def test_route_feedback_signal_type_is_the_single_shared_authoritative_constant_
     locally re-declared string literal -- otherwise the generic endpoint's
     rejection list and the dedicated endpoint's own signal_type could
     silently drift apart."""
-    assert "from schemas.user_signal import SIGNAL_ROUTE_FEEDBACK" in ROUTER_SOURCE
-    assert '_SIGNAL_TYPE = SIGNAL_ROUTE_FEEDBACK' in ROUTER_SOURCE
+    assert "from schemas.user_signal import SIGNAL_ROUTE_FEEDBACK" in APPLICATION_SOURCE
+    assert '_SIGNAL_TYPE = SIGNAL_ROUTE_FEEDBACK' in APPLICATION_SOURCE
 
 
 def test_generic_user_signals_endpoint_rejects_the_reserved_route_feedback_type_new() -> None:
@@ -88,8 +89,8 @@ def test_generic_user_signals_endpoint_rejects_the_reserved_route_feedback_type_
 
 
 def test_public_feedback_payload_excludes_technical_diagnostics_new() -> None:
-    assert '"rating": payload.rating' in ROUTER_SOURCE
-    assert '"problem_types": payload.problem_types' in ROUTER_SOURCE
-    assert "route_payload" not in ROUTER_SOURCE
-    assert "debug_trace" not in ROUTER_SOURCE
-    assert "stack" not in ROUTER_SOURCE.lower()
+    assert '"rating": payload.rating' in APPLICATION_SOURCE
+    assert '"problem_types": payload.problem_types' in APPLICATION_SOURCE
+    assert "route_payload" not in APPLICATION_SOURCE
+    assert "debug_trace" not in APPLICATION_SOURCE
+    assert "stack" not in APPLICATION_SOURCE.lower()
