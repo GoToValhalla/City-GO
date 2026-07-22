@@ -5,8 +5,6 @@ from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
-from models.city import City
-from models.place import Place
 from schemas.admin_route_operations import (
     CityReadinessListResponse,
     CityReadinessResponse,
@@ -15,7 +13,7 @@ from schemas.admin_route_operations import (
     EligibilityPlaceRow,
     RouteReadinessDiagnosticsResponse,
 )
-from services.admin_audit_service import write_admin_audit_log
+from services.admin_route_eligibility_application import exclude_forbidden_categories
 from services.admin_background_operation_service import (
     OP_CITY_READINESS_RECALCULATE,
     create_background_operation,
@@ -23,8 +21,6 @@ from services.admin_background_operation_service import (
 )
 from services.city_readiness import city_readiness_snapshot, list_cities_readiness
 from services.route_data_quality import build_route_data_quality_report
-from services.publication_state_writer import InvalidPublicationTransition, reconcile_published_place_state
-from services.route_eligibility.forbidden_categories import ROUTE_FORBIDDEN_CATEGORIES
 from services.route_eligibility_dashboard import build_route_readiness_diagnostics, list_eligibility_places
 
 router = APIRouter(prefix="/admin/routes", tags=["admin-routes"])
@@ -97,50 +93,10 @@ def exclude_forbidden_route_categories(
     if body.get("confirm") is not True:
         raise HTTPException(422, "Требуется confirm=true")
 
-    city = db.query(City).filter(City.slug == city_slug).first()
-    if city is None:
-        raise HTTPException(404, "Город не найден")
-
-    places = db.query(Place).filter(
-        Place.city_id == city.id,
-        Place.category.in_(tuple(ROUTE_FORBIDDEN_CATEGORIES)),
-        Place.is_route_eligible.is_(True),
-    ).all()
-
-    affected = 0
-    for place in places:
-        if not place.is_published:
-            continue
-        try:
-            if reconcile_published_place_state(
-                db, place,
-                route_eligible=False,
-                route_exclusion_reason="forbidden_category_cleanup",
-                actor=auth.actor_id,
-                source="admin_route_eligibility",
-            ):
-                affected += 1
-        except InvalidPublicationTransition:
-            pass
-
-    write_admin_audit_log(
-        db,
-        actor=auth.actor_id,
-        action="exclude_forbidden_route_categories",
-        entity_type="city",
-        entity_id=city.slug,
-        old_value=None,
-        new_value={"affected": affected},
-        reason="data_quality_action",
-    )
-    db.commit()
-
-    return {
-        "city_slug": city.slug,
-        "affected": affected,
-        "status": "done",
-        "reason": "forbidden_category_cleanup",
-    }
+    try:
+        return exclude_forbidden_categories(db, city_slug, actor=auth.actor_id)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @router.get("/readiness", response_model=CityReadinessListResponse)
