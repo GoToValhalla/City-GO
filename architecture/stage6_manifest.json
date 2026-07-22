@@ -1,0 +1,1771 @@
+{
+  "version": 1,
+  "contexts": [
+    {
+      "name": "ai",
+      "allowed_dependencies": [
+        "catalog",
+        "import",
+        "quality"
+      ]
+    },
+    {
+      "name": "analytics",
+      "allowed_dependencies": [
+        "catalog",
+        "routing",
+        "route_sessions"
+      ]
+    },
+    {
+      "name": "admin",
+      "allowed_dependencies": [
+        "catalog",
+        "destination",
+        "import",
+        "media",
+        "platform",
+        "projection_infrastructure",
+        "publication",
+        "quality",
+        "route_sessions",
+        "routing",
+        "search"
+      ]
+    },
+    {
+      "name": "catalog",
+      "allowed_dependencies": [
+        "destination",
+        "media"
+      ]
+    },
+    {
+      "name": "destination",
+      "allowed_dependencies": [
+        "catalog"
+      ]
+    },
+    {
+      "name": "identity",
+      "allowed_dependencies": [
+        "catalog",
+        "routing"
+      ]
+    },
+    {
+      "name": "import",
+      "allowed_dependencies": [
+        "catalog",
+        "media",
+        "quality"
+      ]
+    },
+    {
+      "name": "media",
+      "allowed_dependencies": [
+        "catalog"
+      ]
+    },
+    {
+      "name": "notifications",
+      "allowed_dependencies": [
+        "platform"
+      ]
+    },
+    {
+      "name": "platform",
+      "allowed_dependencies": []
+    },
+    {
+      "name": "projection_infrastructure",
+      "allowed_dependencies": [
+        "publication"
+      ]
+    },
+    {
+      "name": "publication",
+      "allowed_dependencies": [
+        "catalog",
+        "quality"
+      ]
+    },
+    {
+      "name": "quality",
+      "allowed_dependencies": [
+        "catalog",
+        "import"
+      ]
+    },
+    {
+      "name": "reference",
+      "allowed_dependencies": []
+    },
+    {
+      "name": "route_sessions",
+      "allowed_dependencies": [
+        "routing"
+      ]
+    },
+    {
+      "name": "routing",
+      "allowed_dependencies": [
+        "catalog",
+        "destination",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "search",
+      "allowed_dependencies": [
+        "catalog",
+        "destination",
+        "projection_infrastructure"
+      ]
+    }
+  ],
+  "invariants": {
+    "independent_context_pairs": [
+      [
+        "search",
+        "routing"
+      ]
+    ],
+    "forbidden_dependencies": [
+      [
+        "routing",
+        "route_sessions"
+      ]
+    ],
+    "publication_state_writer": "services.publication_state_writer",
+    "projection_writer": "projection_infrastructure",
+    "open_now_reader": "services.open_now_service"
+  },
+  "tables": [
+    {
+      "name": "abuse_reports",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "admin_alerts",
+      "owner": "platform",
+      "type": "operational",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "admin_audit_logs",
+      "owner": "platform",
+      "type": "append-only",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "admin_bulk_operations",
+      "owner": "publication",
+      "type": "mutable",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "admin_city_quality_snapshots",
+      "owner": "platform",
+      "type": "projection",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "admin_kill_switches",
+      "owner": "publication",
+      "type": "mutable",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "admin_operations",
+      "owner": "platform",
+      "type": "operational",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "admin_overview_snapshots",
+      "owner": "platform",
+      "type": "projection",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "ai_candidates",
+      "owner": "ai",
+      "type": "mutable",
+      "writer": "services.ai_contracts",
+      "readers": [
+        "import",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "ai_task_runs",
+      "owner": "ai",
+      "type": "mutable",
+      "writer": "services.ai_contracts",
+      "readers": [
+        "import",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "anonymous_identities",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "backlog_queue_snapshots",
+      "owner": "platform",
+      "type": "projection",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "bot_events",
+      "owner": "analytics",
+      "type": "append-only",
+      "writer": "services.analytics_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "bot_sessions",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "canonical_categories",
+      "owner": "import",
+      "type": "reference",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "categories",
+      "owner": "catalog",
+      "type": "reference",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "search",
+        "route_sessions",
+        "destination",
+        "media",
+        "quality",
+        "admin",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "cities",
+      "owner": "catalog",
+      "type": "mutable",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "search",
+        "route_sessions",
+        "destination",
+        "media",
+        "quality",
+        "admin",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "city_admin_import_job_changes",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "city_admin_import_jobs",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "city_candidates",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "city_enrichment_runs",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "city_import_jobs",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "city_import_scopes",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "city_quality_snapshots",
+      "owner": "quality",
+      "type": "projection",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "city_scope_import_state",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "city_start_points",
+      "owner": "catalog",
+      "type": "mutable",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "search",
+        "route_sessions",
+        "destination",
+        "media",
+        "quality",
+        "admin",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "collection_places",
+      "owner": "catalog",
+      "type": "mutable",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "search",
+        "route_sessions",
+        "destination",
+        "media",
+        "quality",
+        "admin",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "collections",
+      "owner": "catalog",
+      "type": "mutable",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "search",
+        "route_sessions",
+        "destination",
+        "media",
+        "quality",
+        "admin",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "cost_budget_policies",
+      "owner": "ai",
+      "type": "reference",
+      "writer": "services.ai_contracts",
+      "readers": [
+        "import",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "countries",
+      "owner": "reference",
+      "type": "reference",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "destination",
+        "admin"
+      ]
+    },
+    {
+      "name": "data_quality_candidates",
+      "owner": "quality",
+      "type": "mutable",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "data_quality_issues",
+      "owner": "quality",
+      "type": "mutable",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "debug_reports",
+      "owner": "platform",
+      "type": "operational",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_data_pipeline_runs",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_discovery_candidates",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_discovery_jobs",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_launch_checklist_items",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_launch_events",
+      "owner": "destination",
+      "type": "append-only",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_launch_pipeline_runs",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_launch_states",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_launch_steps",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_membership_conflicts",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_place_memberships",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_readiness_summaries",
+      "owner": "destination",
+      "type": "projection",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destination_scopes",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "destinations",
+      "owner": "destination",
+      "type": "mutable",
+      "writer": "services.destination_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "enrichment_tasks",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "evaluation_cases",
+      "owner": "ai",
+      "type": "mutable",
+      "writer": "services.ai_contracts",
+      "readers": [
+        "import",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "external_identities",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "extraction_candidates",
+      "owner": "platform",
+      "type": "operational",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "favorite_places",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "feature_toggles",
+      "owner": "platform",
+      "type": "operational",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "golden_datasets",
+      "owner": "ai",
+      "type": "reference",
+      "writer": "services.ai_contracts",
+      "readers": [
+        "import",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "identity_link_events",
+      "owner": "identity",
+      "type": "append-only",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "import_batches",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "import_conflict_candidates",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "import_dead_letter_items",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "import_job_steps",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "import_run_batches",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "import_runs",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "import_tile_runs",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "integration_contracts",
+      "owner": "platform",
+      "type": "operational",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "known_missing_poi",
+      "owner": "quality",
+      "type": "mutable",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "moderation_items",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "module_boundaries",
+      "owner": "platform",
+      "type": "operational",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "osm_category_mappings",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_change_reviews",
+      "owner": "publication",
+      "type": "mutable",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "place_discovery_requests",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_fact_versions",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_field_confidence",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_field_provenance",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_images",
+      "owner": "media",
+      "type": "mutable",
+      "writer": "services.media_contracts",
+      "readers": [
+        "catalog",
+        "publication",
+        "import",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_import_events",
+      "owner": "import",
+      "type": "append-only",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_manual_overrides",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_photo_candidates",
+      "owner": "media",
+      "type": "mutable",
+      "writer": "services.media_contracts",
+      "readers": [
+        "catalog",
+        "publication",
+        "import",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_publication_decisions",
+      "owner": "publication",
+      "type": "mutable",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "place_publication_transitions",
+      "owner": "publication",
+      "type": "append-only",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "place_rating_aggregates",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "place_schedules",
+      "owner": "catalog",
+      "type": "mutable",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "search",
+        "route_sessions",
+        "destination",
+        "media",
+        "quality",
+        "admin",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "place_scope_links",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_snapshots",
+      "owner": "projection_infrastructure",
+      "type": "projection",
+      "writer": "services.projection_contracts",
+      "readers": [
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_source_presence",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "place_state_transitions",
+      "owner": "publication",
+      "type": "mutable",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "place_tags",
+      "owner": "catalog",
+      "type": "mutable",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "search",
+        "route_sessions",
+        "destination",
+        "media",
+        "quality",
+        "admin",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "place_verification_tasks",
+      "owner": "publication",
+      "type": "mutable",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "place_verifications",
+      "owner": "publication",
+      "type": "mutable",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "places",
+      "owner": "catalog",
+      "type": "mutable",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "search",
+        "route_sessions",
+        "destination",
+        "media",
+        "quality",
+        "admin",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "product_events",
+      "owner": "analytics",
+      "type": "append-only",
+      "writer": "services.analytics_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "projection_rebuild_jobs",
+      "owner": "projection_infrastructure",
+      "type": "operational",
+      "writer": "services.projection_contracts",
+      "readers": [
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "prompt_versions",
+      "owner": "ai",
+      "type": "reference",
+      "writer": "services.ai_contracts",
+      "readers": [
+        "import",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "publication_events",
+      "owner": "publication",
+      "type": "append-only",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "publication_transition_rules",
+      "owner": "publication",
+      "type": "reference",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "published_place_snapshots",
+      "owner": "projection_infrastructure",
+      "type": "projection",
+      "writer": "services.projection_contracts",
+      "readers": [
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "quality_gate_rules",
+      "owner": "publication",
+      "type": "reference",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "quality_issues",
+      "owner": "quality",
+      "type": "mutable",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "quality_rules",
+      "owner": "quality",
+      "type": "reference",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "quality_score_history",
+      "owner": "quality",
+      "type": "mutable",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "regions",
+      "owner": "reference",
+      "type": "reference",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "catalog",
+        "import",
+        "destination",
+        "admin"
+      ]
+    },
+    {
+      "name": "regression_gate_runs",
+      "owner": "ai",
+      "type": "mutable",
+      "writer": "services.ai_contracts",
+      "readers": [
+        "import",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "review_decisions",
+      "owner": "import",
+      "type": "append-only",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "review_items",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "review_queue_items",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "review_votes",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "reviews",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "rollback_requests",
+      "owner": "publication",
+      "type": "mutable",
+      "writer": "services.publication_contracts",
+      "readers": [
+        "admin",
+        "quality",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "route_build_events",
+      "owner": "routing",
+      "type": "append-only",
+      "writer": "services.routing_contracts",
+      "readers": [
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "route_candidate_sets",
+      "owner": "projection_infrastructure",
+      "type": "projection",
+      "writer": "services.projection_contracts",
+      "readers": [
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "route_draft_points",
+      "owner": "routing",
+      "type": "mutable",
+      "writer": "services.routing_contracts",
+      "readers": [
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "route_drafts",
+      "owner": "routing",
+      "type": "mutable",
+      "writer": "services.routing_contracts",
+      "readers": [
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "route_generation_candidates",
+      "owner": "routing",
+      "type": "mutable",
+      "writer": "services.routing_contracts",
+      "readers": [
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "route_generation_runs",
+      "owner": "routing",
+      "type": "mutable",
+      "writer": "services.routing_contracts",
+      "readers": [
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "route_history",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "route_places",
+      "owner": "routing",
+      "type": "mutable",
+      "writer": "services.routing_contracts",
+      "readers": [
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "route_session_points",
+      "owner": "route_sessions",
+      "type": "mutable",
+      "writer": "services.route_session_contracts",
+      "readers": [
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "route_sessions",
+      "owner": "route_sessions",
+      "type": "mutable",
+      "writer": "services.route_session_contracts",
+      "readers": [
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "routes",
+      "owner": "routing",
+      "type": "mutable",
+      "writer": "services.routing_contracts",
+      "readers": [
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "routing_place_nodes",
+      "owner": "projection_infrastructure",
+      "type": "projection",
+      "writer": "services.projection_contracts",
+      "readers": [
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "saved_routes",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "search_place_documents",
+      "owner": "projection_infrastructure",
+      "type": "projection",
+      "writer": "services.projection_contracts",
+      "readers": [
+        "search",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "source_observations",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "spam_poi_rules",
+      "owner": "import",
+      "type": "mutable",
+      "writer": "services.import_pipeline",
+      "readers": [
+        "publication",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "strangler_adapters",
+      "owner": "platform",
+      "type": "operational",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "system_logs",
+      "owner": "platform",
+      "type": "operational",
+      "writer": "services.platform_contracts",
+      "readers": [
+        "admin"
+      ]
+    },
+    {
+      "name": "tags",
+      "owner": "catalog",
+      "type": "reference",
+      "writer": "services.catalog_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "search",
+        "route_sessions",
+        "destination",
+        "media",
+        "quality",
+        "admin",
+        "projection_infrastructure"
+      ]
+    },
+    {
+      "name": "taxonomy_bulk_batches",
+      "owner": "quality",
+      "type": "mutable",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "taxonomy_conflicts",
+      "owner": "quality",
+      "type": "mutable",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "taxonomy_decisions",
+      "owner": "quality",
+      "type": "mutable",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "taxonomy_mappings",
+      "owner": "quality",
+      "type": "mutable",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    },
+    {
+      "name": "telegram_identities",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "telegram_user_contexts",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "user_foundation_audit_logs",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "user_photos",
+      "owner": "media",
+      "type": "mutable",
+      "writer": "services.media_contracts",
+      "readers": [
+        "catalog",
+        "publication",
+        "import",
+        "quality",
+        "admin"
+      ]
+    },
+    {
+      "name": "user_preferences",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "user_profiles",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "user_route_state_registry",
+      "owner": "route_sessions",
+      "type": "mutable",
+      "writer": "services.route_session_contracts",
+      "readers": [
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "user_signals",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "user_suggestions",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "users",
+      "owner": "identity",
+      "type": "mutable",
+      "writer": "services.identity_contracts",
+      "readers": [
+        "routing",
+        "route_sessions",
+        "admin",
+        "analytics"
+      ]
+    },
+    {
+      "name": "workflow_operations",
+      "owner": "quality",
+      "type": "mutable",
+      "writer": "services.quality_contracts",
+      "readers": [
+        "publication",
+        "import",
+        "routing",
+        "admin"
+      ]
+    }
+  ]
+}
