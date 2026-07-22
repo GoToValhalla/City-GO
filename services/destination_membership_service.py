@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from models.destination import DestinationPlaceMembership
-from models.place import Place
+from services.stage6_contracts.catalog import set_destination_assignment_state
 
 
 def upsert_membership(
@@ -50,9 +50,7 @@ def upsert_membership(
             row.is_primary = True
     if is_primary:
         _clear_other_primary(db, place_id=place_id, keep_destination_id=destination_id)
-        place = db.query(Place).filter(Place.id == place_id).first()
-        if place is not None:
-            place.primary_destination_id = destination_id
+        set_destination_assignment_state(db, place_id, primary_destination_id=destination_id)
     db.flush()
     return row
 
@@ -99,10 +97,7 @@ def get_destinations_for_place(db: Session, place_id: int) -> list[DestinationPl
 
 
 def mark_place_stale(db: Session, place_id: int) -> None:
-    place = db.query(Place).filter(Place.id == place_id).first()
-    if place is not None:
-        place.destination_assignment_stale = True
-        db.flush()
+    set_destination_assignment_state(db, place_id, assignment_stale=True)
 
 
 def _clear_other_primary(db: Session, *, place_id: int, keep_destination_id: int) -> None:

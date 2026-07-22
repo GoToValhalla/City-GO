@@ -41,3 +41,8 @@ def published_destination_id(db: Session, slug: str) -> int | None:
     if destination is None or not destination.is_active or not destination.is_published:
         return None
     return int(destination.id)
+
+
+def destination_id_by_slug(db: Session, slug: str) -> int | None:
+    destination = get_destination_by_slug(db, slug)
+    return int(destination.id) if destination is not None else None

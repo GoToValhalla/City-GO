@@ -6,11 +6,11 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Query, Session
 
 from models.city import City
-from models.destination import Destination, DestinationPlaceMembership
 from models.place import Place
 from services.admin_backlog_clauses import reason_clause
 from services.place_quality_signals import PLACEHOLDER_SQL_PATTERNS
 from services.route_eligibility_policy import HARD_EXCLUDED_CATEGORIES
+from services.stage6_contracts.destination import destination_id_by_slug, destination_place_ids
 
 # Реальные инфраструктурные категории не являются мусором. Здесь остаются только
 # неразобранные общие значения, требующие нормализации.
@@ -111,15 +111,9 @@ def apply_place_filters(
     if city_slug:
         query = query.join(City).filter(City.slug == city_slug)
     if destination_slug:
-        query = (
-            query.join(DestinationPlaceMembership, DestinationPlaceMembership.place_id == Place.id)
-            .join(Destination, Destination.id == DestinationPlaceMembership.destination_id)
-            .filter(
-                Destination.slug == destination_slug,
-                DestinationPlaceMembership.is_hidden.is_(False),
-                DestinationPlaceMembership.invalidated_at.is_(None),
-            )
-        )
+        destination_id = destination_id_by_slug(db, destination_slug)
+        place_ids = destination_place_ids(db, destination_id) if destination_id is not None else ()
+        query = query.filter(Place.id.in_(place_ids))
     if publication_status:
         query = query.filter(Place.publication_status == publication_status)
     if verification_status:

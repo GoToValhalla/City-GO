@@ -195,8 +195,6 @@ def _shadow_write_membership(db: Session, place: Place) -> None:
         is_primary=True,
         source="place_write_shadow",
     )
-    if place.primary_destination_id is None:
-        place.primary_destination_id = destination.id
     db.flush()
 
 

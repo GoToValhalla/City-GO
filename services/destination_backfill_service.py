@@ -97,5 +97,4 @@ def _backfill_city_places(db: Session, dest: Destination, city: City, stats: dic
         if existed is None:
             stats["memberships_created"] += 1
         if place.primary_destination_id != dest.id:
-            place.primary_destination_id = dest.id
             stats["places_updated"] += 1

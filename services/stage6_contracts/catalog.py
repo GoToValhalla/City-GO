@@ -24,3 +24,20 @@ def update_catalog_place(
         db, command.place_id, command.fields, actor=command.actor,
         commit=commit, locked_place=locked_place,
     )
+
+
+def set_destination_assignment_state(
+    db: Session, place_id: int, *, primary_destination_id: int | None = None,
+    assignment_stale: bool | None = None,
+) -> Place | None:
+    """Catalog-owned write endpoint for Destination's scalar place references."""
+
+    place = db.query(Place).filter(Place.id == place_id).first()
+    if place is None:
+        return None
+    if primary_destination_id is not None:
+        place.primary_destination_id = primary_destination_id
+    if assignment_stale is not None:
+        place.destination_assignment_stale = assignment_stale
+    db.flush()
+    return place
