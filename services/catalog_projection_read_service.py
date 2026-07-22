@@ -4,11 +4,11 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models.city import City
-from models.destination import Destination
 from models.search_routing_stage5 import SearchPlaceDocument
 from schemas.public_place import PublicPlaceRead
 from services.projection_readiness_service import assert_projection_ready
 from services.projection_observability import log_projection_read
+from services.stage6_contracts.destination import published_destination_id
 from time import perf_counter
 
 CATALOG_PROJECTION_TOGGLE = "catalog_projection_reads_enabled"
@@ -90,5 +90,4 @@ def _city_id(db: Session, city_id: int | None, slug: str | None) -> int | None:
 def _destination_id(db: Session, slug: str | None) -> int | None:
     if slug is None:
         return None
-    row = db.query(Destination).filter(Destination.slug == slug, Destination.is_active.is_(True), Destination.is_published.is_(True)).first()
-    return int(row.id) if row else None
+    return published_destination_id(db, slug)

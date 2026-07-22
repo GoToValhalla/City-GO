@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from models.destination import DestinationPlaceMembership
+from services.city_destination_compatibility import get_destination_by_slug
 from services.destination_membership_service import (
     get_place_ids_for_destination,
     hide_membership,
@@ -33,3 +34,10 @@ def hide_place(db: Session, *, place_id: int, destination_id: int) -> bool:
 
 def destination_place_ids(db: Session, destination_id: int) -> tuple[int, ...]:
     return tuple(get_place_ids_for_destination(db, destination_id))
+
+
+def published_destination_id(db: Session, slug: str) -> int | None:
+    destination = get_destination_by_slug(db, slug)
+    if destination is None or not destination.is_active or not destination.is_published:
+        return None
+    return int(destination.id)

@@ -857,8 +857,8 @@ def _destination_route_reads_enabled(ctx: MergedContext) -> bool:
 
 
 def _apply_destination_membership_route_filter(db: Session, query, ctx: MergedContext):
-    from models.destination import DestinationPlaceMembership
-    from services.city_destination_compatibility import get_destination_by_id, get_destination_by_slug
+    from services.city_destination_compatibility import get_destination_by_slug
+    from services.stage6_contracts.destination import destination_place_ids
 
     dest_id: int | None = None
     raw_id = getattr(ctx, "destination_id", None)
@@ -874,11 +874,4 @@ def _apply_destination_membership_route_filter(db: Session, query, ctx: MergedCo
             dest_id = dest.id if dest else None
     if dest_id is None:
         return query
-    return query.join(
-        DestinationPlaceMembership,
-        DestinationPlaceMembership.place_id == Place.id,
-    ).where(
-        DestinationPlaceMembership.destination_id == dest_id,
-        DestinationPlaceMembership.is_hidden.is_(False),
-        DestinationPlaceMembership.invalidated_at.is_(None),
-    )
+    return query.where(Place.id.in_(destination_place_ids(db, dest_id)))

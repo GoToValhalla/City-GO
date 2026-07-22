@@ -7,9 +7,6 @@ from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
 from db.dependencies import get_db
-from models.destination import Destination, DestinationMembershipConflict, DestinationPlaceMembership, DestinationScope
-from models.place import Place
-from routers.destinations import _to_list_item
 from schemas.destination import (
     AdminAssignPlaceRequest,
     AdminDestinationCreate,
@@ -27,8 +24,9 @@ from schemas.destination_geo import (
     AdminScopeFromGeoCandidateRequest,
     DestinationGeoSearchResponse,
 )
-from services.admin_audit_service import write_admin_audit_log
-from services.city_destination_compatibility import get_destination_by_slug
+from services.destination_admin_mutations import create as create_destination_record
+from services.destination_admin_mutations import update as update_destination_record
+from services.destination_admin_queries import conflicts, detail, destinations, memberships, orphan_places, scopes
 from services.destination_admin_validation import (
     ValidationIssue,
     validate_bbox,
@@ -37,39 +35,18 @@ from services.destination_admin_validation import (
     validate_required_text,
     validate_slug,
 )
-from services.destination_data_pipeline_service import active_destination_run
-from services.destination_membership_service import hide_membership, upsert_membership
+from services.destination_membership_application import assign as assign_membership
+from services.destination_membership_application import hide as hide_destination_membership
 from services.destination_geo_candidate_service import (
     build_destination_payload,
     candidate_from_input,
-    recover_or_create_scope,
     search_destination_geo_candidates,
     to_read_model,
 )
-from services.destination_service import create_destination, list_scopes
-
-
-def _admin_destination_detail(db: Session, slug: str) -> DestinationDetail:
-    """Admin detail: no public publication gate."""
-    row = get_destination_by_slug(db, slug)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Destination not found")
-    base = _to_list_item(db, row)
-    children = [
-        _to_list_item(db, child)
-        for child in db.query(Destination)
-        .filter(Destination.parent_id == row.id)
-        .order_by(Destination.name.asc())
-        .all()
-    ]
-    scopes = [DestinationScopeSummary.model_validate(scope) for scope in list_scopes(db, row.id)]
-    return DestinationDetail(
-        **base.model_dump(),
-        launch_status=row.launch_status,
-        is_published=row.is_published,
-        sub_destinations=children,
-        scopes=scopes,
-    )
+from services.destination_scope_application import create as create_scope_record
+from services.destination_scope_application import delete as delete_scope_record
+from services.destination_scope_application import recover as recover_scope_record
+from services.destination_scope_application import update as update_scope_record
 
 
 router = APIRouter(prefix="/admin/destinations", tags=["admin-destinations"])
@@ -81,9 +58,7 @@ def admin_orphan_places(
     db: Session = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=200),
 ):
-    subq = db.query(DestinationPlaceMembership.place_id)
-    rows = db.query(Place).filter(~Place.id.in_(subq)).limit(limit).all()
-    return [{"id": p.id, "slug": p.slug, "title": p.title, "city_id": p.city_id} for p in rows]
+    return orphan_places(db, limit)
 
 
 @router.get("/conflicts/list")
@@ -92,23 +67,7 @@ def admin_membership_conflicts(
     db: Session = Depends(get_db),
     limit: int = Query(default=50, ge=1, le=200),
 ):
-    rows = (
-        db.query(DestinationMembershipConflict)
-        .filter(DestinationMembershipConflict.status == "open")
-        .order_by(DestinationMembershipConflict.id.desc())
-        .limit(limit)
-        .all()
-    )
-    return [
-        {
-            "id": row.id,
-            "place_id": row.place_id,
-            "destination_id": row.destination_id,
-            "scope_ids": row.scope_ids,
-            "reason": row.reason,
-        }
-        for row in rows
-    ]
+    return conflicts(db, limit)
 
 
 @router.get("/geo-search", response_model=DestinationGeoSearchResponse)
@@ -137,20 +96,11 @@ def admin_create_destination_from_geo_candidate(
         )
     except ValidationIssue as exc:
         raise HTTPException(status_code=422, detail=exc.message) from exc
-    if db.query(Destination).filter(Destination.slug == data["slug"]).first():
-        raise HTTPException(status_code=409, detail="Destination slug already exists")
-    row = create_destination(db, data)
-    write_admin_audit_log(
-        db,
-        actor=auth.actor_id,
-        action="destination_created_from_geo",
-        entity_type="destination",
-        entity_id=row.id,
-        new_value=data | {"candidate_key": candidate.candidate_key},
-    )
-    db.commit()
-    db.refresh(row)
-    return _admin_destination_detail(db, row.slug)
+    try:
+        return create_destination_record(db, data, actor=auth.actor_id,
+            action="destination_created_from_geo", context={"candidate_key": candidate.candidate_key})
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("", response_model=DestinationListResponse)
@@ -160,9 +110,7 @@ def admin_list_destinations(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ) -> DestinationListResponse:
-    rows = db.query(Destination).order_by(Destination.name.asc()).offset(offset).limit(limit).all()
-    total = db.query(Destination).count()
-    return DestinationListResponse(items=[_to_list_item(db, row) for row in rows], total=total)
+    return destinations(db, limit=limit, offset=offset)
 
 
 @router.post("", response_model=DestinationDetail)
@@ -175,13 +123,10 @@ def admin_create_destination(
         data = _destination_create_data(payload)
     except ValidationIssue as exc:
         raise HTTPException(status_code=422, detail=exc.message) from exc
-    if db.query(Destination).filter(Destination.slug == data["slug"]).first():
-        raise HTTPException(status_code=409, detail="Destination slug already exists")
-    row = create_destination(db, data)
-    write_admin_audit_log(db, actor=auth.actor_id, action="destination_created", entity_type="destination", entity_id=row.id, new_value=data)
-    db.commit()
-    db.refresh(row)
-    return _admin_destination_detail(db, row.slug)
+    try:
+        return create_destination_record(db, data, actor=auth.actor_id, action="destination_created")
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.patch("/{slug}", response_model=DestinationDetail)
@@ -191,20 +136,16 @@ def admin_update_destination(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> DestinationDetail:
-    dest = _destination_or_404(db, slug)
-    old = _destination_snapshot(dest)
     try:
         data = _destination_update_data(payload)
     except ValidationIssue as exc:
         raise HTTPException(status_code=422, detail=exc.message) from exc
-    if "slug" in data and data["slug"] != dest.slug and db.query(Destination).filter(Destination.slug == data["slug"]).first():
-        raise HTTPException(status_code=409, detail="Destination slug already exists")
-    for key, value in data.items():
-        setattr(dest, key, value)
-    write_admin_audit_log(db, actor=auth.actor_id, action="destination_updated", entity_type="destination", entity_id=dest.id, old_value=old, new_value=_destination_snapshot(dest))
-    db.commit()
-    db.refresh(dest)
-    return _admin_destination_detail(db, dest.slug)
+    try:
+        return update_destination_record(db, slug, data, actor=auth.actor_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/{slug}", response_model=DestinationDetail)
@@ -213,7 +154,10 @@ def read_destination_admin(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> DestinationDetail:
-    return _admin_destination_detail(db, slug)
+    try:
+        return detail(db, slug)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/{slug}/scopes")
@@ -222,10 +166,10 @@ def admin_list_scopes(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
-    dest = get_destination_by_slug(db, slug)
-    if dest is None:
-        raise HTTPException(status_code=404, detail="Destination not found")
-    return list_scopes(db, dest.id)
+    try:
+        return scopes(db, slug)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/{slug}/scopes")
@@ -235,19 +179,16 @@ def admin_create_scope(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
-    dest = _destination_or_404(db, slug)
     try:
         data = _scope_create_data(payload)
     except ValidationIssue as exc:
         raise HTTPException(status_code=422, detail=exc.message) from exc
-    if _scope_code_exists(db, dest.id, str(data["code"])):
-        raise HTTPException(status_code=409, detail="Scope code already exists")
-    scope = DestinationScope(destination_id=dest.id, **data)
-    db.add(scope)
-    write_admin_audit_log(db, actor=auth.actor_id, action="destination_scope_created", entity_type="destination_scope", entity_id=None, new_value=data | {"destination_id": dest.id})
-    db.commit()
-    db.refresh(scope)
-    return scope
+    try:
+        return create_scope_record(db, slug, data, actor=auth.actor_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/{slug}/scopes/from-geo-candidate")
@@ -257,34 +198,13 @@ def admin_scope_from_geo_candidate(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
-    dest = _destination_or_404(db, slug)
     try:
         candidate = candidate_from_input(payload.candidate)
-        scope, action = recover_or_create_scope(
-            db,
-            dest,
-            candidate,
-            code=payload.code,
-            name=payload.name,
-            import_profile=payload.import_profile,
-            enabled=payload.enabled,
-            recover=payload.recover,
-        )
+        return recover_scope_record(db, slug, candidate, payload, actor=auth.actor_id)
     except ValidationIssue as exc:
         raise HTTPException(status_code=422, detail=exc.message) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    write_admin_audit_log(
-        db,
-        actor=auth.actor_id,
-        action=f"destination_scope_{action}_from_geo",
-        entity_type="destination_scope",
-        entity_id=scope.id,
-        new_value=_scope_snapshot(scope) | {"candidate_key": candidate.candidate_key},
-    )
-    db.commit()
-    db.refresh(scope)
-    return {"scope": scope, "action": action}
 
 
 @router.patch("/{slug}/scopes/{scope_id}")
@@ -295,21 +215,16 @@ def admin_update_scope(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
-    dest = _destination_or_404(db, slug)
-    scope = _scope_or_404(db, dest.id, scope_id)
-    old = _scope_snapshot(scope)
     try:
         data = _scope_update_data(payload)
     except ValidationIssue as exc:
         raise HTTPException(status_code=422, detail=exc.message) from exc
-    if "code" in data and data["code"] != scope.code and _scope_code_exists(db, dest.id, str(data["code"])):
-        raise HTTPException(status_code=409, detail="Scope code already exists")
-    for key, value in data.items():
-        setattr(scope, key, value)
-    write_admin_audit_log(db, actor=auth.actor_id, action="destination_scope_updated", entity_type="destination_scope", entity_id=scope.id, old_value=old, new_value=_scope_snapshot(scope))
-    db.commit()
-    db.refresh(scope)
-    return scope
+    try:
+        return update_scope_record(db, slug, scope_id, data, actor=auth.actor_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.delete("/{slug}/scopes/{scope_id}")
@@ -319,15 +234,12 @@ def admin_delete_scope(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
-    dest = _destination_or_404(db, slug)
-    scope = _scope_or_404(db, dest.id, scope_id)
-    if active_destination_run(db, dest.id) is not None:
-        raise HTTPException(status_code=409, detail="Нельзя удалить контур во время активного прогона")
-    snapshot = _scope_snapshot(scope)
-    db.delete(scope)
-    write_admin_audit_log(db, actor=auth.actor_id, action="destination_scope_deleted", entity_type="destination_scope", entity_id=scope.id, old_value=snapshot)
-    db.commit()
-    return {"deleted": True}
+    try:
+        return delete_scope_record(db, slug, scope_id, actor=auth.actor_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/{slug}/memberships", response_model=list[DestinationMembershipRead])
@@ -337,17 +249,10 @@ def admin_list_memberships(
     db: Session = Depends(get_db),
     limit: int = Query(default=100, ge=1, le=500),
 ):
-    dest = get_destination_by_slug(db, slug)
-    if dest is None:
-        raise HTTPException(status_code=404, detail="Destination not found")
-    rows = (
-        db.query(DestinationPlaceMembership)
-        .filter(DestinationPlaceMembership.destination_id == dest.id)
-        .order_by(DestinationPlaceMembership.id.desc())
-        .limit(limit)
-        .all()
-    )
-    return rows
+    try:
+        return memberships(db, slug, limit)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/{slug}/assign-place")
@@ -357,22 +262,10 @@ def admin_assign_place(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
-    dest = get_destination_by_slug(db, slug)
-    if dest is None:
-        raise HTTPException(status_code=404, detail="Destination not found")
-    if db.query(Place).filter(Place.id == payload.place_id).first() is None:
-        raise HTTPException(status_code=404, detail="Place not found")
-    row = upsert_membership(
-        db,
-        place_id=payload.place_id,
-        destination_id=dest.id,
-        assignment_type="manual",
-        is_primary=payload.is_primary,
-        confidence=1.0,
-        source=f"admin:{auth.actor_id}",
-    )
-    db.commit()
-    return {"membership_id": row.id}
+    try:
+        return assign_membership(db, slug, payload.place_id, primary=payload.is_primary, actor=auth.actor_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/{slug}/hide-place")
@@ -382,20 +275,10 @@ def admin_hide_place(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ):
-    dest = get_destination_by_slug(db, slug)
-    if dest is None:
-        raise HTTPException(status_code=404, detail="Destination not found")
-    if not hide_membership(db, place_id=payload.place_id, destination_id=dest.id):
-        raise HTTPException(status_code=404, detail="Membership not found")
-    db.commit()
-    return {"hidden": True}
-
-
-def _destination_or_404(db: Session, slug: str) -> Destination:
-    dest = get_destination_by_slug(db, slug)
-    if dest is None:
-        raise HTTPException(status_code=404, detail="Destination not found")
-    return dest
+    try:
+        return hide_destination_membership(db, slug, payload.place_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def _destination_create_data(payload: AdminDestinationCreate) -> dict[str, object]:
@@ -439,22 +322,3 @@ def _scope_update_data(payload: AdminDestinationScopeUpdate) -> dict[str, object
     if "bbox" in data:
         data["bbox"] = validate_bbox(data.get("bbox"))
     return data
-
-
-def _scope_or_404(db: Session, destination_id: int, scope_id: int) -> DestinationScope:
-    scope = db.query(DestinationScope).filter_by(destination_id=destination_id, id=scope_id).first()
-    if scope is None:
-        raise HTTPException(status_code=404, detail="Scope not found")
-    return scope
-
-
-def _scope_code_exists(db: Session, destination_id: int, code: str) -> bool:
-    return db.query(DestinationScope.id).filter_by(destination_id=destination_id, code=code).first() is not None
-
-
-def _destination_snapshot(dest: Destination) -> dict[str, object]:
-    return {key: getattr(dest, key) for key in ("slug", "name", "destination_type", "center_lat", "center_lng", "bbox", "launch_status", "is_published", "is_active")}
-
-
-def _scope_snapshot(scope: DestinationScope) -> dict[str, object]:
-    return {key: getattr(scope, key) for key in ("code", "name", "scope_type", "import_strategy", "bbox", "import_profile", "priority", "enabled")}
