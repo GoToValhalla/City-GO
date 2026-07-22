@@ -37,6 +37,7 @@ introduced.
 The public synchronous contracts live in `services/stage6_contracts/`:
 
 - `catalog.py`: ordinary Place mutation and Destination scalar reference state;
+- `catalog_entities.py`: typed City, taxonomy and schedule commands/queries;
 - `publication.py`: canonical publication transition;
 - `destination.py`: membership commands and identity queries;
 - `media.py`: immutable moderation result;

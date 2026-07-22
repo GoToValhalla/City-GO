@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from services.stage6_contracts import catalog, destination, media, projection, quality, review_quality, routing
+from services.stage6_contracts import catalog, catalog_entities, destination, media, projection, quality, review_quality, routing
 
 
 def test_catalog_contract_preserves_explicit_transaction_ownership(monkeypatch) -> None:
@@ -82,3 +82,25 @@ def test_quality_finding_is_evidence_not_a_publication_command() -> None:
 
     assert finding.blocks_publication is True
     assert not hasattr(finding, "to_status")
+
+
+def test_catalog_city_contract_delegates_to_existing_writer(monkeypatch) -> None:
+    payload = SimpleNamespace(name="Rome")
+    calls: list[tuple[object, str]] = []
+    monkeypatch.setattr(catalog_entities, "create_city_and_queue_import",
+                        lambda db, value, actor: calls.append((value, actor)) or "city")
+    command = catalog_entities.CatalogCityCreate(payload=payload, actor="operator")
+
+    assert catalog_entities.create_catalog_city(object(), command) == "city"
+    assert calls == [(payload, "operator")]
+
+
+def test_catalog_taxonomy_contract_delegates_to_existing_writer(monkeypatch) -> None:
+    payload = SimpleNamespace(model_dump=lambda: {"code": "museum"})
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(catalog_entities, "create_category",
+                        lambda db, **kwargs: calls.append(kwargs) or "category")
+    command = catalog_entities.CatalogTaxonomyCreate(payload=payload, actor="operator")
+
+    assert catalog_entities.create_catalog_category(object(), command) == "category"
+    assert calls == [{"data": {"code": "museum"}, "actor": "operator"}]
