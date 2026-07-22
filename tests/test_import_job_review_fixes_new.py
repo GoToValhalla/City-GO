@@ -36,7 +36,7 @@ from services.admin_city_import_job_service import (
     queue_city_import_job,
     run_city_import_job,
 )
-from services.admin_city_import_tasks import run_import_job_background, run_queued_import_jobs
+from services.admin_city_import_tasks import run_queued_import_jobs
 
 
 class _SessionContext:
@@ -280,34 +280,25 @@ def test_partial_success_phase_outcome_does_not_touch_job_status_new(db_session:
 
 
 # --- 4. No background/CLI claim bypass --------------------------------------
+#
+# F04: run_import_job_background (and its never-called siblings
+# run_enrichment_job_background / run_all_cities_enrichment_background) were
+# removed entirely rather than kept as a guarded bypass. Each claimed and
+# executed a CityAdminImportJob directly from a FastAPI BackgroundTasks
+# callback (or a raw function call) inside the API server process itself —
+# a second, unauthorized execution path alongside the import worker that
+# bypassed every worker guarantee (memory/runtime limits, lifecycle,
+# ownership, observability, recovery). See
+# tests/test_admin_router_no_background_execution_new.py for the
+# regression coverage on the admin endpoint itself.
 
 
-def test_background_import_claims_before_running_new(db_session: Session, city_factory: Callable[..., Any], monkeypatch) -> None:
-    city = city_factory(slug="background-claims-before-run-city")
-    job = queue_city_import_job(db_session, city_id=city.id, actor_id="tester")
-    db_session.commit()
+def test_no_background_execution_functions_remain_in_admin_city_import_tasks_new() -> None:
+    """The three deleted functions must never be reintroduced under any
+    name in this module — a fresh AttributeError here is the intended,
+    permanent signal that someone tried to bring back an in-process
+    execution path."""
+    import services.admin_city_import_tasks as tasks_module
 
-    monkeypatch.setattr("services.admin_city_import_tasks.SessionLocal", lambda: _SessionContext(db_session))
-    with patch("services.admin_city_import_tasks.run_city_import_job") as mock_run:
-        run_import_job_background(city.id, job_id=job.id, actor_id="tester")
-
-    db_session.refresh(job)
-    assert job.status == "running"
-    assert job.claimed_by is not None
-    mock_run.assert_called_once()
-    _, kwargs = mock_run.call_args
-    assert kwargs["job_id"] == job.id
-
-
-def test_background_import_rejects_double_claim_new(db_session: Session, city_factory: Callable[..., Any], monkeypatch) -> None:
-    """If the row was already claimed (e.g. by a real worker pass) before
-    the background task got to run, the background task's own claim
-    attempt must fail rather than silently re-running a claimed job."""
-    city = city_factory(slug="background-rejects-double-claim-city")
-    job = queue_city_import_job(db_session, city_id=city.id, actor_id="tester")
-    db_session.commit()
-    claim_queued_job(db_session, job_id=job.id, worker_id="someone-else", actor_id="tester")
-
-    monkeypatch.setattr("services.admin_city_import_tasks.SessionLocal", lambda: _SessionContext(db_session))
-    with pytest.raises(ValueError):
-        run_import_job_background(city.id, job_id=job.id, actor_id="tester")
+    for name in ("run_import_job_background", "run_enrichment_job_background", "run_all_cities_enrichment_background"):
+        assert not hasattr(tasks_module, name), f"{name} must not exist — see F04 (BackgroundTasks execution bypass)"

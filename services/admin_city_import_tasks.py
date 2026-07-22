@@ -81,44 +81,17 @@ def _safe_mode_block_reason(job: CityAdminImportJob) -> str | None:
     return None
 
 
-def run_import_job_background(city_id: int, *, job_id: int, actor_id: str) -> None:
-    """Runs a job that was already enqueued (a row exists, status="queued")
-    but not yet claimed by anyone. This function performs the ONE atomic
-    claim itself before running — a FastAPI BackgroundTasks callback is
-    just as much an execution path as the worker loop, and must go through
-    claim_queued_job exactly like it does, never call the runner directly
-    on an unclaimed row."""
-    with SessionLocal() as db:
-        job = claim_queued_job(db, job_id=job_id, worker_id=f"background-{os.getpid()}-{uuid.uuid4().hex[:8]}", actor_id=actor_id)
-        run_city_import_job(db, city_id=city_id, actor_id=actor_id, job_id=job.id)
-
-
-def run_enrichment_job_background(city_id: int, *, job_id: int, actor_id: str) -> None:
-    with SessionLocal() as db:
-        job = claim_queued_job(db, job_id=job_id, worker_id=f"background-{os.getpid()}-{uuid.uuid4().hex[:8]}", actor_id=actor_id)
-        run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id, job_id=job.id)
-
-
-def run_all_cities_enrichment_background(*, actor_id: str) -> None:
-    """Enqueues AND claims-and-runs a fresh enrichment job for every city,
-    one at a time — enqueue (queue_city_enrichment_job) and execute
-    (claim_queued_job + run_enrichment_only_job) remain two separate
-    service calls even here, never bridged by a runner auto-selecting or
-    auto-creating a row."""
-    from services.admin_city_import_job_service import queue_city_enrichment_job
-
-    with SessionLocal() as db:
-        city_ids = [city.id for city in db.query(City).order_by(City.slug.asc()).all()]
-    for city_id in city_ids:
-        with SessionLocal() as db:
-            try:
-                enqueued = queue_city_enrichment_job(db, city_id=city_id, actor_id=actor_id)
-                db.commit()
-            except Exception:
-                db.rollback()
-                continue
-            job = claim_queued_job(db, job_id=enqueued.id, worker_id=f"background-{os.getpid()}-{uuid.uuid4().hex[:8]}", actor_id=actor_id)
-            run_enrichment_only_job(db, city_id=city_id, actor_id=actor_id, job_id=job.id)
+# F04: run_import_job_background / run_enrichment_job_background /
+# run_all_cities_enrichment_background were removed. Each claimed and
+# executed a CityAdminImportJob directly from a FastAPI BackgroundTasks
+# callback (or, for the third, a raw function call) inside the API server
+# process -- a second, unauthorized execution path that bypassed every
+# import-worker guarantee (memory/runtime limits, lifecycle, ownership,
+# observability, recovery). run_import_job_background was the only one
+# with a real production caller (routers.admin.create_city_import); the
+# other two had zero callers anywhere in the codebase. The admin API's
+# contract is enqueue-only: only data/scripts/run_admin_import_worker.py
+# (via run_queued_import_jobs below) may claim and execute a queued job.
 
 
 def run_queued_import_jobs(

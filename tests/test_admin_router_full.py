@@ -19,8 +19,6 @@ def test_admin_city_import_creates_city_and_import_job(client, db_session, monke
     from models.city_admin_import_job import CityAdminImportJob
     from models.city_import_scope import CityImportScope
 
-    monkeypatch.setattr("routers.admin.run_import_job_background", lambda *args, **kwargs: None)
-
     response = client.post(
         "/admin/cities/import",
         json={

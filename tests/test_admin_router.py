@@ -106,9 +106,7 @@ def test_admin_city_import_endpoint_creates_import_request() -> None:
 
     app.dependency_overrides[get_db] = fake_get_db
     try:
-        with patch("routers.admin.create_city_and_queue_import", return_value=city), patch(
-            "routers.admin.run_import_job_background", return_value=None
-        ):
+        with patch("routers.admin.create_city_and_queue_import", return_value=city):
             response = TestClient(app).post(
                 "/admin/cities/import",
                 json={"name": "Калининград", "actor": "qa"},

@@ -131,9 +131,16 @@ Backend делает:
 1. Нормализует название города.
 2. Создаёт slug.
 3. Создаёт город.
-4. Создаёт import job.
-5. Ставит background task `run_import_job_background`.
-6. Возвращает `queued`.
+4. Создаёт import job (`status="queued"`).
+5. Возвращает `queued`.
+
+Endpoint только ставит задачу в очередь и не выполняет импорт сам —
+ни синхронно, ни через FastAPI `BackgroundTasks`. Единственный
+исполнитель очереди — import worker
+(`data/scripts/run_admin_import_worker.py`, ops-профиль в
+`docker-compose.yml`). Он забирает задачу через `claim_queued_job`
+и запускает пайплайн отдельно от API-процесса, со своими лимитами
+памяти/времени выполнения и наблюдаемостью.
 
 Response:
 
@@ -160,8 +167,9 @@ Response:
 
 После `POST /admin/cities/import`:
 
-1. Создаётся import job.
-2. FastAPI `BackgroundTasks` запускает `run_import_job_background`.
+1. Создаётся import job (`status="queued"`).
+2. Import worker (отдельный процесс/контейнер) забирает задачу через
+   `claim_queued_job` и выполняет пайплайн — не API-сервер.
 3. Worker должен собрать места и сохранить промежуточный статус.
 4. Статус смотреть в `/admin/imports`.
 5. Ошибки смотреть в `/admin/system-logs`.

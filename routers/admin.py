@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from core.admin_auth import AdminContext, admin_required
@@ -47,7 +47,6 @@ from services.admin_extended_service import (
     update_admin_route,
 )
 from models.city_admin_import_job import CityAdminImportJob
-from services.admin_city_import_tasks import run_import_job_background
 from services.admin_service import (
     PlacePublicationBlockedError,
     create_admin_place,
@@ -131,7 +130,6 @@ def read_admin_city_workspace(
 @router.post("/cities/import", response_model=AdminCityImportResponse)
 def create_city_import(
     payload: AdminCityCreateRequest,
-    background_tasks: BackgroundTasks,
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> AdminCityImportResponse:
@@ -140,8 +138,17 @@ def create_city_import(
     # create_city_and_queue_import already enqueued exactly one queued row
     # for this brand-new city (queue_city_import_job internally) — this is
     # the only active row it can possibly be, so it is safe to look it up
-    # by city_id here rather than changing create_city_and_queue_import's
-    # return type just to thread a job_id through.
+    # by city_id here as a sanity check that enqueue actually happened.
+    #
+    # F04: this endpoint must never execute the import itself. It used to
+    # additionally dispatch background_tasks.add_task(run_import_job_background,
+    # ...), which ran claim_queued_job + run_city_import_job synchronously
+    # inside the API server process via FastAPI BackgroundTasks — a second,
+    # unauthorized execution path alongside the import worker that bypassed
+    # every worker guarantee (memory/runtime limits, lifecycle, ownership,
+    # observability, recovery). The dedicated import-worker service (see
+    # data/scripts/run_admin_import_worker.py) is the only execution
+    # authority; this endpoint's job is done once the row is queued.
     job = (
         db.query(CityAdminImportJob)
         .filter(CityAdminImportJob.city_id == city.id, CityAdminImportJob.status == "queued")
@@ -150,7 +157,6 @@ def create_city_import(
     )
     if job is None:
         raise HTTPException(status_code=500, detail="Задача импорта не была создана")
-    background_tasks.add_task(run_import_job_background, city.id, job_id=job.id, actor_id=auth.actor_id)
     return AdminCityImportResponse(
         city_id=city.id,
         city_slug=city.slug,
