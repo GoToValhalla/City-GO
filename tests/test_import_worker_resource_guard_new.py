@@ -39,7 +39,7 @@ def test_startup_allows_sufficient_host_and_cgroup_headroom_new(monkeypatch) -> 
         "snapshot",
         lambda: guard.MemorySnapshot(host_available_mb=711, cgroup_limit_mb=512, cgroup_usage_mb=64),
     )
-    monkeypatch.setenv("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB", "550")
+    monkeypatch.setenv("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB", "500")
     monkeypatch.setenv("IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB", "512")
     monkeypatch.setenv("IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB", "400")
 
@@ -49,13 +49,28 @@ def test_startup_allows_sufficient_host_and_cgroup_headroom_new(monkeypatch) -> 
     assert state.cgroup_headroom_mb == 448
 
 
+def test_startup_accepts_exactly_the_host_floor_new(monkeypatch) -> None:
+    monkeypatch.setattr(
+        guard,
+        "snapshot",
+        lambda: guard.MemorySnapshot(host_available_mb=500, cgroup_limit_mb=512, cgroup_usage_mb=32),
+    )
+    monkeypatch.setenv("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB", "500")
+    monkeypatch.setenv("IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB", "512")
+    monkeypatch.setenv("IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB", "400")
+
+    state = guard.validate_startup_resources()
+
+    assert state.host_available_mb == 500
+
+
 def test_startup_blocks_below_host_floor_new(monkeypatch) -> None:
     monkeypatch.setattr(
         guard,
         "snapshot",
-        lambda: guard.MemorySnapshot(host_available_mb=549, cgroup_limit_mb=512, cgroup_usage_mb=32),
+        lambda: guard.MemorySnapshot(host_available_mb=499, cgroup_limit_mb=512, cgroup_usage_mb=32),
     )
-    monkeypatch.setenv("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB", "550")
+    monkeypatch.setenv("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB", "500")
 
     with pytest.raises(SystemExit, match="host available memory"):
         guard.validate_startup_resources()

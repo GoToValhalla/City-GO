@@ -39,13 +39,13 @@ def test_effective_thresholds_are_logged_new(caplog) -> None:
     assert any("import_worker_effective_thresholds" in record.message for record in caplog.records)
 
 
-def test_production_compose_keeps_startup_floor_at_550_and_job_claim_floor_lower_new() -> None:
-    """The pre-container startup floor must stay at 550 MB in production
-    (docker-compose.yml), while the new job-claim floor is a genuinely
+def test_production_compose_keeps_startup_floor_at_500_and_job_claim_floor_lower_new() -> None:
+    """The pre-container startup floor must stay at 500 MB in production
+    (docker-compose.yml), while the job-claim floor is a genuinely
     separate, lower value — this task changes only the post-start gate."""
     compose = Path("docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 550" in compose
+    assert "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 500" in compose
     assert "IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB: 350" in compose
 
 

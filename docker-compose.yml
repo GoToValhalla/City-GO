@@ -149,12 +149,16 @@ services:
       IMPORT_WORKER_MAX_RUNTIME_SECONDS: ${IMPORT_WORKER_MAX_RUNTIME_SECONDS:-900}
       IMPORT_WORKER_BACKEND_HEALTH_URL: http://backend:8000/ready
       # Pre-container startup floor (checked by check_import_worker_resources.py
-      # before the worker process exists at all). Kept at 550.
-      IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 550
+      # before the worker process exists at all). Must equal the workflow's
+      # own STARTUP_HOST_FLOOR_MB bash preflight in
+      # .github/workflows/run-import-worker-safe.yml -- see
+      # tests/test_import_worker_startup_floor_alignment_new.py, which fails
+      # if the two values ever drift apart again.
+      IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 500
       # Separate, lower post-start job-claim gate (checked per-job by
       # _safe_mode_block_reason once the worker container is already
       # running). The container's own baseline overhead legitimately costs
-      # 60-90 MB of host MemAvailable once started; reusing the 550 startup
+      # 60-90 MB of host MemAvailable once started; reusing the startup
       # floor here made a healthy ~520-531 MB post-start host self-deadlock
       # every queued job forever.
       IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB: 350
