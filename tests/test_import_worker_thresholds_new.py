@@ -45,8 +45,8 @@ def test_production_compose_keeps_startup_floor_at_500_and_job_claim_floor_lower
     separate, lower value — this task changes only the post-start gate."""
     compose = Path("docker-compose.yml").read_text(encoding="utf-8")
 
-    assert "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 500" in compose
-    assert "IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB: 350" in compose
+    assert "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: ${IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB:-500}" in compose
+    assert "IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB: ${IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB:-350}" in compose
 
 
 def test_max_runtime_seconds_default_is_900_for_manual_runs_new() -> None:

@@ -46,9 +46,10 @@ def _fixture_service() -> dict:
         "cpus": 0.5,
         "environment": {
             "IMPORT_WORKER_SAFE_MODE": "true",
-            "IMPORT_WORKER_MAX_RUNTIME_SECONDS": "300",
+            "IMPORT_WORKER_MAX_RUNTIME_SECONDS": "900",
             "IMPORT_WORKER_BACKEND_HEALTH_URL": "http://backend:8000/ready",
             "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "500",
+            "IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB": "350",
             "IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB": "512",
             "IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB": "400",
             "IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB": "256",
@@ -169,6 +170,7 @@ def test_workflow_validates_full_recalibrated_contract_new() -> None:
         "IMPORT_WORKER_MAX_RUNTIME_SECONDS",
         "IMPORT_WORKER_BACKEND_HEALTH_URL",
         "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB",
+        "IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB",
         "IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB",
         "IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB",
         "IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB",
@@ -179,6 +181,10 @@ def test_workflow_validates_full_recalibrated_contract_new() -> None:
 
     assert "512m (536870912 bytes)" in text
     assert '"IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "500"' in text
+    assert '"IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB": "350"' in text
+    assert '"IMPORT_WORKER_MAX_RUNTIME_SECONDS": "900"' in text
+    assert '"IMPORT_WORKER_MAX_RUNTIME_SECONDS": "300"' not in text
+    assert "workflow_timeout_covers_max_runtime" in text
     assert '"IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY": "1"' in text
 
 
@@ -262,6 +268,7 @@ def test_embedded_validation_fails_for_old_low_memory_contract_new() -> None:
     old["environment"].update({
         "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "256",
         "IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY": "0",
+        "IMPORT_WORKER_MAX_RUNTIME_SECONDS": "300",
     })
 
     result = _run_validation_against_fixture(old)
@@ -270,6 +277,7 @@ def test_embedded_validation_fails_for_old_low_memory_contract_new() -> None:
     assert "MISMATCH: mem_limit" in result.stdout
     assert "MISMATCH: IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB" in result.stdout
     assert "MISMATCH: IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY" in result.stdout
+    assert "MISMATCH: IMPORT_WORKER_MAX_RUNTIME_SECONDS" in result.stdout
 
 
 def test_embedded_validation_fails_when_service_missing_new() -> None:

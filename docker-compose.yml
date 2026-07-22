@@ -148,27 +148,16 @@ services:
       # timeouts that can drift apart.
       IMPORT_WORKER_MAX_RUNTIME_SECONDS: ${IMPORT_WORKER_MAX_RUNTIME_SECONDS:-900}
       IMPORT_WORKER_BACKEND_HEALTH_URL: http://backend:8000/ready
-      # Pre-container startup floor (checked by check_import_worker_resources.py
-      # before the worker process exists at all). Must equal the workflow's
-      # own STARTUP_HOST_FLOOR_MB bash preflight in
-      # .github/workflows/run-import-worker-safe.yml -- see
-      # tests/test_import_worker_startup_floor_alignment_new.py, which fails
-      # if the two values ever drift apart again.
-      IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: 500
-      # Separate, lower post-start job-claim gate (checked per-job by
-      # _safe_mode_block_reason once the worker container is already
-      # running). The container's own baseline overhead legitimately costs
-      # 60-90 MB of host MemAvailable once started; reusing the startup
-      # floor here made a healthy ~520-531 MB post-start host self-deadlock
-      # every queued job forever.
-      IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB: 350
-      IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB: 512
-      IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB: 400
-      IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB: 256
-      IMPORT_WORKER_RUNTIME_CGROUP_PERCENT: 85
-      # Legacy explicit heavy-job enable switch. Positive means enabled after
-      # resource preflight; this is not represented as a live place-count cap.
-      IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY: 1
+      # Threshold defaults match services/import_worker_defaults.py. Shell
+      # interpolation lets the workflow inject one named set of values for
+      # host preflight + container without silently redefining literals.
+      IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB: ${IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB:-500}
+      IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB: ${IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB:-350}
+      IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB: ${IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB:-512}
+      IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB: ${IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB:-400}
+      IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB: ${IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB:-256}
+      IMPORT_WORKER_RUNTIME_CGROUP_PERCENT: ${IMPORT_WORKER_RUNTIME_CGROUP_PERCENT:-85}
+      IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY: ${IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY:-1}
     volumes:
       - local_cache:/app/.cache/city-go
     depends_on:

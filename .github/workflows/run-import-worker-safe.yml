@@ -120,9 +120,18 @@ jobs:
           MAX_RUNTIME_SECONDS="${MAX_RUNTIME_SECONDS:-900}"
           RUN_MODE="${RUN_MODE:-safe_one_job}"
           CITY_SLUG="${CITY_SLUG:-}"
-          STARTUP_HOST_FLOOR_MB=500
-          RUNTIME_HOST_FLOOR_MB=256
-          RUNTIME_CGROUP_PERCENT=85
+          # Named contract values (services/import_worker_defaults.py). Host
+          # preflight and container env share these so literals cannot drift
+          # within a single workflow run.
+          IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB="${IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB:-500}"
+          IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB="${IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB:-350}"
+          IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB="${IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB:-512}"
+          IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB="${IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB:-400}"
+          IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB="${IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB:-256}"
+          IMPORT_WORKER_RUNTIME_CGROUP_PERCENT="${IMPORT_WORKER_RUNTIME_CGROUP_PERCENT:-85}"
+          STARTUP_HOST_FLOOR_MB="$IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB"
+          RUNTIME_HOST_FLOOR_MB="$IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB"
+          RUNTIME_CGROUP_PERCENT="$IMPORT_WORKER_RUNTIME_CGROUP_PERCENT"
           FAIL=0
           WORKER_ID=""
           CLAIMED_JOB_ID=""
@@ -276,7 +285,16 @@ jobs:
           # the worker's own Python runtime guard must share one effective
           # limit, not two independently configured timeouts that can drift
           # apart.
-          IMPORT_WORKER_RUN_MODE="$RUN_MODE" IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" IMPORT_WORKER_MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS" timeout 60s docker compose up -d --no-deps --force-recreate import-worker
+          IMPORT_WORKER_RUN_MODE="$RUN_MODE" \
+          IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" \
+          IMPORT_WORKER_MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS" \
+          IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB="$IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB" \
+          IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB="$IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB" \
+          IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB="$IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB" \
+          IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB="$IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB" \
+          IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB="$IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB" \
+          IMPORT_WORKER_RUNTIME_CGROUP_PERCENT="$IMPORT_WORKER_RUNTIME_CGROUP_PERCENT" \
+          timeout 60s docker compose up -d --no-deps --force-recreate import-worker
           START_RC=$?
           if [ "$START_RC" -ne 0 ]; then
             echo "ERROR: docker compose failed to start import-worker (rc=${START_RC})." >&2

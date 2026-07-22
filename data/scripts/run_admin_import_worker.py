@@ -16,6 +16,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from db.session import SessionLocal
 from services.admin_alert_service import send_admin_alert
 from services.admin_city_import_tasks import import_queue_summary, run_queued_import_jobs
+from services.import_worker_defaults import MAX_RUNTIME_SECONDS
+from services.import_worker_terminal_outcomes import (
+    ALL_TERMINAL_JOB_STATUSES,
+    classify_terminal_status,
+    is_terminal_job_status,
+    process_success_exit,
+    skip_reason_for_outcome,
+)
 from services.import_worker_thresholds import log_effective_thresholds
 
 _STOP = False
@@ -24,7 +32,8 @@ RUN_MODE_SAFE_ONE_JOB = "safe_one_job"
 RUN_MODE_DRY_RUN = "dry_run"
 RUN_MODE_DIAGNOSTICS_ONLY = "diagnostics_only"
 
-TERMINAL_JOB_STATUSES = frozenset({"success", "success_with_warnings", "partial_success", "failed"})
+# Backward-compatible alias: any DB-terminal status (incl. stalled/cancelled).
+TERMINAL_JOB_STATUSES = ALL_TERMINAL_JOB_STATUSES
 
 
 @dataclass
@@ -137,7 +146,7 @@ def run_worker_loop(
                     outcome.matched_job_id = int(first["job_id"])
                     outcome.claimed = True
                     outcome.terminal_status = str(first.get("terminal_status") or None)
-                    outcome.processed = outcome.terminal_status in TERMINAL_JOB_STATUSES
+                    outcome.processed = is_terminal_job_status(outcome.terminal_status)
                     outcome.claimed_by = first.get("claimed_by")
                     outcome.expected_claimed_by = first.get("expected_claimed_by")
                     outcome.finished_at = first.get("finished_at")
@@ -222,7 +231,7 @@ def main() -> int:
             sleep_seconds=max(5, int(os.getenv("IMPORT_WORKER_SLEEP_SECONDS", "60"))),
             actor_id=os.getenv("IMPORT_WORKER_ACTOR", "import-worker"),
             health_url=os.getenv("IMPORT_WORKER_BACKEND_HEALTH_URL", "http://backend:8000/ready"),
-            max_runtime_seconds=int(os.getenv("IMPORT_WORKER_MAX_RUNTIME_SECONDS", "900")) or None,
+            max_runtime_seconds=int(os.getenv("IMPORT_WORKER_MAX_RUNTIME_SECONDS", str(MAX_RUNTIME_SECONDS))) or None,
             max_iterations=1,
             city_slug=city_slug,
             dry_run=is_dry_run,
@@ -245,24 +254,28 @@ def main() -> int:
         _print_outcome(outcome.finalize(exit_code=1))
         return 1
 
-    # A claimed job that never reached a terminal status is always a
-    # failure -- a stalled job must never look identical to "the worker ran
-    # fine". "max_runtime_without_terminal_progress" is reserved for a
-    # genuine timeout: it is only ever set by run_worker_loop's own runtime
-    # check above (started_at ... max_runtime_seconds), never invented here.
-    # Any other non-terminal outcome (e.g. the runner's finalize_import_job
-    # call was rejected under lock -- lost ownership or already
-    # terminalized by a concurrent stall-sweep/cancel) gets its own
-    # truthful reason instead of being mislabeled as a timeout that never
-    # actually happened.
-    if not is_dry_run and outcome.claimed and not outcome.processed:
+    outcome_kind = classify_terminal_status(outcome.terminal_status)
+    if not is_dry_run and outcome.claimed and process_success_exit(outcome_kind):
+        _print_outcome(outcome.finalize(exit_code=0))
+        return 0
+
+    # Claimed but not a successful/partial completion: failed, external stop,
+    # or incomplete (never reached a terminal status).
+    if not is_dry_run and outcome.claimed:
         if outcome.skip_reason != "max_runtime_without_terminal_progress":
-            outcome.skip_reason = "job_finalize_did_not_reach_terminal_status"
+            outcome.skip_reason = outcome.skip_reason or skip_reason_for_outcome(
+                outcome_kind, status=outcome.terminal_status
+            )
+        label = (
+            "import_worker_job_did_not_reach_terminal_status"
+            if outcome_kind == "incomplete"
+            else "import_worker_job_terminal_unsuccessful"
+        )
         print(
-            f"import_worker_job_did_not_reach_terminal_status job_id={outcome.matched_job_id} "
+            f"{label} job_id={outcome.matched_job_id} "
             f"status={outcome.terminal_status!r} reason={outcome.skip_reason} "
             f"claimed_by={outcome.claimed_by!r} expected_claimed_by={outcome.expected_claimed_by!r} "
-            f"finished_at={outcome.finished_at!r}",
+            f"finished_at={outcome.finished_at!r} outcome_kind={outcome_kind}",
             file=sys.stderr,
             flush=True,
         )

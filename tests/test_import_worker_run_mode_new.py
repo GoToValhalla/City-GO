@@ -186,16 +186,64 @@ def test_fails_clearly_when_city_slug_has_no_queued_job_new(monkeypatch, capsys)
     assert "nowhere" in err
 
 
-def test_succeeds_when_city_slug_job_is_claimed_and_reaches_terminal_status_new(monkeypatch) -> None:
-    """A claimed job that reaches a terminal status (even "failed", a real
-    job-execution outcome with its own alerting/logging path) is not a
-    no-matching-job condition — the run reports processed=True and exits 0."""
+def test_claimed_failed_job_is_terminal_but_exits_nonzero_new(monkeypatch, capsys) -> None:
+    """failed is a real terminal job outcome (processed=True), but must not
+    look like a successful import process — exit 1 with structured reason."""
     monkeypatch.setenv("IMPORT_WORKER_CITY_SLUG", "astrakhan")
     monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: _claimed(terminal_status="failed"))
 
     exit_code = worker.main()
+    err = capsys.readouterr().err
+
+    assert exit_code == 1
+    assert "job_terminal_failed" in err
+    assert "import_worker_job_terminal_unsuccessful" in err
+
+
+def test_partial_success_exits_zero_as_completed_partial_result_new(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: _claimed(terminal_status="partial_success"))
+
+    exit_code = worker.main()
+    out = capsys.readouterr().out
+    outcome_line = next(line for line in out.splitlines() if line.startswith("import_worker_outcome "))
+    import json as _json
+    payload = _json.loads(outcome_line.removeprefix("import_worker_outcome "))
 
     assert exit_code == 0
+    assert payload["processed"] is True
+    assert payload["terminal_status"] == "partial_success"
+    assert payload["exit_code"] == 0
+
+
+def test_stalled_is_terminal_but_exits_nonzero_new(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: _claimed(terminal_status="stalled"))
+
+    exit_code = worker.main()
+    captured = capsys.readouterr()
+    import json as _json
+    outcome_line = next(line for line in captured.out.splitlines() if line.startswith("import_worker_outcome "))
+    payload = _json.loads(outcome_line.removeprefix("import_worker_outcome "))
+
+    assert exit_code == 1
+    assert "job_externally_stopped:stalled" in captured.err
+    assert "import_worker_job_terminal_unsuccessful" in captured.err
+    assert payload["processed"] is True
+    assert payload["exit_code"] == 1
+
+
+def test_cancelled_is_terminal_but_exits_nonzero_new(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(worker, "run_queued_import_jobs", lambda **_kwargs: _claimed(terminal_status="cancelled"))
+
+    exit_code = worker.main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "job_externally_stopped:cancelled" in captured.err
+    outcome_line = next(line for line in captured.out.splitlines() if line.startswith("import_worker_outcome "))
+    import json as _json
+    payload = _json.loads(outcome_line.removeprefix("import_worker_outcome "))
+    assert payload["processed"] is True
+    assert payload["exit_code"] == 1
 
 
 def test_safe_one_job_fails_on_empty_queue_even_without_city_slug_new(monkeypatch) -> None:

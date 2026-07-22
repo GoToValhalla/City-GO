@@ -180,9 +180,10 @@ jobs:
           expected_env = {
               "IMPORT_WORKER_SAFE_MODE": "true",
               "IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY": "1",
-              "IMPORT_WORKER_MAX_RUNTIME_SECONDS": "300",
+              "IMPORT_WORKER_MAX_RUNTIME_SECONDS": "900",
               "IMPORT_WORKER_BACKEND_HEALTH_URL": "http://backend:8000/ready",
               "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB": "500",
+              "IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB": "350",
               "IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB": "512",
               "IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB": "400",
               "IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB": "256",
@@ -196,6 +197,56 @@ jobs:
               else:
                   ok = str(actual) == expected
               check(name, actual, expected, ok)
+
+          # Workflow job timeout must cover worker max runtime + cleanup margin.
+          import re
+          from pathlib import Path
+          run_wf = Path(".github/workflows/run-import-worker-safe.yml").read_text(encoding="utf-8")
+          timeout_match = re.search(r"timeout-minutes:\s*(\d+)", run_wf)
+          timeout_minutes = int(timeout_match.group(1)) if timeout_match else 0
+          max_runtime = int(str(env.get("IMPORT_WORKER_MAX_RUNTIME_SECONDS") or "0"))
+          cleanup_margin = 300
+          timeout_ok = timeout_minutes * 60 >= max_runtime + cleanup_margin
+          check(
+              "workflow_timeout_covers_max_runtime",
+              f"timeout_minutes={timeout_minutes}, max_runtime={max_runtime}",
+              f">= {max_runtime + cleanup_margin}s",
+              timeout_ok,
+          )
+
+          defaults_src = Path("services/import_worker_defaults.py").read_text(encoding="utf-8")
+          outcomes_src = Path("services/import_worker_terminal_outcomes.py").read_text(encoding="utf-8")
+          worker_src = Path("data/scripts/run_admin_import_worker.py").read_text(encoding="utf-8")
+          check(
+              "authoritative_defaults_max_runtime_900",
+              "MAX_RUNTIME_SECONDS = 900" in defaults_src,
+              True,
+              "MAX_RUNTIME_SECONDS = 900" in defaults_src,
+          )
+          check(
+              "authoritative_defaults_startup_500",
+              "STARTUP_HOST_FLOOR_MB = 500" in defaults_src,
+              True,
+              "STARTUP_HOST_FLOOR_MB = 500" in defaults_src,
+          )
+          check(
+              "terminal_external_stop_statuses",
+              '"stalled"' in outcomes_src and '"cancelled"' in outcomes_src,
+              True,
+              '"stalled"' in outcomes_src and '"cancelled"' in outcomes_src,
+          )
+          check(
+              "worker_uses_process_success_exit_contract",
+              "process_success_exit" in worker_src and "import_worker_terminal_outcomes" in worker_src,
+              True,
+              "process_success_exit" in worker_src and "import_worker_terminal_outcomes" in worker_src,
+          )
+          check(
+              "no_stale_max_runtime_300_in_defaults",
+              "MAX_RUNTIME_SECONDS = 300" in defaults_src,
+              False,
+              "MAX_RUNTIME_SECONDS = 300" not in defaults_src,
+          )
 
           print()
           print("=== validation results ===")

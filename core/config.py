@@ -3,6 +3,18 @@
 """
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from services.import_worker_defaults import (
+    JOB_CLAIM_HOST_FLOOR_MB,
+    MAX_FULL_IMPORT_PLACES_LOW_MEMORY,
+    MAX_RUNTIME_SECONDS,
+    MIN_CONTAINER_HEADROOM_MB,
+    MIN_CONTAINER_MEMORY_MB,
+    RUNTIME_CGROUP_PERCENT,
+    RUNTIME_HOST_FLOOR_MB,
+    SAFE_MODE_DEFAULT,
+    STARTUP_HOST_FLOOR_MB,
+)
+
 
 class Settings(BaseSettings):
     app_name: str = "City Guide API"
@@ -83,27 +95,24 @@ class Settings(BaseSettings):
 
     admin_allow_in_web_worker_run_once: bool = False
 
-    # Import-worker safety. Local/CI defaults keep safe mode disabled; production
-    # Compose supplies the measured host/cgroup contract explicitly.
-    import_worker_safe_mode: bool = False
-    import_worker_max_runtime_seconds: int = 900
+    # Import-worker safety. Defaults from services.import_worker_defaults
+    # (compose/workflows must use the same named env contract). Local/CI leave
+    # safe_mode False; production Compose forces SAFE_MODE=true.
+    import_worker_safe_mode: bool = SAFE_MODE_DEFAULT
+    import_worker_max_runtime_seconds: int = MAX_RUNTIME_SECONDS
     import_worker_backend_health_url: str = "http://backend:8000/ready"
-    import_worker_min_available_memory_mb: int = 256
-    # Separate from import_worker_min_available_memory_mb (the pre-container
-    # startup floor, checked once before the container exists). The worker
-    # container's own baseline overhead (Python process, DB pool, imports)
-    # legitimately costs 60-90 MB of host MemAvailable once running, so
-    # reusing the startup floor here as the per-job claim gate makes a
-    # healthy post-start host self-deadlock: the queued job is skipped
-    # forever even though nothing is actually unsafe.
-    import_worker_min_job_claim_memory_mb: int = 350
-    import_worker_min_container_memory_mb: int = 512
-    import_worker_min_container_headroom_mb: int = 400
-    import_worker_runtime_host_floor_mb: int = 256
-    import_worker_runtime_cgroup_percent: int = 85
-    # Legacy explicit heavy-job switch: <=0 blocks; positive enables only after
-    # the independent host/cgroup resource preflight succeeds.
-    import_worker_max_full_import_places_low_memory: int = 0
+    # Pre-container startup floor (distinct from job-claim and runtime floors).
+    import_worker_min_available_memory_mb: int = STARTUP_HOST_FLOOR_MB
+    # Post-start claim gate: must stay below startup floor so container
+    # overhead cannot self-deadlock a healthy host (see import_worker_defaults).
+    import_worker_min_job_claim_memory_mb: int = JOB_CLAIM_HOST_FLOOR_MB
+    import_worker_min_container_memory_mb: int = MIN_CONTAINER_MEMORY_MB
+    import_worker_min_container_headroom_mb: int = MIN_CONTAINER_HEADROOM_MB
+    import_worker_runtime_host_floor_mb: int = RUNTIME_HOST_FLOOR_MB
+    import_worker_runtime_cgroup_percent: int = RUNTIME_CGROUP_PERCENT
+    # Heavy-job switch under safe mode: <=0 blocks; positive enables only after
+    # host/cgroup preflight. Default matches production compose.
+    import_worker_max_full_import_places_low_memory: int = MAX_FULL_IMPORT_PLACES_LOW_MEMORY
 
     destination_foundation_enabled: bool = False
     destination_catalog_reads_enabled: bool = False
