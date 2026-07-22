@@ -138,7 +138,15 @@ def run_enrichment_only_pipeline(
 
         set_step(job, STEP_READY_FOR_REVIEW, successful=places_total, processed=places_total)
         results["status"] = "success"
-        job.finished_at = datetime.utcnow()
+        # finished_at is a terminal-transition field: only finalize_import_job
+        # may set it, exactly once, under its row lock (see
+        # run_enrichment_only_job, which calls it right after this function
+        # returns). Writing it here (job.status is never touched by this
+        # function) made every finalize_import_job call for this job
+        # unconditionally fail with reason="already_terminalized" --
+        # job.finished_at was already non-NULL by the time the caller
+        # reached its own finalize call, deterministically, not just under
+        # a race.
         city.launch_status = "review_required"
         log_import_event(
             db,
@@ -163,7 +171,9 @@ def run_enrichment_only_pipeline(
     except Exception as exc:  # noqa: BLE001
         results["status"] = "failed"
         job.last_error = str(exc)[:2000]
-        job.finished_at = datetime.utcnow()
+        # See the success-path comment above: finished_at is exclusively
+        # finalize_import_job's field. Not written here even on this
+        # exception path.
         set_step(job, "error", detail={"error": str(exc)})
         log_import_event(
             db,

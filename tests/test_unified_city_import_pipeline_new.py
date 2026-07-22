@@ -217,3 +217,128 @@ def test_enrichment_only_foundation_failure_is_not_reported_as_success_new(
     result = service.run_enrichment_only_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
 
     assert result.status == "failed"
+
+
+def test_real_full_pipeline_leaves_finished_at_null_until_finalize_new(
+    db_session,
+    city_factory,
+    place_factory,
+    monkeypatch,
+) -> None:
+    """Production Job #10 reproduction, end-to-end: calls the REAL
+    run_enrichment_pipeline (not a fake_collection stand-in like the other
+    tests in this file) through the real run_city_import_job, mocking only
+    its external I/O boundaries (OSM fetch, address/image enrichment,
+    readiness). Before the fix, run_enrichment_pipeline itself committed
+    job.finished_at while job.status stayed "running"; by the time
+    run_city_import_job reached its own finalize_import_job call,
+    finalize's `job.finished_at is None` check was already false, so it
+    deterministically rejected with reason="already_terminalized" and the
+    job was left status="running" forever, even though the pipeline had
+    genuinely finished. This must now reach a real terminal status."""
+    from services.import_pipeline import runner as import_runner
+
+    city = city_factory(slug="real-pipeline-job10-repro")
+    place_factory(city_id=city.id, slug="job10-place", title="Job10 Place", category="park")
+    job = _claimed_job(db_session, city_id=city.id, source=service.SOURCE_FULL_IMPORT)
+
+    monkeypatch.setattr(import_runner, "run_osm_import_only", lambda *_a, **_k: {
+        "results": [{"status": "success", "scope": "tourist_core", "import_result": {"raw_count": 1, "created": 1, "updated": 0}}],
+    })
+    monkeypatch.setattr(import_runner, "run_address_backfill", lambda *_a, **_k: {"checked": 1, "updated": 1, "errors": 0})
+    monkeypatch.setattr(import_runner, "run_image_enrich", lambda *_a, **_k: {"scanned_places": 1, "created": 0, "failed": 0})
+    monkeypatch.setattr(import_runner, "normalize_places_categories", lambda *_a, **_k: {"scanned": 1, "updated": 0})
+    monkeypatch.setattr(import_runner, "compute_city_readiness", lambda *_a, **_k: {"readiness_score": 0.9})
+    monkeypatch.setattr(import_runner, "send_admin_alert", lambda **_k: {"sent": True})
+    monkeypatch.setattr(import_runner, "_try_refresh_snapshot", lambda *_a, **_k: None)
+    monkeypatch.setattr(service, "compute_city_readiness", lambda db, *, city_slug: {"readiness_score": 0.9})
+    monkeypatch.setattr(service, "run_foundation_pipeline", lambda **_k: {"found": 0, "failed": 0})
+
+    result = service.run_city_import_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
+
+    assert result.status in {"success", "success_with_warnings"}
+    assert result.finished_at is not None
+    assert result.status != "running"
+
+
+def test_real_enrichment_only_leaves_finished_at_null_until_finalize_new(
+    db_session,
+    city_factory,
+    place_factory,
+    monkeypatch,
+) -> None:
+    """Same Job #10 shape as the full-pipeline test above, but through the
+    real run_enrichment_only_pipeline / run_enrichment_only_job path
+    (services/import_pipeline/enrichment_only.py had the identical
+    finished_at-committed-before-finalize defect)."""
+    from services.import_pipeline import enrichment_only as import_enrichment_only
+
+    city = city_factory(slug="real-enrichment-only-job10-repro")
+    place_factory(city_id=city.id, slug="job10-enrichment-place", title="Job10 Enrichment Place", category="park")
+    job = _claimed_job(db_session, city_id=city.id, source=service.SOURCE_ENRICHMENT_ONLY)
+
+    monkeypatch.setattr(import_enrichment_only, "run_address_backfill", lambda *_a, **_k: {"checked": 1, "updated": 1, "errors": 0, "last_scanned_place_id": 0})
+    monkeypatch.setattr(import_enrichment_only, "run_image_enrich", lambda *_a, **_k: {"scanned_places": 1, "created": 0, "errors": [], "last_scanned_place_id": 0})
+    monkeypatch.setattr(import_enrichment_only, "run_quality_cleanup", lambda *_a, **_k: {"updated": 1})
+    monkeypatch.setattr(import_enrichment_only, "normalize_city_categories", lambda *_a, **_k: {"scanned": 1, "updated": 0})
+    monkeypatch.setattr(import_enrichment_only, "compute_city_readiness", lambda *_a, **_k: {"readiness_score": 0.9})
+    monkeypatch.setattr(import_enrichment_only, "send_admin_alert", lambda **_k: {"sent": True})
+    monkeypatch.setattr(service, "run_foundation_pipeline", lambda **_k: {"found": 0, "failed": 0})
+
+    result = service.run_enrichment_only_job(db_session, city_id=city.id, actor_id="qa", job_id=job.id)
+
+    assert result.status in {"success", "success_with_warnings"}
+    assert result.finished_at is not None
+    assert result.status != "running"
+
+
+def test_no_pipeline_phase_can_return_running_with_finished_at_set_new(
+    db_session,
+    city_factory,
+    place_factory,
+    monkeypatch,
+) -> None:
+    """Direct invariant check on the real phase functions in isolation
+    (not through the outer finalize path): status="running" and
+    finished_at != NULL together is the exact contradiction that made
+    finalize_import_job reject every single time, deterministically. Both
+    real pipeline phase functions must never produce this combination."""
+    from services.import_pipeline.enrichment_only import run_enrichment_only_pipeline
+    from services.import_pipeline.runner import run_enrichment_pipeline
+
+    city = city_factory(slug="no-running-with-finished-at-full")
+    place_factory(city_id=city.id, slug="invariant-place-full", title="Invariant Place Full", category="park")
+    job = _claimed_job(db_session, city_id=city.id, source=service.SOURCE_FULL_IMPORT)
+
+    monkeypatch.setattr("services.import_pipeline.runner.run_osm_import_only", lambda *_a, **_k: {
+        "results": [{"status": "success", "scope": "tourist_core", "import_result": {"raw_count": 1, "created": 1, "updated": 0}}],
+    })
+    monkeypatch.setattr("services.import_pipeline.runner.run_address_backfill", lambda *_a, **_k: {"checked": 1, "updated": 1, "errors": 0})
+    monkeypatch.setattr("services.import_pipeline.runner.run_image_enrich", lambda *_a, **_k: {"scanned_places": 1, "created": 0, "failed": 0})
+    monkeypatch.setattr("services.import_pipeline.runner.normalize_places_categories", lambda *_a, **_k: {"scanned": 1, "updated": 0})
+    monkeypatch.setattr("services.import_pipeline.runner.compute_city_readiness", lambda *_a, **_k: {"readiness_score": 0.9})
+    monkeypatch.setattr("services.import_pipeline.runner.send_admin_alert", lambda **_k: {"sent": True})
+    monkeypatch.setattr("services.import_pipeline.runner._try_refresh_snapshot", lambda *_a, **_k: None)
+
+    run_enrichment_pipeline(db_session, job=job, city=city, actor_id="qa", notify_completion=False)
+    db_session.refresh(job)
+
+    assert not (job.status == "running" and job.finished_at is not None)
+    assert job.finished_at is None
+
+    city2 = city_factory(slug="no-running-with-finished-at-enrichment-only")
+    place_factory(city_id=city2.id, slug="invariant-place-enrichment-only", title="Invariant Place Enrichment Only", category="park")
+    job2 = _claimed_job(db_session, city_id=city2.id, source=service.SOURCE_ENRICHMENT_ONLY)
+
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.run_address_backfill", lambda *_a, **_k: {"checked": 1, "updated": 1, "errors": 0, "last_scanned_place_id": 0})
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.run_image_enrich", lambda *_a, **_k: {"scanned_places": 1, "created": 0, "errors": [], "last_scanned_place_id": 0})
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.run_quality_cleanup", lambda *_a, **_k: {"updated": 1})
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.normalize_city_categories", lambda *_a, **_k: {"scanned": 1, "updated": 0})
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.compute_city_readiness", lambda *_a, **_k: {"readiness_score": 0.9})
+    monkeypatch.setattr("services.import_pipeline.enrichment_only.send_admin_alert", lambda **_k: {"sent": True})
+
+    run_enrichment_only_pipeline(db_session, job=job2, city=city2, actor_id="qa")
+    db_session.refresh(job2)
+
+    assert not (job2.status == "running" and job2.finished_at is not None)
+    assert job2.finished_at is None

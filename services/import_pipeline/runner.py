@@ -230,7 +230,15 @@ def run_enrichment_pipeline(
         if total <= 0:
             raise RuntimeError("OSM import finished without places")
         set_step(job, STEP_READY_FOR_REVIEW, successful=len(ids), processed=len(ids), db=db)
-        job.finished_at = datetime.utcnow()
+        # finished_at is a terminal-transition field: only finalize_import_job
+        # may set it, exactly once, under its row lock. Writing it here (this
+        # function never transitions job.status) made every finalize_import_job
+        # call for this job unconditionally fail with reason="already_terminalized"
+        # -- job.finished_at was already non-NULL by the time the caller
+        # (run_city_import_job) reached its own finalize call, deterministically,
+        # not just under a race. completed_at is this phase's own local,
+        # non-authoritative progress marker instead.
+        completed_at = datetime.utcnow()
         job.step_details = {
             **dict(job.step_details or {}),
             "warnings": warnings,
@@ -259,7 +267,7 @@ def run_enrichment_pipeline(
             city.is_active = False
         else:
             city.launch_status, city.is_active = original
-        city.last_import_at = job.finished_at
+        city.last_import_at = completed_at
         _try_refresh_snapshot(db, city_id=city_id, source="import_pipeline_finished")
         log_import_event(
             db,
@@ -287,7 +295,9 @@ def run_enrichment_pipeline(
         total = db.query(Place).filter(Place.city_id == city_id).count()
         detail = {"step": failed_step, "error": str(exc)[:1000], "places_total": total}
         results["partial_success_after_error"] = detail
-        job.finished_at = datetime.utcnow()
+        # See the success-path comment above: finished_at is exclusively
+        # finalize_import_job's field. Not written here even on this
+        # exception path.
         job.step_details = {
             **dict(job.step_details or {}),
             "changed_place_ids": ids,

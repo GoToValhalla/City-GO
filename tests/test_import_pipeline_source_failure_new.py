@@ -91,10 +91,17 @@ def test_all_scopes_failed_marks_job_partial_success_with_diagnostics_new(db_ses
     assert summary["scope_errors"][0]["kind"] == "source_failure"
     assert summary["scope_errors"][1]["kind"] == "data_integrity"
     # run_enrichment_pipeline never writes job.status (see its own comment)
-    # — this phase's own outcome is in the returned dict instead.
+    # — this phase's own outcome is in the returned dict instead. It also
+    # never writes job.finished_at: that field is exclusively
+    # finalize_import_job's, written once by the caller (run_city_import_job)
+    # after this phase returns. Production Job #10 regression: writing
+    # finished_at here (while status stayed "running") made the caller's
+    # later finalize_import_job call deterministically reject with
+    # reason="already_terminalized", since finalize's own
+    # `job.finished_at is None` check was already false by then.
     assert result["status"] == "partial_success"
     assert job.status == "running"
-    assert job.finished_at is not None
+    assert job.finished_at is None
     assert "ForeignKeyViolation" in (job.last_error or "")
     assert result["import"]["scopes_succeeded"] == 0
 

@@ -125,31 +125,44 @@ def test_transition_service_itself_still_has_the_one_allowed_assignment_new():
 # admin_city_import_job_service.py, the worker loop and its exception
 # handler in admin_city_import_tasks.py, and the admin mark-stalled
 # endpoint), finalize_import_job is the ONLY function allowed to assign
-# CityAdminImportJob.finished_at / .last_error directly (current_step and
-# step_details are excluded — runners legitimately update those as
-# PROGRESS during execution, per the task's own "runners may update
-# progress" allowance; finished_at/last_error are unambiguously
-# terminal-only fields with no legitimate mid-flight meaning at this
-# layer). Every terminal write of those two fields at this layer must
-# instead go through finalize_import_job's own `fields=` dict.
+# CityAdminImportJob.finished_at directly (current_step and step_details
+# are excluded — runners legitimately update those as PROGRESS during
+# execution; finished_at is unambiguously a terminal-only field with no
+# legitimate mid-flight meaning). Every write of that field must instead
+# go through finalize_import_job's own `fields=` dict.
 #
-# Deliberately narrower than SCANNED_FILES (which also covers the
-# .status-assignment guard): the sub-pipeline phase modules
-# (services/import_pipeline/runner.py, enrichment_only.py,
-# import_pipeline_foundation.py) write their OWN phase-scoped
-# finished_at/last_error as legacy per-phase bookkeeping, read back by
-# their caller (e.g. run_city_import_job reads job.last_error from the
-# legacy phase to fold into the combined value it passes to
-# finalize_import_job) — those are upstream inputs to the one real
-# terminal decision, not a second terminal authority, and refactoring that
-# layer is out of scope for this task's named 9 functions.
+# services/import_pipeline/runner.py and enrichment_only.py were PROVEN
+# to violate this (production Job #10): run_enrichment_pipeline() and
+# run_enrichment_only_pipeline() wrote and committed job.finished_at
+# directly while job.status stayed "running" (neither function ever
+# writes status). By the time their caller (run_city_import_job /
+# run_enrichment_only_job) reached its own finalize_import_job call,
+# job.finished_at was already non-NULL under lock, so
+# finalize_import_job's `job.finished_at is None` check deterministically
+# rejected the terminal transition with reason="already_terminalized" --
+# not a race, on every single run. Both files are therefore in scope here
+# now, same as the rest of the finalization-authority layer.
+#
+# last_error is intentionally NOT in TERMINAL_ONLY_FIELDS: these two
+# sub-pipeline modules legitimately record their own phase-scoped
+# last_error as bookkeeping the caller reads back (e.g.
+# run_city_import_job folds the phase's last_error into the combined
+# value it passes to finalize_import_job) -- that is an upstream input to
+# the one real terminal decision, not a second terminal authority.
+# finished_at has no equivalent legitimate upstream-input use: nothing
+# downstream reads a phase-scoped finished_at as an input value (the
+# proof above is exactly that reading it back via city.last_import_at =
+# job.finished_at was itself part of the bug), so it does not get the
+# same carve-out.
 TERMINAL_FIELD_SCANNED_FILES = (
     "services/admin_city_import_job_service.py",
     "services/admin_city_import_tasks.py",
     "routers/admin_import_queue.py",
+    "services/import_pipeline/runner.py",
+    "services/import_pipeline/enrichment_only.py",
 )
 
-TERMINAL_ONLY_FIELDS = frozenset({"finished_at", "last_error"})
+TERMINAL_ONLY_FIELDS = frozenset({"finished_at"})
 
 # Functions allowed to assign these fields directly: finalize_import_job
 # itself (the field writes happen via setattr in a loop, not a literal
