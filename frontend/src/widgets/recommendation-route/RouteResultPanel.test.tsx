@@ -252,3 +252,85 @@ describe('defect #5/#6 regression: route start eligibility by status', () => {
     expect(screen.queryByRole('button', { name: /Начать маршрут/ })).toBeNull()
   })
 })
+
+describe('concurrency regression: synchronous in-flight locks (same pattern as TmaRoutePage)', () => {
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  it('startSession: a rapid double-click issues exactly one network call, and the lock releases after completion_new', async () => {
+    let resolveStart: ((value: ActiveRouteSession) => void) | null = null
+    vi.mocked(recommendationApi.startActiveRouteSession).mockImplementation(
+      () => new Promise((resolve) => { resolveStart = resolve }),
+    )
+    renderPanel({ route: twoPointRoute({ status: 'ready' }) })
+
+    const startButton = screen.getByRole('button', { name: /Начать маршрут/ })
+    // Two clicks fired before React can re-render the disabled state --
+    // the synchronous lock, not the (still-batched) `disabled` prop, is
+    // what must prevent the second call.
+    fireEvent.click(startButton)
+    fireEvent.click(startButton)
+
+    expect(recommendationApi.startActiveRouteSession).toHaveBeenCalledTimes(1)
+
+    // Resolve as an already-completed session so the start affordance
+    // reappears ("Начать заново") -- an active, non-terminal session would
+    // hide the button entirely, since it is no longer eligible to start.
+    resolveStart?.(activeSession({ status: 'completed' }))
+    await waitFor(() => expect(screen.getByText('Маршрут начат.')).toBeInTheDocument())
+    // No false "operation failed" message from the losing second call.
+    expect(screen.queryByText('Не удалось начать маршрут. Попробуйте ещё раз.')).toBeNull()
+
+    // The lock must release after completion -- a subsequent, independent
+    // start must still be possible (proves no lock leak). Resolve and
+    // await it too, so the module-level lock does not leak into the next
+    // test.
+    vi.mocked(recommendationApi.startActiveRouteSession).mockResolvedValue(activeSession({ session_id: 999 }))
+    fireEvent.click(screen.getByRole('button', { name: /Начать заново/ }))
+    await waitFor(() => expect(recommendationApi.startActiveRouteSession).toHaveBeenCalledTimes(2))
+  })
+
+  it('applySessionAction: a rapid double-click issues exactly one network call, and the lock releases after completion_new', async () => {
+    let resolveAction: ((value: ActiveRouteSession) => void) | null = null
+    vi.mocked(recommendationApi.updateActiveRouteSession).mockImplementation(
+      () => new Promise((resolve) => { resolveAction = resolve }),
+    )
+    renderPanel({ initialSession: activeSession() })
+
+    const completeButton = screen.getByRole('button', { name: /Я на месте/ })
+    fireEvent.click(completeButton)
+    fireEvent.click(completeButton)
+
+    expect(recommendationApi.updateActiveRouteSession).toHaveBeenCalledTimes(1)
+
+    resolveAction?.(activeSession({ current_place_id: '2', current_point_index: 1 }))
+    await waitFor(() => expect(screen.getByText('Точка отмечена.')).toBeInTheDocument())
+    expect(screen.queryByText('Не удалось обновить прогулку. Повторите действие.')).toBeNull()
+
+    // Lock released -- a subsequent, independent action must still work.
+    vi.mocked(recommendationApi.updateActiveRouteSession).mockResolvedValue(activeSession({ status: 'paused' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Пауза$/ }))
+    await waitFor(() => expect(recommendationApi.updateActiveRouteSession).toHaveBeenCalledTimes(2))
+  })
+
+  it('submitFeedback: a rapid double-click issues exactly one network call and never blocks on session state_new', async () => {
+    let resolveFeedback: ((value: unknown) => void) | null = null
+    vi.mocked(recommendationApi.sendRouteFeedback).mockImplementation(
+      () => new Promise((resolve) => { resolveFeedback = resolve }),
+    )
+    renderPanel({ route: twoPointRoute({ status: 'ready' }) })
+
+    fireEvent.click(screen.getByRole('button', { name: '5' }))
+    const submitButton = screen.getByRole('button', { name: 'Отправить отзыв' })
+    fireEvent.click(submitButton)
+    fireEvent.click(submitButton)
+
+    expect(recommendationApi.sendRouteFeedback).toHaveBeenCalledTimes(1)
+
+    resolveFeedback?.({})
+    await waitFor(() => expect(screen.getByText('Спасибо. Отзыв сохранён.')).toBeInTheDocument())
+    expect(screen.queryByText('Не удалось отправить отзыв. Попробуйте ещё раз.')).toBeNull()
+  })
+})

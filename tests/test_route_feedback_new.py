@@ -86,9 +86,11 @@ def test_repeated_submission_from_the_same_anonymous_session_header_is_deduplica
 
 def test_repeated_submission_from_the_same_identity_is_deduplicated_new(client, db_session) -> None:
     """Defect #10 (paired with #9): the SAME identity submitting the
-    exact same feedback twice within the dedup window must be
-    deduplicated -- this proves dedup still works once identity is fixed,
-    it is not simply disabled."""
+    exact same feedback twice within the same fixed dedup bucket (see
+    routers/route_feedback.py::_dedup_key) must be deduplicated -- this
+    proves dedup still works once identity is fixed, it is not simply
+    disabled. Both requests here run back-to-back and land in the same
+    bucket; this does not exercise the boundary-straddling case."""
     payload = {"route_id": "route-1", "rating": 3, "user_id": "stable-user-1", "comment": "same comment"}
     first = client.post("/route-feedback/", json=payload)
     second = client.post("/route-feedback/", json=payload)

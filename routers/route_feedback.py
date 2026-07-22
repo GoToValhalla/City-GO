@@ -41,11 +41,17 @@ def _dedup_subject(anonymous_subject: str | None, user_id: str | None) -> str:
 def _dedup_key(*, subject: str, route_id: str, signal_payload: dict[str, object], now: datetime) -> str:
     """Deterministic fingerprint used as the atomic dedup boundary at the
     database level (see models/user_signal.py::UserSignal.dedup_key,
-    a unique-indexed column). The time bucket rounds down to the start of
-    the current _DUPLICATE_WINDOW slot, so two submissions with identical
-    subject/route/payload landing in the same window collide on the same
-    key regardless of which request's INSERT reaches the database first --
-    there is no read-then-write gap for a race to exploit."""
+    a unique-indexed column). This is a fixed-bucket window, not a rolling
+    one: bucket = floor(timestamp / window_seconds), so the window is
+    aligned to fixed epoch-relative slots (e.g. every :00/:05/:10 minute
+    mark for a 5-minute window), not to the time of the first submission.
+    Two submissions with identical subject/route/payload collide only if
+    they land in the same aligned bucket -- there is no read-then-write
+    gap for a race to exploit within that bucket, regardless of which
+    request's INSERT reaches the database first. Submissions that are only
+    a few seconds apart but straddle a bucket boundary (e.g. one at :04:59
+    and one at :05:01 for a 5-minute window) are NOT deduplicated against
+    each other; only same-bucket duplicates are guaranteed to collide."""
     window_seconds = int(_DUPLICATE_WINDOW.total_seconds())
     bucket = int(now.timestamp()) // window_seconds
     fingerprint = "|".join([

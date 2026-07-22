@@ -76,6 +76,19 @@ type Props = {
   onSessionChange?: (session: ActiveRouteSession | null) => void
 }
 
+// Synchronous, non-React locks -- same pattern as TmaRoutePage.tsx's
+// mutationInFlight and tmaRouteActions.ts's addInFlight: React state
+// (sessionPending, feedbackPending) cannot prevent a second concurrent
+// invocation, because state updates are batched/async and a rapid
+// double-tap can fire both handlers before either setState commits.
+// Two independent locks, matching the two independent pending states
+// that already exist today (feedback submission was never gated by
+// sessionPending, and vice versa) -- session actions (startSession,
+// applySessionAction) share one lock since they already share
+// sessionPending and both mutate the same session.
+let sessionMutationInFlight = false
+let feedbackMutationInFlight = false
+
 const normalizeQualityStatus = (route: RecommendationRouteResponse): RouteQualityStatus => {
   const direct = route.quality_status
   if (direct === 'good' || direct === 'acceptable' || direct === 'weak' || direct === 'failed') return direct
@@ -231,7 +244,8 @@ export const RouteResultPanel = ({
   const feedbackReasonRequired = Boolean(rating && rating <= 3 && feedbackProblems.length === 0)
 
   const submitFeedback = async () => {
-    if (!rating || feedbackPending || feedbackSubmitted || feedbackReasonRequired) return
+    if (!rating || feedbackMutationInFlight || feedbackPending || feedbackSubmitted || feedbackReasonRequired) return
+    feedbackMutationInFlight = true
     try {
       setFeedbackPending(true)
       setFeedbackStatus('Отправляем отзыв…')
@@ -242,12 +256,14 @@ export const RouteResultPanel = ({
       console.error(error)
       setFeedbackStatus('Не удалось отправить отзыв. Попробуйте ещё раз.')
     } finally {
+      feedbackMutationInFlight = false
       setFeedbackPending(false)
     }
   }
 
   const startSession = async () => {
-    if (!canStart || sessionPending) return
+    if (!canStart || sessionMutationInFlight || sessionPending) return
+    sessionMutationInFlight = true
     try {
       setSessionPending(true)
       setSessionStatus('Запускаем маршрут…')
@@ -267,12 +283,14 @@ export const RouteResultPanel = ({
         setSessionStatus('Не удалось начать маршрут. Попробуйте ещё раз.')
       }
     } finally {
+      sessionMutationInFlight = false
       setSessionPending(false)
     }
   }
 
   const applySessionAction = async (action: ActiveRouteAction, placeId?: string | null) => {
-    if (sessionPending || !session || sessionTerminal) return
+    if (sessionMutationInFlight || sessionPending || !session || sessionTerminal) return
+    sessionMutationInFlight = true
     try {
       setSessionPending(true)
       setSessionStatus(ACTION_PENDING_COPY[action])
@@ -292,6 +310,7 @@ export const RouteResultPanel = ({
         setSessionStatus('Не удалось обновить прогулку. Повторите действие.')
       }
     } finally {
+      sessionMutationInFlight = false
       setSessionPending(false)
     }
   }
