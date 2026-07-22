@@ -22,24 +22,29 @@ ROOT = Path(__file__).resolve().parent.parent
 EXPECTED_STARTUP_FLOOR_MB = 500
 
 
-def _workflow_bash_startup_floor_mb() -> int:
-    text = (ROOT / ".github" / "workflows" / "run-import-worker-safe.yml").read_text(encoding="utf-8")
-    match = re.search(r"STARTUP_HOST_FLOOR_MB=(\d+)", text)
-    assert match, "STARTUP_HOST_FLOOR_MB assignment not found in run-import-worker-safe.yml"
-    return int(match.group(1))
-
-
 def _compose_startup_floor_mb() -> int:
     text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-    match = re.search(r"IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB:\s*(\d+)", text)
-    assert match, "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB not found in docker-compose.yml"
+    match = re.search(
+        r"IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB:\s*\$\{IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB:-(\d+)\}",
+        text,
+    )
+    assert match, "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB default not found in docker-compose.yml"
     return int(match.group(1))
 
 
 def _guard_default_startup_floor_mb() -> int:
-    text = (ROOT / "data" / "scripts" / "check_import_worker_resources.py").read_text(encoding="utf-8")
-    match = re.search(r'_positive_int_env\("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB",\s*(\d+)\)', text)
-    assert match, "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB default not found in check_import_worker_resources.py"
+    from services.import_worker_defaults import STARTUP_HOST_FLOOR_MB
+
+    return int(STARTUP_HOST_FLOOR_MB)
+
+
+def _workflow_bash_startup_floor_mb() -> int:
+    text = (ROOT / ".github" / "workflows" / "run-import-worker-safe.yml").read_text(encoding="utf-8")
+    match = re.search(
+        r'IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB="\$\{IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB:-(\d+)\}"',
+        text,
+    )
+    assert match, "IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB default not found in run-import-worker-safe.yml"
     return int(match.group(1))
 
 

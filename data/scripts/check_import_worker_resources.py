@@ -8,8 +8,11 @@ safe.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 _MIB = 1024 * 1024
 _CGROUP_V1_UNLIMITED = 1 << 60
@@ -97,9 +100,17 @@ def snapshot() -> MemorySnapshot:
 
 
 def validate_startup_resources() -> MemorySnapshot:
-    min_host_mb = _positive_int_env("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB", 500)
-    min_container_mb = _positive_int_env("IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB", 512)
-    min_headroom_mb = _positive_int_env("IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB", 400)
+    # Defaults come from the shared contract module so Settings/compose/workflows
+    # cannot silently diverge when env vars are unset.
+    from services.import_worker_defaults import (
+        MIN_CONTAINER_HEADROOM_MB,
+        MIN_CONTAINER_MEMORY_MB,
+        STARTUP_HOST_FLOOR_MB,
+    )
+
+    min_host_mb = _positive_int_env("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB", STARTUP_HOST_FLOOR_MB)
+    min_container_mb = _positive_int_env("IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB", MIN_CONTAINER_MEMORY_MB)
+    min_headroom_mb = _positive_int_env("IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB", MIN_CONTAINER_HEADROOM_MB)
 
     state = snapshot()
     if state.host_available_mb < min_host_mb:
