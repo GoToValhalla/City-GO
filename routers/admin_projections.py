@@ -14,9 +14,10 @@ from services.search_projection_rebuild_service import rebuild_search_place_docu
 from services.projection_observability import log_rebuild_result
 from services.feature_toggle_service import is_toggle_enabled
 from services.projection_activation_service import TOGGLE_PROJECTIONS, assert_toggle_activation_safe
+from services.published_snapshot_rebuild_service import rebuild_published_place_snapshots
 
 router = APIRouter(prefix="/admin/projections", tags=["admin-projections"])
-KINDS = {"search": "search_place_document", "catalog": "search_place_document", "routing": "routing_place_node", "route_candidate_set": "route_candidate_set"}
+KINDS = {"snapshot": "published_place_snapshot", "search": "search_place_document", "catalog": "search_place_document", "routing": "routing_place_node", "route_candidate_set": "route_candidate_set"}
 
 
 @router.post("/rebuild")
@@ -72,6 +73,8 @@ def read_job(job_id: int, auth: AdminContext = Depends(admin_required), db: Sess
 
 def _run(db: Session, kind: str, payload: ProjectionRebuildRequest, actor: str) -> dict[str, object]:
     kwargs = {"city_id": payload.city_id, "actor": actor, "source": payload.source, "audit_context": payload.audit_context}
+    if kind == "published_place_snapshot":
+        return rebuild_published_place_snapshots(db, **kwargs)
     if kind == "search_place_document":
         return rebuild_search_place_documents(db, **kwargs)
     if kind == "routing_place_node":

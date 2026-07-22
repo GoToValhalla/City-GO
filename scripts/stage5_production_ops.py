@@ -79,7 +79,7 @@ def run(operation: str) -> dict[str, object]:
         jobs = [request("POST", "/api/admin/projections/rebuild", {
             "projection_type": kind, "city_id": city_id, "source": "stage5_production_workflow",
             "audit_context": {"github_run_id": os.environ.get("GITHUB_RUN_ID", "")},
-        }) for kind in KINDS]
+        }) for kind in ("snapshot",) + KINDS]
         return {"operation": operation, "jobs": jobs, "readiness": readiness(True)}
     if operation == "disable_all":
         return {"operation": operation, "toggles": [toggle(name, False) for name in TOGGLES]}

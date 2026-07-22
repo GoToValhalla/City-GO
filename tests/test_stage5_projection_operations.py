@@ -6,7 +6,7 @@ from models.search_routing_stage5 import ProjectionRebuildJob, RouteCandidateSet
 from services.data_foundation_projection_service import build_snapshot_from_place
 from services.feature_toggle_service import update_toggle
 from services.projection_readiness_service import assert_projection_ready, projection_readiness
-from services.public_read_projection_service import PublicReadProjectionError, REASON_FAILED
+from services.public_read_projection_service import PublicReadProjectionError, REASON_EMPTY, REASON_FAILED
 from services.routing_projection_candidate_service import routing_projection_candidates
 from services.routing_projection_rebuild_service import rebuild_route_candidate_sets, rebuild_routing_place_nodes
 from services.search_projection_rebuild_service import rebuild_search_place_documents
@@ -31,11 +31,13 @@ def test_city_rebuilds_are_idempotent_and_do_not_mutate_publication(db_session, 
     assert (place.is_published, place.is_route_eligible, place.publication_status) == before
 
 
-def test_global_valid_empty_rebuild_is_ready(db_session):
+def test_global_empty_rebuild_fails_closed(db_session):
     result = rebuild_search_place_documents(db_session)
     db_session.commit()
     assert result["rebuilt_count"] == 0
-    assert_projection_ready(db_session, projection_type="search_place_document", city_id=None)
+    status = projection_readiness(db_session, projection_type="search_place_document", city_id=None)
+    assert status.ready is False
+    assert status.reason == REASON_EMPTY
 
 
 def test_routing_rebuild_and_candidate_set_are_projection_only(db_session, place_factory):

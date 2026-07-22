@@ -28,6 +28,7 @@ def test_stage5_workflow_uses_only_canonical_api_helper_new() -> None:
     assert "CONFIRM_STAGE5_PRODUCTION_MUTATION" in workflow
     assert "Authorization" in script
     assert "/api/admin/projections/rebuild" in script
+    assert '("snapshot",) + KINDS' in script
     assert "/api/admin/projections/readiness" in script
     assert "/api/admin/feature-toggles/" in script
     assert "SELECT " not in workflow + script

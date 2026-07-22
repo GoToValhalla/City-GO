@@ -9,7 +9,8 @@ Projection toggles are global by design, so enable/disable operations reject cit
 
 ## Activation
 
-1. Rebuild `search`, `routing`, and `route_candidate_set` globally or for every source city.
+1. Run `rebuild`. It first appends a versioned `PublishedPlaceSnapshot` generation from canonical
+   `Place` state, then rebuilds `search`, `routing`, and `route_candidate_set` from that source.
 2. Read `/admin/projections/readiness` for each required type and scope.
 3. Require `ready=true`, equal counts, compatible versions, fresh completion, and no later failure.
 4. Enable one toggle at a time. The backend rejects unsafe activation.

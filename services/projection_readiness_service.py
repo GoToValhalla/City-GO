@@ -72,6 +72,8 @@ def _reason(latest: ProjectionRebuildJob | None, success: ProjectionRebuildJob |
         return REASON_FAILED
     if success is None or not success.is_complete or success.expected_count != success.actual_count:
         return REASON_INCOMPLETE
+    if version is None or success.expected_count == 0:
+        return REASON_EMPTY
     if success.source_snapshot_version != version:
         return REASON_VERSION
     finished = success.finished_at
