@@ -15,6 +15,13 @@ def _workflow_text() -> str:
     return WORKFLOW_FILE.read_text(encoding="utf-8")
 
 
+def _compose_up_command(text: str) -> str:
+    start = text.index('IMPORT_WORKER_RUN_MODE="$RUN_MODE"')
+    lines = text[start:].splitlines()
+    end = next(index for index, line in enumerate(lines) if "docker compose up" in line)
+    return "\n".join(line.strip() for line in lines[: end + 1])
+
+
 def _workflow_yaml() -> dict:
     data = yaml.safe_load(_workflow_text())
     assert isinstance(data, dict)
@@ -64,7 +71,8 @@ def test_workflow_preflight_checks_health_memory_and_running_state_new() -> None
 
     assert "preflight: public health/ready" in text
     assert "preflight: host memory" in text
-    assert "STARTUP_HOST_FLOOR_MB=500" in text
+    assert 'IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB="${IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB:-500}"' in text
+    assert 'STARTUP_HOST_FLOOR_MB="$IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB"' in text
     assert "preflight: import-worker must not already be running" in text
     assert "PREFLIGHT FAILED" in text
 
@@ -82,8 +90,8 @@ def test_workflow_starts_only_import_worker_not_whole_ops_profile_new() -> None:
 def test_workflow_has_runtime_host_cgroup_and_health_guards_new() -> None:
     text = _workflow_text()
 
-    assert "RUNTIME_HOST_FLOOR_MB=256" in text
-    assert "RUNTIME_CGROUP_PERCENT=85" in text
+    assert 'IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB="${IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB:-256}"' in text
+    assert 'IMPORT_WORKER_RUNTIME_CGROUP_PERCENT="${IMPORT_WORKER_RUNTIME_CGROUP_PERCENT:-85}"' in text
     assert "public_health_degraded" in text
     assert "host_memory_floor" in text
     assert "worker_cgroup_soft_limit" in text
@@ -311,11 +319,11 @@ def test_workflow_passes_run_mode_and_city_slug_to_docker_compose_up_new() -> No
     accepted by the workflow UI but silently ignored."""
     text = _workflow_text()
 
-    assert (
-        'IMPORT_WORKER_RUN_MODE="$RUN_MODE" IMPORT_WORKER_CITY_SLUG="$CITY_SLUG" '
-        'IMPORT_WORKER_MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS" '
-        "timeout 60s docker compose up -d --no-deps --force-recreate import-worker"
-    ) in text
+    command = _compose_up_command(text)
+    assert 'IMPORT_WORKER_RUN_MODE="$RUN_MODE"' in command
+    assert 'IMPORT_WORKER_CITY_SLUG="$CITY_SLUG"' in command
+    assert 'IMPORT_WORKER_MAX_RUNTIME_SECONDS="$MAX_RUNTIME_SECONDS"' in command
+    assert "timeout 60s docker compose up -d --no-deps --force-recreate import-worker" in command
 
 
 def test_workflow_defaults_run_mode_and_city_slug_inside_remote_script_new() -> None:
@@ -375,9 +383,7 @@ def test_city_slug_survives_workflow_input_to_compose_interpolation_new() -> Non
     )
     assert quoting_lines, "could not find the printf '%q' quoting lines in the workflow"
 
-    up_line_start = text.index('IMPORT_WORKER_RUN_MODE="$RUN_MODE"')
-    up_line_end = text.index("\n", up_line_start)
-    up_line = text[up_line_start:up_line_end]
+    up_command = _compose_up_command(text)
 
     script = f"""
 set -euo pipefail
@@ -388,6 +394,12 @@ WORKFLOW_RUN_ID="1"
 WORKFLOW_RUN_URL="https://example.invalid/run/1"
 RUN_MODE="safe_one_job"
 CITY_SLUG="almaty"
+IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB="500"
+IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB="350"
+IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB="512"
+IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB="400"
+IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB="256"
+IMPORT_WORKER_RUNTIME_CGROUP_PERCENT="85"
 
 {quoting_lines}
 
@@ -401,7 +413,7 @@ CITY_SLUG="${{CITY_SLUG:-}}"
 docker() {{ echo "docker_argv:$*"; echo "seen_city_slug:[${{IMPORT_WORKER_CITY_SLUG:-}}]"; }}
 timeout() {{ shift; "$@"; }}
 
-{up_line}
+{up_command}
 """
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
@@ -532,20 +544,24 @@ def test_max_runtime_seconds_reaches_container_via_docker_compose_up_new() -> No
     value the container receives."""
     text = _workflow_text()
 
-    up_line_start = text.index('IMPORT_WORKER_RUN_MODE="$RUN_MODE"')
-    up_line_end = text.index("\n", up_line_start)
-    up_line = text[up_line_start:up_line_end]
+    up_command = _compose_up_command(text)
 
     script = f"""
 set -euo pipefail
 MAX_RUNTIME_SECONDS="900"
 RUN_MODE="safe_one_job"
 CITY_SLUG=""
+IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB="500"
+IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB="350"
+IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB="512"
+IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB="400"
+IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB="256"
+IMPORT_WORKER_RUNTIME_CGROUP_PERCENT="85"
 
 docker() {{ echo "seen_max_runtime_seconds:[${{IMPORT_WORKER_MAX_RUNTIME_SECONDS:-}}]"; }}
 timeout() {{ shift; "$@"; }}
 
-{up_line}
+{up_command}
 """
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"

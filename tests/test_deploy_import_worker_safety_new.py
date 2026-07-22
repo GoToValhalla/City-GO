@@ -108,10 +108,11 @@ def test_import_worker_safe_mode_env_contract_new() -> None:
     # and the worker's own runtime guard must share one effective limit.
     assert env.get("IMPORT_WORKER_MAX_RUNTIME_SECONDS") == "${IMPORT_WORKER_MAX_RUNTIME_SECONDS:-900}"
     assert env.get("IMPORT_WORKER_BACKEND_HEALTH_URL") == "http://backend:8000/ready"
-    assert int(env.get("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB")) == 500
-    assert int(env.get("IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB")) == 512
-    assert int(env.get("IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB")) == 400
-    assert int(env.get("IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB")) == 256
-    assert int(env.get("IMPORT_WORKER_RUNTIME_CGROUP_PERCENT")) == 85
-    assert int(env.get("IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY")) == 1
+    assert env.get("IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB") == "${IMPORT_WORKER_MIN_AVAILABLE_MEMORY_MB:-500}"
+    assert env.get("IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB") == "${IMPORT_WORKER_MIN_JOB_CLAIM_MEMORY_MB:-350}"
+    assert env.get("IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB") == "${IMPORT_WORKER_MIN_CONTAINER_MEMORY_MB:-512}"
+    assert env.get("IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB") == "${IMPORT_WORKER_MIN_CONTAINER_HEADROOM_MB:-400}"
+    assert env.get("IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB") == "${IMPORT_WORKER_RUNTIME_HOST_FLOOR_MB:-256}"
+    assert env.get("IMPORT_WORKER_RUNTIME_CGROUP_PERCENT") == "${IMPORT_WORKER_RUNTIME_CGROUP_PERCENT:-85}"
+    assert env.get("IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY") == "${IMPORT_WORKER_MAX_FULL_IMPORT_PLACES_LOW_MEMORY:-1}"
     assert int(env.get("IMPORT_WORKER_BATCH_LIMIT")) == 1
