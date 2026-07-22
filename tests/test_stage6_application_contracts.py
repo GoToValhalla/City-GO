@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import dataclasses
+from datetime import time
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
+from models.place_schedule import PlaceSchedule
 from services.stage6_contracts import catalog, catalog_entities, destination, media, projection, quality, review_quality, routing
+from services.stage6_contracts.catalog_entities import CatalogScheduleWrite, catalog_schedule, write_catalog_schedule
 
 
 def test_catalog_contract_preserves_explicit_transaction_ownership(monkeypatch) -> None:
@@ -104,3 +109,134 @@ def test_catalog_taxonomy_contract_delegates_to_existing_writer(monkeypatch) -> 
 
     assert catalog_entities.create_catalog_category(object(), command) == "category"
     assert calls == [{"data": {"code": "museum"}, "actor": "operator"}]
+
+
+def test_catalog_schedule_write_is_immutable() -> None:
+    command = CatalogScheduleWrite(place_id=1, weekday="mon", open_time=time(9, 0), close_time=time(18, 0))
+
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        command.weekday = "tue"  # type: ignore[misc]
+
+
+def test_write_catalog_schedule_creates_missing_row(db_session, place_factory) -> None:
+    place = place_factory()
+
+    row = write_catalog_schedule(
+        db_session,
+        CatalogScheduleWrite(place_id=place.id, weekday="mon", open_time=time(9, 0), close_time=time(18, 0)),
+    )
+
+    assert row.place_id == place.id
+    assert row.weekday == "mon"
+    assert row.open_time == time(9, 0)
+    assert row.close_time == time(18, 0)
+    assert row.is_closed is False
+
+
+def test_write_catalog_schedule_updates_existing_row(db_session, place_factory) -> None:
+    place = place_factory()
+    first = write_catalog_schedule(
+        db_session,
+        CatalogScheduleWrite(place_id=place.id, weekday="mon", open_time=time(9, 0), close_time=time(18, 0)),
+    )
+    db_session.flush()
+
+    second = write_catalog_schedule(
+        db_session,
+        CatalogScheduleWrite(place_id=place.id, weekday="mon", open_time=time(10, 0), close_time=time(19, 0), is_closed=True),
+    )
+
+    assert second.id == first.id
+    assert second.open_time == time(10, 0)
+    assert second.close_time == time(19, 0)
+    assert second.is_closed is True
+
+
+def test_write_catalog_schedule_flushes_but_does_not_commit(db_session, place_factory) -> None:
+    place = place_factory()
+    place_id = int(place.id)  # captured as a plain value: db_session.rollback()
+    # below rolls back the fixture's own outer transaction (db_session wraps
+    # the whole test in one transaction with no nested SAVEPOINT), which
+    # would detach the ORM-bound `place` instance -- querying by a plain
+    # captured id avoids touching that detached instance.
+
+    write_catalog_schedule(
+        db_session,
+        CatalogScheduleWrite(place_id=place_id, weekday="mon", open_time=time(9, 0), close_time=time(18, 0)),
+    )
+    db_session.rollback()
+
+    remaining = db_session.query(PlaceSchedule).filter(
+        PlaceSchedule.place_id == place_id, PlaceSchedule.weekday == "mon",
+    ).count()
+    assert remaining == 0
+
+
+def test_write_catalog_schedule_produces_exactly_one_row_per_place_and_weekday(db_session, place_factory) -> None:
+    place = place_factory()
+
+    write_catalog_schedule(db_session, CatalogScheduleWrite(place_id=place.id, weekday="mon", open_time=time(9, 0), close_time=time(18, 0)))
+    write_catalog_schedule(db_session, CatalogScheduleWrite(place_id=place.id, weekday="mon", open_time=time(11, 0), close_time=time(20, 0)))
+    write_catalog_schedule(db_session, CatalogScheduleWrite(place_id=place.id, weekday="mon", open_time=time(12, 0), close_time=time(21, 0)))
+
+    rows = db_session.query(PlaceSchedule).filter(
+        PlaceSchedule.place_id == place.id, PlaceSchedule.weekday == "mon",
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].open_time == time(12, 0)
+
+
+def test_write_catalog_schedule_rejects_invalid_weekday(db_session, place_factory) -> None:
+    place = place_factory()
+
+    with pytest.raises(ValueError, match="Invalid weekday"):
+        write_catalog_schedule(
+            db_session,
+            CatalogScheduleWrite(place_id=place.id, weekday="funday", open_time=None, close_time=None),
+        )
+
+
+def test_database_rejects_duplicate_place_weekday_row_at_the_constraint_level(db_session, place_factory) -> None:
+    place = place_factory()
+    db_session.add(PlaceSchedule(place_id=place.id, weekday="mon"))
+    db_session.flush()
+    db_session.add(PlaceSchedule(place_id=place.id, weekday="mon"))
+
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+    db_session.rollback()
+
+
+def test_catalog_schedule_returns_calendar_weekday_order(db_session, place_factory) -> None:
+    place = place_factory()
+    for weekday in ("sun", "wed", "mon", "fri"):
+        write_catalog_schedule(
+            db_session,
+            CatalogScheduleWrite(place_id=place.id, weekday=weekday, open_time=None, close_time=None, is_closed=True),
+        )
+
+    rows = catalog_schedule(db_session, place.id)
+
+    assert [row.weekday for row in rows] == ["mon", "wed", "fri", "sun"]
+
+
+def test_catalog_schedule_returns_immutable_tuple(db_session, place_factory) -> None:
+    place = place_factory()
+    write_catalog_schedule(
+        db_session,
+        CatalogScheduleWrite(place_id=place.id, weekday="mon", open_time=None, close_time=None, is_closed=True),
+    )
+
+    rows = catalog_schedule(db_session, place.id)
+
+    assert isinstance(rows, tuple)
+    with pytest.raises(AttributeError):
+        rows.append(None)  # type: ignore[attr-defined]
+
+
+def test_catalog_schedule_returns_empty_tuple_for_place_with_no_schedule(db_session, place_factory) -> None:
+    place = place_factory()
+
+    rows = catalog_schedule(db_session, place.id)
+
+    assert rows == ()

@@ -50,6 +50,23 @@ Transaction ownership is explicit. Contracts either do not commit or delegate
 to an existing service whose transaction behavior is already part of the API.
 Canonical publication and verification rules were not duplicated.
 
+### Catalog schedule writes
+
+Catalog owns every write to `place_schedules` through
+`services/stage6_contracts/catalog_entities.py::write_catalog_schedule()`. The
+database enforces exactly one row per `(place_id, weekday)` via the unique
+index `uq_place_schedules_place_weekday` (`models/place_schedule.py`,
+`migrations/versions/e2c4b6a8d0f3_place_schedule_place_weekday_uniqueness.py`).
+`write_catalog_schedule()` performs an atomic `INSERT ... ON CONFLICT DO
+UPDATE` against that index, never a check-then-insert read, so two
+concurrent writers for the same `(place_id, weekday)` cannot produce a
+duplicate row: the losing writer's insert is converted into the update
+branch by the database itself. `write_catalog_schedule()` flushes but never
+commits; the caller owns the transaction and its rollback. Reads via
+`catalog_schedule()` return rows in calendar weekday order
+(`mon, tue, wed, thu, fri, sat, sun`), with `id` as a deterministic
+secondary sort key, as an immutable tuple.
+
 ## Admin isolation
 
 The seven Stage 6 admin/feedback routers contain authentication, request
