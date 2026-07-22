@@ -24,5 +24,13 @@ GLOBAL_TOGGLES: tuple[ToggleDef, ...] = (
     {"key": "photo_moderation_enabled", "label": "Модерация фото", "description": "Очередь фото на проверке", "default": True, "scope": "global", "group": "moderation"},
     {"key": "auto_import_enabled", "label": "Автоимпорт", "description": "Фоновые задачи импорта", "default": True, "scope": "global", "group": "data"},
     {"key": "auto_enrichment_enabled", "label": "Автообогащение", "description": "Фоновое обогащение данных", "default": False, "scope": "global", "group": "data"},
+    {
+        "key": "search_projection_reads_enabled",
+        "label": "Search projections",
+        "description": "Публичный поиск читает SearchPlaceDocument (Stage 5). OFF = legacy Place path",
+        "default": False,
+        "scope": "global",
+        "group": "data",
+    },
     {"key": "debug_mode", "label": "Debug mode", "description": "Расширенная диагностика в API", "default": False, "scope": "global", "group": "system"},
 )

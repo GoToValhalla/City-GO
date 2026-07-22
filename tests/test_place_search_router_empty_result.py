@@ -36,8 +36,10 @@ def test_search_places_returns_empty_structured_response() -> None:
 
     original_get_places = place_search.get_places
     original_get_places_total = place_search.get_places_total
+    original_is_toggle_enabled = place_search.is_toggle_enabled
     place_search.get_places = fake_get_places
     place_search.get_places_total = fake_get_places_total
+    place_search.is_toggle_enabled = lambda *args, **kwargs: False
     app.dependency_overrides[get_db] = fake_get_db
 
     client = TestClient(app)
@@ -51,6 +53,7 @@ def test_search_places_returns_empty_structured_response() -> None:
 
     place_search.get_places = original_get_places
     place_search.get_places_total = original_get_places_total
+    place_search.is_toggle_enabled = original_is_toggle_enabled
     app.dependency_overrides.clear()
 
     assert response.status_code == 200

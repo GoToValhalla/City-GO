@@ -67,6 +67,7 @@ def test_search_places_returns_structured_response(monkeypatch) -> None:
     monkeypatch.setattr(
         "routers.place_search.build_public_place_reads", fake_build_public_place_reads
     )
+    monkeypatch.setattr("routers.place_search.is_toggle_enabled", lambda *args, **kwargs: False)
     app.dependency_overrides[get_db] = fake_get_db
 
     client = TestClient(app)

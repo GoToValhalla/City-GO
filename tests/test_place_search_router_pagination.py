@@ -40,8 +40,10 @@ def test_search_places_passes_limit_and_offset_and_returns_structured_response()
 
     original_get_places = place_search.get_places
     original_get_places_total = place_search.get_places_total
+    original_is_toggle_enabled = place_search.is_toggle_enabled
     place_search.get_places = fake_get_places
     place_search.get_places_total = fake_get_places_total
+    place_search.is_toggle_enabled = lambda *args, **kwargs: False
     app.dependency_overrides[get_db] = fake_get_db
 
     client = TestClient(app)
@@ -56,6 +58,7 @@ def test_search_places_passes_limit_and_offset_and_returns_structured_response()
 
     place_search.get_places = original_get_places
     place_search.get_places_total = original_get_places_total
+    place_search.is_toggle_enabled = original_is_toggle_enabled
     app.dependency_overrides.clear()
 
     assert response.status_code == 200

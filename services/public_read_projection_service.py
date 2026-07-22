@@ -5,11 +5,19 @@ from typing import Mapping, Sequence
 
 
 class PublicReadProjectionError(ValueError):
-    pass
+    """Contract failure for public projection reads; reason is HTTP-stable."""
+
+    def __init__(self, message: str, *, reason: str = "projection_unavailable") -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 FRESH_STATUS = "fresh"
 STALE_STATUS = "stale"
+REASON_EMPTY = "projection_empty"
+REASON_STALE = "projection_stale"
+REASON_MISSING = "projection_missing"
+REASON_VERSION = "projection_version_incompatible"
 PUBLIC_READ_PATHS: tuple[str, ...] = ("public_catalog", "search", "routing")
 PROJECTION_TYPES: tuple[str, ...] = ("search_place_document", "routing_place_node", "route_candidate_set")
 REBUILD_JOB_STATUSES: tuple[str, ...] = ("queued", "running", "succeeded", "failed", "skipped")
@@ -48,7 +56,10 @@ def assert_projection_fresh(
         projection_snapshot_version=projection_snapshot_version,
         freshness_status=freshness_status,
     ):
-        raise PublicReadProjectionError("Public read projection is stale")
+        raise PublicReadProjectionError(
+            "Public read projection is stale",
+            reason=REASON_STALE,
+        )
 
 
 def choose_public_read_path(
@@ -72,7 +83,10 @@ def choose_public_read_path(
                 fallback_allowed=True,
                 reason="projection_empty_fallback_allowed",
             )
-        raise PublicReadProjectionError("Public read projection is empty")
+        raise PublicReadProjectionError(
+            "Public read projection is empty",
+            reason=REASON_EMPTY,
+        )
     assert_projection_fresh(
         source_snapshot_version=source_snapshot_version,
         projection_snapshot_version=projection_snapshot_version,

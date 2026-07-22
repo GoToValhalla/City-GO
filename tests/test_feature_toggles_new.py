@@ -53,6 +53,14 @@ def test_tma_enabled_toggle_in_catalog_new() -> None:
     assert tma_toggle["default"] is True
 
 
+def test_search_projection_reads_toggle_in_catalog_new() -> None:
+    keys = {item["key"] for item in GLOBAL_TOGGLES}
+    assert "search_projection_reads_enabled" in keys
+    toggle = next(item for item in GLOBAL_TOGGLES if item["key"] == "search_projection_reads_enabled")
+    assert toggle["default"] is False
+    assert toggle["group"] == "data"
+
+
 def test_public_features_endpoint_defaults_tma_enabled_new(client: TestClient) -> None:
     response = client.get("/features/public")
     assert response.status_code == 200
