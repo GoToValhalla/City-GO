@@ -52,12 +52,22 @@ def test_concurrent_write_catalog_schedule_race_produces_no_duplicate_row_new(pg
     for thread in threads:
         thread.join(timeout=10)
 
+    # join(timeout=...) returning does not itself prove the thread finished
+    # -- if it merely timed out, the thread could still be alive (and its
+    # session still open) while the assertions below run. Fail loudly
+    # instead of silently continuing with a worker that never terminated.
+    assert not any(thread.is_alive() for thread in threads), "one or more worker threads did not terminate within the timeout"
+
     # Both concurrent writers must succeed -- the whole point of
     # INSERT ... ON CONFLICT DO UPDATE is that neither side ever needs to
     # observe a unique-violation; the loser's insert atomically becomes an
-    # update instead.
+    # update instead. The assertion checks the count and content of
+    # `results` without depending on which thread's append landed first --
+    # both threads record the identical string "success", so there is no
+    # scheduling-order-dependent value to assert on in the first place.
     assert not errors
-    assert results == ["success", "success"]
+    assert len(results) == 2
+    assert all(result == "success" for result in results)
 
     rows = pg_session.query(PlaceSchedule).filter(
         PlaceSchedule.place_id == place_id, PlaceSchedule.weekday == "mon",
