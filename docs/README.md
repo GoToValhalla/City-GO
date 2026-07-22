@@ -8,6 +8,7 @@
 | [`implementation_status_and_next_steps.md`](implementation_status_and_next_steps.md) | Актуальный статус и следующие шаги. |
 | [`architecture/application_architecture_ru.md`](architecture/application_architecture_ru.md) | Архитектура backend, frontend и Telegram. |
 | [`architecture/backend_file_map.md`](architecture/backend_file_map.md) | Карта backend-файлов. |
+| [`architecture/enforced_modular_monolith_stage6.md`](architecture/enforced_modular_monolith_stage6.md) | Исполняемые границы, владение и контракты Stage 6. |
 
 ## Админка и данные
 

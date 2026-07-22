@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from services.stage6_contracts import catalog, destination, media, projection, quality, routing
+from services.stage6_contracts import catalog, destination, media, projection, quality, review_quality, routing
 
 
 def test_catalog_contract_preserves_explicit_transaction_ownership(monkeypatch) -> None:
@@ -61,3 +61,24 @@ def test_projection_contract_fails_closed_for_unknown_type() -> None:
 
     with pytest.raises(ValueError, match="Unsupported projection type"):
         projection.rebuild_projection(object(), command)
+
+
+def test_publication_consumes_explicit_review_decision(monkeypatch) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr(review_quality, "transition_publication",
+                        lambda db, command: calls.append(command) or "transition")
+    place = SimpleNamespace(id=11)
+    decision = review_quality.PublicationReviewDecision(
+        place=place, decision=review_quality.ReviewDecision.APPROVE,
+        actor="reviewer", reason_code="review_approved",
+    )
+
+    assert review_quality.consume_publication_decision(object(), decision) == "transition"
+    assert calls[0].to_status == "published"
+
+
+def test_quality_finding_is_evidence_not_a_publication_command() -> None:
+    finding = review_quality.QualityFinding("place", "12", "missing_photo", "high", True)
+
+    assert finding.blocks_publication is True
+    assert not hasattr(finding, "to_status")

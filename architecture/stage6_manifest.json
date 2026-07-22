@@ -36,7 +36,6 @@
     {
       "name": "catalog",
       "allowed_dependencies": [
-        "destination",
         "media"
       ]
     },

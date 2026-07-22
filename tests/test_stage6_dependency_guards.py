@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from architecture.guards import forbidden_dependency_violations
+from architecture.guards import forbidden_dependency_violations, model_imports, transaction_calls
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,3 +51,32 @@ def test_guard_reports_exact_import_location(tmp_path: Path) -> None:
     assert [(row.path, row.line, row.rule) for row in violations] == [
         ("routing_probe.py", 1, "routing_to_route_sessions")
     ]
+
+
+def test_isolated_admin_routers_do_not_import_models_or_own_transactions() -> None:
+    names = (
+        "admin_taxonomy.py", "admin_destinations.py", "admin_reviews.py",
+        "admin_destination_pipeline.py", "admin_route_eligibility.py",
+        "route_feedback.py", "admin_projections.py",
+    )
+    routers = tuple(ROOT / "routers" / name for name in names)
+
+    assert {path.name: model_imports(path) for path in routers} == {
+        name: () for name in names
+    }
+    assert {path.name: transaction_calls(path) for path in routers} == {
+        name: () for name in names
+    }
+
+
+def test_non_destination_readers_use_membership_contract() -> None:
+    readers = _files((
+        "services/search_projection_*.py", "services/catalog_projection_read_service.py",
+        "services/candidate_retrieval_service.py", "services/admin_places_filters.py",
+    ))
+
+    assert not forbidden_dependency_violations(
+        root=ROOT, sources=readers,
+        forbidden_prefixes=("models.destination", "services.destination_membership_service"),
+        rule="destination_membership_contract",
+    )

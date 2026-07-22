@@ -264,6 +264,12 @@ jobs:
           print(include_app_routers.__name__)
           PY
           echo "timing_import_smoke_seconds=$(( $(date +%s) - STAGE_START ))" >> "$GITHUB_ENV"
+      - name: Stage 6 architecture contracts
+        run: |
+          python -m pytest --no-cov -q \
+            tests/test_stage6_architecture_manifest.py \
+            tests/test_stage6_dependency_guards.py \
+            tests/test_stage6_application_contracts.py
       - name: Backend tests and coverage
         shell: bash
         run: |
