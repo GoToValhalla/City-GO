@@ -4,6 +4,7 @@ import json
 import logging
 
 logger = logging.getLogger("citygo.public_read_projections")
+logger.setLevel(logging.INFO)
 
 
 def log_projection_read(
