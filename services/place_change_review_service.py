@@ -46,6 +46,34 @@ class StalePlaceChangeReviewError(ValueError):
         )
 
 
+def _db_round_tripped_updated_at(db: Session, place: Place) -> datetime | None:
+    """The canonical comparison representation for place-change staleness
+    evidence: place.updated_at as PostgreSQL itself returns it after a
+    real round-trip through the `places` table, never the pre-flush
+    in-memory Python value.
+
+    models.place.Place.updated_at is a plain DateTime column (not
+    DateTime(timezone=True)), while utc_now() constructs a tz-aware
+    Python value. PostgreSQL converts an incoming tz-aware timestamp to
+    the *session's configured TimeZone* before storing it as a naive
+    literal (confirmed: a value written as 09:03 UTC is stored and read
+    back as 12:03 under a Europe/Moscow session, not 09:03) -- so neither
+    a plain tzinfo-strip nor an astimezone(UTC) conversion of the
+    in-memory aware value reproduces what a later reload actually
+    returns; only another real round-trip through the same connection
+    does. Using db.query(Place.updated_at)...scalar() here (not the
+    possibly-cached, possibly-still-aware `place.updated_at` attribute
+    on the ORM object) guarantees this function's return value is always
+    in the exact representation any later _assert_not_stale call's
+    `place.updated_at` will also be in, regardless of session timezone
+    configuration."""
+    return (
+        db.query(Place.updated_at)
+        .filter(Place.id == place.id)
+        .scalar()
+    )
+
+
 PROTECTED_PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
 PROTECTED_CONTROLLED_FIELDS = CONTROLLED_PLACE_INPUT_FIELDS
 RESTORABLE_PLACE_FIELDS = {
@@ -75,6 +103,12 @@ def propose_place_change(
     }
     if not changes:
         return False
+    # Flush unconditionally (a no-op if place has no pending changes) so the
+    # round-trip read below reflects place's current state, not a stale
+    # pre-flush row -- propose_place_change itself never mutates place, but
+    # callers routinely pass a place they just changed in the same session.
+    db.flush()
+    marker = _db_round_tripped_updated_at(db, place)
     ensure_review_item(
         db,
         city_id=city_id if city_id is not None else place.city_id,
@@ -98,8 +132,12 @@ def propose_place_change(
             # is used rather than the business `version` counter (only
             # incremented by services/place_data_merge_service.py's own
             # merge path) so this guard catches staleness from every
-            # writer, not just one.
-            "place_updated_at_creation": place.updated_at.isoformat() if place.updated_at else None,
+            # writer, not just one. Captured via _db_round_tripped_updated_at
+            # (a real DB round-trip), not the in-memory place.updated_at
+            # attribute, so it is in the exact same representation
+            # _assert_not_stale's later reload will also see -- see that
+            # helper's docstring for why this matters.
+            "place_updated_at_creation": marker.isoformat() if marker is not None else None,
         },
     )
     return False
@@ -229,7 +267,23 @@ def _assert_not_stale(item: ReviewQueueItem, place: Place, payload: dict[str, An
     """No-op for legacy rows created before place_updated_at_creation
     existed (payload key absent) -- staleness is only enforced going
     forward from propose_place_change, never retroactively invalidating
-    historical open reviews that predate this guard."""
+    historical open reviews that predate this guard.
+
+    The stored marker (payload["place_updated_at_creation"]) was captured
+    via _db_round_tripped_updated_at -- a real DB round-trip, not the
+    in-memory place.updated_at at proposal time. `place` here comes from
+    _open_review_row's `.with_for_update().populate_existing()`, which is
+    also always a genuine DB round-trip. Both values therefore went
+    through the same PostgreSQL session-TimeZone conversion on the way
+    out, so a direct equality comparison is meaningful. Do NOT compare a
+    pre-flush, tz-aware, Python-constructed datetime (e.g. from
+    utc_now()) against a DB-round-tripped one directly: PostgreSQL
+    converts an incoming tz-aware value to the session's configured
+    TimeZone before storing it as a naive literal in this plain
+    DateTime (non-timezone) column, so neither a bare tzinfo-strip nor
+    an astimezone(UTC) conversion of the in-memory value reproduces
+    what a later reload actually returns -- only another real
+    round-trip through the same mechanism does."""
     expected_raw = payload.get("place_updated_at_creation")
     if expected_raw is None:
         return

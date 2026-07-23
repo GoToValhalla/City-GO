@@ -372,7 +372,15 @@ def ensure_review_queue_item(db: Session, place: Place, decision: PublicationDec
     prematurely persist unrelated in-flight Place mutations elsewhere in the
     same session. A Core-level insert executed directly on the connection
     avoids that flush and avoids the ORM Session being marked "pending
-    rollback" on the IntegrityError."""
+    rollback" on the IntegrityError.
+
+    The NestedTransaction is used as a context manager (``with connection
+    .begin_nested(): ...``), not via manual ``.commit()``/``.rollback()``
+    calls guarded only by ``except IntegrityError`` -- the context manager
+    form guarantees the SAVEPOINT is rolled back on ANY exception raised
+    inside the block and released (committed) only on success, so a
+    non-IntegrityError failure can never leave the SAVEPOINT dangling
+    neither committed nor rolled back."""
     reason = decision.review_reasons[0] if decision.review_reasons else REASON_LOW_TRUST
     existing = _open_publication_review_item(db, place_id=place.id, reason=reason)
     if existing is not None:
@@ -392,17 +400,16 @@ def ensure_review_queue_item(db: Session, place: Place, decision: PublicationDec
         },
     )
     connection = db.connection()
-    savepoint = connection.begin_nested()
+    new_id: int | None = None
     try:
-        new_id = connection.execute(insert(ReviewQueueItem).values(**row_values)).inserted_primary_key[0]
-        savepoint.commit()
-        return db.query(ReviewQueueItem).filter(ReviewQueueItem.id == new_id).one()
+        with connection.begin_nested():
+            new_id = connection.execute(insert(ReviewQueueItem).values(**row_values)).inserted_primary_key[0]
     except IntegrityError:
-        savepoint.rollback()
         winner = _open_publication_review_item(db, place_id=place.id, reason=reason)
         if winner is None:
             raise
         return winner
+    return db.query(ReviewQueueItem).filter(ReviewQueueItem.id == new_id).one()
 
 
 def create_change_review(

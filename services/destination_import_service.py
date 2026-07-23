@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from models.city import City
 from models.destination import Destination, DestinationPlaceMembership, DestinationScope
 from models.place import Place
+from services.canonical_publication_apply import route_eligibility_verdict_for_publish, route_exclusion_reason_from_verdict
 from services.destination_candidate_adapter import DestinationCandidate, DestinationSourceError, collect_scope_candidates
 from services.destination_bbox import point_in_bbox
 from services.destination_membership_service import upsert_membership
@@ -46,6 +47,21 @@ def _upsert_candidate(db: Session, city_id: int, destination: Destination, scope
         place = _new_place(city_id, candidate, service_only)
         db.add(place)
         db.flush()
+        route_eligible = False
+        route_exclusion_reason = None
+        if not service_only:
+            # Route eligibility must come from the same canonical policy
+            # engine every other publish path uses (services/
+            # route_eligibility_policy.py via route_eligibility_verdict_
+            # for_publish) -- `not service_only` only encodes the
+            # narrower HARD_EXCLUDED_CATEGORIES check (is_service_only_
+            # category), not the full policy (category allowlist,
+            # quality tier, layer, spam/duplicate flags, placeholder
+            # titles, etc.), so it could mark a category the policy
+            # would reject (e.g. "unknown_category") as route-eligible.
+            route_verdict = route_eligibility_verdict_for_publish(place)
+            route_eligible = route_verdict.eligible
+            route_exclusion_reason = None if route_eligible else route_exclusion_reason_from_verdict(route_verdict.reasons)
         transition_place_publication(
             db,
             place,
@@ -54,7 +70,8 @@ def _upsert_candidate(db: Session, city_id: int, destination: Destination, scope
             actor="destination_import",
             source="destination_import",
             reason_details={"service_only": service_only, "destination_id": destination.id, "scope_id": scope.id},
-            route_eligible_when_published=not service_only,
+            route_eligible_when_published=route_eligible,
+            route_exclusion_reason_when_published=route_exclusion_reason,
             lock_place=False,
         )
         add_counter(counters, "places_created")

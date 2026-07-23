@@ -109,6 +109,14 @@ def ensure_review_item(
     marked "pending rollback" on the IntegrityError -- keeping the session
     fully usable afterward.
 
+    The NestedTransaction is used as a context manager (``with connection
+    .begin_nested(): ...``), not via manual ``.commit()``/``.rollback()``
+    calls guarded only by ``except IntegrityError`` -- the context manager
+    form guarantees the SAVEPOINT is rolled back on ANY exception raised
+    inside the block and released (committed) only on success, so a
+    non-IntegrityError failure (e.g. a dropped connection) can never leave
+    the SAVEPOINT dangling neither committed nor rolled back.
+
     ``job_id`` is optional context only, but when provided it must reference
     ``city_admin_import_jobs.id``. This fails before flush so production gets a
     precise application error instead of a database FK crash.
@@ -140,19 +148,25 @@ def ensure_review_item(
         payload=next_payload,
     )
     connection = db.connection()
-    savepoint = connection.begin_nested()
+    new_id: int | None = None
     try:
-        new_id = connection.execute(insert(ReviewQueueItem).values(**new_values)).inserted_primary_key[0]
-        savepoint.commit()
-        return db.query(ReviewQueueItem).filter(ReviewQueueItem.id == new_id).one()
+        # NestedTransaction used as a context manager guarantees rollback
+        # ("ROLLBACK TO SAVEPOINT") on ANY exception raised inside the
+        # block, and commit ("RELEASE SAVEPOINT") on success -- unlike a
+        # manual try/except IntegrityError with an explicit
+        # savepoint.commit()/savepoint.rollback() call, this leaves no
+        # window where a non-IntegrityError failure (a dropped
+        # connection, an unrelated driver error) could leave the
+        # SAVEPOINT neither committed nor rolled back.
+        with connection.begin_nested():
+            new_id = connection.execute(insert(ReviewQueueItem).values(**new_values)).inserted_primary_key[0]
     except IntegrityError:
         # A concurrent producer won the race on
         # uq_review_queue_items_open_identity between our SELECTs above and
-        # this insert. Rolling back only this SAVEPOINT discards only this
-        # insert attempt -- every other pending change in the caller's
+        # this insert. The SAVEPOINT was already rolled back by the context
+        # manager above -- every other pending change in the caller's
         # session survives untouched, and the ORM Session itself never saw
         # the failed flush, so it is never marked "pending rollback".
-        savepoint.rollback()
         winner = _open_item(db, place_id=place_id, field_name=field_name, reason=reason)
         winner = winner or _open_item(db, place_id=place_id, field_name=field_name, reason=None)
         if winner is None:
@@ -161,6 +175,7 @@ def ensure_review_item(
             # rather than silently fabricate a row.
             raise
         return winner
+    return db.query(ReviewQueueItem).filter(ReviewQueueItem.id == new_id).one()
 
 
 def list_review_items(db: Session, *, city_slug: str | None = None, status: str = "open") -> list[ReviewQueueItem]:

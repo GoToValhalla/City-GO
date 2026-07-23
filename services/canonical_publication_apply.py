@@ -29,7 +29,7 @@ from services.route_eligibility_policy import evaluate_place_route_eligibility
 ROUTE_POLICY_EXCLUDED = "route_policy_excluded"
 
 
-def _route_exclusion_reason(reasons: tuple[str, ...] | list[str]) -> str:
+def route_exclusion_reason_from_verdict(reasons: tuple[str, ...] | list[str]) -> str:
     return ",".join(list(reasons)[:5]) or ROUTE_POLICY_EXCLUDED
 
 
@@ -116,8 +116,8 @@ def apply_canonical_publication_verdict(
     if verdict.outcome != "publish":
         raise InvalidPublicationTransition(f"unsupported canonical publication outcome: {verdict.outcome}")
 
-    route_verdict = _route_eligibility_verdict_for_publish(place)
-    exclusion = None if route_verdict.eligible else _route_exclusion_reason(route_verdict.reasons)
+    route_verdict = route_eligibility_verdict_for_publish(place)
+    exclusion = None if route_verdict.eligible else route_exclusion_reason_from_verdict(route_verdict.reasons)
     if place.publication_status == "published" and place.is_published:
         reconcile_published_place_state(
             db,
@@ -168,14 +168,14 @@ def apply_admin_city_publication_place(
             "publication eligibility changed before lock: " + ", ".join(eligibility.reasons)
         )
 
-    verdict = _route_eligibility_verdict_for_publish(place)
+    verdict = route_eligibility_verdict_for_publish(place)
     route_eligible = verdict.eligible if route_eligible_override is None else bool(route_eligible_override)
     if route_eligible:
         exclusion = None
     elif route_eligible_override is False:
         exclusion = reason or "admin_route_disabled"
     else:
-        exclusion = _route_exclusion_reason(verdict.reasons)
+        exclusion = route_exclusion_reason_from_verdict(verdict.reasons)
 
     reason_details = {
         "route_eligibility_reasons": list(verdict.reasons),
@@ -256,7 +256,23 @@ def _outcome_result(outcome: str) -> str:
     }.get(outcome, "review_required")
 
 
-def _route_eligibility_verdict_for_publish(place: Place):
+def route_eligibility_verdict_for_publish(place: Place):
+    """Canonical route-eligibility verdict for a place about to be
+    published. Public (not module-private) so every publish-path caller
+    -- not just this module's own apply_canonical_publication_verdict/
+    apply_admin_city_publication_place -- evaluates route eligibility
+    through the same policy engine (services/route_eligibility_policy.py)
+    instead of approximating it with a narrower, different check.
+
+    If the place is not yet active/published/visible in the catalog
+    (e.g. a place still mid-way through its first-ever publish
+    transition, before transition_place_publication has applied those
+    flags), evaluate_place_route_eligibility is run against a transient,
+    never-persisted probe Place with those flags provisionally set to
+    the values they will have immediately after publishing -- this
+    mirrors what the real row will look like right after the imminent
+    transition, without requiring the transition to have already
+    happened first."""
     if place.is_active and place.is_published and place.is_visible_in_catalog:
         return evaluate_place_route_eligibility(place)
     probe = Place(

@@ -9,6 +9,8 @@ import threading
 
 from datetime import datetime, timedelta
 
+import pytest
+
 from db.session import SessionLocal
 from models.review_queue_item import ReviewQueueItem
 from services.place_change_review_service import (
@@ -299,6 +301,105 @@ def test_stale_place_change_approval_mutates_nothing_in_a_real_transaction_new(p
         final_place = verify_session.query(type(place)).filter(type(place).id == place_id).one()
         final_item = verify_session.query(ReviewQueueItem).filter(ReviewQueueItem.id == item_id).one()
         assert final_place.title == "Committed Title"
+        assert final_place.short_description == "Changed by a later writer"
+        assert final_item.status == "open"
+    finally:
+        verify_session.close()
+
+
+def test_untouched_place_change_approves_across_a_fresh_session_reload_new(pg_session, pg_city, pg_category) -> None:
+    """Regression for the timezone false-positive found in independent
+    audit of commit a79ad3a7: place.updated_at is a plain (non-tz-aware)
+    DateTime column, but is written via utc_now() (tz-aware). PostgreSQL
+    converts an incoming tz-aware timestamp to the session's configured
+    TimeZone before storing it as a naive literal -- comparing a
+    pre-reload tz-aware Python value against a post-reload naive one
+    directly (`!=`) previously flagged every untouched place as stale,
+    since aware and naive datetimes are never considered equal by `!=`,
+    regardless of the actual instant they represent.
+
+    This test uses the *normal* timestamp path end to end: place.updated_at
+    is set only by the model's own default/onupdate=utc_now (never
+    assigned directly anywhere in this test). Critically, propose_place_
+    change is called right after a flush with NO intervening commit --
+    matching every real production caller (category_normalize_service,
+    curated_poi_import_service, place_seed_write_service, etc., which all
+    call propose_place_change on a place mutated earlier in the same
+    still-open session/transaction). This is the exact condition that
+    exposed the bug: place.updated_at is still tz-aware in memory at
+    proposal time (onupdate fired via flush, never round-tripped through
+    a commit+expire yet), so a naive fixture-style commit+refresh before
+    propose_place_change would silently avoid the bug entirely."""
+    place = make_published_place(pg_session, city=pg_city, category=pg_category, title="Untouched Title")
+    place_id = place.id
+    # A real mutation + flush-only (no commit) so onupdate=utc_now fires
+    # and place.updated_at is tz-aware in memory, exactly like a real
+    # caller's place right before proposing a change in the same request.
+    place.short_description = "Set moments before proposing"
+    pg_session.flush()
+    assert place.updated_at.tzinfo is not None
+    propose_place_change(pg_session, place=place, proposed={"title": "Proposed New Title"}, reason="import_reimport")
+    pg_session.commit()
+    item_id = pg_session.query(ReviewQueueItem).filter_by(place_id=place_id, field_name=PLACE_CHANGE_FIELD).one().id
+
+    # Close this connection entirely and open a fresh one -- forces a real
+    # round-trip through PostgreSQL's session-TimeZone conversion, exactly
+    # the scenario that exposed the bug (a normal, separate admin request).
+    fresh_session = SessionLocal()
+    try:
+        result = approve_place_change_review(fresh_session, item_id, actor="pg-integration")
+        assert result is not None
+        assert result["status"] == "resolved"
+        fresh_session.commit()
+    finally:
+        fresh_session.close()
+
+    verify_session = SessionLocal()
+    try:
+        final_place = verify_session.query(type(place)).filter(type(place).id == place_id).one()
+        final_item = verify_session.query(ReviewQueueItem).filter(ReviewQueueItem.id == item_id).one()
+        assert final_place.title == "Proposed New Title"
+        assert final_item.status == "resolved"
+    finally:
+        verify_session.close()
+
+
+def test_place_mutated_via_normal_field_write_blocks_stale_approval_new(pg_session, pg_city, pg_category) -> None:
+    """Companion to the untouched-place test above, using the *normal*
+    timestamp path for the mutation side too: updated_at is bumped only
+    by actually writing a column and committing (onupdate=utc_now),
+    never by manually assigning place.updated_at -- proving the
+    staleness guard still genuinely detects a real later write, not just
+    that it stopped producing false positives."""
+    place = make_published_place(pg_session, city=pg_city, category=pg_category, title="Original Title")
+    place_id = place.id
+    propose_place_change(pg_session, place=place, proposed={"title": "Proposed New Title"}, reason="import_reimport")
+    pg_session.commit()
+    item_id = pg_session.query(ReviewQueueItem).filter_by(place_id=place_id, field_name=PLACE_CHANGE_FIELD).one().id
+
+    mutator_session = SessionLocal()
+    try:
+        mutated_place = mutator_session.query(type(place)).filter(type(place).id == place_id).one()
+        # A genuine later write through the normal ORM path -- onupdate
+        # fires utc_now() on flush, exactly like any real admin edit or
+        # re-import would.
+        mutated_place.short_description = "Changed by a later writer"
+        mutator_session.commit()
+    finally:
+        mutator_session.close()
+
+    fresh_session = SessionLocal()
+    try:
+        with pytest.raises(StalePlaceChangeReviewError):
+            approve_place_change_review(fresh_session, item_id, actor="pg-integration")
+    finally:
+        fresh_session.close()
+
+    verify_session = SessionLocal()
+    try:
+        final_place = verify_session.query(type(place)).filter(type(place).id == place_id).one()
+        final_item = verify_session.query(ReviewQueueItem).filter(ReviewQueueItem.id == item_id).one()
+        assert final_place.title == "Original Title"
         assert final_place.short_description == "Changed by a later writer"
         assert final_item.status == "open"
     finally:
