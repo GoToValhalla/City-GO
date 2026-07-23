@@ -25,6 +25,27 @@ from services.review_queue_service import ensure_review_item
 OPEN_STATUS = "open"
 RESOLVED_STATUS = "resolved"
 PLACE_CHANGE_FIELD = "place_change"
+
+
+class StalePlaceChangeReviewError(ValueError):
+    """Raised when a place-change review's stored evidence no longer
+    matches the place's current state -- the place was mutated (a later
+    import re-run, an admin edit, a concurrent proposal/approval) since
+    this review was created. The review is left open and the place is
+    left untouched; the caller must re-evaluate rather than blindly apply
+    stale before/after values."""
+
+    def __init__(self, review_id: int, *, expected_updated_at: datetime, actual_updated_at: datetime):
+        self.review_id = review_id
+        self.expected_updated_at = expected_updated_at
+        self.actual_updated_at = actual_updated_at
+        super().__init__(
+            f"place_change review #{review_id} is stale: place.updated_at was "
+            f"{expected_updated_at.isoformat()} when this review was created, now "
+            f"{actual_updated_at.isoformat()}"
+        )
+
+
 PROTECTED_PUBLICATION_FIELDS = PUBLICATION_OWNED_FIELDS
 PROTECTED_CONTROLLED_FIELDS = CONTROLLED_PLACE_INPUT_FIELDS
 RESTORABLE_PLACE_FIELDS = {
@@ -62,7 +83,24 @@ def propose_place_change(
         field_name=PLACE_CHANGE_FIELD,
         reason=reason,
         severity=severity,
-        payload={"kind": "place_change", "applied": False, "place_title": place.title, "changes": changes},
+        payload={
+            "kind": "place_change",
+            "applied": False,
+            "place_title": place.title,
+            "changes": changes,
+            # Stable evidence marker: proves at approve/reject time whether
+            # the place has been mutated by something else since this
+            # review was created (a later import re-run, an admin edit, a
+            # concurrent proposal). Without this, approve/reject apply
+            # payload["changes"][field]["after"]/["before"] blindly, which
+            # can silently overwrite a newer value with a stale one.
+            # updated_at (DB onupdate=utc_now, bumped on ANY column write)
+            # is used rather than the business `version` counter (only
+            # incremented by services/place_data_merge_service.py's own
+            # merge path) so this guard catches staleness from every
+            # writer, not just one.
+            "place_updated_at_creation": place.updated_at.isoformat() if place.updated_at else None,
+        },
     )
     return False
 
@@ -156,6 +194,7 @@ def _resolve_place_change_review(
 ) -> dict[str, object]:
     item, place, city = row
     payload = _payload(item)
+    _assert_not_stale(item, place, payload)
     old_value = _place_state(place)
     blocked_gates: list[str] = []
     if action == "approve":
@@ -184,6 +223,20 @@ def _resolve_place_change_review(
         entity_id=item.id, old_value=old_value, new_value=_place_state(place), reason=reason,
     )
     return _review_payload(item, place, city, blocked_gates=blocked_gates)
+
+
+def _assert_not_stale(item: ReviewQueueItem, place: Place, payload: dict[str, Any]) -> None:
+    """No-op for legacy rows created before place_updated_at_creation
+    existed (payload key absent) -- staleness is only enforced going
+    forward from propose_place_change, never retroactively invalidating
+    historical open reviews that predate this guard."""
+    expected_raw = payload.get("place_updated_at_creation")
+    if expected_raw is None:
+        return
+    expected = datetime.fromisoformat(expected_raw)
+    actual = place.updated_at
+    if actual is not None and actual != expected:
+        raise StalePlaceChangeReviewError(item.id, expected_updated_at=expected, actual_updated_at=actual)
 
 
 def _open_review_row(db: Session, review_id: int) -> tuple[ReviewQueueItem, Place, City] | None:

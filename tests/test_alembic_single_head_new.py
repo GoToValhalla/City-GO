@@ -45,7 +45,7 @@ class TestAlembicSingleHead(unittest.TestCase):
         self.assertEqual(len(_script().get_heads()), 1)
 
     def test_known_head_revision(self):
-        self.assertIn("e2c4b6a8d0f3", _script().get_heads())
+        self.assertIn("a4c6e8f0b2d4", _script().get_heads())
 
     def test_exactly_one_base(self):
         bases = [revision.revision for revision in _script().walk_revisions() if revision.down_revision is None]
@@ -56,7 +56,7 @@ class TestAlembicSingleHead(unittest.TestCase):
         self.assertIn("e48f13974bc8", bases)
 
     def test_total_revision_count(self):
-        self.assertEqual(sum(1 for _ in _script().walk_revisions()), 88)
+        self.assertEqual(sum(1 for _ in _script().walk_revisions()), 89)
 
     def test_env_metadata_covers_all_tables(self):
         from db.base import Base

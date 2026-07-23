@@ -12,6 +12,7 @@ from services.destination_bbox import point_in_bbox
 from services.destination_membership_service import upsert_membership
 from services.destination_pipeline_counters import add_counter
 from services.place_merge_policy import is_service_only_category
+from services.publication_state_writer import REASON_NON_PUBLIC_CATEGORY, REASON_PUBLISHED, transition_place_publication
 
 
 def import_destination_scope(db: Session, destination: Destination, scope: DestinationScope, counters: dict[str, int], *, dry_run: bool, errors: list[dict[str, object]] | None = None) -> list[Place]:
@@ -45,6 +46,17 @@ def _upsert_candidate(db: Session, city_id: int, destination: Destination, scope
         place = _new_place(city_id, candidate, service_only)
         db.add(place)
         db.flush()
+        transition_place_publication(
+            db,
+            place,
+            to_status="hidden" if service_only else "published",
+            reason_code=REASON_NON_PUBLIC_CATEGORY if service_only else REASON_PUBLISHED,
+            actor="destination_import",
+            source="destination_import",
+            reason_details={"service_only": service_only, "destination_id": destination.id, "scope_id": scope.id},
+            route_eligible_when_published=not service_only,
+            lock_place=False,
+        )
         add_counter(counters, "places_created")
     else:
         add_counter(counters, "duplicates_skipped")
@@ -57,6 +69,15 @@ def _upsert_candidate(db: Session, city_id: int, destination: Destination, scope
 
 
 def _new_place(city_id: int, candidate: DestinationCandidate, service_only: bool) -> Place:
+    """Construct a brand-new destination place with no publication state set.
+
+    Controlled publication fields (is_active/is_published/is_visible_in_catalog/
+    is_route_eligible/is_searchable/publication_status/...) are never set here:
+    the canonical writer (transition_place_publication, called by the caller
+    right after db.flush()) is the only owner of that state, and drives the
+    place to the same end state as before (published, or hidden for
+    service_only categories) through an audited transition instead of a
+    direct, ungated, unattributed constructor bypass."""
     changes = candidate.changes or {}
     return Place(
         city_id=city_id,
@@ -71,12 +92,6 @@ def _new_place(city_id: int, candidate: DestinationCandidate, service_only: bool
         opening_hours=changes.get("opening_hours"),
         average_visit_duration_minutes=changes.get("average_visit_duration_minutes") if isinstance(changes.get("average_visit_duration_minutes"), int) else None,
         source=candidate.source,
-        is_active=True,
-        is_published=not service_only,
-        is_visible_in_catalog=not service_only,
-        is_route_eligible=not service_only,
-        is_searchable=not service_only,
-        publication_status="published" if not service_only else "hidden",
         internal_status="service_only" if service_only else "active",
     )
 

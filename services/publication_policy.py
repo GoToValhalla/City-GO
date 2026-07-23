@@ -5,6 +5,8 @@ from datetime import datetime
 from math import radians, sin, cos, sqrt, atan2
 from typing import Any
 
+from sqlalchemy import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from models.city import City
@@ -345,17 +347,37 @@ def place_snapshot_payload(place: Place) -> dict[str, object | None]:
     }
 
 
-def ensure_review_queue_item(db: Session, place: Place, decision: PublicationDecision) -> ReviewQueueItem:
-    reason = decision.review_reasons[0] if decision.review_reasons else REASON_LOW_TRUST
-    existing = db.query(ReviewQueueItem).filter(
-        ReviewQueueItem.place_id == place.id,
+def _open_publication_review_item(db: Session, *, place_id: int, reason: str) -> ReviewQueueItem | None:
+    return db.query(ReviewQueueItem).filter(
+        ReviewQueueItem.place_id == place_id,
         ReviewQueueItem.field_name == "publication",
         ReviewQueueItem.reason == reason,
         ReviewQueueItem.status == "open",
     ).first()
+
+
+def ensure_review_queue_item(db: Session, place: Place, decision: PublicationDecision) -> ReviewQueueItem:
+    """Create or reuse the one open "publication" review item for this
+    place+reason. The SELECT-then-INSERT below is not itself race-safe --
+    the real guarantee is the partial unique index
+    uq_review_queue_items_open_identity (migration a4c6e8f0b2d4) plus the
+    SAVEPOINT/IntegrityError recovery here: on a concurrent-writer conflict
+    only this insert attempt is rolled back (never the caller's own
+    batch-owned outer transaction, see apply_publication_decision), and the
+    row the winning writer actually created is re-selected and returned.
+
+    The SAVEPOINT is opened on the raw Core Connection, not via
+    db.begin_nested(): the ORM Session's own begin_nested() unconditionally
+    flushes the session's entire pending unit of work first, which would
+    prematurely persist unrelated in-flight Place mutations elsewhere in the
+    same session. A Core-level insert executed directly on the connection
+    avoids that flush and avoids the ORM Session being marked "pending
+    rollback" on the IntegrityError."""
+    reason = decision.review_reasons[0] if decision.review_reasons else REASON_LOW_TRUST
+    existing = _open_publication_review_item(db, place_id=place.id, reason=reason)
     if existing is not None:
         return existing
-    row = ReviewQueueItem(
+    row_values = dict(
         city_id=place.city_id,
         place_id=place.id,
         field_name="publication",
@@ -369,9 +391,18 @@ def ensure_review_queue_item(db: Session, place: Place, decision: PublicationDec
             "review_reasons": decision.review_reasons,
         },
     )
-    db.add(row)
-    db.flush()
-    return row
+    connection = db.connection()
+    savepoint = connection.begin_nested()
+    try:
+        new_id = connection.execute(insert(ReviewQueueItem).values(**row_values)).inserted_primary_key[0]
+        savepoint.commit()
+        return db.query(ReviewQueueItem).filter(ReviewQueueItem.id == new_id).one()
+    except IntegrityError:
+        savepoint.rollback()
+        winner = _open_publication_review_item(db, place_id=place.id, reason=reason)
+        if winner is None:
+            raise
+        return winner
 
 
 def create_change_review(

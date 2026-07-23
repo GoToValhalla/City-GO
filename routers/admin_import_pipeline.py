@@ -19,7 +19,12 @@ from schemas.import_pipeline_foundation import (
 from services.admin_city_import_job_service import queue_city_import_job
 from services.import_job_step_service import list_job_steps
 from services.place_field_confidence_service import list_field_confidence
-from services.place_photo_candidate_service import approve_photo_candidate, reject_photo_candidate, set_primary_photo_candidate
+from services.place_photo_candidate_service import (
+    PhotoCandidateAlreadyDecidedError,
+    approve_photo_candidate,
+    reject_photo_candidate,
+    set_primary_photo_candidate,
+)
 from services.review_queue_service import list_review_items, resolve_review_item
 
 router = APIRouter(prefix="/admin/place-enrichment", tags=["admin-import-pipeline"])
@@ -81,11 +86,13 @@ def post_resolve_review_item(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> ReviewQueueRead:
-    item = resolve_review_item(db, item_id, actor=auth.actor_id, resolution=body.resolution)
-    if item is None:
+    result = resolve_review_item(db, item_id, actor=auth.actor_id, resolution=body.resolution)
+    if result.item is None:
         raise HTTPException(status_code=404, detail="Задача проверки не найдена")
+    if not result.ok:
+        raise HTTPException(status_code=409, detail=f"Задача проверки уже обработана: {result.reason}")
     db.commit()
-    return ReviewQueueRead.model_validate(item)
+    return ReviewQueueRead.model_validate(result.item)
 
 
 @router.post("/photo-candidates/{candidate_id}/approve", response_model=PhotoCandidateActionResponse)
@@ -94,7 +101,10 @@ def post_approve_photo_candidate(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> PhotoCandidateActionResponse:
-    item = approve_photo_candidate(db, candidate_id, actor=auth.actor_id)
+    try:
+        item = approve_photo_candidate(db, candidate_id, actor=auth.actor_id)
+    except PhotoCandidateAlreadyDecidedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _photo_response(db, item)
 
 
@@ -104,7 +114,10 @@ def post_reject_photo_candidate(
     auth: AdminContext = Depends(admin_required),
     db: Session = Depends(get_db),
 ) -> PhotoCandidateActionResponse:
-    item = reject_photo_candidate(db, candidate_id, actor=auth.actor_id)
+    try:
+        item = reject_photo_candidate(db, candidate_id, actor=auth.actor_id)
+    except PhotoCandidateAlreadyDecidedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _photo_response(db, item)
 
 
@@ -116,6 +129,8 @@ def post_primary_photo_candidate(
 ) -> PhotoCandidateActionResponse:
     try:
         item = set_primary_photo_candidate(db, candidate_id, actor=auth.actor_id)
+    except PhotoCandidateAlreadyDecidedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _photo_response(db, item)

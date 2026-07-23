@@ -28,6 +28,26 @@ APPROVED_DYNAMIC_SETATTR = {
     (ROOT / "services" / "place_change_review_service.py").resolve(),
     IMPORT_LIFECYCLE,
 }
+# Pre-existing Place(...) constructions that already set controlled
+# publication fields directly, predating the constructor-kwarg check added
+# here. Each one was individually confirmed safe (neutral/private defaults,
+# or a transient in-memory probe object never passed to db.add()) rather
+# than a live publication bypass like the one this check was added to catch
+# in services/destination_import_service.py -- fixing these files is a
+# separate, out-of-scope task; this allow-list only prevents the new check
+# from failing CI for unrelated pre-existing code. Do not add a new entry
+# here without confirming the same way: either the constructed object is
+# never persisted, or every controlled field is set to a safe/private
+# default and the row is never treated as already-published.
+APPROVED_PLACE_CONSTRUCTOR_BYPASS = {
+    (ROOT / "data" / "scripts" / "import_city_osm.py").resolve(),
+    (ROOT / "scripts" / "discover_new_pois.py").resolve(),
+    (ROOT / "scripts" / "seed_minimal_data.py").resolve(),
+    (ROOT / "services" / "admin_place_create_service.py").resolve(),
+    (ROOT / "services" / "canonical_publication_apply.py").resolve(),
+    (ROOT / "services" / "canonical_publication_guard.py").resolve(),
+    (ROOT / "services" / "curated_poi_import_service.py").resolve(),
+}
 EXCLUDED_PATH_PARTS = {
     ".git", ".venv", "venv", "node_modules", "frontend", "tests",
     "tests_postgres_integration", "migrations", "alembic", "__pycache__",
@@ -197,6 +217,14 @@ def _violations(path: Path) -> list[str]:
                     )
 
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == PLACE_MODEL_NAME and path.resolve() not in APPROVED_PLACE_CONSTRUCTOR_BYPASS:
+                for keyword in node.keywords:
+                    if keyword.arg is not None and forbidden(keyword.arg):
+                        violations.append(
+                            f"{path.relative_to(ROOT)}:{node.lineno}: "
+                            f"controlled Place constructor bypass for {keyword.arg}"
+                        )
+
             if node.func.id == "_set_if_changed" and path.resolve() == IMPORT_LIFECYCLE:
                 if len(node.args) < 2 or not isinstance(node.args[1], ast.Constant):
                     violations.append(
@@ -364,6 +392,87 @@ def test_guard_detects_forbidden_place_and_ledger_mutations() -> None:
         if any(token in normalized for token in LEDGER_MUTATION_TOKENS):
             found.append("raw ledger mutation SQL")
         assert expected in found, f"guard missed {source!r}; found={found}"
+
+
+def _write_sample_under_tests(name: str, source: str):
+    # _violations() calls path.relative_to(ROOT), so the sample must live
+    # inside the repo; "tests" is already in EXCLUDED_PATH_PARTS so it is
+    # never double-counted by the real repo-wide scan.
+    sample = ROOT / "tests" / name
+    sample.write_text(source, encoding="utf-8")
+    return sample
+
+
+def test_guard_detects_controlled_fields_passed_as_place_constructor_kwargs_new() -> None:
+    """Regression for the confirmed destination-import bypass: constructing
+    Place(is_published=True, publication_status="published", ...) directly
+    must be caught by the same repo-wide guard that already catches
+    attribute assignment and setattr bypasses -- not just those two shapes."""
+    sample = _write_sample_under_tests(
+        "_probe_place_constructor_bypass.py",
+        "from models.place import Place\n\n"
+        "def make_place(city_id):\n"
+        "    return Place(\n"
+        "        city_id=city_id,\n"
+        "        title='Sample',\n"
+        "        is_published=True,\n"
+        "        is_visible_in_catalog=True,\n"
+        "        is_route_eligible=True,\n"
+        "        is_searchable=True,\n"
+        "        publication_status='published',\n"
+        "        publication_reason_code=None,\n"
+        "        publication_reason_details={},\n"
+        "    )\n",
+    )
+    try:
+        violations = _violations(sample)
+        flagged_fields = {
+            violation.split("controlled Place constructor bypass for ")[1]
+            for violation in violations
+            if "controlled Place constructor bypass for" in violation
+        }
+        assert flagged_fields == {
+            "is_published",
+            "is_visible_in_catalog",
+            "is_route_eligible",
+            "is_searchable",
+            "publication_status",
+            "publication_reason_code",
+            "publication_reason_details",
+        }
+    finally:
+        sample.unlink()
+
+
+def test_guard_does_not_flag_ordinary_place_constructor_fields_new() -> None:
+    """A Place(...) construction that only sets non-controlled fields
+    (title, slug, category, coordinates, ...) must never be flagged."""
+    sample = _write_sample_under_tests(
+        "_probe_place_neutral_constructor.py",
+        "from models.place import Place\n\n"
+        "def make_place(city_id):\n"
+        "    return Place(\n"
+        "        city_id=city_id,\n"
+        "        title='Sample',\n"
+        "        slug='sample',\n"
+        "        category='museum',\n"
+        "        lat=1.0,\n"
+        "        lng=2.0,\n"
+        "        source='osm',\n"
+        "    )\n",
+    )
+    try:
+        assert _violations(sample) == []
+    finally:
+        sample.unlink()
+
+
+def test_destination_import_service_is_not_allow_listed_for_constructor_bypass_new() -> None:
+    """The file this check exists to enforce must never be added to the
+    pre-existing-bypass allow-list -- if it ever is, this test catches the
+    regression even if _new_place itself is later broken again."""
+    target = (ROOT / "services" / "destination_import_service.py").resolve()
+    assert target not in APPROVED_PLACE_CONSTRUCTOR_BYPASS
 
 
 def test_guard_does_not_flag_unrelated_model_deletes() -> None:

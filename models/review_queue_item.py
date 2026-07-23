@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
@@ -12,7 +12,24 @@ from db.base import Base
 
 class ReviewQueueItem(Base):
     __tablename__ = "review_queue_items"
-    __table_args__ = (UniqueConstraint("place_id", "field_name", "reason", "status", name="uq_review_item_open"),)
+    __table_args__ = (
+        # Enforces "at most one open item per logical problem" at the
+        # database level. The previous uq_review_item_open constraint
+        # included `status` in its key, so it did not constrain the open
+        # side at all and it collided on the resolved side: two rows
+        # sharing (place_id, field_name, reason) that both reach
+        # status="resolved" (legitimate historical audit entries from two
+        # separate import/enrichment cycles) violated that constraint. A
+        # partial unique index scoped to open/pending rows only enforces
+        # the real invariant and leaves resolved history unconstrained.
+        Index(
+            "uq_review_queue_items_open_identity",
+            "place_id", "field_name", "reason",
+            unique=True,
+            postgresql_where=text("status IN ('open', 'pending')"),
+            sqlite_where=text("status IN ('open', 'pending')"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     city_id: Mapped[int] = mapped_column(ForeignKey("cities.id"), nullable=False, index=True)
