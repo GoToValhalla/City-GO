@@ -19,8 +19,10 @@ class PublicationReconciliationResponse(BaseModel):
     changed_places: int
     audit_ids: list[int]
     snapshot: dict[str, Any]
+    failed_transitions: int = 0
 
 
 class PublicationReconciliationRollbackResponse(BaseModel):
     restored_places: int
     missing_audit_ids: list[int] = Field(default_factory=list)
+    failed_transitions: int = 0

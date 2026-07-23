@@ -289,13 +289,25 @@ def apply_publication_decision(
     config: PublicationPolicyConfig | None = None,
     actor: str = "publication-policy",
 ) -> PlacePublicationDecision:
+    """Record this policy decision and, for an auto-publish verdict,
+    attempt the canonical publication transition.
+
+    row.status is the truthful outcome of this call: "applied" only when
+    transition_place_publication actually committed the transition to the
+    unit of work (a real ledger row + Place mutation via the canonical
+    writer); "failed" when the transition raised InvalidPublicationTransition
+    (e.g. the place already matches the target state, or a reason-code/
+    target-status combination the writer rejects) -- never silently
+    reported as "applied". place.status ("active") is only ever assigned
+    AFTER the transition has actually succeeded, so a failed transition
+    attempt leaves place with none of its fields changed by this
+    function -- no partial mutation can be flushed for a failed attempt.
+    """
     config = config or PublicationPolicyConfig()
     row = record_publication_decision(db, place, decision, config=config)
 
     if decision.should_publish:
         snapshot_place(db, place, reason="pre_auto_publish")
-        place.status = "active"
-        db.flush()
         try:
             transition_place_publication(
                 db,
@@ -308,8 +320,10 @@ def apply_publication_decision(
                 route_eligible_when_published=True,
             )
         except InvalidPublicationTransition:
-            pass
-        row.status = "applied"
+            row.status = "failed"
+        else:
+            place.status = "active"
+            row.status = "applied"
     elif decision.decision in {DECISION_REVIEW, DECISION_HIDDEN, DECISION_SHADOW_AUTO_PUBLISH}:
         ensure_review_queue_item(db, place, decision)
 

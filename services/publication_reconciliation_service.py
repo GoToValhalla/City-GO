@@ -194,11 +194,18 @@ def apply_publication_reconciliation(
     changed_audit_ids: list[int] = []
     changed_places = 0
     skipped_destructive = 0
+    failed_transitions = 0
     for city in query.order_by(City.id.asc()).all():
         for place in db.query(Place).filter(Place.city_id == city.id).all():
             if place.publication_status == PUBLIC_CITY_STATUS and _has_partial_public_flags(place):
                 old_value = _public_flags(place)
-                _restore_published_place_flags(db, place, actor=actor, source="publication_reconciliation")
+                if not _restore_published_place_flags(db, place, actor=actor, source="publication_reconciliation"):
+                    # The canonical transition did not apply (e.g. place
+                    # already matches the target state) -- place is
+                    # unchanged, so no audit entry claiming a change and
+                    # no changed_places increment.
+                    failed_transitions += 1
+                    continue
                 audit = write_admin_audit_log(
                     db,
                     actor=actor,
@@ -223,7 +230,9 @@ def apply_publication_reconciliation(
             if not reason:
                 raise ValueError("Destructive publication reconciliation requires explicit reason")
             old_value = _public_flags(place)
-            _hide_place(db, place, actor=actor, source="publication_reconciliation", reason=reason)
+            if not _hide_place(db, place, actor=actor, source="publication_reconciliation", reason=reason):
+                failed_transitions += 1
+                continue
             audit = write_admin_audit_log(
                 db,
                 actor=actor,
@@ -242,6 +251,7 @@ def apply_publication_reconciliation(
     return {
         "changed_places": changed_places,
         "skipped_destructive": skipped_destructive,
+        "failed_transitions": failed_transitions,
         "audit_ids": changed_audit_ids,
         "snapshot": publication_reconciliation_snapshot(db),
     }
@@ -256,6 +266,7 @@ def rollback_publication_reconciliation(
 ) -> dict[str, object]:
     restored = 0
     missing_ids: list[int] = []
+    failed_transitions = 0
     for audit in db.query(AdminAuditLog).filter(
         AdminAuditLog.id.in_(list(dict.fromkeys(audit_ids))),
         AdminAuditLog.action == RECONCILIATION_ACTION,
@@ -267,7 +278,12 @@ def rollback_publication_reconciliation(
             missing_ids.append(audit.id)
             continue
         previous = _public_flags(place)
-        _restore_place_from_snapshot(db, place, old_value, actor=actor)
+        if not _restore_place_from_snapshot(db, place, old_value, actor=actor):
+            # The canonical transition did not apply -- place is
+            # unchanged, so no audit entry claiming a restoration and no
+            # restored increment.
+            failed_transitions += 1
+            continue
         write_admin_audit_log(
             db,
             actor=actor,
@@ -281,7 +297,7 @@ def rollback_publication_reconciliation(
         restored += 1
 
     db.commit()
-    return {"restored_places": restored, "missing_audit_ids": missing_ids}
+    return {"restored_places": restored, "missing_audit_ids": missing_ids, "failed_transitions": failed_transitions}
 
 
 _PUBLIC_FLAG_FIELDS = (
@@ -318,7 +334,11 @@ def _has_partial_public_flags(place: Place) -> bool:
     return any(values) and not all(values)
 
 
-def _restore_published_place_flags(db: Session, place: Place, *, actor: str, source: str) -> None:
+def _restore_published_place_flags(db: Session, place: Place, *, actor: str, source: str) -> bool:
+    """Returns True only if the canonical transition actually applied.
+    InvalidPublicationTransition (e.g. place already matches the target
+    state) must never be reported as a successful restoration -- callers
+    gate their changed-place counters and audit writes on this result."""
     try:
         transition_place_publication(
             db,
@@ -331,10 +351,14 @@ def _restore_published_place_flags(db: Session, place: Place, *, actor: str, sou
             route_eligible_when_published=True,
         )
     except InvalidPublicationTransition:
-        pass
+        return False
+    return True
 
 
-def _hide_place(db: Session, place: Place, *, actor: str, source: str, reason: str) -> None:
+def _hide_place(db: Session, place: Place, *, actor: str, source: str, reason: str) -> bool:
+    """Returns True only if the canonical transition actually applied --
+    see _restore_published_place_flags for why this must never default to
+    True on InvalidPublicationTransition."""
     try:
         transition_place_publication(
             db,
@@ -346,10 +370,14 @@ def _hide_place(db: Session, place: Place, *, actor: str, source: str, reason: s
             human_comment=reason,
         )
     except InvalidPublicationTransition:
-        pass
+        return False
+    return True
 
 
-def _restore_place_from_snapshot(db: Session, place: Place, snapshot: dict[str, object], *, actor: str) -> None:
+def _restore_place_from_snapshot(db: Session, place: Place, snapshot: dict[str, object], *, actor: str) -> bool:
+    """Returns True only if the canonical transition actually applied --
+    see _restore_published_place_flags for why this must never default to
+    True on InvalidPublicationTransition."""
     target_status = str(snapshot.get("publication_status") or "draft")
     target_route_eligible = bool(snapshot.get("is_route_eligible"))
     try:
@@ -375,4 +403,5 @@ def _restore_place_from_snapshot(db: Session, place: Place, snapshot: dict[str, 
                 source="publication_reconciliation_rollback",
             )
     except InvalidPublicationTransition:
-        pass
+        return False
+    return True
